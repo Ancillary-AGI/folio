@@ -6,18 +6,61 @@ import AuthForm from './components/AuthForm';
 import ProjectManager from './components/ProjectManager';
 import SchematicCanvas from './components/SchematicCanvas';
 import PropertiesPanel from './components/PropertiesPanel';
-import { Download, FileText, Image, List, LogOut, Menu, X } from 'lucide-react';
+import AIChatPanel from './components/ai/AIChatPanel';
+import SimulationPanel from './components/simulation/SimulationPanel';
+import ComponentLibrary from './components/ComponentLibrary';
+import Toolbar from './components/Toolbar';
+import PluginPanel from './components/plugins/PluginPanel';
+import CollaborativePanel from './components/collaboration/CollaborativePanel';
+import UserPresence from './components/collaboration/UserPresence';
+import { collaborativeEditor } from './lib/collaboration/collaborativeEditor';
+import { Button } from './components/ui/button';
+import { 
+  Download, FileText, Image, List, LogOut, Menu, Bot, BarChart3, 
+  Settings, Palette, FolderOpen, Cpu, Package, Users
+} from 'lucide-react';
 import { exportToImage, exportToNetlist, exportToJSON, exportToBOM, downloadFile } from './lib/exportUtils';
+import { useAppStore } from './stores/useAppStore';
+import { useProjectStore } from './stores/useProjectStore';
+import { pluginManager } from './lib/plugins/pluginManager';
+
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [components, setComponents] = useState<Component[]>([]);
-  const [canvasData, setCanvasData] = useState<any>(null);
-  const [selectedComponentForProps, setSelectedComponentForProps] = useState<any>(null);
+  const [canvasData, setCanvasData] = useState<Record<string, unknown> | null>(null);
+  const [selectedComponentForProps, setSelectedComponentForProps] = useState<Record<string, unknown> | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showProjectManager, setShowProjectManager] = useState(false);
+  const [showPluginPanel, setShowPluginPanel] = useState(false);
+  const [showCollaborativePanel, setShowCollaborativePanel] = useState(false);
+  const [collaborativeUsers, setCollaborativeUsers] = useState<any[]>([]);
+  const [showCursors, setShowCursors] = useState(true);
+  const [showSelections, setShowSelections] = useState(true);
+  
+  // App store state
+  const {
+    settings,
+    sidebarOpen,
+    propertiesPanelOpen,
+    simulationPanelOpen,
+    aiChatOpen,
+    toggleSidebar,
+    togglePropertiesPanel,
+    toggleSimulationPanel,
+    toggleAiChat,
+    updateSettings
+  } = useAppStore();
+  
+  // Project store state
+  const {
+    currentProject,
+    setCurrentProject,
+    setCurrentSchematic,
+    isDirty,
+    markClean
+  } = useProjectStore();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -37,6 +80,110 @@ function App() {
       loadComponents();
     }
   }, [user]);
+
+  useEffect(() => {
+    // Initialize plugin system
+    const initializePlugins = async () => {
+      try {
+        // Plugin manager is already initialized
+        console.log('Plugin system initialized')
+        
+        // Listen for plugin events
+        pluginManager.on('plugin:loaded', (plugin) => {
+          console.log('Plugin loaded:', plugin.name)
+        })
+        
+        pluginManager.on('plugin:error', (error) => {
+          console.error('Plugin error:', error)
+        })
+        
+        pluginManager.on('validation:results', (results) => {
+          console.log('Validation results:', results)
+        })
+        
+        pluginManager.on('export:success', (result) => {
+          console.log('Export success:', result)
+        })
+        
+      } catch (error) {
+        console.error('Failed to initialize plugin system:', error)
+      }
+    }
+    
+    initializePlugins()
+    
+    return () => {
+      // Cleanup plugin listeners
+      pluginManager.removeAllListeners()
+    }
+  }, []);
+
+  useEffect(() => {
+    // Initialize collaborative editing when user is available
+    const initializeCollaboration = async () => {
+      if (user && currentProject) {
+        try {
+          const collaborativeUser = {
+            id: user.id,
+            name: user.user_metadata?.full_name || user.email || 'Anonymous',
+            email: user.email || '',
+            avatar: user.user_metadata?.avatar_url,
+            color: generateUserColor(user.id),
+            isActive: true,
+            lastSeen: Date.now()
+          }
+
+          const connected = await collaborativeEditor.connect(collaborativeUser, currentProject.id)
+          
+          if (connected) {
+            console.log('Connected to collaborative editing')
+            
+            // Listen for collaborative events
+            collaborativeEditor.on('user:joined', (user) => {
+              setCollaborativeUsers(prev => [...prev.filter(u => u.id !== user.id), user])
+            })
+            
+            collaborativeEditor.on('user:left', (user) => {
+              setCollaborativeUsers(prev => prev.filter(u => u.id !== user.id))
+            })
+            
+            collaborativeEditor.on('session:joined', (session) => {
+              setCollaborativeUsers(Array.from(session.users.values()))
+            })
+            
+            collaborativeEditor.on('operation:received', (operation) => {
+              // Handle received operations
+              console.log('Received collaborative operation:', operation)
+            })
+          }
+        } catch (error) {
+          console.error('Failed to initialize collaborative editing:', error)
+        }
+      }
+    }
+
+    initializeCollaboration()
+    
+    return () => {
+      // Cleanup collaborative editing
+      collaborativeEditor.disconnect()
+    }
+  }, [user, currentProject]);
+
+  // Helper function to generate consistent user colors
+  const generateUserColor = (userId: string): string => {
+    const colors = [
+      '#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6',
+      '#EC4899', '#06B6D4', '#84CC16', '#F97316', '#6366F1'
+    ]
+    
+    let hash = 0
+    for (let i = 0; i < userId.length; i++) {
+      hash = userId.charCodeAt(i) + ((hash << 5) - hash)
+    }
+    
+    return colors[Math.abs(hash) % colors.length]
+  }
 
   const loadComponents = async () => {
     try {
@@ -87,7 +234,7 @@ function App() {
 
       if (error) throw error;
 
-      const { data: schematic, error: schematicError } = await supabase
+      const { error: schematicError } = await supabase
         .from('schematics')
         .insert({
           project_id: data.id,
@@ -120,6 +267,7 @@ function App() {
         .single();
 
       if (schematics) {
+        setCurrentSchematic(schematics);
         setCanvasData(schematics.canvas_data);
       }
     } catch (error) {
@@ -127,7 +275,7 @@ function App() {
     }
   };
 
-  const handleSave = async (data: any) => {
+  const handleSave = async (data: Record<string, unknown>) => {
     if (!currentProject) return;
 
     try {
@@ -155,7 +303,8 @@ function App() {
           .update({ updated_at: new Date().toISOString() })
           .eq('id', currentProject.id);
 
-        alert('Project saved successfully!');
+        markClean();
+        console.log('Project saved successfully!');
       }
     } catch (error) {
       console.error('Error saving:', error);
@@ -179,8 +328,8 @@ function App() {
     if (!canvasData || !currentProject) return;
 
     const netlist = exportToNetlist(
-      canvasData.components || [],
-      canvasData.wires || [],
+      (canvasData.components as any[]) || [],
+      (canvasData.wires as any[]) || [],
       currentProject.name
     );
     downloadFile(netlist, `${currentProject.name}.net`, 'text/plain');
@@ -191,8 +340,8 @@ function App() {
     if (!canvasData || !currentProject) return;
 
     const json = exportToJSON(
-      canvasData.components || [],
-      canvasData.wires || [],
+      (canvasData.components as any[]) || [],
+      (canvasData.wires as any[]) || [],
       currentProject.name
     );
     downloadFile(json, `${currentProject.name}.json`, 'application/json');
@@ -202,7 +351,7 @@ function App() {
   const handleExportBOM = () => {
     if (!canvasData || !currentProject) return;
 
-    const bom = exportToBOM(canvasData.components || []);
+    const bom = exportToBOM((canvasData.components as any[]) || []);
     downloadFile(bom, `${currentProject.name}_BOM.txt`, 'text/plain');
     setShowExportMenu(false);
   };
@@ -210,7 +359,14 @@ function App() {
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     setCurrentProject(null);
+    setCurrentSchematic(null);
     setCanvasData(null);
+  };
+  
+  const toggleTheme = () => {
+    const newTheme = settings.theme === 'light' ? 'dark' : settings.theme === 'dark' ? 'professional' : 'light';
+    updateSettings({ theme: newTheme });
+    document.documentElement.className = newTheme === 'light' ? '' : newTheme;
   };
 
   if (loading) {
@@ -227,17 +383,22 @@ function App() {
 
   if (!currentProject || showProjectManager) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <header className="bg-white border-b border-gray-200 px-6 py-4">
+      <div className="min-h-screen bg-background">
+        <header className="bg-card border-b border-border px-6 py-4">
           <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold text-gray-900">Circuit CAD</h1>
-            <button
-              onClick={handleSignOut}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
-            >
-              <LogOut size={20} />
-              Sign Out
-            </button>
+            <div className="flex items-center gap-4">
+              <Cpu className="w-8 h-8 text-primary" />
+              <h1 className="text-2xl font-bold text-foreground">Circuit CAD Pro</h1>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="icon" onClick={toggleTheme}>
+                <Palette className="w-4 h-4" />
+              </Button>
+              <Button variant="ghost" onClick={handleSignOut} className="flex items-center gap-2">
+                <LogOut size={16} />
+                Sign Out
+              </Button>
+            </div>
           </div>
         </header>
         <ProjectManager
@@ -249,91 +410,205 @@ function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
+    <div className="h-screen flex flex-col bg-background">
+      {/* Header */}
+      <header className="bg-card border-b border-border px-4 py-2 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <button
-            onClick={() => setShowProjectManager(true)}
-            className="p-2 hover:bg-gray-100 rounded-lg"
-            title="Projects"
-          >
-            <Menu size={20} className="text-gray-700" />
-          </button>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">{currentProject.name}</h1>
-            {currentProject.description && (
-              <p className="text-sm text-gray-600">{currentProject.description}</p>
-            )}
+          <Button variant="ghost" size="icon" onClick={() => setShowProjectManager(true)} title="Projects">
+            <FolderOpen className="w-4 h-4" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={toggleSidebar} title="Toggle Sidebar">
+            <Menu className="w-4 h-4" />
+          </Button>
+          <div className="flex items-center gap-2">
+            <Cpu className="w-5 h-5 text-primary" />
+            <div>
+              <h1 className="text-lg font-bold text-foreground">{currentProject.name}</h1>
+              {isDirty && <span className="text-xs text-orange-500">• Unsaved changes</span>}
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" onClick={toggleAiChat} title="AI Assistant">
+            <Bot className="w-4 h-4" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={toggleSimulationPanel} title="Simulation">
+            <BarChart3 className="w-4 h-4" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={togglePropertiesPanel} title="Properties">
+            <Settings className="w-4 h-4" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => setShowPluginPanel(true)} title="Plugins">
+            <Package className="w-4 h-4" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => setShowCollaborativePanel(true)} title="Collaboration">
+            <Users className="w-4 h-4" />
+          </Button>
+          
           <div className="relative">
-            <button
+            <Button
               onClick={() => setShowExportMenu(!showExportMenu)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              variant="default"
+              size="sm"
+              className="flex items-center gap-2"
             >
-              <Download size={20} />
+              <Download className="w-4 h-4" />
               Export
-            </button>
+            </Button>
 
             {showExportMenu && (
-              <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-50">
+              <div className="absolute right-0 mt-2 w-56 bg-card rounded-lg shadow-xl border border-border py-2 z-50">
                 <button
                   onClick={handleExportImage}
-                  className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center gap-3"
+                  className="w-full px-4 py-2 text-left hover:bg-accent flex items-center gap-3 text-sm"
                 >
-                  <Image size={18} className="text-gray-600" />
-                  <span>Export as Image</span>
+                  <Image size={16} />
+                  Export as Image
                 </button>
                 <button
                   onClick={handleExportNetlist}
-                  className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center gap-3"
+                  className="w-full px-4 py-2 text-left hover:bg-accent flex items-center gap-3 text-sm"
                 >
-                  <FileText size={18} className="text-gray-600" />
-                  <span>Export Netlist</span>
+                  <FileText size={16} />
+                  Export Netlist
                 </button>
                 <button
                   onClick={handleExportJSON}
-                  className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center gap-3"
+                  className="w-full px-4 py-2 text-left hover:bg-accent flex items-center gap-3 text-sm"
                 >
-                  <FileText size={18} className="text-gray-600" />
-                  <span>Export JSON</span>
+                  <FileText size={16} />
+                  Export JSON
                 </button>
                 <button
                   onClick={handleExportBOM}
-                  className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center gap-3"
+                  className="w-full px-4 py-2 text-left hover:bg-accent flex items-center gap-3 text-sm"
                 >
-                  <List size={18} className="text-gray-600" />
-                  <span>Bill of Materials</span>
+                  <List size={16} />
+                  Bill of Materials
                 </button>
               </div>
             )}
           </div>
 
-          <button
-            onClick={handleSignOut}
-            className="p-2 hover:bg-gray-100 rounded-lg"
-            title="Sign Out"
-          >
-            <LogOut size={20} className="text-gray-700" />
-          </button>
+          <Button variant="ghost" size="icon" onClick={toggleTheme} title="Toggle Theme">
+            <Palette className="w-4 h-4" />
+          </Button>
+          
+          <Button variant="ghost" size="icon" onClick={handleSignOut} title="Sign Out">
+            <LogOut className="w-4 h-4" />
+          </Button>
         </div>
       </header>
 
-      <div className="flex-1 relative">
-        <SchematicCanvas
-          components={components}
-          onSave={handleSave}
-        />
-        {selectedComponentForProps && (
-          <PropertiesPanel
-            component={selectedComponentForProps}
-            onUpdate={() => {}}
-            onClose={() => setSelectedComponentForProps(null)}
-          />
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Sidebar with Component Library */}
+        {sidebarOpen && (
+          <div className="w-80 bg-card border-r border-border flex flex-col">
+            <ComponentLibrary
+              components={components}
+              onSelectComponent={(component) => {
+                // Handle component selection for placement
+                console.log('Selected component:', component);
+              }}
+              selectedComponent={null}
+            />
+          </div>
         )}
+
+        {/* Main Canvas Area */}
+        <div className="flex-1 flex flex-col">
+          {/* Toolbar */}
+          <Toolbar
+            onToolChange={(tool) => console.log('Tool changed:', tool)}
+            onAction={(action) => {
+              switch (action) {
+                case 'save':
+                  handleSave(canvasData);
+                  break;
+                case 'undo':
+                  // Handle undo
+                  break;
+                case 'redo':
+                  // Handle redo
+                  break;
+                case 'start-simulation':
+                  toggleSimulationPanel();
+                  break;
+                case 'stop-simulation':
+                  toggleSimulationPanel();
+                  break;
+                default:
+                  console.log('Action:', action);
+              }
+            }}
+            canUndo={false}
+            canRedo={false}
+            isSimulating={false}
+          />
+          
+          {/* Canvas */}
+          <div className="flex-1 relative">
+            <SchematicCanvas
+              components={components}
+              onSave={(data) => handleSave(data ?? {})}
+            />
+            
+            {/* User Presence Overlay */}
+            <UserPresence
+              users={collaborativeUsers}
+              showCursors={showCursors}
+              showSelections={showSelections}
+              canvasRef={{ current: null }} // This would be the actual canvas ref
+            />
+          </div>
+        </div>
+
+        {/* Right Panels */}
+        <div className="flex">
+          {propertiesPanelOpen && selectedComponentForProps && (
+            <div className="w-80">
+              <PropertiesPanel
+                component={selectedComponentForProps as unknown}
+                onUpdate={() => {}}
+                onClose={() => setSelectedComponentForProps(null)}
+              />
+            </div>
+          )}
+          
+          {simulationPanelOpen && (
+            <div className="w-96">
+              <SimulationPanel onClose={toggleSimulationPanel} />
+            </div>
+          )}
+          
+          {aiChatOpen && (
+            <div className="w-96">
+              <AIChatPanel onClose={toggleAiChat} />
+            </div>
+          )}
+          
+          {showCollaborativePanel && (
+            <CollaborativePanel onClose={() => setShowCollaborativePanel(false)} />
+          )}
+        </div>
       </div>
+
+      {/* Status Bar */}
+      <div className="status-bar">
+        <div className="flex items-center gap-4">
+          <span>Components: {components.length}</span>
+          <span>Theme: {settings.theme}</span>
+          <span>Grid: {settings.gridSize}px</span>
+          {isDirty && <span className="text-orange-500">Unsaved changes</span>}
+        </div>
+      </div>
+
+      {/* Plugin Panel */}
+      {showPluginPanel && (
+        <PluginPanel onClose={() => setShowPluginPanel(false)} />
+      )}
     </div>
   );
 }

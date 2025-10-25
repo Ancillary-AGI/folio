@@ -1,527 +1,366 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { Component } from '../lib/supabase';
-
-interface CanvasComponent {
-  id: string;
-  componentId: string;
-  component: Component;
-  x: number;
-  y: number;
-  rotation: number;
-  reference: string;
-  properties: Record<string, any>;
-}
-
-interface CanvasWire {
-  id: string;
-  points: Array<{ x: number; y: number }>;
-  netName?: string;
-}
+import React, { useRef, useEffect, useState } from 'react'
+import { Stage, Layer, Rect, Line, Circle, Text, Group } from 'react-konva'
+import { Component } from '../lib/supabase'
+import { useAppStore } from '../stores/useAppStore'
+import { useProjectStore } from '../stores/useProjectStore'
+import Konva from 'konva'
 
 interface SchematicCanvasProps {
-  components: Component[];
-  onSave?: (data: { components: CanvasComponent[]; wires: CanvasWire[] }) => void;
+  components: Component[]
+  onSave: (data: Record<string, unknown>) => void
 }
 
 export default function SchematicCanvas({ components, onSave }: SchematicCanvasProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [placedComponents, setPlacedComponents] = useState<CanvasComponent[]>([]);
-  const [wires, setWires] = useState<CanvasWire[]>([]);
-  const [selectedComponent, setSelectedComponent] = useState<Component | null>(null);
-  const [draggingComponent, setDraggingComponent] = useState<string | null>(null);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [tool, setTool] = useState<'select' | 'wire' | 'delete'>('select');
-  const [wirePoints, setWirePoints] = useState<Array<{ x: number; y: number }>>([]);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState(1);
-  const [isPanning, setIsPanning] = useState(false);
-  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
-  const [hoveredComponent, setHoveredComponent] = useState<string | null>(null);
-  const [componentCounter, setComponentCounter] = useState<Record<string, number>>({
-    'Resistor': 1,
-    'Capacitor': 1,
-    'Inductor': 1,
-    'Diode': 1,
-    'LED': 1,
-    'NPN Transistor': 1,
-    'PNP Transistor': 1,
-    'N-Channel MOSFET': 1,
-    'DC Voltage Source': 1,
-    'Ground': 1,
-    'Op-Amp': 1,
-    'Logic Gate AND': 1,
-    'Logic Gate OR': 1,
-    'Logic Gate NOT': 1,
-    'Terminal': 1
-  });
+  const stageRef = useRef<Konva.Stage>(null)
+  const [stageSize, setStageSize] = useState({ width: 800, height: 600 })
+  const [isDragging, setIsDragging] = useState(false)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  const gridSize = 10;
-  const canvasWidth = 2000;
-  const canvasHeight = 1500;
+  const {
+    viewport,
+    settings,
+    activeTool,
+    setZoom,
+    setPan,
+    selectedComponents,
+    setSelectedComponents
+  } = useAppStore()
 
-  const snapToGrid = (value: number) => Math.round(value / gridSize) * gridSize;
-
-  const getNextReference = (component: Component): string => {
-    const prefixes: Record<string, string> = {
-      'Resistor': 'R',
-      'Capacitor': 'C',
-      'Inductor': 'L',
-      'Diode': 'D',
-      'LED': 'LED',
-      'NPN Transistor': 'Q',
-      'PNP Transistor': 'Q',
-      'N-Channel MOSFET': 'M',
-      'DC Voltage Source': 'V',
-      'Ground': 'GND',
-      'Op-Amp': 'U',
-      'Logic Gate AND': 'U',
-      'Logic Gate OR': 'U',
-      'Logic Gate NOT': 'U',
-      'Terminal': 'TP'
-    };
-
-    const prefix = prefixes[component.name] || 'X';
-    const num = componentCounter[component.name] || 1;
-    setComponentCounter(prev => ({ ...prev, [component.name]: num + 1 }));
-    return `${prefix}${num}`;
-  };
+  const {
+    components: canvasComponents,
+    wires,
+    addComponent,
+    updateComponent,
+    removeComponent,
+    markDirty
+  } = useProjectStore()
 
   useEffect(() => {
-    drawCanvas();
-  }, [placedComponents, wires, pan, zoom, hoveredComponent, wirePoints, tool]);
-
-  const drawCanvas = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.save();
-    ctx.translate(pan.x, pan.y);
-    ctx.scale(zoom, zoom);
-
-    drawGrid(ctx);
-    drawWires(ctx);
-    drawPlacedComponents(ctx);
-
-    if (tool === 'wire' && wirePoints.length > 0) {
-      drawWirePreview(ctx);
+    const handleResize = () => {
+      const container = stageRef.current?.container()
+      if (container) {
+        const containerRect = container.getBoundingClientRect()
+        setStageSize({
+          width: containerRect.width,
+          height: containerRect.height
+        })
+      }
     }
 
-    ctx.restore();
-  };
+    handleResize()
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
-  const drawGrid = (ctx: CanvasRenderingContext2D) => {
-    ctx.strokeStyle = '#e5e7eb';
-    ctx.lineWidth = 0.5;
-
-    for (let x = 0; x <= canvasWidth; x += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, canvasHeight);
-      ctx.stroke();
+  useEffect(() => {
+    // Auto-save canvas data
+    const saveData = {
+      components: canvasComponents,
+      wires,
+      viewport,
+      timestamp: Date.now()
     }
+    onSave(saveData)
+  }, [canvasComponents, wires, viewport, onSave])
 
-    for (let y = 0; y <= canvasHeight; y += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(canvasWidth, y);
-      ctx.stroke();
+  const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
+    e.evt.preventDefault()
+    
+    const scaleBy = 1.1
+    const stage = e.target.getStage()
+    if (!stage) return
+    
+    const oldScale = stage.scaleX()
+    const pointer = stage.getPointerPosition()
+    if (!pointer) return
+    
+    const mousePointTo = {
+      x: (pointer.x - stage.x()) / oldScale,
+      y: (pointer.y - stage.y()) / oldScale,
     }
-
-    ctx.strokeStyle = '#9ca3af';
-    ctx.lineWidth = 1;
-
-    for (let x = 0; x <= canvasWidth; x += gridSize * 10) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, canvasHeight);
-      ctx.stroke();
+    
+    const newScale = e.evt.deltaY > 0 ? oldScale * scaleBy : oldScale / scaleBy
+    const clampedScale = Math.max(0.1, Math.min(5, newScale))
+    
+    setZoom(clampedScale)
+    
+    const newPos = {
+      x: pointer.x - mousePointTo.x * clampedScale,
+      y: pointer.y - mousePointTo.y * clampedScale,
     }
+    
+    setPan(newPos)
+    stage.scale({ x: clampedScale, y: clampedScale })
+    stage.position(newPos)
+  }
 
-    for (let y = 0; y <= canvasHeight; y += gridSize * 10) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(canvasWidth, y);
-      ctx.stroke();
+  const handleDragStart = () => {
+    setIsDragging(true)
+  }
+
+  const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
+    setIsDragging(false)
+    const id = e.target.id()
+    const newPos = e.target.position()
+
+    if (id && canvasComponents.find(c => c.id === id)) {
+      updateComponent(id, { x: newPos.x, y: newPos.y })
+      markDirty()
     }
-  };
+  }
 
-  const drawWires = (ctx: CanvasRenderingContext2D) => {
-    wires.forEach(wire => {
-      ctx.strokeStyle = '#10b981';
-      ctx.lineWidth = 2;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    const componentId = e.dataTransfer.getData('componentId')
+    const component = components.find(c => c.id === componentId)
 
-      ctx.beginPath();
-      wire.points.forEach((point, index) => {
-        if (index === 0) {
-          ctx.moveTo(point.x, point.y);
-        } else {
-          ctx.lineTo(point.x, point.y);
+    if (component && stageRef.current) {
+      const stage = stageRef.current.getStage()
+      const pointer = stage.getPointerPosition()
+      if (pointer) {
+        const pos = {
+          x: (pointer.x - viewport.pan.x) / viewport.zoom,
+          y: (pointer.y - viewport.pan.y) / viewport.zoom
         }
-      });
-      ctx.stroke();
 
-      wire.points.forEach(point => {
-        ctx.fillStyle = '#10b981';
-        ctx.beginPath();
-        ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
-        ctx.fill();
-      });
-    });
-  };
+        // Snap to grid if enabled
+        if (settings.snapToGrid) {
+          pos.x = Math.round(pos.x / settings.gridSize) * settings.gridSize
+          pos.y = Math.round(pos.y / settings.gridSize) * settings.gridSize
+        }
 
-  const drawWirePreview = (ctx: CanvasRenderingContext2D) => {
-    if (wirePoints.length === 0) return;
+        const canvasComponent = {
+          id: `comp-${Date.now()}-${Math.random()}`,
+          componentId: component.id!,
+          component,
+          x: pos.x,
+          y: pos.y,
+          rotation: 0,
+          reference: `${component.name.charAt(0)}${canvasComponents.length + 1}`,
+          properties: { ...component.default_properties }
+        }
 
-    ctx.strokeStyle = '#10b981';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 5]);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    ctx.beginPath();
-    wirePoints.forEach((point, index) => {
-      if (index === 0) {
-        ctx.moveTo(point.x, point.y);
-      } else {
-        ctx.lineTo(point.x, point.y);
+        addComponent(canvasComponent)
+        markDirty()
       }
-    });
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    wirePoints.forEach(point => {
-      ctx.fillStyle = '#10b981';
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
-      ctx.fill();
-    });
-  };
-
-  const drawPlacedComponents = (ctx: CanvasRenderingContext2D) => {
-    placedComponents.forEach(comp => {
-      ctx.save();
-      ctx.translate(comp.x, comp.y);
-      ctx.rotate((comp.rotation * Math.PI) / 180);
-
-      const isHovered = hoveredComponent === comp.id;
-      if (isHovered) {
-        ctx.strokeStyle = '#3b82f6';
-        ctx.lineWidth = 2;
-        const bounds = comp.component.symbol_data;
-        ctx.strokeRect(-5, -5, bounds.width + 10, bounds.height + 10);
-      }
-
-      ctx.strokeStyle = '#1f2937';
-      ctx.fillStyle = '#1f2937';
-      ctx.lineWidth = 2;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-
-      comp.component.symbol_data.paths.forEach((path: string) => {
-        const p = new Path2D(path);
-        ctx.stroke(p);
-      });
-
-      comp.component.pins.forEach((pin: any) => {
-        ctx.fillStyle = '#ef4444';
-        ctx.beginPath();
-        ctx.arc(pin.x, pin.y, 3, 0, Math.PI * 2);
-        ctx.fill();
-      });
-
-      ctx.fillStyle = '#1f2937';
-      ctx.font = '12px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(comp.reference, comp.component.symbol_data.width / 2, -8);
-
-      const valueText = comp.properties.value || '';
-      if (valueText) {
-        ctx.fillStyle = '#6b7280';
-        ctx.fillText(valueText, comp.component.symbol_data.width / 2, comp.component.symbol_data.height + 15);
-      }
-
-      ctx.restore();
-    });
-  };
-
-  const getCanvasCoords = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left - pan.x) / zoom;
-    const y = (e.clientY - rect.top - pan.y) / zoom;
-    return { x, y };
-  };
-
-  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const coords = getCanvasCoords(e);
-
-    if (tool === 'wire') {
-      const snappedX = snapToGrid(coords.x);
-      const snappedY = snapToGrid(coords.y);
-      setWirePoints([...wirePoints, { x: snappedX, y: snappedY }]);
-      return;
     }
+  }
 
-    if (tool === 'delete') {
-      const clickedComponent = placedComponents.find(comp => {
-        const bounds = comp.component.symbol_data;
-        return coords.x >= comp.x && coords.x <= comp.x + bounds.width &&
-               coords.y >= comp.y && coords.y <= comp.y + bounds.height;
-      });
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+  }
 
-      if (clickedComponent) {
-        setPlacedComponents(prev => prev.filter(c => c.id !== clickedComponent.id));
-      }
-      return;
+  const handleStageClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    if (e.target === e.target.getStage()) {
+      setSelectedId(null)
+      setSelectedComponents([])
     }
+  }
 
-    if (selectedComponent && tool === 'select') {
-      const snappedX = snapToGrid(coords.x);
-      const snappedY = snapToGrid(coords.y);
+  const handleComponentClick = (id: string) => {
+    setSelectedId(id)
+    setSelectedComponents([id])
+  }
 
-      const newComponent: CanvasComponent = {
-        id: `comp-${Date.now()}-${Math.random()}`,
-        componentId: selectedComponent.id || '',
-        component: selectedComponent,
-        x: snappedX,
-        y: snappedY,
-        rotation: 0,
-        reference: getNextReference(selectedComponent),
-        properties: { ...selectedComponent.default_properties }
-      };
-
-      setPlacedComponents([...placedComponents, newComponent]);
-      setSelectedComponent(null);
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Delete' && selectedComponents.length > 0) {
+      selectedComponents.forEach(id => removeComponent(id))
+      setSelectedComponents([])
+      setSelectedId(null)
+      markDirty()
     }
-  };
+  }
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (e.button === 1 || (e.button === 0 && e.ctrlKey)) {
-      setIsPanning(true);
-      setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-      return;
+  useEffect(() => {
+    const handleKeyDownWrapper = (e: KeyboardEvent) => handleKeyDown(e)
+    window.addEventListener('keydown', handleKeyDownWrapper)
+    return () => window.removeEventListener('keydown', handleKeyDownWrapper)
+  }, [selectedComponents, removeComponent, setSelectedComponents, setSelectedId, markDirty])
+
+  const renderGrid = () => {
+    if (!settings.showGrid) return null
+    
+    const gridLines = []
+    const gridSize = settings.gridSize
+    
+    // Vertical lines
+    for (let i = 0; i < stageSize.width / gridSize; i++) {
+      gridLines.push(
+        <Line
+          key={`v-${i}`}
+          points={[i * gridSize, 0, i * gridSize, stageSize.height]}
+          stroke="#e0e0e0"
+          strokeWidth={0.5}
+          listening={false}
+        />
+      )
     }
-
-    if (tool !== 'select') return;
-
-    const coords = getCanvasCoords(e);
-    const clickedComponent = placedComponents.find(comp => {
-      const bounds = comp.component.symbol_data;
-      return coords.x >= comp.x && coords.x <= comp.x + bounds.width &&
-             coords.y >= comp.y && coords.y <= comp.y + bounds.height;
-    });
-
-    if (clickedComponent) {
-      setDraggingComponent(clickedComponent.id);
-      setDragOffset({
-        x: coords.x - clickedComponent.x,
-        y: coords.y - clickedComponent.y
-      });
+    
+    // Horizontal lines
+    for (let i = 0; i < stageSize.height / gridSize; i++) {
+      gridLines.push(
+        <Line
+          key={`h-${i}`}
+          points={[0, i * gridSize, stageSize.width, i * gridSize]}
+          stroke="#e0e0e0"
+          strokeWidth={0.5}
+          listening={false}
+        />
+      )
     }
-  };
+    
+    return gridLines
+  }
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (isPanning) {
-      setPan({
-        x: e.clientX - panStart.x,
-        y: e.clientY - panStart.y
-      });
-      return;
-    }
+  const renderComponent = (canvasComp: typeof canvasComponents[0]) => {
+    const isSelected = selectedId === canvasComp.id
 
-    if (draggingComponent) {
-      const coords = getCanvasCoords(e);
-      const snappedX = snapToGrid(coords.x - dragOffset.x);
-      const snappedY = snapToGrid(coords.y - dragOffset.y);
-
-      setPlacedComponents(prev =>
-        prev.map(comp =>
-          comp.id === draggingComponent
-            ? { ...comp, x: snappedX, y: snappedY }
-            : comp
-        )
-      );
-    } else {
-      const coords = getCanvasCoords(e);
-      const hovered = placedComponents.find(comp => {
-        const bounds = comp.component.symbol_data;
-        return coords.x >= comp.x && coords.x <= comp.x + bounds.width &&
-               coords.y >= comp.y && coords.y <= comp.y + bounds.height;
-      });
-      setHoveredComponent(hovered ? hovered.id : null);
-    }
-  };
-
-  const handleMouseUp = () => {
-    setDraggingComponent(null);
-    setIsPanning(false);
-  };
-
-  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setZoom(prev => Math.max(0.1, Math.min(3, prev * delta)));
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      setSelectedComponent(null);
-      setWirePoints([]);
-    } else if (e.key === 'Enter' && wirePoints.length > 1) {
-      setWires([...wires, { id: `wire-${Date.now()}`, points: wirePoints }]);
-      setWirePoints([]);
-    } else if (e.key === 'r' && hoveredComponent) {
-      setPlacedComponents(prev =>
-        prev.map(comp =>
-          comp.id === hoveredComponent
-            ? { ...comp, rotation: (comp.rotation + 90) % 360 }
-            : comp
-        )
-      );
-    }
-  };
-
-  const handleSave = () => {
-    if (onSave) {
-      onSave({ components: placedComponents, wires });
-    }
-  };
-
-  return (
-    <div className="flex flex-col h-full">
-      <div className="bg-white border-b border-gray-200 p-3 flex items-center gap-4">
-        <div className="flex gap-2">
-          <button
-            onClick={() => setTool('select')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              tool === 'select'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            Select
-          </button>
-          <button
-            onClick={() => setTool('wire')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              tool === 'wire'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            Wire
-          </button>
-          <button
-            onClick={() => setTool('delete')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              tool === 'delete'
-                ? 'bg-red-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            Delete
-          </button>
-        </div>
-
-        <div className="flex-1" />
-
-        <div className="flex gap-2 items-center">
-          <button
-            onClick={() => setZoom(prev => Math.max(0.1, prev - 0.1))}
-            className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-          >
-            -
-          </button>
-          <span className="text-sm font-medium text-gray-700 w-16 text-center">
-            {Math.round(zoom * 100)}%
-          </span>
-          <button
-            onClick={() => setZoom(prev => Math.min(3, prev + 0.1))}
-            className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-          >
-            +
-          </button>
-        </div>
-
-        <button
-          onClick={handleSave}
-          className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700"
-        >
-          Save
-        </button>
-      </div>
-
-      <div className="flex-1 bg-gray-50 overflow-hidden relative">
-        <canvas
-          ref={canvasRef}
-          width={1400}
-          height={800}
-          className="cursor-crosshair"
-          onClick={handleCanvasClick}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-          onWheel={handleWheel}
-          onKeyDown={handleKeyDown}
-          tabIndex={0}
+    return (
+      <Group
+        key={canvasComp.id}
+        id={canvasComp.id}
+        x={canvasComp.x}
+        y={canvasComp.y}
+        draggable={activeTool === 'select'}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onClick={() => handleComponentClick(canvasComp.id)}
+      >
+        {/* Component body */}
+        <Rect
+          width={canvasComp.component.symbol_data.width}
+          height={canvasComp.component.symbol_data.height}
+          fill={isSelected ? '#e3f2fd' : '#ffffff'}
+          stroke={isSelected ? '#2196f3' : '#666666'}
+          strokeWidth={isSelected ? 2 : 1}
         />
 
-        {selectedComponent && (
-          <div className="absolute top-4 left-4 bg-blue-100 border border-blue-300 rounded-lg p-3 shadow-lg">
-            <p className="text-sm font-medium text-blue-900">
-              Click on canvas to place: {selectedComponent.name}
-            </p>
-            <p className="text-xs text-blue-700 mt-1">Press ESC to cancel</p>
-          </div>
+        {/* Component symbol paths */}
+        {canvasComp.component.symbol_data.paths.map((path, index) => {
+          const commands = path.match(/[MLHVCSQTAZmlhvcsqtaz][^MLHVCSQTAZmlhvcsqtaz]*/g) || []
+          const points: number[] = []
+
+          commands.forEach(command => {
+            const type = command[0]
+            const coords = command.slice(1).trim().split(/[\s,]+/).map(Number)
+
+            if (type === 'M' || type === 'L') {
+              points.push(coords[0], coords[1])
+            }
+          })
+
+          return (
+            <Line
+              key={index}
+              points={points}
+              stroke="#333333"
+              strokeWidth={2}
+              closed={false}
+            />
+          )
+        })}
+
+        {/* Component label */}
+        <Text
+          text={canvasComp.reference}
+          x={canvasComp.component.symbol_data.width / 2}
+          y={-20}
+          fontSize={12}
+          fill="#333333"
+          align="center"
+          offsetX={canvasComp.reference.length * 3}
+        />
+
+        {/* Component value */}
+        {canvasComp.properties.value && (
+          <Text
+            text={String(canvasComp.properties.value)}
+            x={canvasComp.component.symbol_data.width / 2}
+            y={canvasComp.component.symbol_data.height + 5}
+            fontSize={10}
+            fill="#666666"
+            align="center"
+            offsetX={String(canvasComp.properties.value).length * 2.5}
+          />
         )}
 
-        {tool === 'wire' && (
-          <div className="absolute top-4 left-4 bg-green-100 border border-green-300 rounded-lg p-3 shadow-lg">
-            <p className="text-sm font-medium text-green-900">Wire Mode</p>
-            <p className="text-xs text-green-700 mt-1">Click to add points, ENTER to finish, ESC to cancel</p>
+        {/* Pins */}
+        {canvasComp.component.pins.map(pin => (
+          <Circle
+            key={pin.id}
+            x={pin.x}
+            y={pin.y}
+            radius={3}
+            fill="#ff9800"
+            stroke="#f57c00"
+            strokeWidth={1}
+          />
+        ))}
+      </Group>
+    )
+  }
+
+  const renderWires = () => {
+    return wires.map(wire => (
+      <Line
+        key={wire.id}
+        points={wire.points.flatMap(p => [p.x, p.y])}
+        stroke={wire.style?.color || '#2196f3'}
+        strokeWidth={wire.style?.width || 2}
+        lineCap="round"
+        lineJoin="round"
+      />
+    ))
+  }
+
+  return (
+    <div
+      className="w-full h-full bg-white relative overflow-hidden"
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+    >
+      <Stage
+        ref={stageRef}
+        width={stageSize.width}
+        height={stageSize.height}
+        scaleX={viewport.zoom}
+        scaleY={viewport.zoom}
+        x={viewport.pan.x}
+        y={viewport.pan.y}
+        onWheel={handleWheel}
+        onClick={handleStageClick}
+        draggable={activeTool === 'select' && !isDragging}
+      >
+        <Layer>
+          {/* Grid */}
+          {renderGrid()}
+          
+          {/* Wires */}
+          {renderWires()}
+          
+          {/* Components */}
+          {canvasComponents.map(renderComponent)}
+        </Layer>
+      </Stage>
+      
+      {/* Canvas info overlay */}
+      <div className="absolute bottom-4 left-4 bg-white bg-opacity-90 px-3 py-2 rounded shadow text-sm">
+        <div>Zoom: {Math.round(viewport.zoom * 100)}%</div>
+        <div>Components: {canvasComponents.length}</div>
+        <div>Tool: {activeTool}</div>
+      </div>
+      
+      {/* Instructions overlay */}
+      {canvasComponents.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="text-center text-gray-500">
+            <div className="text-lg font-medium mb-2">Empty Canvas</div>
+            <div className="text-sm">
+              Drag components from the sidebar to start designing your circuit
+            </div>
           </div>
-        )}
-
-        <div className="absolute bottom-4 right-4 bg-white border border-gray-200 rounded-lg p-3 shadow-lg text-xs">
-          <p className="text-gray-600">
-            <strong>Controls:</strong>
-          </p>
-          <p className="text-gray-600">Ctrl+Click or Middle Click: Pan</p>
-          <p className="text-gray-600">Scroll: Zoom</p>
-          <p className="text-gray-600">R: Rotate (hover component)</p>
         </div>
-      </div>
-
-      <div className="bg-white border-t border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Component Library</h3>
-        <div className="grid grid-cols-6 gap-2">
-          {components.map(comp => (
-            <button
-              key={comp.id || comp.name}
-              onClick={() => setSelectedComponent(comp)}
-              className={`p-3 border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-all ${
-                selectedComponent?.name === comp.name
-                  ? 'bg-blue-100 border-blue-400'
-                  : 'bg-gray-50 border-gray-200'
-              }`}
-              title={comp.name}
-            >
-              <div className="text-xs font-medium text-gray-700 truncate">
-                {comp.name}
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
+      )}
     </div>
-  );
+  )
 }

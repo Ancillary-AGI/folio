@@ -1,0 +1,29 @@
+{
+  "id": "advanced-circuit-analyzer",
+  "name": "Advanced Circuit Analyzer",
+  "version": "1.0.0",
+  "description": "Comprehensive circuit analysis plugin with power, thermal, frequency, and reliability analysis capabilities",
+  "author": "Circuit CAD Team",
+  "enabled": true,
+  "permissions": [
+    "read:circuit",
+    "simulate:circuit",
+    "ui:notifications",
+    "ui:dialogs"
+  ],
+  "entry": "src/lib/plugins/examples/advancedCircuitAnalyzer.ts",
+  "dependencies": [],
+  "minAppVersion": "1.0.0",
+  "maxAppVersion": "2.0.0",
+  "tags": [
+    "analysis",
+    "power",
+    "thermal",
+    "frequency",
+    "reliability"
+  ],
+  "icon": "bar-chart-3",
+  "homepage": "https://github.com/circuit-cad/plugins",
+  "repository": "https://github.com/circuit-cad/plugins/tree/main/advanced-circuit-analyzer",
+  "license": "MIT"
+}
