@@ -147,7 +147,7 @@ export default function ComponentLibrary({ components, onSelectComponent, select
             {component.pins?.length || 0} pins
           </span>
           {(component as any).cost && (
-            <span className="font-medium">${((component as any).cost).toFixed(2)}</span>
+            <span className="font-medium">${((component as any).cost as number).toFixed(2)}</span>
           )}
         </div>
       </CardContent>
@@ -187,7 +187,7 @@ export default function ComponentLibrary({ components, onSelectComponent, select
           {(component as any).cost && (
             <>
               <span>•</span>
-              <span>${((component as unknown).cost).toFixed(2)}</span>
+              <span>${((component as any).cost as number).toFixed(2)}</span>
             </>
           )}
         </div>

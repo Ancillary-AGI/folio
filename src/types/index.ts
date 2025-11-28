@@ -104,6 +104,8 @@ export interface Wire {
     dashArray?: number[]
   }
   selected?: boolean
+  current?: number // Current in Amperes
+  voltage?: number // Voltage in Volts
 }
 
 export interface Net {

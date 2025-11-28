@@ -1,17 +1,16 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Box, Cylinder, Sphere, Line } from '@react-three/drei';
+import { OrbitControls, Box, Cylinder, Sphere } from '@react-three/drei';
 import * as THREE from 'three';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { 
-  Play, 
-  Pause, 
-  Square, 
-  RotateCcw, 
-  Settings, 
-  Zap, 
-  Cpu, 
+import {
+  Play,
+  Pause,
+  RotateCcw,
+  Settings,
+  Zap,
+  Cpu,
   Gauge,
   X,
   Download,
@@ -67,9 +66,8 @@ interface RobotConfiguration {
 }
 
 // Robot arm component
-function RobotArm({ config, onJointChange }: { 
-  config: RobotConfiguration; 
-  onJointChange: (jointId: string, value: number) => void;
+function RobotArm({ config }: {
+  config: RobotConfiguration;
 }) {
   const groupRef = useRef<THREE.Group>(null);
 
@@ -306,7 +304,7 @@ export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
             <pointLight position={[-10, -10, -10]} intensity={0.3} />
             
             <Environment />
-            <RobotArm config={robotConfig} onJointChange={handleJointChange} />
+            <RobotArm config={robotConfig} />
             {showSensors && <SensorVisualization sensors={robotConfig.sensors} />}
             
             <OrbitControls 

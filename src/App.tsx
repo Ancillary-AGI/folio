@@ -1,43 +1,39 @@
-import { useState, useEffect } from 'react';
-import { User } from '@supabase/supabase-js';
-import { supabase, Project, Component } from './lib/supabase';
-import { standardComponents } from './lib/componentLibrary';
-import AuthForm from './components/AuthForm';
-import ProjectManager from './components/ProjectManager';
-import SchematicCanvas from './components/SchematicCanvas';
-import PropertiesPanel from './components/PropertiesPanel';
-import AIChatPanel from './components/ai/AIChatPanel';
-import SimulationPanel from './components/simulation/SimulationPanel';
-import ComponentLibrary from './components/ComponentLibrary';
-import Toolbar from './components/Toolbar';
-import PluginPanel from './components/plugins/PluginPanel';
-import CollaborativePanel from './components/collaboration/CollaborativePanel';
-import UserPresence from './components/collaboration/UserPresence';
-import { collaborativeEditor } from './lib/collaboration/collaborativeEditor';
-import { Button } from './components/ui/button';
-import { 
-  Download, FileText, Image, List, LogOut, Menu, Bot, BarChart3, 
-  Settings, Palette, FolderOpen, Cpu, Package, Users
-} from 'lucide-react';
-import { exportToImage, exportToNetlist, exportToJSON, exportToBOM, downloadFile } from './lib/exportUtils';
-import { useAppStore } from './stores/useAppStore';
-import { useProjectStore } from './stores/useProjectStore';
-import { pluginManager } from './lib/plugins/pluginManager';
-
+import { useState, useEffect } from 'react'
+import { Cpu, FolderOpen, Menu, Bot, BarChart3, Settings, Package, Users, Download, Image, FileText, List, Palette, LogOut } from 'lucide-react'
+import { Button } from './components/ui/button'
+import { Component as TypeComponent, PlacedComponent, Wire, User } from './types'
+import { supabase, type Project, type Component } from './lib/supabase'
+import { standardComponents } from './lib/componentLibrary'
+import { exportToImage, exportToNetlist, exportToJSON, exportToBOM, downloadFile } from './lib/exportUtils'
+import { pluginManager } from './lib/plugins/pluginManager'
+import { collaborativeEditor } from './lib/collaboration/collaborativeEditor'
+import { useAppStore } from './stores/useAppStore'
+import { useProjectStore } from './stores/useProjectStore'
+import ComponentLibrary from './components/ComponentLibrary'
+import SchematicCanvas from './components/SchematicCanvas'
+import Toolbar from './components/Toolbar'
+import PropertiesPanel from './components/PropertiesPanel'
+import SimulationPanel from './components/simulation/SimulationPanel'
+import AIChatPanel from './components/ai/AIChatPanel'
+import ProjectManager from './components/ProjectManager'
+import AuthForm from './components/AuthForm'
+import PluginPanel from './components/plugins/PluginPanel'
+import CollaborativePanel from './components/collaboration/CollaborativePanel'
+import UserPresence from './components/collaboration/UserPresence'
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [components, setComponents] = useState<Component[]>([]);
+  const [components, setComponents] = useState<TypeComponent[]>([]);
   const [canvasData, setCanvasData] = useState<Record<string, unknown> | null>(null);
   const [selectedComponentForProps, setSelectedComponentForProps] = useState<Record<string, unknown> | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showProjectManager, setShowProjectManager] = useState(false);
   const [showPluginPanel, setShowPluginPanel] = useState(false);
   const [showCollaborativePanel, setShowCollaborativePanel] = useState(false);
-  const [collaborativeUsers, setCollaborativeUsers] = useState<any[]>([]);
-  const [showCursors, setShowCursors] = useState(true);
-  const [showSelections, setShowSelections] = useState(true);
+  const [collaborativeUsers, setCollaborativeUsers] = useState<Record<string, unknown>[]>([]);
+  const [showCursors] = useState(true);
+  const [showSelections] = useState(true);
   
   // App store state
   const {
@@ -64,12 +60,12 @@ function App() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+      setUser((session?.user as User) ?? null);
       setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+      setUser((session?.user as User) ?? null);
     });
 
     return () => subscription.unsubscribe();
@@ -89,19 +85,19 @@ function App() {
         console.log('Plugin system initialized')
         
         // Listen for plugin events
-        pluginManager.on('plugin:loaded', (plugin) => {
+        pluginManager.on('plugin:loaded', (plugin: any) => {
           console.log('Plugin loaded:', plugin.name)
         })
         
-        pluginManager.on('plugin:error', (error) => {
+        pluginManager.on('plugin:error', (error: any) => {
           console.error('Plugin error:', error)
         })
         
-        pluginManager.on('validation:results', (results) => {
+        pluginManager.on('validation:results', (results: any) => {
           console.log('Validation results:', results)
         })
         
-        pluginManager.on('export:success', (result) => {
+        pluginManager.on('export:success', (result: any) => {
           console.log('Export success:', result)
         })
         
@@ -125,9 +121,9 @@ function App() {
         try {
           const collaborativeUser = {
             id: user.id,
-            name: user.user_metadata?.full_name || user.email || 'Anonymous',
+            name: (user as any).user_metadata?.full_name || user.email || 'Anonymous',
             email: user.email || '',
-            avatar: user.user_metadata?.avatar_url,
+            avatar: (user as any).user_metadata?.avatar_url,
             color: generateUserColor(user.id),
             isActive: true,
             lastSeen: Date.now()
@@ -139,15 +135,15 @@ function App() {
             console.log('Connected to collaborative editing')
             
             // Listen for collaborative events
-            collaborativeEditor.on('user:joined', (user) => {
-              setCollaborativeUsers(prev => [...prev.filter(u => u.id !== user.id), user])
+            collaborativeEditor.on('user:joined', (user: any) => {
+              setCollaborativeUsers(prev => [...prev.filter((u: any) => u.id !== user.id), user])
             })
             
-            collaborativeEditor.on('user:left', (user) => {
-              setCollaborativeUsers(prev => prev.filter(u => u.id !== user.id))
+            collaborativeEditor.on('user:left', (user: any) => {
+              setCollaborativeUsers(prev => prev.filter((u: any) => u.id !== user.id))
             })
             
-            collaborativeEditor.on('session:joined', (session) => {
+            collaborativeEditor.on('session:joined', (session: any) => {
               setCollaborativeUsers(Array.from(session.users.values()))
             })
             
@@ -212,7 +208,7 @@ function App() {
         .order('category', { ascending: true });
 
       if (error) throw error;
-      setComponents(data || []);
+      setComponents((data || []) as unknown as Component[]);
     } catch (error) {
       console.error('Error loading components:', error);
     }
@@ -268,7 +264,7 @@ function App() {
 
       if (schematics) {
         setCurrentSchematic(schematics);
-        setCanvasData(schematics.canvas_data);
+        setCanvasData(schematics.canvas_data ?? null);
       }
     } catch (error) {
       console.error('Error loading schematic:', error);
@@ -328,8 +324,8 @@ function App() {
     if (!canvasData || !currentProject) return;
 
     const netlist = exportToNetlist(
-      (canvasData.components as any[]) || [],
-      (canvasData.wires as any[]) || [],
+      (canvasData.components as PlacedComponent[]) || [],
+      (canvasData.wires as Wire[]) || [],
       currentProject.name
     );
     downloadFile(netlist, `${currentProject.name}.net`, 'text/plain');
@@ -340,8 +336,8 @@ function App() {
     if (!canvasData || !currentProject) return;
 
     const json = exportToJSON(
-      (canvasData.components as any[]) || [],
-      (canvasData.wires as any[]) || [],
+      (canvasData.components as PlacedComponent[]) || [],
+      (canvasData.wires as Wire[]) || [],
       currentProject.name
     );
     downloadFile(json, `${currentProject.name}.json`, 'application/json');
@@ -351,7 +347,7 @@ function App() {
   const handleExportBOM = () => {
     if (!canvasData || !currentProject) return;
 
-    const bom = exportToBOM((canvasData.components as any[]) || []);
+    const bom = exportToBOM((canvasData.components as PlacedComponent[]) || []);
     downloadFile(bom, `${currentProject.name}_BOM.txt`, 'text/plain');
     setShowExportMenu(false);
   };
@@ -388,7 +384,7 @@ function App() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <Cpu className="w-8 h-8 text-primary" />
-              <h1 className="text-2xl font-bold text-foreground">Circuit CAD Pro</h1>
+              <h1 className="text-2xl font-bold text-foreground">Engineering IDE Pro</h1>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="ghost" size="icon" onClick={toggleTheme}>
@@ -570,7 +566,7 @@ function App() {
           {propertiesPanelOpen && selectedComponentForProps && (
             <div className="w-80">
               <PropertiesPanel
-                component={selectedComponentForProps as unknown}
+                component={selectedComponentForProps as never}
                 onUpdate={() => {}}
                 onClose={() => setSelectedComponentForProps(null)}
               />

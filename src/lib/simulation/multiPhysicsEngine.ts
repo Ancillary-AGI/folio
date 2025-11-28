@@ -339,17 +339,17 @@ class MultiPhysicsEngine {
   private async solveElectrical(): Promise<void> {
     // Solve electrical circuit equations using modified nodal analysis
     // This is a simplified implementation
-    
-    for (const [elementId, element] of this.elements) {
+
+    for (const [, element] of this.elements) {
       if (element.type === 'resistor') {
         const node1 = this.nodes.get(element.nodes[0]);
         const node2 = this.nodes.get(element.nodes[1]);
-        
+
         if (node1 && node2) {
           const resistance = element.parameters.resistance || 1000;
           const voltage = node1.voltage - node2.voltage;
           const current = voltage / resistance;
-          
+
           node1.current -= current;
           node2.current += current;
         }
@@ -360,17 +360,17 @@ class MultiPhysicsEngine {
   private async solveThermal(): Promise<void> {
     // Solve thermal diffusion equations
     // Simplified finite difference method
-    
+
     for (const [nodeId, node] of this.nodes) {
       // Calculate heat transfer to neighboring nodes
       let heatFlow = 0;
-      
+
       // Find connected thermal elements
-      for (const [elementId, element] of this.elements) {
+      for (const [, element] of this.elements) {
         if (element.type === 'thermal_resistor' && element.nodes.includes(nodeId)) {
           const otherNodeId = element.nodes.find(id => id !== nodeId);
           const otherNode = this.nodes.get(otherNodeId || '');
-          
+
           if (otherNode) {
             const thermalResistance = element.parameters.thermalResistance || 1;
             const tempDiff = otherNode.temperature - node.temperature;
@@ -378,10 +378,10 @@ class MultiPhysicsEngine {
           }
         }
       }
-      
+
       // Update temperature based on heat flow
-      const thermalCapacity = element?.material?.specificHeat || 1000;
-      const mass = element?.material?.density || 1000;
+      const thermalCapacity = 1000; // J/(kg⋅K)
+      const mass = 0.001; // kg (assume 1g)
       node.temperature += (heatFlow * this.timeStep) / (thermalCapacity * mass);
       node.heatFlow = heatFlow;
     }
@@ -390,16 +390,16 @@ class MultiPhysicsEngine {
   private async solveMechanical(): Promise<void> {
     // Solve mechanical equations of motion
     // Simplified spring-mass-damper system
-    
+
     for (const [nodeId, node] of this.nodes) {
       const force = { x: 0, y: 0, z: 0 };
-      
+
       // Calculate forces from connected mechanical elements
-      for (const [elementId, element] of this.elements) {
+      for (const [, element] of this.elements) {
         if (element.type === 'spring' && element.nodes.includes(nodeId)) {
           const otherNodeId = element.nodes.find(id => id !== nodeId);
           const otherNode = this.nodes.get(otherNodeId || '');
-          
+
           if (otherNode) {
             const springConstant = element.parameters.springConstant || 1000;
             const displacement = {
@@ -407,24 +407,24 @@ class MultiPhysicsEngine {
               y: otherNode.displacement.y - node.displacement.y,
               z: otherNode.displacement.z - node.displacement.z
             };
-            
+
             force.x += springConstant * displacement.x;
             force.y += springConstant * displacement.y;
             force.z += springConstant * displacement.z;
           }
         }
       }
-      
+
       // Update motion using Verlet integration
-      const mass = element?.material?.density || 1;
+      const mass = 0.001; // kg (assume 1g)
       node.acceleration.x = force.x / mass;
       node.acceleration.y = force.y / mass;
       node.acceleration.z = force.z / mass;
-      
+
       node.velocity.x += node.acceleration.x * this.timeStep;
       node.velocity.y += node.acceleration.y * this.timeStep;
       node.velocity.z += node.acceleration.z * this.timeStep;
-      
+
       node.displacement.x += node.velocity.x * this.timeStep;
       node.displacement.y += node.velocity.y * this.timeStep;
       node.displacement.z += node.velocity.z * this.timeStep;
@@ -434,27 +434,10 @@ class MultiPhysicsEngine {
   private async solveElectromagnetic(): Promise<void> {
     // Solve Maxwell's equations using finite element method
     // This is a highly simplified implementation
-    
-    for (const [nodeId, node] of this.nodes) {
-      // Calculate electromagnetic fields
-      // In a real implementation, this would solve the full Maxwell equations
-      
-      // Mock electromagnetic field calculation
-      const electricField = {
-        x: node.voltage * 1000, // V/m
-        y: 0,
-        z: 0
-      };
-      
-      const magneticField = {
-        x: 0,
-        y: node.current * 1e-6, // T
-        z: 0
-      };
-      
-      // Store field values (in a real implementation)
-      // This would be stored in a field distribution array
-    }
+
+    // Placeholder for electromagnetic field calculations
+    // In a real implementation, this would solve the full Maxwell equations
+    // and store field distributions
   }
 
   private async solveCoupledEffects(domain: SimulationDomain): Promise<void> {
@@ -495,7 +478,7 @@ class MultiPhysicsEngine {
       
       // Thermal expansion
       if (domain.thermal && domain.mechanical) {
-        const thermalExpansion = element?.material?.thermalExpansion || 10e-6;
+        const thermalExpansion = 10e-6; // 1/K (typical for metals)
         const tempChange = node.temperature - 293.15; // Reference temperature
         const thermalStrain = thermalExpansion * tempChange;
         node.strain += thermalStrain;
@@ -507,23 +490,23 @@ class MultiPhysicsEngine {
     // Simplified temperature gradient calculation
     const node = this.nodes.get(nodeId);
     if (!node) return 0;
-    
+
     let gradient = 0;
     let count = 0;
-    
+
     // Find neighboring nodes and calculate gradient
-    for (const [elementId, element] of this.elements) {
+    for (const [, element] of this.elements) {
       if (element.nodes.includes(nodeId)) {
         const otherNodeId = element.nodes.find(id => id !== nodeId);
         const otherNode = this.nodes.get(otherNodeId || '');
-        
+
         if (otherNode) {
           const distance = Math.sqrt(
             Math.pow(otherNode.position.x - node.position.x, 2) +
             Math.pow(otherNode.position.y - node.position.y, 2) +
             Math.pow(otherNode.position.z - node.position.z, 2)
           );
-          
+
           if (distance > 0) {
             gradient += (otherNode.temperature - node.temperature) / distance;
             count++;
@@ -531,7 +514,7 @@ class MultiPhysicsEngine {
         }
       }
     }
-    
+
     return count > 0 ? gradient / count : 0;
   }
 
@@ -539,17 +522,17 @@ class MultiPhysicsEngine {
     // Calculate convergence residual
     let residual = 0;
     let count = 0;
-    
-    for (const [nodeId, node] of this.nodes) {
+
+    for (const [, node] of this.nodes) {
       // Electrical residual (current conservation)
       residual += Math.abs(node.current);
-      
+
       // Thermal residual (energy conservation)
       residual += Math.abs(node.heatFlow) / 1000; // Normalize
-      
+
       count += 2;
     }
-    
+
     return count > 0 ? residual / count : 0;
   }
 
@@ -589,7 +572,7 @@ class MultiPhysicsEngine {
       const tempGradient = this.calculateTemperatureGradient(id);
       const seebeckVoltage = seebeckCoeff * tempGradient;
       const peltierHeat = seebeckCoeff * node.temperature * node.current;
-      
+
       return {
         nodeId: id,
         seebeckVoltage,

@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Grid, Box, Cylinder, Sphere, Text } from '@react-three/drei';
+import { OrbitControls, Grid, Box, Cylinder } from '@react-three/drei';
 import * as THREE from 'three';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -129,12 +129,10 @@ function Trace3D({
 }
 
 // Camera controller
-function CameraController({ 
-  view, 
-  onViewChange 
-}: { 
-  view: string; 
-  onViewChange: (view: string) => void; 
+function CameraController({
+  view
+}: {
+  view: string;
 }) {
   const { camera } = useThree();
 
@@ -262,7 +260,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
             camera={{ position: [15, 15, 15], fov: 50 }}
             style={{ background: 'linear-gradient(to bottom, #87CEEB, #E0F6FF)' }}
           >
-            <CameraController view={currentView} onViewChange={setCurrentView} />
+            <CameraController view={currentView} />
             <Lighting />
             
             {showGrid && <Grid args={[50, 50]} />}

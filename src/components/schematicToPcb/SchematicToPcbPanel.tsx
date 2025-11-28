@@ -51,22 +51,6 @@ export const SchematicToPcbPanel: React.FC<SchematicToPcbPanelProps> = ({
     }
   };
 
-  const handleExportGerber = (layout: PCBLayout) => {
-    const gerberData = schematicToPcbConverter.exportToGerber(layout);
-    const blob = new Blob([gerberData], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${layout.name}.gbr`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const validateLayout = (layout: PCBLayout) => {
-    return schematicToPcbConverter.validateDesign(layout);
-  };
 
   return (
     <Card className="w-full max-w-2xl">

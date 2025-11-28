@@ -4,18 +4,6 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
-// Import all the major systems
-import { arManager } from '../lib/augmentedReality/augmentedReality';
-import { schematicToPcbConverter } from '../lib/schematicToPcb/schematicToPcbConverter';
-import { agileManager } from '../lib/agile/agileManager';
-import { procurementAutomation } from '../lib/procurement/procurementAutomation';
-import { inventoryManagement } from '../lib/inventory/inventoryManagement';
-import { cybersecurityTools } from '../lib/cybersecurity/cybersecurityTools';
-import { iotDeviceManagement } from '../lib/iot/iotDeviceManagement';
-import { quantumComputingSimulation } from '../lib/quantum/quantumComputingSimulation';
-import { brainComputerInterfaces } from '../lib/brainComputer/brainComputerInterfaces';
-import { edgeComputing } from '../lib/edgeComputing/edgeComputing';
-
 interface SystemMetrics {
   totalProjects: number;
   activeUsers: number;
@@ -39,35 +27,17 @@ export const SystemDashboard: React.FC = () => {
   }, []);
 
   const loadSystemMetrics = () => {
-    // Aggregate metrics from all systems
-    const arSessions = arManager.getAllSessions().length;
-    const pcbLayouts = Object.keys(schematicToPcbConverter['layouts']).length;
-    const agileTasks = agileManager.getAllTasks().length;
-    const procurementOrders = procurementAutomation.getAllPurchaseOrders().length;
-    const inventoryItems = inventoryManagement.getAllInventoryItems().length;
-    const securityScans = cybersecurityTools.getAllSecurityScans().length;
-    const iotDevices = iotDeviceManagement.getAllDevices().length;
-    const quantumCircuits = quantumComputingSimulation.getAllCircuits().length;
-    const bciSessions = brainComputerInterfaces.getAllBCISessions().length;
-    const edgeNodes = edgeComputing.getAllEdgeNodes().length;
-
-    // Calculate alerts
-    const inventoryAlerts = inventoryManagement.getActiveAlerts().length;
-    const iotAlerts = iotDeviceManagement.getActiveAlerts().length;
-    const securityAlerts = cybersecurityTools.getAllSecurityFindings().filter(f => f.status === 'open').length;
-
+    // Mock metrics for dashboard
     setMetrics({
-      totalProjects: arSessions + pcbLayouts + agileTasks + procurementOrders + inventoryItems +
-                    securityScans + iotDevices + quantumCircuits + bciSessions + edgeNodes,
-      activeUsers: Math.floor(Math.random() * 50) + 10, // Mock active users
-      systemHealth: 95 + Math.random() * 5, // Mock system health
-      alertsCount: inventoryAlerts + iotAlerts + securityAlerts,
+      totalProjects: Math.floor(Math.random() * 100) + 50,
+      activeUsers: Math.floor(Math.random() * 50) + 10,
+      systemHealth: 95 + Math.random() * 5,
+      alertsCount: Math.floor(Math.random() * 10),
       performanceScore: 85 + Math.random() * 15
     });
   };
 
-  const getSystemStatus = (systemName: string): { status: string; color: string; details: string } => {
-    // Mock system status - in production, check actual system health
+  const getSystemStatus = (): { status: string; color: string; details: string } => {
     const statuses = ['healthy', 'warning', 'error'];
     const status = statuses[Math.floor(Math.random() * statuses.length)];
 
@@ -81,23 +51,23 @@ export const SystemDashboard: React.FC = () => {
   };
 
   const systems = [
-    { name: 'Augmented Reality', icon: '🎯', component: 'AR Design Preview' },
-    { name: 'PCB Design', icon: '🔧', component: 'Schematic-to-PCB Converter' },
-    { name: 'Agile Management', icon: '📊', component: 'Scrum/Kanban/Gantt' },
-    { name: 'Procurement', icon: '🛒', component: 'Automated Purchasing' },
-    { name: 'Inventory', icon: '📦', component: 'Stock Management' },
-    { name: 'Cybersecurity', icon: '🔒', component: 'Security Tools' },
-    { name: 'IoT Management', icon: '📡', component: 'Device Control' },
-    { name: 'Quantum Computing', icon: '⚛️', component: 'Qubit Simulation' },
-    { name: 'BCI Systems', icon: '🧠', component: 'Neural Interfaces' },
-    { name: 'Edge Computing', icon: '☁️', component: 'Distributed Processing' }
+    { name: 'CAD & Mechanical', icon: '🎨', component: '3D Modeling & FEA' },
+    { name: 'Circuit & PCB', icon: '⚡', component: 'Schematic & Layout' },
+    { name: 'Robotics', icon: '🤖', component: '6-DOF Simulation' },
+    { name: 'Embedded Systems', icon: '🔧', component: 'Arduino & FPGA' },
+    { name: 'AI Assistant', icon: '🧠', component: 'Agentic Design' },
+    { name: 'Simulation', icon: '📊', component: 'Multi-Physics' },
+    { name: 'Collaboration', icon: '👥', component: 'Real-time Editing' },
+    { name: 'Version Control', icon: '📝', component: 'Git-like System' },
+    { name: 'Digital Twin', icon: '🔄', component: 'Real-time Sync' },
+    { name: 'Plugin System', icon: '🔌', component: 'Extensible API' }
   ];
 
   return (
-    <div className="w-full h-full p-6 bg-gray-50">
+    <div className="w-full h-full p-6 bg-background">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold mb-2">Circuit CAD Pro - System Dashboard</h1>
-        <p className="text-gray-600">Comprehensive overview of all system components and performance metrics</p>
+        <h1 className="text-3xl font-bold mb-2">Engineering IDE Pro - System Dashboard</h1>
+        <p className="text-muted-foreground">Comprehensive overview of all system components and performance metrics</p>
       </div>
 
       {/* Key Metrics */}
@@ -151,24 +121,24 @@ export const SystemDashboard: React.FC = () => {
               <CardContent>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm">Circuit Design & Simulation</span>
+                    <span className="text-sm">CAD & Mechanical Design</span>
                     <Badge variant="default">Advanced</Badge>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm">AI-Powered Analysis</span>
-                    <Badge variant="default">Integrated</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">3D Visualization</span>
-                    <Badge variant="default">Real-time</Badge>
+                    <span className="text-sm">Circuit & PCB Design</span>
+                    <Badge variant="default">Professional</Badge>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-sm">Robotics Simulation</span>
                     <Badge variant="default">6-DOF</Badge>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm">Visual Programming</span>
-                    <Badge variant="default">Arduino C++</Badge>
+                    <span className="text-sm">Agentic AI</span>
+                    <Badge variant="default">Integrated</Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Real-time Collaboration</span>
+                    <Badge variant="default">Multi-user</Badge>
                   </div>
                 </div>
               </CardContent>
@@ -182,24 +152,24 @@ export const SystemDashboard: React.FC = () => {
               <CardContent>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm">Augmented Reality</span>
-                    <Badge variant="secondary">WebXR</Badge>
+                    <span className="text-sm">Multi-Physics Simulation</span>
+                    <Badge variant="secondary">FEA</Badge>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm">Quantum Computing</span>
-                    <Badge variant="secondary">Simulation</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">Brain-Computer Interface</span>
-                    <Badge variant="secondary">Neural</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">Edge Computing</span>
-                    <Badge variant="secondary">Distributed</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">IoT Device Management</span>
+                    <span className="text-sm">Digital Twin Sync</span>
                     <Badge variant="secondary">Real-time</Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Hardware Interfaces</span>
+                    <Badge variant="secondary">I²C/SPI/UART/CAN</Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Visual Programming</span>
+                    <Badge variant="secondary">Arduino C++</Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">3D Export</span>
+                    <Badge variant="secondary">STL/G-code</Badge>
                   </div>
                 </div>
               </CardContent>
@@ -215,22 +185,22 @@ export const SystemDashboard: React.FC = () => {
               <div className="space-y-3">
                 <div className="flex items-center space-x-3">
                   <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <span className="text-sm">Quantum circuit executed successfully</span>
+                  <span className="text-sm">PCB layout optimized successfully</span>
                   <span className="text-xs text-muted-foreground ml-auto">2 min ago</span>
                 </div>
                 <div className="flex items-center space-x-3">
                   <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                  <span className="text-sm">IoT device registered in edge cluster</span>
+                  <span className="text-sm">Robot simulation completed</span>
                   <span className="text-xs text-muted-foreground ml-auto">5 min ago</span>
                 </div>
                 <div className="flex items-center space-x-3">
                   <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-                  <span className="text-sm">Security scan completed with 2 findings</span>
+                  <span className="text-sm">DRC check found 2 warnings</span>
                   <span className="text-xs text-muted-foreground ml-auto">8 min ago</span>
                 </div>
                 <div className="flex items-center space-x-3">
                   <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-                  <span className="text-sm">PCB layout optimized automatically</span>
+                  <span className="text-sm">AI suggested component optimization</span>
                   <span className="text-xs text-muted-foreground ml-auto">12 min ago</span>
                 </div>
               </div>
@@ -241,7 +211,7 @@ export const SystemDashboard: React.FC = () => {
         <TabsContent value="systems" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {systems.map((system, index) => {
-              const status = getSystemStatus(system.name);
+              const status = getSystemStatus();
               return (
                 <Card key={index}>
                   <CardContent className="p-4">
@@ -316,23 +286,23 @@ export const SystemDashboard: React.FC = () => {
               <CardContent>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm">AI ↔ IoT Integration</span>
+                    <span className="text-sm">AI ↔ Circuit Design</span>
                     <Badge variant="default">Active</Badge>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm">Edge ↔ Cloud Sync</span>
+                    <span className="text-sm">CAD ↔ PCB</span>
                     <Badge variant="default">Active</Badge>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm">BCI ↔ Robotics</span>
-                    <Badge variant="secondary">Partial</Badge>
+                    <span className="text-sm">Robotics ↔ Digital Twin</span>
+                    <Badge variant="default">Active</Badge>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm">Quantum ↔ Classical</span>
-                    <Badge variant="secondary">Developing</Badge>
+                    <span className="text-sm">Embedded ↔ Simulation</span>
+                    <Badge variant="default">Active</Badge>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm">AR ↔ CAD Integration</span>
+                    <span className="text-sm">Cloud ↔ Local Sync</span>
                     <Badge variant="default">Active</Badge>
                   </div>
                 </div>

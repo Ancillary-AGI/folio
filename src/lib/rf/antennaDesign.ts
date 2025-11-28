@@ -292,11 +292,12 @@ export class AntennaDesigner {
             // Monopole pattern (hemispherical)
             elementGain = theta_rad <= Math.PI / 2 ? Math.sin(theta_rad) : 0;
             break;
-          case 'patch':
+          case 'patch': {
             // Patch antenna pattern (broadside)
             const theta_3dB = 60 * Math.PI / 180; // 60° beamwidth
             elementGain = Math.abs(Math.sinc(theta_rad / theta_3dB));
             break;
+          }
           default:
             elementGain = 1; // Isotropic
         }

@@ -1,4 +1,3 @@
-import { Component, Net } from '../../types';
 
 export interface RFCircuitElement {
   id: string;
@@ -77,7 +76,8 @@ export class RFCircuitDesigner {
           type: 'inductor',
           value: components.inductors[i],
           frequency: cutoffFrequency,
-          qualityFactor: 100
+          qualityFactor: 100,
+          parameters: {}
         };
         circuit.elements.push(inductor);
       } else {
@@ -87,14 +87,15 @@ export class RFCircuitDesigner {
           type: 'capacitor',
           value: components.capacitors[i],
           frequency: cutoffFrequency,
-          qualityFactor: 200
+          qualityFactor: 200,
+          parameters: {}
         };
         circuit.elements.push(capacitor);
       }
     }
 
     // Create connections
-    this.createFilterConnections(circuit, order);
+    this.createFilterConnections(circuit);
 
     this.circuits.set(circuit.id, circuit);
     return circuit;
@@ -123,7 +124,8 @@ export class RFCircuitDesigner {
           type: 'capacitor',
           value: 1 / (lpComponents.inductors[i] * (2 * Math.PI * cutoffFrequency) ** 2),
           frequency: cutoffFrequency,
-          qualityFactor: 200
+          qualityFactor: 200,
+          parameters: {}
         };
         circuit.elements.push(capacitor);
       } else {
@@ -133,13 +135,14 @@ export class RFCircuitDesigner {
           type: 'inductor',
           value: 1 / (lpComponents.capacitors[i] * (2 * Math.PI * cutoffFrequency) ** 2),
           frequency: cutoffFrequency,
-          qualityFactor: 100
+          qualityFactor: 100,
+          parameters: {}
         };
         circuit.elements.push(inductor);
       }
     }
 
-    this.createFilterConnections(circuit, order);
+    this.createFilterConnections(circuit);
     this.circuits.set(circuit.id, circuit);
     return circuit;
   }
@@ -166,7 +169,8 @@ export class RFCircuitDesigner {
         type: 'inductor',
         value: resonator.L,
         frequency: centerFrequency,
-        qualityFactor: 150
+        qualityFactor: 150,
+        parameters: {}
       };
 
       const seriesC: RFCircuitElement = {
@@ -174,7 +178,8 @@ export class RFCircuitDesigner {
         type: 'capacitor',
         value: resonator.C,
         frequency: centerFrequency,
-        qualityFactor: 200
+        qualityFactor: 200,
+        parameters: {}
       };
 
       circuit.elements.push(seriesL, seriesC);
@@ -186,13 +191,14 @@ export class RFCircuitDesigner {
           type: 'capacitor',
           value: resonator.Cc || resonator.C * 0.1,
           frequency: centerFrequency,
-          qualityFactor: 200
+          qualityFactor: 200,
+          parameters: {}
         };
         circuit.elements.push(couplingC);
       }
     });
 
-    this.createBandpassConnections(circuit, order);
+    this.createBandpassConnections(circuit);
     this.circuits.set(circuit.id, circuit);
     return circuit;
   }
@@ -232,14 +238,16 @@ export class RFCircuitDesigner {
       id: 'R_bias',
       type: 'resistor',
       value: 1000, // 1kΩ
-      frequency
+      frequency,
+      parameters: {}
     };
 
     const biasCapacitor: RFCircuitElement = {
       id: 'C_bias',
       type: 'capacitor',
       value: 100e-9, // 100nF
-      frequency
+      frequency,
+      parameters: {}
     };
 
     // Matching networks
@@ -458,7 +466,7 @@ export class RFCircuitDesigner {
     return resonators;
   }
 
-  private createFilterConnections(circuit: RFCircuit, order: number): void {
+  private createFilterConnections(circuit: RFCircuit): void {
     // Connect elements in series from input to output
     circuit.connections.push(
       { from: 'input', to: circuit.elements[0].id, type: 'series' }
@@ -490,7 +498,7 @@ export class RFCircuitDesigner {
     });
   }
 
-  private createBandpassConnections(circuit: RFCircuit, order: number): void {
+  private createBandpassConnections(circuit: RFCircuit): void {
     // Simplified bandpass connections
     circuit.connections.push(
       { from: 'input', to: 'Ls1', type: 'series' },

@@ -1,4 +1,4 @@
-import { Point, Component, Net } from '../../types';
+import { Point, PlacedComponent, Net } from '../../types';
 
 export interface PCBLayer {
   id: string;
@@ -47,7 +47,7 @@ export interface PCBDesign {
   traces: PCBTrace[];
   vias: PCBVIA[];
   pads: PCBPad[];
-  components: Component[];
+  components: PlacedComponent[];
   nets: Net[];
   designRules: PCBDesignRules;
 }
@@ -107,7 +107,7 @@ export class PCBDesignEngine {
     ];
   }
 
-  importFromSchematic(schematic: any, designRules?: Partial<PCBDesignRules>): PCBDesign {
+  importFromSchematic(schematic: { name: string; components?: PlacedComponent[]; nets?: Net[] }, designRules?: Partial<PCBDesignRules>): PCBDesign {
     const design = this.createPCB(`${schematic.name}_PCB`, 100, 80);
 
     if (designRules) {
@@ -115,9 +115,9 @@ export class PCBDesignEngine {
     }
 
     // Import components and create pads
-    schematic.components?.forEach((comp: any) => {
-      design.components.push(comp);
-      this.createPadsForComponent(design, comp);
+    schematic.components?.forEach((placedComp: PlacedComponent) => {
+      design.components.push(placedComp);
+      this.createPadsForComponent(design, placedComp);
     });
 
     // Import nets
@@ -131,13 +131,16 @@ export class PCBDesignEngine {
     return design;
   }
 
-  private createPadsForComponent(design: PCBDesign, component: Component): void {
-    component.pins.forEach(pin => {
+  private createPadsForComponent(design: PCBDesign, placedComponent: PlacedComponent): void {
+    placedComponent.component.pins.forEach(pin => {
       const pad: PCBPad = {
-        id: `pad_${component.id}_${pin.id}`,
-        componentId: component.id,
+        id: `pad_${placedComponent.id}_${pin.id}`,
+        componentId: placedComponent.id,
         pinId: pin.id,
-        position: { x: Math.random() * 80 + 10, y: Math.random() * 60 + 10 }, // Simplified positioning
+        position: {
+          x: placedComponent.position.x + (pin.x || 0),
+          y: placedComponent.position.y + (pin.y || 0)
+        },
         shape: 'circle',
         size: { width: 1.5, height: 1.5 },
         drillDiameter: 0.8,
@@ -274,8 +277,8 @@ export class PCBDesignEngine {
           gerber += this.generateSolderMaskGerber(design, layer);
           break;
         case 'silk_screen':
-          gerber += this.generateSilkScreenGerber(design, layer);
-          break;
+           gerber += this.generateSilkScreenGerber(design);
+           break;
         case 'drill':
           gerber += this.generateDrillGerber(design);
           break;
@@ -336,18 +339,16 @@ export class PCBDesignEngine {
     return gerber;
   }
 
-  private generateSilkScreenGerber(design: PCBDesign, layer: PCBLayer): string {
+  private generateSilkScreenGerber(design: PCBDesign): string {
     let gerber = '';
 
     // Component reference designators and outlines
     gerber += '%ADD13C,0.1*%\n'; // Text aperture
 
-    design.components.forEach(comp => {
-      // Simplified: just place component reference
+    design.components.forEach(placedComp => {
+      // Use the component's position directly
       gerber += 'G54D13*\n';
-      const centerX = comp.position?.x || 0;
-      const centerY = comp.position?.y || 0;
-      gerber += `X${Math.round(centerX * 1000000)}Y${Math.round(centerY * 1000000)}D03*\n`;
+      gerber += `X${Math.round(placedComp.position.x * 1000000)}Y${Math.round(placedComp.position.y * 1000000)}D03*\n`;
     });
 
     return gerber;

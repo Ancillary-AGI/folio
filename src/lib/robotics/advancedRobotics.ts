@@ -79,7 +79,7 @@ export interface Trajectory {
 export class AdvancedRobotics {
   private mechanisms: Map<string, Mechanism> = new Map();
   private trajectories: Map<string, Trajectory> = new Map();
-  private physicsWorld: any; // Cannon.js world would be used here
+  private physicsWorld!: { gravity: THREE.Vector3; bodies: Map<string, unknown>; constraints: Map<string, unknown> }; // Cannon.js world would be used here
 
   constructor() {
     this.initializePhysics();
@@ -148,7 +148,7 @@ export class AdvancedRobotics {
       links,
       endEffector,
       dof: joints.size,
-      workspace: this.calculateWorkspace(joints, links)
+      workspace: this.calculateWorkspace(joints)
     };
 
     this.mechanisms.set(mechanismId, mechanism);
@@ -174,7 +174,7 @@ export class AdvancedRobotics {
     }
   }
 
-  private calculateWorkspace(joints: Map<string, Joint>, links: Map<string, Link>): Mechanism['workspace'] {
+  private calculateWorkspace(joints: Map<string, Joint>): Mechanism['workspace'] {
     // Calculate reachable and dexterous workspace
     // This is a simplified Monte Carlo approach
     const positions: THREE.Vector3[] = [];
@@ -359,13 +359,13 @@ export class AdvancedRobotics {
     const links = Array.from(mechanism.links.values());
 
     // Mass matrix computation (simplified)
-    const massMatrix = this.computeMassMatrix(links, jointAngles);
+    // const massMatrix = this.computeMassMatrix(links, jointAngles);
 
     // Coriolis and centrifugal forces (simplified)
     const coriolisForces = this.computeCoriolisForces(links, jointAngles, jointVelocities);
 
     // Gravity forces
-    const gravityForces = this.computeGravityForces(links, jointAngles);
+    const gravityForces = this.computeGravityForces(links);
 
     // External forces (simplified)
     const externalForces = new Array(joints.length).fill(0);
@@ -389,7 +389,7 @@ export class AdvancedRobotics {
     };
   }
 
-  private computeMassMatrix(links: Link[], jointAngles: number[]): number[][] {
+  private computeMassMatrix(links: Link[]): number[][] {
     // Simplified mass matrix computation
     const n = links.length;
     const M = Array(n).fill(0).map(() => Array(n).fill(0));
@@ -409,7 +409,7 @@ export class AdvancedRobotics {
     });
   }
 
-  private computeGravityForces(links: Link[], jointAngles: number[]): number[] {
+  private computeGravityForces(links: Link[]): number[] {
     // Gravity compensation torques
     return links.map(link => {
       // Simplified gravity torque calculation
@@ -535,7 +535,7 @@ export class AdvancedRobotics {
         return start + (3 * t * t - 2 * t * t * t) * (end - start);
       case 'quintic':
         return start + (10 * t * t * t - 15 * t * t * t * t + 6 * t * t * t * t * t) * (end - start);
-      case 'trapezoidal':
+      case 'trapezoidal': {
         // Trapezoidal velocity profile
         const accelTime = 0.2;
         const decelTime = 0.8;
@@ -549,13 +549,14 @@ export class AdvancedRobotics {
           const decelT = (t - decelTime) / (1 - decelTime);
           return end - 0.5 * (1 - decelT) * (1 - decelT) * (end - start);
         }
+      }
       default:
         return start + t * (end - start);
     }
   }
 
   // Collision Detection
-  checkCollisions(mechanism: Mechanism, jointAngles: number[]): Array<{
+  checkCollisions(mechanism: Mechanism): Array<{
     link1: string;
     link2: string;
     contactPoint: THREE.Vector3;
@@ -575,7 +576,7 @@ export class AdvancedRobotics {
     // Check all pairs of links for collisions
     for (let i = 0; i < links.length; i++) {
       for (let j = i + 1; j < links.length; j++) {
-        const collision = this.checkLinkCollision(links[i], links[j], jointAngles);
+        const collision = this.checkLinkCollision(links[i], links[j]);
         if (collision) {
           collisions.push(collision);
         }
@@ -585,7 +586,7 @@ export class AdvancedRobotics {
     return collisions;
   }
 
-  private checkLinkCollision(link1: Link, link2: Link, jointAngles: number[]): any {
+  private checkLinkCollision(link1: Link, link2: Link): { link1: string; link2: string; contactPoint: THREE.Vector3; normal: THREE.Vector3; penetration: number } | null {
     // Simplified collision detection using bounding boxes
     // In practice, this would use more sophisticated algorithms like GJK or SAT
 
@@ -700,7 +701,7 @@ export class AdvancedRobotics {
     time: number;
     jointAngles: number[];
     endEffectorPosition: THREE.Vector3;
-    collisions: any[];
+    collisions: Array<{ link1: string; link2: string; contactPoint: THREE.Vector3; normal: THREE.Vector3; penetration: number }>;
   }> {
     const mechanism = this.mechanisms.get(mechanismId);
     if (!mechanism) return [];
@@ -727,7 +728,7 @@ export class AdvancedRobotics {
       const fkResult = this.forwardKinematics(Array.from(mechanism.joints.values()), jointAngles);
 
       // Check collisions
-      const collisions = this.checkCollisions(mechanism, jointAngles);
+      const collisions = this.checkCollisions(mechanism);
 
       results.push({
         time,

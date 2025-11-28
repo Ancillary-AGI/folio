@@ -17,11 +17,10 @@ import {
   FileText,
   Wrench
 } from 'lucide-react';
-import { 
-  boardProgrammer, 
-  BOARD_DEFINITIONS, 
-  BoardDefinition, 
-  CompilationResult, 
+import {
+  boardProgrammer,
+  BOARD_DEFINITIONS,
+  CompilationResult,
   UploadResult,
   CODE_TEMPLATES,
   ArduinoIDEIntegration

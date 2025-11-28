@@ -77,7 +77,7 @@ export default function Toolbar({ onToolChange, onAction, canUndo, canRedo, isSi
   ];
 
   const handleToolSelect = (toolId: string) => {
-    setActiveTool(toolId as unknown);
+    setActiveTool(toolId as 'select' | 'wire' | 'text' | 'measure' | 'delete');
     onToolChange(toolId);
   };
 

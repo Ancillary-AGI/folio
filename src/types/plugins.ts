@@ -25,12 +25,30 @@ export interface PluginDependency {
   optional?: boolean
 }
 
+export interface PluginSandbox {
+  execute: (code: string, context: Record<string, unknown>) => unknown
+  createContext: (permissions: string[]) => Record<string, unknown>
+  validateCode: (code: string) => { valid: boolean; errors: string[] }
+}
+
+export interface EventEmitter {
+  on: (event: string, callback: (...args: unknown[]) => void) => void
+  off: (event: string, callback: (...args: unknown[]) => void) => void
+  emit: (event: string, data?: unknown) => void
+}
+
 export interface PluginContext {
   pluginId: string
-  sandbox: any
+  sandbox: PluginSandbox
   permissions: string[]
-  storage: Map<string, any>
+  storage: Map<string, unknown>
   events: EventEmitter
+}
+
+export interface PluginInstance {
+  init?: (api: PluginAPI, context: PluginContext) => Promise<void> | void
+  cleanup?: () => Promise<void> | void
+  [key: string]: unknown
 }
 
 export interface Plugin {
@@ -50,53 +68,74 @@ export interface Plugin {
   homepage?: string
   repository?: string
   license?: string
-  instance?: any
+  instance?: PluginInstance
   context?: PluginContext
   status: 'loading' | 'loaded' | 'error' | 'disabled'
   error?: string
 }
 
+export interface CircuitComponent {
+  id: string
+  type: string
+  position: { x: number; y: number }
+  properties: Record<string, unknown>
+}
+
+export interface CircuitWire {
+  id: string
+  from: { componentId: string; pinId: string }
+  to: { componentId: string; pinId: string }
+  points: Array<{ x: number; y: number }>
+}
+
+export interface SimulationParameters {
+  duration: number
+  timeStep: number
+  initialConditions: Record<string, unknown>
+}
+
+export interface SimulationResult {
+  success: boolean
+  data: Record<string, unknown>
+  errors: string[]
+}
+
 export interface PluginAPI {
   // Component management
-  addComponent: (component: any) => void
+  addComponent: (component: CircuitComponent) => void
   removeComponent: (id: string) => void
-  updateComponent: (id: string, updates: Partial<any>) => void
-  
+  updateComponent: (id: string, updates: Partial<CircuitComponent>) => void
+
   // Circuit manipulation
-  addWire: (wire: any) => void
+  addWire: (wire: CircuitWire) => void
   removeWire: (id: string) => void
-  
+
   // Simulation
-  runSimulation: (parameters: any) => Promise<any>
-  
+  runSimulation: (parameters: SimulationParameters) => Promise<SimulationResult>
+
   // UI
   showNotification: (message: string, type?: 'info' | 'warning' | 'error') => void
   openDialog: (content: React.ReactNode) => void
-  
+
   // Events
-  on: (event: string, callback: (...args: any[]) => void) => void
-  off: (event: string, callback: (...args: any[]) => void) => void
-  emit: (event: string, data?: any) => void
+  on: (event: string, callback: (...args: unknown[]) => void) => void
+  off: (event: string, callback: (...args: unknown[]) => void) => void
+  emit: (event: string, data?: unknown) => void
 }
 
-export interface PluginInstance {
-  init?: (api: PluginAPI, context: PluginContext) => Promise<void> | void
-  cleanup?: () => Promise<void> | void
-  [key: string]: any
-}
 
 // Plugin Event Types
 export interface PluginEvent {
   type: string
   pluginId: string
-  data?: any
+  data?: unknown
   timestamp: number
 }
 
 // Plugin Storage
 export interface PluginStorage {
-  get: (key: string) => any
-  set: (key: string, value: any) => void
+  get: (key: string) => unknown
+  set: (key: string, value: unknown) => void
   remove: (key: string) => void
   clear: () => void
   keys: () => string[]
@@ -176,14 +215,14 @@ export interface PluginDevelopmentKit {
 export interface PluginHook {
   name: string
   pluginId: string
-  callback: (...args: any[]) => any
+  callback: (...args: unknown[]) => unknown
   priority?: number
 }
 
 export interface PluginExtension {
   type: 'component' | 'tool' | 'panel' | 'menu' | 'shortcut'
   pluginId: string
-  data: any
+  data: unknown
 }
 
 // Plugin Security
@@ -197,11 +236,6 @@ export interface PluginSecurityPolicy {
   blockedDomains: string[]
 }
 
-export interface PluginSandbox {
-  execute: (code: string, context: any) => any
-  createContext: (permissions: string[]) => any
-  validateCode: (code: string) => { valid: boolean; errors: string[] }
-}
 
 // Plugin Lifecycle Events
 export const PLUGIN_EVENTS = {

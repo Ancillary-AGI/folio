@@ -1,9 +1,58 @@
-import { Point, SimulationParameters, SimulationResult, SimulationWaveform } from '../types';
+// Types defined locally to avoid circular dependencies
+export interface Point {
+  x: number;
+  y: number;
+  z?: number;
+}
+
+export interface SimulationParameters {
+  type: 'dc' | 'ac' | 'transient' | 'noise' | 'montecarlo';
+  startTime?: number;
+  stopTime?: number;
+  stepTime?: number;
+}
+
+export interface SimulationWaveform {
+  name: string;
+  type: 'voltage' | 'current' | 'power' | 'frequency';
+  unit: string;
+  data: Array<{ x: number; y: number }>;
+  color?: string;
+}
+
+export interface SimulationResult {
+  id: string;
+  timestamp: number;
+  type: 'dc' | 'ac' | 'transient' | 'noise' | 'montecarlo';
+  success: boolean;
+  nodes: Array<{ name: string; voltage: number; current: number }>;
+  waveforms: SimulationWaveform[];
+  operatingPoint: Record<string, unknown>;
+  convergenceInfo: {
+    iterations: number;
+    converged: boolean;
+    error?: number;
+  };
+  statistics: {
+    simulationTime: number;
+    memoryUsage: number;
+    nodeCount: number;
+    elementCount: number;
+  };
+}
 
 export interface PhysicsDomain {
-  type: 'structural' | 'thermal' | 'fluid' | 'electromagnetic' | 'acoustic';
+  type: 'structural' | 'thermal' | 'fluid' | 'electromagnetic' | 'acoustic' | 'circuit' | 'rf';
   properties: Record<string, number>;
   boundaryConditions: BoundaryCondition[];
+  couplingTerms?: CouplingTerm[];
+}
+
+export interface CouplingTerm {
+  type: 'thermal-structural' | 'electro-thermal' | 'fluid-structural' | 'electro-magnetic';
+  sourceDomain: string;
+  targetDomain: string;
+  couplingCoefficient: number;
 }
 
 export interface BoundaryCondition {
@@ -113,9 +162,9 @@ export class MultiphysicsSimulationEngine {
     await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
 
     const waveforms: SimulationWaveform[] = [];
-    const nodes: any[] = [];
+    const nodes: Array<{ name: string; voltage: number; current: number }> = [];
 
-    // Generate simulation results based on domains
+    // Generate simulation results based on domains with multi-physics coupling
     model.domains.forEach((domain, index) => {
       switch (domain.type) {
         case 'structural':
@@ -145,12 +194,36 @@ export class MultiphysicsSimulationEngine {
             color: '#45B7D1'
           });
           break;
+        case 'rf':
+          waveforms.push({
+            name: `RF_Power_${index}`,
+            type: 'voltage',
+            unit: 'dBm',
+            data: this.generateWaveformData(100, 10, 2),
+            color: '#F7DC6F'
+          });
+          break;
+        case 'circuit':
+          waveforms.push({
+            name: `Circuit_Voltage_${index}`,
+            type: 'voltage',
+            unit: 'V',
+            data: this.generateWaveformData(100, 3.3, 0.5),
+            color: '#BB8FCE'
+          });
+          break;
+        default:
+          // Handle other domain types if needed
+          break;
       }
     });
 
+    // Apply coupling effects
+    this.applyCouplingEffects(model, waveforms);
+
     // Generate node results
-    model.mesh.forEach((element, index) => {
-      element.nodes.forEach((node, nodeIndex) => {
+    model.mesh.forEach((_element, index) => {
+      model.mesh[index].nodes.forEach((_node, nodeIndex) => {
         nodes.push({
           name: `Node_${index}_${nodeIndex}`,
           voltage: Math.random() * 5,
@@ -181,17 +254,41 @@ export class MultiphysicsSimulationEngine {
     };
   }
 
+  private applyCouplingEffects(model: MultiphysicsModel, waveforms: SimulationWaveform[]): void {
+    model.domains.forEach(domain => {
+      if (domain.couplingTerms) {
+        domain.couplingTerms.forEach(coupling => {
+          // Apply coupling effects to waveforms
+          const sourceWaveform = waveforms.find(w => w.name.includes(coupling.sourceDomain));
+          const targetWaveform = waveforms.find(w => w.name.includes(coupling.targetDomain));
+
+          if (sourceWaveform && targetWaveform) {
+            // Simple coupling: add scaled source effect to target
+            targetWaveform.data.forEach((point: { x: number; y: number }, index: number) => {
+              const sourceValue = sourceWaveform.data[index]?.y || 0;
+              point.y += sourceValue * coupling.couplingCoefficient;
+            });
+          }
+        });
+      }
+    });
+  }
+
   private generateWaveformData(points: number, baseValue: number, amplitude: number): Array<{ x: number; y: number }> {
     const data: Array<{ x: number; y: number }> = [];
     for (let i = 0; i < points; i++) {
-      const x = i / (points - 1);
+      const x = i / Math.max(points - 1, 1);
       const y = baseValue + amplitude * Math.sin(2 * Math.PI * x * 5) + (Math.random() - 0.5) * amplitude * 0.1;
       data.push({ x, y });
     }
     return data;
   }
 
-  solveStructuralMechanics(model: MultiphysicsModel): any {
+  solveStructuralMechanics(model: MultiphysicsModel): {
+    displacements: number[];
+    stresses: Array<{ xx: number; yy: number; xy: number }>;
+    strains: Array<{ xx: number; yy: number; xy: number }>;
+  } {
     // Finite Element Method for structural analysis
     const stiffnessMatrix = this.buildStiffnessMatrix(model);
     const loadVector = this.buildLoadVector(model);
@@ -210,14 +307,20 @@ export class MultiphysicsSimulationEngine {
     const matrix = Array(size).fill(0).map(() => Array(size).fill(0));
 
     model.mesh.forEach((element, i) => {
-      const material = model.materials.find(m => m.name === element.nodes[0]?.material);
+      const firstNode = element.nodes[0];
+      const nodeMaterial = firstNode && typeof firstNode === 'object' && 'material' in firstNode 
+        ? String((firstNode as { material?: string }).material)
+        : undefined;
+      const material = nodeMaterial ? model.materials.find(m => m.name === nodeMaterial) : undefined;
       const E = material?.youngsModulus || 200e9; // Default steel
       const k = E * 1e-6; // Simplified stiffness
 
       const baseIndex = i * 3;
-      matrix[baseIndex][baseIndex] = k;
-      matrix[baseIndex + 1][baseIndex + 1] = k;
-      matrix[baseIndex + 2][baseIndex + 2] = k;
+      if (baseIndex < size && baseIndex + 2 < size) {
+        matrix[baseIndex][baseIndex] = k;
+        matrix[baseIndex + 1][baseIndex + 1] = k;
+        matrix[baseIndex + 2][baseIndex + 2] = k;
+      }
     });
 
     return matrix;
@@ -282,23 +385,25 @@ export class MultiphysicsSimulationEngine {
     return x;
   }
 
-  private calculateStresses(model: MultiphysicsModel, displacements: number[]): any {
+  private calculateStresses(model: MultiphysicsModel, displacements: number[]): Array<{ xx: number; yy: number; xy: number }> {
     // Calculate stresses from displacements
     const stresses = [];
     for (let i = 0; i < displacements.length; i += 3) {
       const strain = displacements[i] / 100; // Simplified strain calculation
       const material = model.materials[0] || { youngsModulus: 200e9, poissonsRatio: 0.3 };
-      const stress = strain * material.youngsModulus;
+      const youngsModulus = material.youngsModulus ?? 200e9;
+      const poissonsRatio = material.poissonsRatio ?? 0.3;
+      const stress = strain * youngsModulus;
       stresses.push({
         xx: stress,
-        yy: -stress * material.poissonsRatio,
+        yy: -stress * poissonsRatio,
         xy: 0
       });
     }
     return stresses;
   }
 
-  private calculateStrains(model: MultiphysicsModel, displacements: number[]): any {
+  private calculateStrains(_model: MultiphysicsModel, displacements: number[]): Array<{ xx: number; yy: number; xy: number }> {
     // Calculate strains from displacements
     const strains = [];
     for (let i = 0; i < displacements.length; i += 3) {

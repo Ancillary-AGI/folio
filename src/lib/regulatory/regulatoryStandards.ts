@@ -1,1 +1,0 @@
-"Creating regulatory standards file..." 

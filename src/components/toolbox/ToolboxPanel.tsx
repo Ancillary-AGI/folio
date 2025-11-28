@@ -1,9 +1,7 @@
 import React, { useState } from 'react'
-import { toolboxManager } from '../../lib/toolbox/toolboxManager'
-import { ToolboxComponent } from '../../types/toolbox'
+import { toolboxManager, type Toolbox } from '../../lib/toolbox/toolboxManager'
 import { Button } from '../ui/button'
 import {
-  Wrench,
   CircuitBoard,
   Bot,
   Code,
@@ -12,15 +10,24 @@ import {
   Users,
   Search,
   Grid3X3,
-  List
+  List,
+  Wrench,
+  type LucideIcon
 } from 'lucide-react'
+
+interface ToolboxComponent {
+  id: string;
+  name: string;
+  category: string;
+  description?: string;
+}
 
 interface ToolboxPanelProps {
   onComponentSelect: (component: ToolboxComponent) => void
   onToolSelect: (toolId: string) => void
 }
 
-const toolboxIcons = {
+const toolboxIcons: Record<string, LucideIcon> = {
   electronics: CircuitBoard,
   mechanics: Cog,
   robotics: Bot,
@@ -38,10 +45,10 @@ export default function ToolboxPanel({ onComponentSelect, onToolSelect }: Toolbo
 
   const toolboxes = toolboxManager.getAllToolboxes()
   const activeToolboxData = toolboxManager.getToolbox(activeToolbox)
-  const allComponents = toolboxManager.getToolboxComponents(activeToolbox)
+  const allComponents = toolboxManager.getToolboxComponents(activeToolbox) as ToolboxComponent[]
 
   // Filter components based on search and category
-  const filteredComponents = allComponents.filter(component => {
+  const filteredComponents = allComponents.filter((component: ToolboxComponent) => {
     const matchesSearch = component.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          component.category.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesCategory = selectedCategory === 'all' || component.category === selectedCategory
@@ -49,7 +56,7 @@ export default function ToolboxPanel({ onComponentSelect, onToolSelect }: Toolbo
   })
 
   // Get unique categories for filtering
-  const categories = ['all', ...Array.from(new Set(allComponents.map(c => c.category)))]
+  const categories: string[] = ['all', ...Array.from(new Set(allComponents.map((c: ToolboxComponent) => c.category)))]
 
   const handleComponentDragStart = (e: React.DragEvent, component: ToolboxComponent) => {
     e.dataTransfer.setData('componentId', component.id)
@@ -63,7 +70,7 @@ export default function ToolboxPanel({ onComponentSelect, onToolSelect }: Toolbo
       <div className="p-4 border-b border-border">
         <h3 className="text-lg font-semibold text-foreground mb-3">Toolboxes</h3>
         <div className="grid grid-cols-2 gap-2">
-          {toolboxes.map(toolbox => {
+          {toolboxes.map((toolbox: Toolbox) => {
             const Icon = toolboxIcons[toolbox.category]
             return (
               <button
@@ -102,7 +109,7 @@ export default function ToolboxPanel({ onComponentSelect, onToolSelect }: Toolbo
             onChange={(e) => setSelectedCategory(e.target.value)}
             className="flex-1 mr-2 px-3 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
           >
-            {categories.map(category => (
+            {categories.map((category: string) => (
               <option key={category} value={category}>
                 {category === 'all' ? 'All Categories' : category.charAt(0).toUpperCase() + category.slice(1)}
               </option>
@@ -150,7 +157,7 @@ export default function ToolboxPanel({ onComponentSelect, onToolSelect }: Toolbo
                 ? 'grid grid-cols-2 gap-3'
                 : 'space-y-2'
             }>
-              {filteredComponents.map(component => (
+              {filteredComponents.map((component: ToolboxComponent) => (
                 <div
                   key={component.id}
                   draggable
@@ -206,7 +213,7 @@ export default function ToolboxPanel({ onComponentSelect, onToolSelect }: Toolbo
         <div className="p-4 border-t border-border">
           <h4 className="font-semibold text-foreground mb-3">Tools</h4>
           <div className="space-y-2">
-            {activeToolboxData.tools.map(tool => (
+            {activeToolboxData.tools.map((tool: { id: string; name: string; description: string; icon: string; category: string; action: () => void }) => (
               <Button
                 key={tool.id}
                 variant="outline"

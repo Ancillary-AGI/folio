@@ -68,7 +68,7 @@ export class ArduinoCompiler implements CompilerTarget {
       const code = this.generateArduinoCode(components, wires, nets, options);
 
       // Simulate compilation process
-      const result = await this.simulateCompilation(code, options);
+      const result = await this.simulateCompilation(code);
 
       return {
         ...result,
@@ -116,7 +116,7 @@ export class ArduinoCompiler implements CompilerTarget {
     code += '\n';
 
     // Generate pin mappings
-    const pinMappings = this.generatePinMappings(components, wires, nets);
+    const pinMappings = this.generatePinMappings(components);
     code += pinMappings;
     code += '\n';
 
@@ -144,7 +144,7 @@ export class ArduinoCompiler implements CompilerTarget {
     return code;
   }
 
-  private generatePinMappings(components: Component[], wires: Wire[], nets: Net[]): string {
+  private generatePinMappings(components: Component[]): string {
     let mappings = '// Pin mappings\n';
 
     // Map components to pins
@@ -157,7 +157,7 @@ export class ArduinoCompiler implements CompilerTarget {
     return mappings;
   }
 
-  private async simulateCompilation(code: string, options: CompilerOptions): Promise<CompilationResult> {
+  private async simulateCompilation(code: string): Promise<CompilationResult> {
     // Simulate compilation delay
     await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
 
@@ -201,8 +201,8 @@ export class ArduinoCompiler implements CompilerTarget {
       },
       metadata: {
         compilationTime: 0,
-        target: '',
-        version: ''
+        target: 'arduino',
+        version: '1.8.19'
       }
     };
   }
@@ -220,7 +220,7 @@ export class ESP32Compiler implements CompilerTarget {
 
     try {
       const code = this.generateESP32Code(components, wires, nets, options);
-      const result = await this.simulateCompilation(code, options);
+      const result = await this.simulateCompilation(code);
 
       return {
         ...result,
@@ -269,7 +269,7 @@ export class ESP32Compiler implements CompilerTarget {
     code += '\n';
 
     // Generate pin mappings
-    const pinMappings = this.generatePinMappings(components, wires, nets);
+    const pinMappings = this.generatePinMappings(components);
     code += pinMappings;
     code += '\n';
 
@@ -296,11 +296,11 @@ export class ESP32Compiler implements CompilerTarget {
     return code;
   }
 
-  private generatePinMappings(components: Component[], wires: Wire[], nets: Net[]): string {
+  private generatePinMappings(components: Component[]): string {
     let mappings = '// ESP32 Pin mappings\n';
 
-    components.forEach((comp, index) => {
-      comp.pins.forEach((pin, pinIndex) => {
+    components.forEach((comp) => {
+      comp.pins.forEach((pin) => {
         mappings += `#define ${comp.name.toUpperCase()}_${pin.name.toUpperCase()} ${pin.name}\n`;
       });
     });
@@ -308,7 +308,7 @@ export class ESP32Compiler implements CompilerTarget {
     return mappings;
   }
 
-  private async simulateCompilation(code: string, options: CompilerOptions): Promise<CompilationResult> {
+  private async simulateCompilation(code: string): Promise<CompilationResult> {
     await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 2500));
 
     const errors: CompilationError[] = [];
@@ -345,6 +345,11 @@ export class ESP32Compiler implements CompilerTarget {
       size: {
         flash: flashSize,
         ram: ramSize
+      },
+      metadata: {
+        compilationTime: 0,
+        target: 'esp32',
+        version: '4.4.1'
       }
     };
   }

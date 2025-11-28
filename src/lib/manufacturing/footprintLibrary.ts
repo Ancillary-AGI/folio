@@ -17,8 +17,8 @@ export interface Footprint {
   pads: FootprintPad[];
   dimensions: { width: number; height: number };
   courtyard?: Point[]; // Polygon defining component boundary
-  silkScreen?: any[]; // Silk screen elements
-  assembly?: any[]; // Assembly layer elements
+  silkScreen?: unknown[]; // Silk screen elements
+  assembly?: unknown[]; // Assembly layer elements
   metadata: {
     manufacturer?: string;
     partNumber?: string;
@@ -182,6 +182,160 @@ export class FootprintLibrary {
         ipcStandard: 'IPC-7351',
         thermalPad: false
       }
+    });
+
+    // Additional resistor footprints
+    ['0603', '0805', '1206', '2512'].forEach(size => {
+      const dimensions: Record<string, { width: number; height: number; padSpacing: number; padSize: { width: number; height: number } }> = {
+        '0603': { width: 1.6, height: 0.8, padSpacing: 1.4, padSize: { width: 0.8, height: 0.8 } },
+        '0805': { width: 2.0, height: 1.25, padSpacing: 1.8, padSize: { width: 1.0, height: 1.0 } },
+        '1206': { width: 3.2, height: 1.6, padSpacing: 3.0, padSize: { width: 1.2, height: 1.2 } },
+        '2512': { width: 6.3, height: 3.2, padSpacing: 6.1, padSize: { width: 1.5, height: 1.5 } }
+      };
+
+      const dims = dimensions[size];
+      this.addFootprint({
+        id: `res_${size}`,
+        name: size,
+        description: `${size} SMD Resistor`,
+        category: 'resistor',
+        pads: [
+          {
+            id: 'pad1',
+            shape: 'rectangle',
+            position: { x: -dims.padSpacing / 2, y: 0 },
+            size: dims.padSize,
+            layers: ['top_copper', 'bottom_copper']
+          },
+          {
+            id: 'pad2',
+            shape: 'rectangle',
+            position: { x: dims.padSpacing / 2, y: 0 },
+            size: dims.padSize,
+            layers: ['top_copper', 'bottom_copper']
+          }
+        ],
+        dimensions: { width: dims.width, height: dims.height },
+        metadata: {
+          ipcStandard: 'IPC-7351',
+          thermalPad: false
+        }
+      });
+    });
+
+    // Additional capacitor footprints
+    ['0402', '0805', '1210', '1812'].forEach(size => {
+      const dimensions: Record<string, { width: number; height: number; padSpacing: number; padSize: { width: number; height: number } }> = {
+        '0402': { width: 1.0, height: 0.5, padSpacing: 0.8, padSize: { width: 0.6, height: 0.6 } },
+        '0805': { width: 2.0, height: 1.25, padSpacing: 1.8, padSize: { width: 1.0, height: 1.0 } },
+        '1210': { width: 3.2, height: 2.5, padSpacing: 3.0, padSize: { width: 1.2, height: 1.2 } },
+        '1812': { width: 4.5, height: 3.2, padSpacing: 4.3, padSize: { width: 1.5, height: 1.5 } }
+      };
+
+      const dims = dimensions[size];
+      this.addFootprint({
+        id: `cap_${size}`,
+        name: size,
+        description: `${size} SMD Capacitor`,
+        category: 'capacitor',
+        pads: [
+          {
+            id: 'pad1',
+            shape: 'rectangle',
+            position: { x: -dims.padSpacing / 2, y: 0 },
+            size: dims.padSize,
+            layers: ['top_copper', 'bottom_copper']
+          },
+          {
+            id: 'pad2',
+            shape: 'rectangle',
+            position: { x: dims.padSpacing / 2, y: 0 },
+            size: dims.padSize,
+            layers: ['top_copper', 'bottom_copper']
+          }
+        ],
+        dimensions: { width: dims.width, height: dims.height },
+        metadata: {
+          ipcStandard: 'IPC-7351',
+          thermalPad: false
+        }
+      });
+    });
+
+    // BGA footprints
+    [16, 64, 144, 256].forEach(pinCount => {
+      const side = Math.sqrt(pinCount);
+      const pitch = 0.8;
+      const size = (side - 1) * pitch;
+      const pads: FootprintPad[] = [];
+
+      for (let row = 0; row < side; row++) {
+        for (let col = 0; col < side; col++) {
+          pads.push({
+            id: `pad_${row}_${col}`,
+            shape: 'circle',
+            position: {
+              x: -size / 2 + col * pitch,
+              y: -size / 2 + row * pitch
+            },
+            size: { width: 0.4, height: 0.4 },
+            layers: ['top_copper']
+          });
+        }
+      }
+
+      this.addFootprint({
+        id: `bga_${pinCount}`,
+        name: `BGA-${pinCount}`,
+        description: `${pinCount}-pin Ball Grid Array`,
+        category: 'ic',
+        pads,
+        dimensions: { width: size + 1, height: size + 1 },
+        metadata: {
+          ipcStandard: 'IPC-7351',
+          thermalPad: true
+        }
+      });
+    });
+
+    // Connector footprints
+    ['header_2x1', 'header_2x2', 'header_2x3', 'header_2x4'].forEach(type => {
+      const match = type.match(/header_2x(\d+)/);
+      const rows = match ? parseInt(match[1]) : 1;
+      const pitch = 2.54;
+      const pads: FootprintPad[] = [];
+
+      for (let row = 0; row < rows; row++) {
+        pads.push({
+          id: `pad_${row}_1`,
+          shape: 'circle',
+          position: { x: 0, y: row * pitch },
+          size: { width: 1.5, height: 1.5 },
+          drillDiameter: 1.0,
+          layers: ['top_copper', 'bottom_copper']
+        });
+        pads.push({
+          id: `pad_${row}_2`,
+          shape: 'circle',
+          position: { x: pitch, y: row * pitch },
+          size: { width: 1.5, height: 1.5 },
+          drillDiameter: 1.0,
+          layers: ['top_copper', 'bottom_copper']
+        });
+      }
+
+      this.addFootprint({
+        id: type,
+        name: type.replace('_', ' ').toUpperCase(),
+        description: `${rows}x2 pin header connector`,
+        category: 'connector',
+        pads,
+        dimensions: { width: pitch + 3, height: (rows - 1) * pitch + 3 },
+        metadata: {
+          ipcStandard: 'IPC-7351',
+          thermalPad: false
+        }
+      });
     });
   }
 

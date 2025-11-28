@@ -1,34 +1,28 @@
 import { useState, useRef, useCallback } from 'react';
-import { 
-  ReactFlow, 
-  Node, 
-  Edge, 
-  addEdge, 
-  Connection, 
-  useNodesState, 
+import {
+  ReactFlow,
+  Node,
+  addEdge,
+  Connection,
+  useNodesState,
   useEdgesState,
   Controls,
   MiniMap,
   Background,
   BackgroundVariant,
   NodeTypes,
-  EdgeTypes
+  ReactFlowInstance
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { Button } from '../ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { 
-  Play, 
-  Pause, 
-  Square, 
-  Download, 
-  Upload, 
-  Code, 
-  Zap, 
-  Settings,
+import {
+  Play,
+  Pause,
+  Square,
+  Download,
+  Upload,
+  Code,
   X,
-  Plus,
-  Trash2,
   Copy
 } from 'lucide-react';
 
@@ -36,8 +30,28 @@ interface VisualProgrammingEditorProps {
   onClose: () => void;
 }
 
+interface NodeData {
+  label: string;
+  type?: string;
+  operation?: string;
+  condition?: string;
+  loopType?: string;
+  iterations?: number;
+  functionName?: string;
+  inputs?: string[];
+  parameters?: Record<string, unknown>;
+  pin?: number | string;
+  sensor?: string;
+  trigPin?: number;
+  echoPin?: number;
+  pin1?: number;
+  pin2?: number;
+  pins?: number[];
+  ms?: number;
+}
+
 // Custom node types
-const InputNode = ({ data }: { data: any }) => (
+const InputNode = ({ data }: { data: NodeData }) => (
   <div className="px-4 py-2 shadow-md rounded-md bg-blue-500 text-white border-2 border-blue-600">
     <div className="flex items-center">
       <div className="ml-2">
@@ -48,7 +62,7 @@ const InputNode = ({ data }: { data: any }) => (
   </div>
 );
 
-const OutputNode = ({ data }: { data: any }) => (
+const OutputNode = ({ data }: { data: NodeData }) => (
   <div className="px-4 py-2 shadow-md rounded-md bg-green-500 text-white border-2 border-green-600">
     <div className="flex items-center">
       <div className="ml-2">
@@ -59,7 +73,7 @@ const OutputNode = ({ data }: { data: any }) => (
   </div>
 );
 
-const ProcessNode = ({ data }: { data: any }) => (
+const ProcessNode = ({ data }: { data: NodeData }) => (
   <div className="px-4 py-2 shadow-md rounded-md bg-purple-500 text-white border-2 border-purple-600">
     <div className="flex items-center">
       <div className="ml-2">
@@ -77,7 +91,7 @@ const ProcessNode = ({ data }: { data: any }) => (
   </div>
 );
 
-const ConditionNode = ({ data }: { data: any }) => (
+const ConditionNode = ({ data }: { data: NodeData }) => (
   <div className="px-4 py-2 shadow-md rounded-md bg-yellow-500 text-white border-2 border-yellow-600">
     <div className="flex items-center">
       <div className="ml-2">
@@ -88,7 +102,7 @@ const ConditionNode = ({ data }: { data: any }) => (
   </div>
 );
 
-const LoopNode = ({ data }: { data: any }) => (
+const LoopNode = ({ data }: { data: NodeData }) => (
   <div className="px-4 py-2 shadow-md rounded-md bg-red-500 text-white border-2 border-red-600">
     <div className="flex items-center">
       <div className="ml-2">
@@ -100,7 +114,7 @@ const LoopNode = ({ data }: { data: any }) => (
   </div>
 );
 
-const FunctionNode = ({ data }: { data: any }) => (
+const FunctionNode = ({ data }: { data: NodeData }) => (
   <div className="px-4 py-2 shadow-md rounded-md bg-indigo-500 text-white border-2 border-indigo-600">
     <div className="flex items-center">
       <div className="ml-2">
@@ -181,7 +195,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
   const [generatedCode, setGeneratedCode] = useState('');
   const [showCode, setShowCode] = useState(false);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
+  const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -205,6 +219,8 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
         return;
       }
 
+      if (!reactFlowInstance) return;
+
       const position = reactFlowInstance.project({
         x: event.clientX - reactFlowBounds.left,
         y: event.clientY - reactFlowBounds.top,
@@ -222,7 +238,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
     [reactFlowInstance, setNodes]
   );
 
-  const onDragStart = (event: React.DragEvent, nodeType: string, blockData: any) => {
+  const onDragStart = (event: React.DragEvent, nodeType: string, blockData: NodeData) => {
     event.dataTransfer.setData('application/reactflow', nodeType);
     event.dataTransfer.setData('application/json', JSON.stringify(blockData));
     event.dataTransfer.effectAllowed = 'move';
@@ -237,7 +253,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
     
     // Variable declarations
     const servos = nodes.filter(n => n.data.type === 'servo');
-    servos.forEach((servo, index) => {
+    servos.forEach((_servo, index) => {
       code += `Servo servo${index};\n`;
     });
     
@@ -268,7 +284,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
       // If no loop function, process all nodes
       nodes.forEach(node => {
         if (!processedNodes.has(node.id)) {
-          code += generateNodeCode(node, nodes, edges);
+          code += generateNodeCode(node);
           processedNodes.add(node.id);
         }
       });
@@ -281,7 +297,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
     setShowCode(true);
   };
 
-  const generateNodeCode = (node: Node, allNodes: Node[], allEdges: Edge[]): string => {
+  const generateNodeCode = (node: Node): string => {
     let code = '';
     
     switch (node.type) {
@@ -420,7 +436,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
                   <div>
                     <div className="font-medium text-sm">{block.label}</div>
                     <div className="text-xs text-muted-foreground">
-                      {block.data.operation || block.data.type || block.data.functionName}
+                      {(block.data as any).operation || (block.data as any).type || (block.data as any).functionName}
                     </div>
                   </div>
                 </div>

@@ -1,4 +1,4 @@
-import { Component, Wire, Net, Pin } from '../../types';
+import { Component, Wire, Net } from '../../types';
 
 export interface ERCViolation {
   type: 'unconnected_pin' | 'short_circuit' | 'power_ground' | 'input_floating' | 'output_conflict' | 'power_supply';
@@ -83,28 +83,28 @@ export class ElectricalRuleChecker {
           let suggestion = 'Connect this pin to a net or leave it unconnected if intentional';
 
           // Special handling for different pin types
-          switch (pin.electricalType) {
-            case 'power':
-              severity = 'error';
-              message = `Power pin "${pin.name}" of ${component.name} is not connected`;
-              suggestion = 'Connect this power pin to the appropriate power net';
-              break;
-            case 'ground':
-              severity = 'error';
-              message = `Ground pin "${pin.name}" of ${component.name} is not connected`;
-              suggestion = 'Connect this ground pin to the ground net';
-              break;
-            case 'input':
-              severity = 'warning';
-              message = `Input pin "${pin.name}" of ${component.name} is not connected`;
-              suggestion = 'Connect this input pin to a signal source or pull it up/down if unused';
-              break;
-            case 'output':
-              severity = 'info';
-              message = `Output pin "${pin.name}" of ${component.name} is not connected`;
-              suggestion = 'This is acceptable for unused outputs';
-              break;
-          }
+           switch (pin.type) {
+             case 'power':
+               severity = 'error';
+               message = `Power pin "${pin.name}" of ${component.name} is not connected`;
+               suggestion = 'Connect this power pin to the appropriate power net';
+               break;
+             case 'ground':
+               severity = 'error';
+               message = `Ground pin "${pin.name}" of ${component.name} is not connected`;
+               suggestion = 'Connect this ground pin to the ground net';
+               break;
+             case 'input':
+               severity = 'warning';
+               message = `Input pin "${pin.name}" of ${component.name} is not connected`;
+               suggestion = 'Connect this input pin to a signal source or pull it up/down if unused';
+               break;
+             case 'output':
+               severity = 'info';
+               message = `Output pin "${pin.name}" of ${component.name} is not connected`;
+               suggestion = 'This is acceptable for unused outputs';
+               break;
+           }
 
           violations.push({
             type: 'unconnected_pin',
@@ -132,7 +132,7 @@ export class ElectricalRuleChecker {
         const component = this.components.find(c => c.id === connection.componentId);
         const pin = component?.pins.find(p => p.id === connection.pinId);
 
-        if (pin?.electricalType === 'output') {
+        if (pin?.type === 'output') {
           connectedOutputs.push(connection);
         }
       });
@@ -222,7 +222,7 @@ export class ElectricalRuleChecker {
     const violations: ERCViolation[] = [];
 
     this.components.forEach(component => {
-      const inputPins = component.pins.filter(pin => pin.electricalType === 'input');
+      const inputPins = component.pins.filter(pin => pin.type === 'input');
 
       inputPins.forEach(pin => {
         if (!this.isPinConnected(component.id, pin.id)) {
@@ -251,7 +251,7 @@ export class ElectricalRuleChecker {
       const connectedOutputs = net.connectedPins.filter(connection => {
         const component = this.components.find(c => c.id === connection.componentId);
         const pin = component?.pins.find(p => p.id === connection.pinId);
-        return pin?.electricalType === 'output';
+        return pin?.type === 'output';
       });
 
       if (connectedOutputs.length > 1) {
@@ -281,7 +281,7 @@ export class ElectricalRuleChecker {
     );
 
     powerSupplies.forEach(supply => {
-      const outputPins = supply.pins.filter(pin => pin.electricalType === 'output');
+      const outputPins = supply.pins.filter(pin => pin.type === 'output');
 
       outputPins.forEach(pin => {
         if (!this.isPinConnected(supply.id, pin.id)) {

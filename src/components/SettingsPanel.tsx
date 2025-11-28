@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Monitor, Palette, Grid3X3, Ruler, Save, RotateCcw, Globe, Zap } from 'lucide-react';
+import { X, Monitor, Palette, Grid3X3, Save, RotateCcw, Globe, Zap } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { useAppStore } from '../stores/useAppStore';
@@ -13,7 +13,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [localSettings, setLocalSettings] = useState(settings);
   const [hasChanges, setHasChanges] = useState(false);
 
-  const handleSettingChange = (key: keyof typeof settings, value: any) => {
+  const handleSettingChange = (key: keyof typeof settings, value: unknown) => {
     setLocalSettings(prev => ({ ...prev, [key]: value }));
     setHasChanges(true);
   };

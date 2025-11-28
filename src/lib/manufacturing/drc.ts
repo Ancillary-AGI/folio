@@ -1,4 +1,4 @@
-import { PCBDesign, PCBTrace, PCBPad, PCBVIA, PCBValidationError, PCBValidationWarning } from './pcb';
+import { PCBDesign, PCBTrace } from './pcb';
 
 export interface DRCViolation {
   type: 'clearance' | 'width' | 'drill' | 'annular_ring' | 'silk_to_pad' | 'courtyard_overlap';
