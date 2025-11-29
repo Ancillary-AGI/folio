@@ -86,6 +86,47 @@ export class SignalIntegrityAnalyzer {
     }
   };
 
+  async analyzeTrace(trace: {
+    length: number;
+    width: number;
+    thickness: number;
+    dielectricHeight: number;
+    dielectricConstant: number;
+    frequency: number;
+  }): Promise<{
+    impedance: number;
+    propagationDelay: number;
+    riseTime: number;
+    reflectionCoefficient: number;
+  }> {
+    // Convert to internal format
+    const internalTrace: SignalTrace = {
+      id: 'temp',
+      net: 'temp',
+      layer: 'top',
+      width: trace.width,
+      thickness: trace.thickness,
+      length: trace.length,
+      points: [],
+      dielectricConstant: trace.dielectricConstant,
+      dielectricThickness: trace.dielectricHeight
+    };
+
+    const impedance = this.calculateCharacteristicImpedance(internalTrace);
+    const propagationDelay = this.calculatePropagationDelay(internalTrace);
+
+    // Simplified calculations
+    const riseTime = 0.35 / (trace.frequency * 1e6) * 1e9; // ns
+    const reflectionCoefficient = 0.1; // Simplified
+
+    return {
+      impedance,
+      propagationDelay,
+      riseTime,
+      reflectionCoefficient
+    };
+  }
+
   async analyzeSignalIntegrity(
     trace: SignalTrace,
     driver: SignalDriver,

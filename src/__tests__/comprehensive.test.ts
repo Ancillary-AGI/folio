@@ -11,14 +11,14 @@ import { roboticsSimulationService } from '../lib/robotics/roboticsSimulation';
 import { evolutionaryOptimizer } from '../lib/optimization/evolutionaryOptimization';
 import { thermalAnalysisEngine } from '../lib/pcb/thermalAnalysis';
 import { signalIntegrityAnalyzer } from '../lib/pcb/signalIntegrity';
-import { multiphysicsEngine } from '../lib/simulation/multiPhysicsEngine';
+import { multiPhysicsEngine } from '../lib/simulation/multiPhysicsEngine';
 import { hardwareInterfaceManager } from '../lib/hardware/hardwareInterfaces';
 import { digitalTwinService } from '../lib/digitalTwin/digitalTwinService';
 import { pluginManager } from '../lib/plugins/pluginManager';
 import { collaborativeEditor } from '../lib/collaboration/collaborativeEditor';
 import { schematicToPcbConverter } from '../lib/schematicToPcb/schematicToPcbConverter';
 import { gcodeExporter } from '../lib/3d/gcodeExporter';
-import { stlExporter } from '../lib/3d/stlExporter';
+import { STLExporter } from '../lib/3d/stlExporter';
 import { nlpService } from '../lib/nlp/nlpService';
 import { siemService } from '../lib/siem/siemService';
 
@@ -78,7 +78,7 @@ describe('1. CAD & Mechanical Design - Functional Tests', () => {
       ]
     };
 
-    const stl = stlExporter.exportToSTL(geometry, 'test-model');
+    const stl = STLExporter.exportToSTL(geometry, 'test-model');
     
     expect(stl).toBeDefined();
     expect(typeof stl).toBe('string');
@@ -115,36 +115,35 @@ describe('1. CAD & Mechanical Design - Functional Tests', () => {
 
 describe('2. Circuit & PCB Design - Functional Tests', () => {
   
-  it('should perform thermal analysis on PCB with real calculations', () => {
-    const nodes = [
+  it('should perform thermal analysis on PCB with real calculations', async () => {
+    const nodes: any[] = [
       {
         id: 'ic1',
-        x: 5,
-        y: 5,
+        position: { x: 5, y: 5, z: 0 },
         temperature: 25,
-        power: 2.5,
-        thermalResistance: 5,
-        heatCapacity: 200
+        powerDissipation: 2.5,
+        material: 'silicon'
       },
       {
         id: 'ic2',
-        x: 15,
-        y: 5,
+        position: { x: 15, y: 5, z: 0 },
         temperature: 25,
-        power: 1.0,
-        thermalResistance: 10,
-        heatCapacity: 150
+        powerDissipation: 1.0,
+        material: 'silicon'
       }
     ];
 
     const config = {
       ambientTemperature: 25,
-      timeStep: 0.1,
-      duration: 5,
-      convectionCoefficient: 10
+      convectionCoefficient: 10,
+      boardMaterial: 'FR4',
+      copperThickness: 0.035,
+      layerCount: 2,
+      simulationTime: 5,
+      timeStep: 0.1
     };
 
-    const result = thermalAnalysisEngine.simulateThermal(nodes, [], config);
+    const result = await thermalAnalysisEngine.simulateThermal(nodes, [], config);
     
     expect(result).toBeDefined();
     expect(result.nodes).toBeDefined();
@@ -154,7 +153,7 @@ describe('2. Circuit & PCB Design - Functional Tests', () => {
     expect(result.steadyStateReached).toBeDefined();
   });
 
-  it('should calculate signal integrity parameters correctly', () => {
+  it('should calculate signal integrity parameters correctly', async () => {
     const trace = {
       length: 100, // mm
       width: 0.2, // mm
@@ -164,7 +163,7 @@ describe('2. Circuit & PCB Design - Functional Tests', () => {
       frequency: 1e9 // 1 GHz
     };
 
-    const result = signalIntegrityAnalyzer.analyzeTrace(trace);
+    const result = await signalIntegrityAnalyzer.analyzeTrace(trace);
     
     expect(result).toBeDefined();
     expect(result.impedance).toBeGreaterThan(0);
@@ -547,24 +546,25 @@ describe('6. Integration Tests - Cross-Domain Functionality', () => {
 
 describe('7. Performance & Scalability Tests', () => {
   
-  it('should handle large thermal simulation efficiently', () => {
+  it('should handle large thermal simulation efficiently', async () => {
     const startTime = Date.now();
     
     const nodes = Array.from({ length: 100 }, (_, i) => ({
       id: `node${i}`,
-      x: i % 10,
-      y: Math.floor(i / 10),
+      position: { x: i % 10, y: Math.floor(i / 10), z: 0 },
       temperature: 25,
-      power: Math.random() * 2,
-      thermalResistance: 10,
-      heatCapacity: 100
+      powerDissipation: Math.random() * 2,
+      material: 'FR4'
     }));
 
     const config = {
       ambientTemperature: 25,
-      timeStep: 0.1,
-      duration: 1,
-      convectionCoefficient: 10
+      convectionCoefficient: 10,
+      boardMaterial: 'FR4',
+      copperThickness: 0.035,
+      layerCount: 2,
+      simulationTime: 1,
+      timeStep: 0.1
     };
 
     const result = thermalAnalysisEngine.simulateThermal(nodes, [], config);

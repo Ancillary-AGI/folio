@@ -1,4 +1,4 @@
-import { expect, afterEach, vi } from 'vitest';
+import { expect, afterEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import * as matchers from '@testing-library/jest-dom/matchers';
 
@@ -6,14 +6,14 @@ import * as matchers from '@testing-library/jest-dom/matchers';
 expect.extend(matchers);
 
 // Mock EventEmitter
-vi.mock('events', () => ({
-  EventEmitter: vi.fn().mockImplementation(() => ({
-    on: vi.fn(),
-    emit: vi.fn(),
-    off: vi.fn(),
-    removeAllListeners: vi.fn(),
-  })),
-}));
+// vi.mock('events', () => ({
+//   EventEmitter: vi.fn().mockImplementation(() => ({
+//     on: vi.fn(),
+//     emit: vi.fn(),
+//     off: vi.fn(),
+//     removeAllListeners: vi.fn(),
+//   })),
+// }));
 
 // Cleanup after each test case
 afterEach(() => {

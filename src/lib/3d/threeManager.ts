@@ -312,7 +312,6 @@ export class ThreeManager {
 
       // Check for WebXR support
       if ('xr' in navigator) {
-        // @ts-expect-error - WebXR types not in TypeScript standard library
         const xr = (navigator as { xr?: { isSessionSupported: (mode: string) => Promise<boolean> } }).xr;
         if (xr) {
           xr.isSessionSupported('immersive-vr').then((supported: boolean) => {
@@ -337,7 +336,6 @@ export class ThreeManager {
 
       // Check for WebXR AR support
       if ('xr' in navigator) {
-        // @ts-expect-error - WebXR types not in TypeScript standard library
         const xr = (navigator as { xr?: { isSessionSupported: (mode: string) => Promise<boolean> } }).xr;
         if (xr) {
           xr.isSessionSupported('immersive-ar').then((supported: boolean) => {
@@ -365,7 +363,6 @@ export class ThreeManager {
 
       const sessionMode = mode === 'vr' ? 'immersive-vr' : 'immersive-ar';
 
-      // @ts-expect-error - WebXR types not in TypeScript standard library
       const xr = (navigator as { xr?: { requestSession: (mode: string) => Promise<unknown> } }).xr;
       if (!xr) {
         reject(new Error('WebXR not available'));

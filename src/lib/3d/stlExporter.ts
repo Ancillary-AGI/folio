@@ -68,7 +68,18 @@ export class STLExporter {
       normals = new Float32Array(transformedGeometry.attributes.normal.array);
     } else {
       transformedGeometry.computeVertexNormals();
-      normals = new Float32Array(transformedGeometry.attributes.normal.array);
+      const normalAttribute = transformedGeometry.attributes.normal as THREE.BufferAttribute | undefined;
+      if (normalAttribute) {
+        normals = new Float32Array(normalAttribute.array);
+      } else {
+        // Fallback: create default normals
+        normals = new Float32Array(vertices.length);
+        for (let i = 0; i < normals.length; i += 3) {
+          normals[i] = 0;     // nx
+          normals[i + 1] = 0; // ny
+          normals[i + 2] = 1; // nz
+        }
+      }
     }
 
     // Get indices

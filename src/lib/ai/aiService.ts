@@ -48,7 +48,7 @@ export interface SmartSuggestion {
 
 export class AIService {
   private agents: Map<string, AIAgent> = new Map();
-  // private apiKey: string | null = null;
+  private apiKey: string | null = null;
   // private baseURL: string = 'https://api.openai.com/v1';
 
   constructor(apiKey?: string) {
@@ -269,6 +269,18 @@ export class AIService {
     suggestions.push(...parameterSuggestions);
 
     return suggestions.sort((a, b) => b.confidence - a.confidence);
+  }
+
+  // Alias for backward compatibility
+  async suggestComponents(query: string, constraints?: Record<string, unknown>): Promise<Array<{
+    component: string;
+    reason: string;
+    confidence: number;
+    alternatives?: Array<{ component: string; reason: string; confidence: number }>;
+    cost?: number;
+    availability?: string;
+  }>> {
+    return this.recommendComponents(query);
   }
 
   async analyzeCircuit(components: Component[], wires: Wire[], nets: Net[]): Promise<{

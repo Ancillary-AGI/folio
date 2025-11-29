@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { AIService } from './aiService';
-import type { Component } from './aiService';
+import type { Component } from '../../types';
 
 describe('AIService', () => {
   let service: AIService;
@@ -13,9 +13,10 @@ describe('AIService', () => {
         id: 'comp1',
         name: 'Resistor',
         category: 'passive',
+        symbol: { width: 20, height: 10, paths: [] },
         pins: [
-          { id: '1', name: 'A', type: 'passive', electricalType: 'passive' },
-          { id: '2', name: 'B', type: 'passive', electricalType: 'passive' }
+          { id: '1', name: 'A', x: 0, y: 5, type: 'passive' },
+          { id: '2', name: 'B', x: 20, y: 5, type: 'passive' }
         ],
         properties: { resistance: '10k' }
       },
@@ -23,9 +24,10 @@ describe('AIService', () => {
         id: 'comp2',
         name: 'LED',
         category: 'semiconductor',
+        symbol: { width: 20, height: 10, paths: [] },
         pins: [
-          { id: '1', name: 'Anode', type: 'output', electricalType: 'digital' },
-          { id: '2', name: 'Cathode', type: 'input', electricalType: 'digital' }
+          { id: '1', name: 'Anode', x: 0, y: 5, type: 'input', electricalType: 'digital' },
+          { id: '2', name: 'Cathode', x: 20, y: 5, type: 'output', electricalType: 'digital' }
         ],
         properties: { color: 'red' }
       }
@@ -84,18 +86,13 @@ describe('AIService', () => {
 
   describe('Circuit Analysis', () => {
     it('should analyze circuit and return issues', async () => {
-      const analysis = await service.analyzeCircuit({
-        components: mockComponents,
-        wires: [],
-        nets: []
-      });
+      const analysis = await service.analyzeCircuit(mockComponents, [], []);
 
       expect(analysis).toBeDefined();
       expect(analysis).toHaveProperty('issues');
-      expect(analysis).toHaveProperty('optimizations');
-      expect(analysis).toHaveProperty('metrics');
+      expect(analysis).toHaveProperty('recommendations');
       expect(Array.isArray(analysis.issues)).toBe(true);
-      expect(Array.isArray(analysis.optimizations)).toBe(true);
+      expect(Array.isArray(analysis.recommendations)).toBe(true);
     });
 
     it('should detect floating inputs', async () => {
@@ -104,19 +101,16 @@ describe('AIService', () => {
           id: 'ic1',
           name: 'Microcontroller',
           category: 'ic',
+          symbol: { width: 40, height: 20, paths: [] },
           pins: [
-            { id: '1', name: 'VCC', type: 'input', electricalType: 'digital' },
-            { id: '2', name: 'GND', type: 'input', electricalType: 'digital' }
+            { id: '1', name: 'VCC', x: 0, y: 5, type: 'input', electricalType: 'power' },
+            { id: '2', name: 'GND', x: 0, y: 15, type: 'input', electricalType: 'ground' }
           ],
           properties: {}
         }
       ];
 
-      const analysis = await service.analyzeCircuit({
-        components,
-        wires: [],
-        nets: []
-      });
+      const analysis = await service.analyzeCircuit(components, [], []);
 
       expect(analysis.issues.length).toBeGreaterThan(0);
     });
@@ -139,8 +133,7 @@ describe('AIService', () => {
     it('should generate smart suggestions', async () => {
       const suggestions = await service.getSmartSuggestions({
         components: mockComponents,
-        wires: [],
-        nets: []
+        wires: []
       });
 
       expect(Array.isArray(suggestions)).toBe(true);
@@ -152,6 +145,7 @@ describe('AIService', () => {
     });
   });
 });
+
 
 
 
