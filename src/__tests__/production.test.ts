@@ -11,7 +11,7 @@ import { roboticsSimulationService } from '../lib/robotics/roboticsSimulation';
 import { evolutionaryOptimizer } from '../lib/optimization/evolutionaryOptimization';
 import { thermalAnalysisEngine } from '../lib/pcb/thermalAnalysis';
 import { signalIntegrityAnalyzer } from '../lib/pcb/signalIntegrity';
-import { multiphysicsEngine } from '../lib/simulation/multiPhysicsEngine';
+import { multiPhysicsEngine } from '../lib/simulation/multiPhysicsEngine';
 import { hardwareInterfaceManager } from '../lib/hardware/hardwareInterfaces';
 import { digitalTwinService } from '../lib/digitalTwin/digitalTwinService';
 import { pluginManager } from '../lib/plugins/pluginManager';
@@ -21,10 +21,10 @@ describe('Production Readiness - Core Engineering Capabilities', () => {
   
   describe('1. CAD & Mechanical Design', () => {
     it('should perform multi-physics FEA simulation', () => {
-      expect(multiphysicsEngine).toBeDefined();
-      expect(typeof multiphysicsEngine.runStructuralAnalysis).toBe('function');
-      expect(typeof multiphysicsEngine.runThermalAnalysis).toBe('function');
-      expect(typeof multiphysicsEngine.runElectromagneticAnalysis).toBe('function');
+      expect(multiPhysicsEngine).toBeDefined();
+      expect(typeof multiPhysicsEngine.runStructuralAnalysis).toBe('function');
+      expect(typeof multiPhysicsEngine.runThermalAnalysis).toBe('function');
+      expect(typeof multiPhysicsEngine.runElectromagneticAnalysis).toBe('function');
     });
 
     it('should export 3D models in multiple formats', () => {

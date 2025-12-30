@@ -615,6 +615,26 @@ export class NLPService {
   isVoiceListening(): boolean {
     return this.isListening;
   }
+
+  // Test compatibility method
+  processCommand(command: string): { intent: string; entities: Record<string, unknown>; confidence: number } {
+    // Synchronous version for testing
+    const tokens = this.tokenize(command.toLowerCase());
+    let bestMatch = { intent: 'unknown', confidence: 0, entities: {} };
+
+    for (const [intentName, intent] of this.intents) {
+      const match = this.matchIntent(tokens, intent);
+      if (match.confidence > bestMatch.confidence) {
+        bestMatch = {
+          intent: intentName,
+          confidence: match.confidence,
+          entities: match.entities
+        };
+      }
+    }
+
+    return bestMatch;
+  }
 }
 
 export const nlpService = new NLPService();

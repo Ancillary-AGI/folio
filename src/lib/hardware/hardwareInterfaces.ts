@@ -393,16 +393,44 @@ export class HardwareInterfaceManager {
     return this.i2cInterfaces.get(name);
   }
 
+  getI2CInterface(name: string): I2CInterface | undefined {
+    return this.getI2C(name);
+  }
+
   getSPI(name: string): SPIInterface | undefined {
     return this.spiInterfaces.get(name);
+  }
+
+  getSPIInterface(name: string): SPIInterface | undefined {
+    return this.getSPI(name);
   }
 
   getUART(name: string): UARTInterface | undefined {
     return this.uartInterfaces.get(name);
   }
 
+  getUARTInterface(name: string): UARTInterface | undefined {
+    return this.getUART(name);
+  }
+
   getCAN(name: string): CANInterface | undefined {
     return this.canInterfaces.get(name);
+  }
+
+  getCANInterface(name: string): CANInterface | undefined {
+    return this.getCAN(name);
+  }
+
+  createI2CInterface(name: string, config: I2CConfig): I2CInterface {
+    return this.createI2C(name, config);
+  }
+
+  createSPIInterface(name: string, config: SPIConfig): SPIInterface {
+    return this.createSPI(name, config);
+  }
+
+  createUARTInterface(name: string, config: UARTConfig): UARTInterface {
+    return this.createUART(name, config);
   }
 
   getAllInterfaces(): {

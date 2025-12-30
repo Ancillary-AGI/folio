@@ -267,6 +267,10 @@ export class PluginManager {
     return Array.from(this.plugins.values());
   }
 
+  getLoadedPlugins(): Plugin[] {
+    return this.getAllPlugins();
+  }
+
   async executePluginCommand(pluginId: string, command: string, ...args: unknown[]): Promise<unknown> {
     const plugin = this.plugins.get(pluginId);
     if (!plugin) {

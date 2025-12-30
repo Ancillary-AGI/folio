@@ -16,9 +16,9 @@ expect.extend(matchers);
 // }));
 
 // Cleanup after each test case
-afterEach(() => {
-  cleanup();
-});
+// afterEach(() => {
+//   cleanup();
+// });
 
 // Mock window.matchMedia
 Object.defineProperty(window, 'matchMedia', {

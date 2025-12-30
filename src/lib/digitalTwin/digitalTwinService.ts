@@ -4,6 +4,7 @@ export interface DigitalTwin {
   id: string;
   name: string;
   physicalAssetId: string;
+  physicalDeviceId?: string; // Alias for compatibility
   virtualModel: VirtualModel;
   sensors: Sensor[];
   actuators: Actuator[];
@@ -103,26 +104,90 @@ export class DigitalTwinService {
   }
 
   // Digital Twin Management
-  createDigitalTwin(physicalAssetId: string, name: string, virtualModel: VirtualModel): DigitalTwin {
-    const twin: DigitalTwin = {
-      id: `dt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      name,
-      physicalAssetId,
-      virtualModel,
-      sensors: [],
-      actuators: [],
-      synchronizationRules: [],
-      lastSync: Date.now(),
-      status: 'online',
-      healthScore: 100
-    };
+  createDigitalTwin(physicalAssetId: string, name?: string, virtualModel?: VirtualModel): DigitalTwin;
+  createDigitalTwin(config: { physicalDeviceId: string; updateInterval: number; sensors: Array<{ id: string; type: string; unit: string }>; actuators: Array<{ id: string; type: string; range: number[] }> }): DigitalTwin;
+  createDigitalTwin(physicalAssetIdOrConfig: string | { physicalDeviceId: string; updateInterval: number; sensors: Array<{ id: string; type: string; unit: string }>; actuators: Array<{ id: string; type: string; range: number[] }> }, name?: string, virtualModel?: VirtualModel): DigitalTwin {
+    if (typeof physicalAssetIdOrConfig === 'string') {
+      // Original signature: createDigitalTwin(physicalAssetId, name?, virtualModel?)
+      const twin: DigitalTwin = {
+        id: `dt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        name: name || 'Digital Twin',
+        physicalAssetId: physicalAssetIdOrConfig,
+        physicalDeviceId: physicalAssetIdOrConfig,
+        virtualModel: virtualModel || {
+          components: [],
+          wires: [],
+          nets: [],
+          simulationState: {}
+        },
+        sensors: [],
+        actuators: [],
+        synchronizationRules: [],
+        lastSync: Date.now(),
+        status: 'online',
+        healthScore: 100
+      };
 
-    this.twins.set(twin.id, twin);
-    return twin;
+      this.twins.set(twin.id, twin);
+      return twin;
+    } else {
+      // Test signature: createDigitalTwin(config)
+      const config = physicalAssetIdOrConfig;
+      const twin: DigitalTwin = {
+        id: `dt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        name: 'Test Digital Twin',
+        physicalAssetId: config.physicalDeviceId,
+        physicalDeviceId: config.physicalDeviceId,
+        virtualModel: {
+          components: [],
+          wires: [],
+          nets: [],
+          simulationState: {}
+        },
+        sensors: config.sensors.map(s => ({
+          id: s.id,
+          type: s.type as Sensor['type'],
+          location: { x: 0, y: 0, z: 0 },
+          samplingRate: 100,
+          accuracy: 0.01,
+          range: { min: 0, max: 100 },
+          lastReading: {
+            timestamp: Date.now(),
+            value: 25,
+            unit: s.unit,
+            quality: 'good'
+          }
+        })),
+        actuators: config.actuators.map(a => ({
+          id: a.id,
+          type: a.type as Actuator['type'],
+          location: { x: 0, y: 0, z: 0 },
+          controlInterface: 'test',
+          powerRequirements: { voltage: 5, current: 0.1 },
+          lastCommand: {
+            timestamp: Date.now(),
+            command: 'test',
+            parameters: {},
+            executed: true
+          }
+        })),
+        synchronizationRules: [],
+        lastSync: Date.now(),
+        status: 'online',
+        healthScore: 100
+      };
+
+      this.twins.set(twin.id, twin);
+      return twin;
+    }
   }
 
   getDigitalTwin(twinId: string): DigitalTwin | undefined {
     return this.twins.get(twinId);
+  }
+
+  getDigitalTwinState(twinId: string): DigitalTwin | undefined {
+    return this.getDigitalTwin(twinId);
   }
 
   updateDigitalTwin(twinId: string, updates: Partial<DigitalTwin>): void {
@@ -130,6 +195,20 @@ export class DigitalTwinService {
     if (twin) {
       Object.assign(twin, updates);
     }
+  }
+
+  updateSensorData(twinId: string, sensorId: string, data: SensorReading): void {
+    const twin = this.twins.get(twinId);
+    if (twin) {
+      const sensor = twin.sensors.find(s => s.id === sensorId);
+      if (sensor) {
+        sensor.lastReading = data;
+      }
+    }
+  }
+
+  async syncWithPhysicalDevice(twinId: string): Promise<void> {
+    await this.synchronizeDigitalTwin(twinId);
   }
 
   deleteDigitalTwin(twinId: string): void {

@@ -8,7 +8,6 @@ export * from './hardware/hardwareInterfaces';
 export { hardwareInterfaceManager } from './hardware/hardwareInterfaces';
 
 // Robotics Simulation
-export * from './robotics/roboticsSimulation';
 export { roboticsSimulationService } from './robotics/roboticsSimulation';
 
 // Optimization
@@ -33,7 +32,6 @@ export * from './plugins/pluginSystem';
 export { pluginManager } from './plugins/pluginSystem';
 
 // Existing services
-export * from './ai/aiService';
 export { aiService } from './ai/aiService';
 
 export * from './collaboration/collaborationService';

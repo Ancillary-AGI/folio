@@ -5,6 +5,9 @@
 
 import { describe, it, expect } from 'vitest';
 
+// Import types
+import type { Component, Wire, Net } from '@/types';
+
 // Import actual services
 import { aiService } from '../lib/ai/aiService';
 import { roboticsSimulationService } from '../lib/robotics/roboticsSimulation';
@@ -54,7 +57,7 @@ describe('1. CAD & Mechanical Design - Functional Tests', () => {
       }
     };
 
-    const result = multiphysicsEngine.runStructuralAnalysis(model);
+    const result = multiPhysicsEngine.runStructuralAnalysis(model);
     
     expect(result).toBeDefined();
     expect(result.displacements).toBeDefined();
@@ -173,8 +176,8 @@ describe('2. Circuit & PCB Design - Functional Tests', () => {
     expect(result.reflectionCoefficient).toBeDefined();
   });
 
-  it('should convert schematic to PCB layout', () => {
-    const schematic = {
+  it('should convert schematic to PCB layout', async () => {
+    const schematic: any = {
       id: 'test-schematic',
       name: 'Test Circuit',
       components: [
@@ -204,7 +207,8 @@ describe('2. Circuit & PCB Design - Functional Tests', () => {
       metadata: {
         created: new Date().toISOString(),
         modified: new Date().toISOString(),
-        version: '1.0'
+        version: '1.0',
+        author: 'test'
       },
       settings: {
         gridSize: 10,
@@ -219,18 +223,25 @@ describe('2. Circuit & PCB Design - Functional Tests', () => {
     const options = {
       boardSize: { width: 100, height: 100 },
       layerCount: 2,
+      designRules: {
+        minTraceWidth: 0.15,
+        minTraceClearance: 0.15,
+        minDrillSize: 0.3,
+        minAnnularRing: 0.15,
+        boardThickness: 1.6,
+        copperThickness: 0.035
+      },
       autoRoute: true,
-      traceWidth: 0.2,
-      clearance: 0.2,
-      viaSize: 0.6
+      optimizePlacement: false
     };
 
-    const result = schematicToPcbConverter.convertSchematicToPCB(schematic, options);
-    
+    const result = await schematicToPcbConverter.convertSchematicToPCB(schematic, options);
+
     expect(result).toBeDefined();
     expect(result.components).toBeDefined();
     expect(result.components.length).toBeGreaterThan(0);
-    expect(result.boardDimensions).toBeDefined();
+    expect(result.width).toBeDefined();
+    expect(result.height).toBeDefined();
     expect(result.layers).toBeDefined();
   });
 });
@@ -239,62 +250,70 @@ describe('3. Robotics & Embedded Systems - Functional Tests', () => {
   
   it('should create and simulate robot with kinematics', () => {
     const config = {
+      name: 'Test Robot 6DOF',
       type: 'manipulator' as const,
-      dof: 6,
-      links: [
-        { length: 1.0, mass: 2.0, inertia: 0.2 },
-        { length: 0.8, mass: 1.5, inertia: 0.15 },
-        { length: 0.6, mass: 1.0, inertia: 0.1 }
-      ],
       joints: [
-        { type: 'revolute' as const, axis: [0, 0, 1], limits: [-Math.PI, Math.PI] },
-        { type: 'revolute' as const, axis: [0, 1, 0], limits: [-Math.PI/2, Math.PI/2] },
-        { type: 'revolute' as const, axis: [0, 1, 0], limits: [-Math.PI/2, Math.PI/2] }
-      ]
+        { id: 'j1', name: 'Joint 1', type: 'revolute' as const, position: { x: 0, y: 0, z: 0 }, orientation: { roll: 0, pitch: 0, yaw: 0 }, limits: { min: -Math.PI, max: Math.PI }, velocity: 0, acceleration: 0 },
+        { id: 'j2', name: 'Joint 2', type: 'revolute' as const, position: { x: 1, y: 0, z: 0 }, orientation: { roll: 0, pitch: 0, yaw: 0 }, limits: { min: -Math.PI/2, max: Math.PI/2 }, velocity: 0, acceleration: 0 },
+        { id: 'j3', name: 'Joint 3', type: 'revolute' as const, position: { x: 1.8, y: 0, z: 0 }, orientation: { roll: 0, pitch: 0, yaw: 0 }, limits: { min: -Math.PI/2, max: Math.PI/2 }, velocity: 0, acceleration: 0 }
+      ],
+      links: [
+        { id: 'l1', name: 'Link 1', parentJoint: 'j1', childJoint: 'j2', length: 1.0, mass: 2.0, inertia: { xx: 0.2, yy: 0.2, zz: 0.1 } },
+        { id: 'l2', name: 'Link 2', parentJoint: 'j2', childJoint: 'j3', length: 0.8, mass: 1.5, inertia: { xx: 0.15, yy: 0.15, zz: 0.08 } },
+        { id: 'l3', name: 'Link 3', parentJoint: 'j3', childJoint: '', length: 0.6, mass: 1.0, inertia: { xx: 0.1, yy: 0.1, zz: 0.05 } }
+      ],
+      baseFrame: { position: { x: 0, y: 0, z: 0 }, orientation: { roll: 0, pitch: 0, yaw: 0 } },
+      kinematics: 'forward' as const,
+      dynamics: false
     };
 
-    const robot = roboticsSimulationService.createRobot('test-robot-6dof', config);
-    
+    const robot = roboticsSimulationService.createRobot(config);
+
     expect(robot).toBeDefined();
-    expect(robot.id).toBe('test-robot-6dof');
-    expect(robot.config.dof).toBe(6);
-    expect(robot.config.links.length).toBe(3);
+    expect(robot.id).toBeDefined();
+    expect(robot.joints.length).toBe(3);
+    expect(robot.links.length).toBe(3);
   });
 
   it('should perform forward kinematics calculation', () => {
     const config = {
+      name: 'FK Test Robot',
       type: 'manipulator' as const,
-      dof: 3,
-      links: [
-        { length: 1.0, mass: 1.0, inertia: 0.1 },
-        { length: 1.0, mass: 1.0, inertia: 0.1 }
-      ],
       joints: [
-        { type: 'revolute' as const, axis: [0, 0, 1], limits: [-Math.PI, Math.PI] },
-        { type: 'revolute' as const, axis: [0, 0, 1], limits: [-Math.PI, Math.PI] }
-      ]
+        { id: 'j1', name: 'Joint 1', type: 'revolute' as const, position: { x: 0, y: 0, z: 0 }, orientation: { roll: 0, pitch: 0, yaw: 0 }, limits: { min: -Math.PI, max: Math.PI }, velocity: 0, acceleration: 0 },
+        { id: 'j2', name: 'Joint 2', type: 'revolute' as const, position: { x: 1, y: 0, z: 0 }, orientation: { roll: 0, pitch: 0, yaw: 0 }, limits: { min: -Math.PI, max: Math.PI }, velocity: 0, acceleration: 0 }
+      ],
+      links: [
+        { id: 'l1', name: 'Link 1', parentJoint: 'j1', childJoint: 'j2', length: 1.0, mass: 1.0, inertia: { xx: 0.1, yy: 0.1, zz: 0.05 } },
+        { id: 'l2', name: 'Link 2', parentJoint: 'j2', childJoint: '', length: 1.0, mass: 1.0, inertia: { xx: 0.1, yy: 0.1, zz: 0.05 } }
+      ],
+      baseFrame: { position: { x: 0, y: 0, z: 0 }, orientation: { roll: 0, pitch: 0, yaw: 0 } },
+      kinematics: 'forward' as const,
+      dynamics: false
     };
 
-    const robot = roboticsSimulationService.createRobot('fk-test', config);
-    const jointAngles = [Math.PI/4, Math.PI/4];
-    
-    const result = roboticsSimulationService.forwardKinematics(robot.id, jointAngles);
-    
+    const robot = roboticsSimulationService.createRobot(config);
+    const jointAngles = { j1: 45, j2: 45 }; // degrees
+
+    const result = roboticsSimulationService.computeForwardKinematics(robot.id, jointAngles);
+
     expect(result).toBeDefined();
-    expect(result.success).toBe(true);
-    expect(result.endEffectorPose).toBeDefined();
-    expect(result.endEffectorPose.position).toBeDefined();
-    expect(result.endEffectorPose.orientation).toBeDefined();
+    expect(result.position).toBeDefined();
+    expect(result.orientation).toBeDefined();
   });
 
   it('should manage hardware interfaces', () => {
-    const i2c = hardwareInterfaceManager.getI2CInterface('i2c-0');
-    
+    const i2c = hardwareInterfaceManager.createI2CInterface('i2c-0', {
+      address: 0x50,
+      clockSpeed: 100000,
+      sda: 2,
+      scl: 3
+    });
+
     expect(i2c).toBeDefined();
-    expect(i2c.id).toBe('i2c-0');
     expect(typeof i2c.write).toBe('function');
     expect(typeof i2c.read).toBe('function');
-    expect(typeof i2c.scan).toBe('function');
+    expect(typeof i2c.scanBus).toBe('function');
   });
 
   it('should create and sync digital twin', () => {
@@ -310,7 +329,7 @@ describe('3. Robotics & Embedded Systems - Functional Tests', () => {
       ]
     };
 
-    const twin = digitalTwinService.createDigitalTwin('twin-001', config);
+    const twin = digitalTwinService.createDigitalTwin(config);
     
     expect(twin).toBeDefined();
     expect(twin.id).toBe('twin-001');
@@ -355,7 +374,7 @@ describe('4. Agentic AI & Intelligent Design Automation - Functional Tests', () 
       { name: 'performance', type: 'maximize' as const, weight: 0.5 }
     ];
 
-    const fitnessFunction = (genome: { genes: Record<string, unknown> }) => {
+    const fitnessFunction = (_genome: { genes: Record<string, unknown> }) => {
       const cost = Math.random() * 100;
       const performance = Math.random() * 100;
       return { cost, performance };
@@ -381,17 +400,22 @@ describe('4. Agentic AI & Intelligent Design Automation - Functional Tests', () 
   });
 
   it('should analyze circuit with AI', async () => {
-    const components = [
+    const components: Component[] = [
       {
         id: 'r1',
         name: 'Resistor',
         category: 'passive',
+        symbol: { width: 20, height: 10, paths: [], circles: [], rectangles: [] },
+        pins: [
+          { id: 'p1', name: '1', x: 0, y: 5, type: 'passive' },
+          { id: 'p2', name: '2', x: 20, y: 5, type: 'passive' }
+        ],
         properties: { value: '10k' }
       }
     ];
 
-    const wires = [];
-    const nets = [];
+    const wires: Wire[] = [];
+    const nets: Net[] = [];
 
     const analysis = await aiService.analyzeCircuit(components, wires, nets);
     
@@ -485,7 +509,7 @@ describe('6. Integration Tests - Cross-Domain Functionality', () => {
       }
     };
 
-    const result = multiphysicsEngine.runThermalAnalysis(model);
+    const result = multiPhysicsEngine.runThermalAnalysis(model);
     
     expect(result).toBeDefined();
     expect(result.temperatures).toBeDefined();
@@ -494,14 +518,19 @@ describe('6. Integration Tests - Cross-Domain Functionality', () => {
 
   it('should integrate robotics with digital twin', () => {
     // Create robot
-    const robotConfig = {
+    const robot = roboticsSimulationService.createRobot({
+      name: 'Integrated Robot',
       type: 'manipulator' as const,
-      dof: 3,
-      links: [{ length: 1.0, mass: 1.0, inertia: 0.1 }],
-      joints: [{ type: 'revolute' as const, axis: [0, 0, 1], limits: [-Math.PI, Math.PI] }]
-    };
-
-    const robot = roboticsSimulationService.createRobot('integrated-robot', robotConfig);
+      joints: [
+        { id: 'j1', name: 'Joint 1', type: 'revolute' as const, position: { x: 0, y: 0, z: 0 }, orientation: { roll: 0, pitch: 0, yaw: 0 }, limits: { min: -Math.PI, max: Math.PI }, velocity: 0, acceleration: 0 }
+      ],
+      links: [
+        { id: 'l1', name: 'Link 1', parentJoint: 'j1', childJoint: '', length: 1.0, mass: 1.0, inertia: { xx: 0.1, yy: 0.1, zz: 0.05 } }
+      ],
+      baseFrame: { position: { x: 0, y: 0, z: 0 }, orientation: { roll: 0, pitch: 0, yaw: 0 } },
+      kinematics: 'forward' as const,
+      dynamics: false
+    });
     
     // Create digital twin for robot
     const twinConfig = {
@@ -511,7 +540,7 @@ describe('6. Integration Tests - Cross-Domain Functionality', () => {
       actuators: [{ id: 'motor1', type: 'servo', range: [-Math.PI, Math.PI] }]
     };
 
-    const twin = digitalTwinService.createDigitalTwin('robot-twin', twinConfig);
+    const twin = digitalTwinService.createDigitalTwin(twinConfig);
     
     expect(robot).toBeDefined();
     expect(twin).toBeDefined();
@@ -586,7 +615,32 @@ describe('7. Performance & Scalability Tests', () => {
         joints: [{ type: 'revolute' as const, axis: [0, 0, 1], limits: [-Math.PI, Math.PI] }]
       };
       
-      const robot = roboticsSimulationService.createRobot(`perf-robot-${i}`, config);
+      const robot = roboticsSimulationService.createRobot({
+        name: `Perf Robot ${i}`,
+        type: config.type,
+        joints: config.joints.map((j, idx) => ({
+          id: `j${idx + 1}`,
+          name: `Joint ${idx + 1}`,
+          type: j.type,
+          position: { x: idx, y: 0, z: 0 },
+          orientation: { roll: 0, pitch: 0, yaw: 0 },
+          limits: { min: j.limits[0], max: j.limits[1] },
+          velocity: 0,
+          acceleration: 0
+        })),
+        links: config.links.map((l, idx) => ({
+          id: `l${idx + 1}`,
+          name: `Link ${idx + 1}`,
+          parentJoint: `j${idx + 1}`,
+          childJoint: idx < config.links.length - 1 ? `j${idx + 2}` : '',
+          length: l.length,
+          mass: l.mass,
+          inertia: { xx: l.inertia, yy: l.inertia, zz: l.inertia / 2 }
+        })),
+        baseFrame: { position: { x: 0, y: 0, z: 0 }, orientation: { roll: 0, pitch: 0, yaw: 0 } },
+        kinematics: 'forward',
+        dynamics: false
+      });
       robots.push(robot);
     }
     

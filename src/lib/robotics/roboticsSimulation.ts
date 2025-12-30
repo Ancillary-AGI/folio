@@ -487,6 +487,18 @@ export class RoboticsSimulationService {
   getSimulationResult(simulationId: string): SimulationResult | undefined {
     return this.simulations.get(simulationId);
   }
+
+  // Test compatibility methods
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  forwardKinematics(robotId: string, jointAngles: Record<string, number>): unknown {
+    return this.computeForwardKinematics(robotId, jointAngles);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  simulateTrajectory(robotId: string, startPose: unknown, endPose: unknown): unknown {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return this.planTrajectory(robotId, startPose as any, endPose as any);
+  }
 }
 
 export const roboticsSimulationService = new RoboticsSimulationService();

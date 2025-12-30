@@ -35,6 +35,13 @@ export class STLExporter {
     }
   }
 
+  static exportToSTL(geometry: any, filename?: string): string {
+    // Simplified export method for test compatibility
+    const opts = this.DEFAULT_OPTIONS;
+    const processedGeometry = this.processGeometry(geometry, new THREE.Matrix4(), opts.scale);
+    return this.exportASCII([processedGeometry], opts);
+  }
+
   private static collectGeometries(scene: THREE.Scene): Array<{ vertices: Float32Array; normals: Float32Array; indices: Uint32Array }> {
     const geometries: Array<{ vertices: Float32Array; normals: Float32Array; indices: Uint32Array }> = [];
 

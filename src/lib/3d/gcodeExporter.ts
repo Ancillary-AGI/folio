@@ -337,6 +337,29 @@ export class GCodeExporter {
   getConfig(): GCodeConfig {
     return { ...this.config };
   }
+
+  generateGCode(model: any, config: any): string {
+    // Simplified method for test compatibility
+    this.setConfig(config);
+    // Mock scene with the model
+    const mockScene: ThreeDScene = {
+      models: [{
+        id: 'test-model',
+        geometry: model,
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+        material: { color: '#ffffff', opacity: 1 }
+      }],
+      lights: [],
+      camera: {
+        position: { x: 0, y: 0, z: 10 },
+        target: { x: 0, y: 0, z: 0 },
+        fov: 45
+      }
+    };
+    return this.exportToGCode(mockScene);
+  }
 }
 
 export const gcodeExporter = new GCodeExporter();
