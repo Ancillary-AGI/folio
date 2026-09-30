@@ -18,7 +18,7 @@
  */
 
 import { cAdd, cSub, complex, type Complex } from './numeric'
-import type { DiodeDevice } from './devices'
+import { sourceTransientValue, type DiodeDevice } from './devices'
 import type { CircuitModel } from './circuitModel'
 
 export interface RealSystem {
@@ -31,15 +31,45 @@ export interface ComplexSystem {
   rhs: Complex[]
 }
 
+/** BJT junction bias and junction-capacitance values at one time step. */
+export interface BjtJunctionState {
+  /** Forward-positive junction voltages (mirror-corrected for a PNP). */
+  vbe: number
+  vbc: number
+  /** Base-emitter and base-collector capacitances at that bias, F. */
+  cPi: number
+  cMu: number
+}
+
+/** MOSFET terminal bias and gate capacitances at one time step. */
+export interface MosfetTerminalState {
+  /** Forward-positive terminal voltages (mirror-corrected for a P-channel part). */
+  vgs: number
+  vds: number
+  vbs: number
+  /** Gate–source and gate–drain capacitances at that bias, F. */
+  cgs: number
+  cgd: number
+}
+
 /** State carried between transient time steps. Keyed by device name. */
 export interface TransientState {
   capacitorVoltages: Map<string, number>
   inductorCurrents: Map<string, number>
+  /** BJT junction bias from the previous time step. */
+  bjtJunctions: Map<string, BjtJunctionState>
+  /** MOSFET terminal bias from the previous time step. */
+  mosfetBias: Map<string, MosfetTerminalState>
+  /** Op-amp first-stage voltage from the previous time step. */
+  opAmpStages: Map<string, number>
 }
 
 export const createTransientState = (): TransientState => ({
   capacitorVoltages: new Map(),
   inductorCurrents: new Map(),
+  bjtJunctions: new Map(),
+  mosfetBias: new Map(),
+  opAmpStages: new Map(),
 })
 
 const zeros = (size: number): number[][] =>
@@ -81,6 +111,43 @@ function addCurrentInjection(system: RealSystem, model: CircuitModel, p: string,
   // KCL: current leaving a node is positive, so an injected current is negative.
   if (a !== undefined) system.rhs[a] -= value
   if (b !== undefined) system.rhs[b] += value
+}
+
+/**
+ * Stamp a voltage-controlled current source: `i = gm·(v(ip) − v(inn))` flowing
+ * from `p` through the source to `n`.
+ *
+ * Sign convention, checked against SPICE: a positive controlling voltage drives
+ * a positive current `i` from output node `p` through the source to node `n`.
+ * In nodal analysis the KCL current *leaving* a node is negative on the RHS,
+ * so the current leaving `p` (and symmetrically the current entering `n`)
+ * appears as `−gm·v` conductances: `rhs(p) -= i`, `rhs(n) += i`.
+ *
+ * The controlling voltages stay on the left-hand side because they are
+ * unknowns: that is what makes this a genuine four-terminal element instead of a
+ * fixed current.
+ */
+function addControlledCurrent(
+  system: RealSystem,
+  model: CircuitModel,
+  p: string,
+  n: string,
+  ip: string,
+  inn: string,
+  gm: number,
+): void {
+  const a = model.nodeIndex.get(p)
+  const b = model.nodeIndex.get(n)
+  const controlP = model.nodeIndex.get(ip)
+  const controlN = model.nodeIndex.get(inn)
+  if (a !== undefined) {
+    if (controlP !== undefined) system.matrix[a][controlP] += gm
+    if (controlN !== undefined) system.matrix[a][controlN] -= gm
+  }
+  if (b !== undefined) {
+    if (controlP !== undefined) system.matrix[b][controlP] -= gm
+    if (controlN !== undefined) system.matrix[b][controlN] += gm
+  }
 }
 
 /**
@@ -143,6 +210,33 @@ export function stampDc(system: RealSystem, model: CircuitModel): void {
       case 'diode':
         // Contributes through the Newton iteration, not here.
         break
+      case 'bjt':
+      case 'mosfet':
+      case 'op-amp':
+        /*
+         * Nonlinear, or split across a linear and a bias-dependent part:
+         * `semiconductors.ts` owns all of them. The solver adds their
+         * bias-independent pieces with `stampSemiconductorLinear` and their
+         * companions with `stampSemiconductorNonlinear` on every Newton
+         * iteration, mirroring how diodes are handled here.
+         */
+        break
+      case 'vcvs': {
+        const branch = model.branchRows.get(device.name)
+        if (branch === undefined) break
+        // Branch constraint: v(p) − v(n) − gain·(v(ip) − v(inn)) = 0.
+        addVoltageConstraint(system, model, branch, device.p, device.n, 0)
+        const controlP = model.nodeIndex.get(device.ip)
+        const controlN = model.nodeIndex.get(device.inn)
+        if (controlP !== undefined) system.matrix[branch][controlP] -= device.gain
+        if (controlN !== undefined) system.matrix[branch][controlN] += device.gain
+        break
+      }
+      case 'vccs': {
+        // Current i = gain·(v(ip) − v(inn)) flows from p through the source to n.
+        addControlledCurrent(system, model, device.p, device.n, device.ip, device.inn, device.gain)
+        break
+      }
     }
   }
 }
@@ -165,7 +259,13 @@ export function stampDc(system: RealSystem, model: CircuitModel): void {
  *   stamped as the branch constraint `v(p) − v(n) − (L/dt)·i = −(L/dt)·i_prev`,
  *   which keeps the inductor current available as a state variable.
  */
-export function stampTransient(system: RealSystem, model: CircuitModel, dt: number, state: TransientState): void {
+export function stampTransient(
+  system: RealSystem,
+  model: CircuitModel,
+  dt: number,
+  state: TransientState,
+  time: number,
+): void {
   for (const device of model.devices) {
     switch (device.kind) {
       case 'resistor':
@@ -191,14 +291,42 @@ export function stampTransient(system: RealSystem, model: CircuitModel, dt: numb
       case 'voltage-source': {
         const branch = model.branchRows.get(device.name)
         if (branch !== undefined) {
-          addVoltageConstraint(system, model, branch, device.p, device.n, device.dcVoltage)
+          // A PULSE or SINE source contributes its instantaneous level, which is
+          // the only difference between it and a DC source at a given time step.
+          const value = sourceTransientValue(device.dcVoltage, device.waveform, time)
+          addVoltageConstraint(system, model, branch, device.p, device.n, value)
         }
         break
       }
       case 'current-source':
-        addCurrentInjection(system, model, device.p, device.n, device.dcCurrent)
+        addCurrentInjection(
+          system,
+          model,
+          device.p,
+          device.n,
+          sourceTransientValue(device.dcCurrent, device.waveform, time),
+        )
         break
       case 'diode':
+        break
+      case 'bjt':
+      case 'mosfet':
+      case 'op-amp':
+        // Companion models live in `semiconductors.ts` (stamped per iteration),
+        // because their junction and gate charges are bias dependent.
+        break
+      case 'vcvs': {
+        const branch = model.branchRows.get(device.name)
+        if (branch === undefined) break
+        addVoltageConstraint(system, model, branch, device.p, device.n, 0)
+        const controlP = model.nodeIndex.get(device.ip)
+        const controlN = model.nodeIndex.get(device.inn)
+        if (controlP !== undefined) system.matrix[branch][controlP] -= device.gain
+        if (controlN !== undefined) system.matrix[branch][controlN] += device.gain
+        break
+      }
+      case 'vccs':
+        addControlledCurrent(system, model, device.p, device.n, device.ip, device.inn, device.gain)
         break
     }
   }
@@ -359,6 +487,54 @@ export function stampAc(
       case 'diode': {
         const conductance = (diodeConductances.get(device.name) ?? 0) + gmin
         addComplexAdmittance(system, model, device.p, device.n, complex(conductance))
+        break
+      }
+      case 'bjt':
+      case 'mosfet':
+      case 'op-amp':
+        /*
+         * Linearised at the DC operating point by
+         * `stampSemiconductorSmallSignal`, which the solver calls immediately
+         * after this function — the same split the diodes already use, where
+         * `stampAc` needs conductances the caller computed from a DC solve.
+         */
+        break
+      case 'vcvs': {
+        const branch = model.branchRows.get(device.name)
+        if (branch === undefined) break
+        const a = model.nodeIndex.get(device.p)
+        const b = model.nodeIndex.get(device.n)
+        if (a !== undefined) {
+          system.matrix[a][branch] = cAdd(system.matrix[a][branch], complex(1))
+          system.matrix[branch][a] = cAdd(system.matrix[branch][a], complex(1))
+        }
+        if (b !== undefined) {
+          system.matrix[b][branch] = cSub(system.matrix[b][branch], complex(1))
+          system.matrix[branch][b] = cSub(system.matrix[branch][b], complex(1))
+        }
+        const controlP = model.nodeIndex.get(device.ip)
+        const controlN = model.nodeIndex.get(device.inn)
+        if (controlP !== undefined) {
+          system.matrix[branch][controlP] = cSub(system.matrix[branch][controlP], complex(device.gain))
+        }
+        if (controlN !== undefined) {
+          system.matrix[branch][controlN] = cAdd(system.matrix[branch][controlN], complex(device.gain))
+        }
+        break
+      }
+      case 'vccs': {
+        const a = model.nodeIndex.get(device.p)
+        const b = model.nodeIndex.get(device.n)
+        const controlP = model.nodeIndex.get(device.ip)
+        const controlN = model.nodeIndex.get(device.inn)
+        if (a !== undefined) {
+          if (controlP !== undefined) system.matrix[a][controlP] = cAdd(system.matrix[a][controlP], complex(device.gain))
+          if (controlN !== undefined) system.matrix[a][controlN] = cSub(system.matrix[a][controlN], complex(device.gain))
+        }
+        if (b !== undefined) {
+          if (controlP !== undefined) system.matrix[b][controlP] = cSub(system.matrix[b][controlP], complex(device.gain))
+          if (controlN !== undefined) system.matrix[b][controlN] = cAdd(system.matrix[b][controlN], complex(device.gain))
+        }
         break
       }
     }

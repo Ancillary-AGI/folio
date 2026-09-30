@@ -169,11 +169,11 @@ describe('error handling', () => {
       ...voltageDivider,
       components: [
         ...voltageDivider.components,
-        { type: 'mosfet', name: 'M1', nodes: ['VIN', 'OUT', '0'], parameters: {} },
+        { type: 'lcd_display', name: 'U1', nodes: ['VIN', '0'], parameters: {} },
       ],
     })
     expect(result.success).toBe(false)
-    expect(result.error).toContain('M1')
+    expect(result.error).toContain('U1')
     expect(result.error).toContain('no model in this solver')
   })
 

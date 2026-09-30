@@ -8,7 +8,7 @@
  */
 
 import { solveRealSystem, solveComplexSystem, cAbs } from './numeric'
-import { thermalVoltage } from './devices'
+import { isInternalNode, thermalVoltage } from './devices'
 import type { CircuitModel } from './circuitModel'
 import {
   createComplexSystem,
@@ -23,6 +23,15 @@ import {
   type RealSystem,
   type TransientState,
 } from './stamping'
+import {
+  createSemiconductorState,
+  readSemiconductorState,
+  stampSemiconductorLinear,
+  stampSemiconductorNonlinear,
+  stampSemiconductorSmallSignal,
+  updateTransientState,
+  type SemiconductorState,
+} from './semiconductors'
 
 /** Default conductance added to every node so a floating net is at least solvable. */
 export const DEFAULT_GMIN = 1e-12
@@ -75,6 +84,8 @@ export interface NewtonOptions {
 export interface NewtonResult {
   solution: number[]
   diodeOperatingPoints: Map<string, DiodeOperatingPoint>
+  /** BJT/MOSFET/op-amp bias points at the solution. */
+  semiconductor: SemiconductorState
   iterations: number
   converged: boolean
 }
@@ -108,6 +119,14 @@ export function solveNewton(
     if (device.kind === 'diode') diodeOperatingPoints.set(device.name, { voltage: 0.6, current: 0 })
   }
 
+  /*
+   * BJTs, MOSFETs and op-amps start from a plausible bias too (see
+   * `createSemiconductorState`), and their companions are rebuilt from the
+   * previous iterate on every pass — including the op-amp output clamp, whose
+   * rails are the supply nodes as the iterate currently sees them.
+   */
+  let semiconductor = createSemiconductorState(model, thermal)
+
   let solution = options.initial ? [...options.initial] : new Array<number>(model.size).fill(0)
 
   for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
@@ -115,6 +134,14 @@ export function solveNewton(
     stampLinear(system)
     stampGmin(system, model, gmin)
     stampNonlinearDiodes(system, model, diodeOperatingPoints, thermal, gmin)
+    stampSemiconductorNonlinear(
+      system,
+      model,
+      semiconductor,
+      thermal,
+      readNodeVoltages(model, solution),
+      gmin,
+    )
 
     const next = solveRealSystem(system.matrix, system.rhs)
     if (!next) return null
@@ -139,10 +166,13 @@ export function solveNewton(
 
     solution = next
     diodeOperatingPoints = updatedPoints
-    if (converged) return { solution, diodeOperatingPoints, iterations: iteration, converged: true }
+    semiconductor = readSemiconductorState(model, readNodeVoltages(model, next), thermal)
+    if (converged) {
+      return { solution, diodeOperatingPoints, semiconductor, iterations: iteration, converged: true }
+    }
   }
 
-  return { solution, diodeOperatingPoints, iterations: maxIterations, converged: false }
+  return { solution, diodeOperatingPoints, semiconductor, iterations: maxIterations, converged: false }
 }
 
 /** Map a solution vector onto named node voltages (ground included). */
@@ -188,6 +218,8 @@ export interface OperatingPointResult {
   diodeConductances: Map<string, number>
   /** Full diode bias points (voltage and current), for noise budgeting. */
   diodeOperatingPoints: Map<string, DiodeOperatingPoint>
+  /** BJT, MOSFET and op-amp bias points at the operating point. */
+  semiconductor: SemiconductorState
   solution: number[]
 }
 
@@ -219,6 +251,7 @@ export function runOperatingPoint(model: CircuitModel, options: OperatingPointOp
       },
       diodeConductances: new Map(),
       diodeOperatingPoints: new Map(),
+      semiconductor: createSemiconductorState(model, thermalVoltage(options.temperatureCelsius)),
       solution: [],
     }
   }
@@ -233,7 +266,14 @@ export function runOperatingPoint(model: CircuitModel, options: OperatingPointOp
     diodeConductances.set(device.name, diodeCurrentAndConductance(device, point.voltage, thermal).conductance)
   }
 
-  const notes = collectImplausibleNodes(voltages)
+  /*
+   * Model-internal nodes (BJT series-resistance taps, the op-amp first stage)
+   * are solved but never shown: they are not schematic nets, and a user cannot
+   * probe them. They stay in `voltages`, which the callers use for
+   * linearisation.
+   */
+  const visible = new Map([...voltages].filter(([name]) => !isInternalNode(name)))
+  const notes = collectImplausibleNodes(visible)
   if (!newton.converged) {
     notes.push(
       `The operating point did not converge after ${newton.iterations} Newton iterations. ` +
@@ -243,15 +283,16 @@ export function runOperatingPoint(model: CircuitModel, options: OperatingPointOp
 
   return {
     outcome: {
-      nodes: [...voltages.entries()].map(([name, voltage]) => ({ name, voltage })),
+      nodes: [...visible.entries()].map(([name, voltage]) => ({ name, voltage })),
       waveforms: [],
-      operatingPoint: Object.fromEntries(voltages),
+      operatingPoint: Object.fromEntries(visible),
       iterations: newton.iterations,
       converged: newton.converged,
       notes,
     },
     diodeConductances,
     diodeOperatingPoints: newton.diodeOperatingPoints,
+    semiconductor: newton.semiconductor,
     solution: newton.solution,
   }
 }
@@ -310,6 +351,7 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
   }
 
   let initialSolution: number[] | undefined
+  const thermal = thermalVoltage(temperatureCelsius)
   if (useInitialConditions) {
     for (const device of model.devices) {
       if (device.kind === 'capacitor') state.capacitorVoltages.set(device.name, 0)
@@ -330,6 +372,9 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
         state.inductorCurrents.set(device.name, currents.get(device.name) ?? 0)
       }
     }
+    // Semiconductor junctions are charged too: without this the first time step
+    // would behave as if every transistor had been sitting at 0 V.
+    updateTransientState(model, state, voltages, thermal)
     initialSolution = operatingPoint.solution
   }
 
@@ -341,13 +386,22 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
   let warmStart = initialSolution
 
   for (let step = 1; step <= steps; step += 1) {
-    const newton = solveNewton(model, (system) => stampTransient(system, model, dt, state), {
-      temperatureCelsius,
-      gmin: options.gmin,
-      initial: warmStart,
-    })
-
+    // Sources with a PULSE or SINE waveform are evaluated at the step's time.
     const time = step * dt
+    const newton = solveNewton(
+      model,
+      (system) => {
+        stampTransient(system, model, dt, state, time)
+        // Junction, gate and op-amp stage capacitances take the same step.
+        stampSemiconductorLinear(system, model, { dt, state })
+      },
+      {
+        temperatureCelsius,
+        gmin: options.gmin,
+        initial: warmStart,
+      },
+    )
+
     if (!newton) {
       notes.push(`The transient solve failed at t = ${(time * 1e3).toFixed(4)} ms (singular matrix).`)
       converged = false
@@ -373,8 +427,10 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
         state.inductorCurrents.set(device.name, currents.get(device.name) ?? 0)
       }
     }
+    updateTransientState(model, state, voltages, thermal)
 
     for (const node of model.nodeNames) {
+      if (isInternalNode(node)) continue
       voltageSeries.get(node)?.push({ x: time, y: voltages.get(node) ?? 0 })
     }
   }
@@ -461,11 +517,14 @@ export function runAcSweep(model: CircuitModel, options: AcSweepOptions): Analys
   // Bias-dependent linearisation: the operating point is the physics here.
   const operatingPoint = runOperatingPoint(model, { temperatureCelsius, gmin })
   const notes = [...operatingPoint.outcome.notes]
+  const thermal = thermalVoltage(temperatureCelsius)
+  const operatingVoltages = readNodeVoltages(model, operatingPoint.solution)
 
   const frequencies = buildFrequencyGrid(options)
   const magnitude = new Map<string, Array<{ x: number; y: number }>>()
   const phase = new Map<string, Array<{ x: number; y: number }>>()
   for (const node of model.nodeNames) {
+    if (isInternalNode(node)) continue
     magnitude.set(node, [])
     phase.set(node, [])
   }
@@ -475,6 +534,7 @@ export function runAcSweep(model: CircuitModel, options: AcSweepOptions): Analys
     const omega = 2 * Math.PI * frequency
     const system = createComplexSystem(model)
     stampAc(system, model, omega, operatingPoint.diodeConductances, gmin)
+    stampSemiconductorSmallSignal(system, model, operatingPoint.semiconductor, thermal, omega, operatingVoltages)
 
     const solution = solveComplexSystem(system.matrix, system.rhs)
     if (!solution) {
@@ -484,14 +544,17 @@ export function runAcSweep(model: CircuitModel, options: AcSweepOptions): Analys
     }
 
     model.nodeNames.forEach((node, index) => {
+      const data = magnitude.get(node)
+      if (!data || !phase.has(node)) return
       const value = solution[index]
-      magnitude.get(node)?.push({ x: frequency, y: cAbs(value) })
+      data.push({ x: frequency, y: cAbs(value) })
       phase.get(node)?.push({ x: frequency, y: (Math.atan2(value.im, value.re) * 180) / Math.PI })
     })
   }
 
   const waveforms: Waveform[] = []
   for (const node of model.nodeNames) {
+    if (isInternalNode(node)) continue
     const magnitudeData = magnitude.get(node) ?? []
     const phaseData = phase.get(node) ?? []
     if (magnitudeData.length > 0) {
