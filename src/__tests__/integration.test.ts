@@ -1,11 +1,11 @@
-// Integration tests for Circuit CAD Pro
+// Integration tests for Folio
 import { describe, it, expect } from 'vitest';
 import { spiceEngine } from '../lib/simulation/spiceEngine';
-import { multiPhysicsEngine } from '../lib/simulation/multiPhysicsEngine';
+import { solveAxialBar, solveBarConduction, solveElectrostaticField } from '../lib/simulation/multiphysics';
 import { pluginManager } from '../lib/plugins/pluginManager';
 import { collaborativeEditor } from '../lib/collaboration/collaborativeEditor';
 
-describe('Circuit CAD Pro Integration Tests', () => {
+describe('Folio Integration Tests', () => {
   describe('SPICE Simulation Engine', () => {
     it('should initialize without errors', () => {
       expect(spiceEngine).toBeDefined();
@@ -17,18 +17,47 @@ describe('Circuit CAD Pro Integration Tests', () => {
   });
 
   describe('Multi-Physics Engine', () => {
-    it('should initialize without errors', () => {
-      expect(multiPhysicsEngine).toBeDefined();
-    });
+    it('solves an axial bar against the analytic stiffness', () => {
+      const result = solveAxialBar({
+        length: 0.4,
+        area: 2e-4,
+        youngsModulus: 200e9,
+        segments: 4,
+        endLoad: 2000,
+      })
+      expect(result.converged).toBe(true)
+      expect(result.displacements[4]).toBeCloseTo((2000 * 0.4) / (200e9 * 2e-4), 12)
+      expect(result.reactionForce).toBeCloseTo(-2000, 6)
+    })
 
-    it('should be able to clear nodes', () => {
-      multiPhysicsEngine.clear();
-      expect(true).toBe(true); // If no error thrown, test passes
-    });
+    it('solves steady-state conduction along a bar', () => {
+      const result = solveBarConduction({
+        length: 0.2,
+        area: 1e-4,
+        thermalConductivity: 401,
+        segments: 8,
+        temperatureAtStart: 80,
+        temperatureAtEnd: 20,
+      })
+      expect(result.converged).toBe(true)
+      expect(result.temperatures).toHaveLength(9)
+      expect(result.flux).toBeCloseTo((401 * 60) / 0.2, 6)
+    })
 
-    it('should have simulation methods', () => {
-      expect(typeof multiPhysicsEngine.simulate).toBe('function');
-    });
+    it('solves a parallel-plate electrostatic field', () => {
+      const result = solveElectrostaticField({
+        separation: 1e-3,
+        plateWidth: 0.05,
+        relativePermittivity: 1,
+        cellsX: 4,
+        cellsY: 10,
+        upperPlateVoltage: 5,
+        lowerPlateVoltage: 0,
+      })
+      expect(result.converged).toBe(true)
+      expect(result.meanFieldMagnitude).toBeCloseTo(5000, 2)
+      expect(result.capacitance).toBeGreaterThan(0)
+    })
   });
 
   describe('Plugin Manager', () => {

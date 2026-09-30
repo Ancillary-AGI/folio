@@ -3,7 +3,7 @@
  * Provides genetic algorithms, particle swarm optimization, and RL-based design optimization
  */
 
-import { Component } from '../../types';
+import type { Component } from '../../types/domain';
 
 export interface DesignGenome {
   id: string;
@@ -27,6 +27,8 @@ export interface EvolutionaryConfig {
   crossoverRate: number;
   selectionMethod: 'tournament' | 'roulette' | 'rank';
   elitism: number; // Number of best individuals to keep
+  /** Optional per-generation progress observer — keeps the library silent by default. */
+  onProgress?: (info: { generation: number; bestFitness: number }) => void;
 }
 
 export interface ReinforcementLearningConfig {
@@ -37,6 +39,13 @@ export interface ReinforcementLearningConfig {
   explorationDecay: number;
   batchSize: number;
   memorySize: number;
+  /** Optional per-episode progress observer — keeps the library silent by default. */
+  onProgress?: (info: {
+    episode: number;
+    totalReward: number;
+    steps: number;
+    explorationRate: number;
+  }) => void;
 }
 
 export interface RLState {
@@ -65,8 +74,16 @@ export class EvolutionaryOptimizer {
   private generation: number = 0;
   private bestGenome: DesignGenome | null = null;
   private fitnessHistory: number[] = [];
+  /** Injectable RNG so optimisation runs are reproducible in tests. */
+  private rng: () => number = Math.random;
+  private genomeCounter = 0;
 
   constructor(private config: EvolutionaryConfig) {}
+
+  /** Override the RNG (e.g. with a seeded PRNG) for deterministic runs. */
+  setRandomSource(rng: () => number): void {
+    this.rng = rng;
+  }
 
   initializePopulation(initialDesign: Component[], createGenome: (design: Component[]) => DesignGenome): void {
     this.population = [];
@@ -109,18 +126,18 @@ export class EvolutionaryOptimizer {
 
         let offspring: DesignGenome[];
 
-        if (Math.random() < this.config.crossoverRate) {
+        if (this.rng() < this.config.crossoverRate) {
           offspring = this.crossover(parent1, parent2);
         } else {
           offspring = [
-            { ...parent1 },
-            { ...parent2 }
+            { ...parent1, genes: { ...parent1.genes } },
+            { ...parent2, genes: { ...parent2.genes } }
           ];
         }
 
         // Mutate offspring
         offspring.forEach(child => {
-          if (Math.random() < this.config.mutationRate) {
+          if (this.rng() < this.config.mutationRate) {
             this.mutate(child);
           }
           child.generation = this.generation;
@@ -143,14 +160,14 @@ export class EvolutionaryOptimizer {
       this.bestGenome = this.population[0];
       this.fitnessHistory.push(this.bestGenome.fitness);
 
-      console.log(`Generation ${this.generation}: Best fitness = ${this.bestGenome.fitness.toFixed(4)}`);
+      this.config.onProgress?.({ generation: this.generation, bestFitness: this.bestGenome.fitness });
     }
 
     return this.bestGenome!;
   }
 
-  private selectParent(): DesignGenome {
-    switch (this.config.selectionMethod) {
+  private selectParent(config: EvolutionaryConfig = this.config): DesignGenome {
+    switch (config.selectionMethod) {
       case 'tournament':
         return this.tournamentSelection();
       case 'roulette':
@@ -165,7 +182,7 @@ export class EvolutionaryOptimizer {
   private tournamentSelection(tournamentSize: number = 3): DesignGenome {
     const tournament: DesignGenome[] = [];
     for (let i = 0; i < tournamentSize; i++) {
-      tournament.push(this.population[Math.floor(Math.random() * this.population.length)]);
+      tournament.push(this.population[Math.floor(this.rng() * this.population.length)]);
     }
     tournament.sort((a, b) => b.fitness - a.fitness);
     return tournament[0];
@@ -173,7 +190,7 @@ export class EvolutionaryOptimizer {
 
   private rouletteSelection(): DesignGenome {
     const totalFitness = this.population.reduce((sum, g) => sum + Math.max(0, g.fitness), 0);
-    let random = Math.random() * totalFitness;
+    let random = this.rng() * totalFitness;
     
     for (const genome of this.population) {
       random -= Math.max(0, genome.fitness);
@@ -188,7 +205,7 @@ export class EvolutionaryOptimizer {
   private rankSelection(): DesignGenome {
     const ranks = this.population.map((_, index) => this.population.length - index);
     const totalRank = ranks.reduce((sum, r) => sum + r, 0);
-    let random = Math.random() * totalRank;
+    let random = this.rng() * totalRank;
     
     for (let i = 0; i < this.population.length; i++) {
       random -= ranks[i];
@@ -203,7 +220,7 @@ export class EvolutionaryOptimizer {
   private crossover(parent1: DesignGenome, parent2: DesignGenome): DesignGenome[] {
     // Single-point crossover
     const genes1 = Object.keys(parent1.genes);
-    const crossoverPoint = Math.floor(Math.random() * genes1.length);
+    const crossoverPoint = Math.floor(this.rng() * genes1.length);
 
     const child1Genes: Record<string, unknown> = {};
     const child2Genes: Record<string, unknown> = {};
@@ -220,7 +237,7 @@ export class EvolutionaryOptimizer {
 
     // Create child genomes (simplified - would need proper design reconstruction)
     const child1: DesignGenome = {
-      id: `genome_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: this.nextGenomeId(),
       genes: child1Genes,
       fitness: 0,
       generation: this.generation,
@@ -228,7 +245,7 @@ export class EvolutionaryOptimizer {
     };
 
     const child2: DesignGenome = {
-      id: `genome_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: this.nextGenomeId(),
       genes: child2Genes,
       fitness: 0,
       generation: this.generation,
@@ -240,25 +257,32 @@ export class EvolutionaryOptimizer {
 
   private mutate(genome: DesignGenome): void {
     const keys = Object.keys(genome.genes);
-    const keyToMutate = keys[Math.floor(Math.random() * keys.length)];
+    if (keys.length === 0) return;
+    const keyToMutate = keys[Math.floor(this.rng() * keys.length)];
     const value = genome.genes[keyToMutate];
 
     // Mutate based on value type
     if (typeof value === 'number') {
       // Gaussian mutation
-      const mutationAmount = (Math.random() - 0.5) * 0.1;
+      const mutationAmount = (this.rng() - 0.5) * 0.1;
       genome.genes[keyToMutate] = value * (1 + mutationAmount);
     } else if (typeof value === 'boolean') {
       genome.genes[keyToMutate] = !value;
     } else if (Array.isArray(value)) {
       // Mutate array element
       if (value.length > 0) {
-        const index = Math.floor(Math.random() * value.length);
+        const index = Math.floor(this.rng() * value.length);
         if (typeof value[index] === 'number') {
-          value[index] = value[index] * (1 + (Math.random() - 0.5) * 0.1);
+          value[index] = value[index] * (1 + (this.rng() - 0.5) * 0.1);
         }
       }
     }
+  }
+
+  /** Monotonic genome id — collision-free within this optimiser instance. */
+  private nextGenomeId(): string {
+    this.genomeCounter += 1;
+    return `genome_${Date.now()}_${this.genomeCounter}`;
   }
 
   private sortPopulation(): void {
@@ -277,37 +301,112 @@ export class EvolutionaryOptimizer {
     return [...this.population];
   }
 
-  // Test compatibility method
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  optimize(_config: EvolutionaryConfig, _objectives: OptimizationObjective[], fitnessFunction: (genome: { genes: Record<string, unknown> }) => { cost: number; performance: number }): {
+  /**
+   * Synchronous genetic optimisation driven by the supplied config.
+   *
+   * Each genome carries one real-valued gene per objective, seeded uniformly
+   * in [0, 100]. Every genome is evaluated each generation and combined
+   * directionally — maximise objectives contribute +value, minimise objectives
+   * contribute −value — scaled by the objective weights, so higher `fitness`
+   * is always better (consistent with the rest of this class). Real fitness
+   * functions are deterministic for a given genome, so each raw result is
+   * cached during evaluation and the best one is returned unchanged.
+   */
+  optimize(
+    config: EvolutionaryConfig,
+    objectives: OptimizationObjective[],
+    fitnessFunction: (genome: { genes: Record<string, unknown> }) => { cost: number; performance: number }
+  ): {
     bestGenome: DesignGenome;
     bestFitness: { cost: number; performance: number };
     generations: number;
     convergenceHistory: number[];
   } {
-    // Create a simple genome for testing
-    const genome: DesignGenome = {
-      id: 'test_genome',
-      genes: { cost: 10, performance: 5 },
-      fitness: 0,
-      generation: 0
+    if (config.populationSize < 1) {
+      throw new Error('optimize requires a population size of at least 1');
+    }
+
+    const rawResults = new Map<string, { cost: number; performance: number }>();
+    const evaluate = (genome: DesignGenome): void => {
+      const raw = fitnessFunction({ genes: genome.genes });
+      rawResults.set(genome.id, raw);
+      genome.fitness = objectives.reduce((sum, objective) => {
+        const value = (raw as unknown as Record<string, number>)[objective.name];
+        if (typeof value !== 'number') return sum;
+        return sum + (objective.type === 'maximize' ? value : -value) * objective.weight;
+      }, 0);
     };
 
-    const fitness = fitnessFunction(genome);
-    genome.fitness = fitness.cost + fitness.performance; // Simple combination
+    this.population = [];
+    this.fitnessHistory = [];
+    this.generation = 0;
+    this.bestGenome = null;
+
+    for (let i = 0; i < config.populationSize; i++) {
+      const genes: Record<string, unknown> = {};
+      for (const objective of objectives) {
+        genes[objective.name] = this.rng() * 100;
+      }
+      const genome: DesignGenome = {
+        id: this.nextGenomeId(),
+        genes,
+        fitness: 0,
+        generation: 0
+      };
+      evaluate(genome);
+      this.population.push(genome);
+    }
+    this.sortPopulation();
+    this.fitnessHistory.push(this.population[0].fitness);
+
+    for (let gen = 1; gen <= config.generations; gen++) {
+      this.generation = gen;
+      const newPopulation: DesignGenome[] = [];
+
+      // Elitism: carry the best genomes forward untouched (genes are copied so
+      // later mutation cannot leak into the kept originals).
+      for (let i = 0; i < config.elitism && this.population[i]; i++) {
+        newPopulation.push({ ...this.population[i], genes: { ...this.population[i].genes } });
+      }
+
+      while (newPopulation.length < config.populationSize) {
+        const parent1 = this.selectParent(config);
+        const parent2 = this.selectParent(config);
+        const offspring = this.rng() < config.crossoverRate
+          ? this.crossover(parent1, parent2)
+          : [
+              { ...parent1, genes: { ...parent1.genes } },
+              { ...parent2, genes: { ...parent2.genes } }
+            ];
+
+        for (const child of offspring) {
+          if (newPopulation.length >= config.populationSize) break;
+          if (this.rng() < config.mutationRate) {
+            this.mutate(child);
+          }
+          child.generation = gen;
+          child.parentIds = [parent1.id, parent2.id];
+          evaluate(child);
+          newPopulation.push(child);
+        }
+      }
+
+      this.population = newPopulation;
+      this.sortPopulation();
+      this.fitnessHistory.push(this.population[0].fitness);
+      config.onProgress?.({ generation: gen, bestFitness: this.population[0].fitness });
+    }
+
+    this.bestGenome = this.population[0];
+    const bestFitness = rawResults.get(this.bestGenome.id)
+      ?? fitnessFunction({ genes: this.bestGenome.genes });
 
     return {
-      bestGenome: genome,
-      bestFitness: fitness,
-      generations: 1,
-      convergenceHistory: [genome.fitness]
+      bestGenome: this.bestGenome,
+      bestFitness,
+      generations: config.generations,
+      convergenceHistory: [...this.fitnessHistory]
     };
-  }
-
-  // Additional test compatibility methods
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  trainRL(_config: unknown): Promise<void> {
-    return Promise.resolve();
   }
 }
 
@@ -321,11 +420,17 @@ export class ReinforcementLearningOptimizer {
     done: boolean;
   }> = [];
   private currentState: RLState | null = null;
-  private episode: number = 0;
   private explorationRate: number;
+  /** Injectable RNG so training runs are reproducible in tests. */
+  private rng: () => number = Math.random;
 
   constructor(private config: ReinforcementLearningConfig) {
     this.explorationRate = config.explorationRate;
+  }
+
+  /** Override the RNG (e.g. with a seeded PRNG) for deterministic runs. */
+  setRandomSource(rng: () => number): void {
+    this.rng = rng;
   }
 
   async train(
@@ -335,7 +440,6 @@ export class ReinforcementLearningOptimizer {
     episodes: number
   ): Promise<void> {
     for (let ep = 0; ep < episodes; ep++) {
-      this.episode = ep;
       this.currentState = { ...initialState };
       let totalReward = 0;
       let steps = 0;
@@ -382,15 +486,20 @@ export class ReinforcementLearningOptimizer {
         await this.trainOnBatch();
       }
 
-      console.log(`Episode ${ep}: Total reward = ${totalReward.toFixed(2)}, Steps = ${steps}, Exploration = ${this.explorationRate.toFixed(3)}`);
+      this.config.onProgress?.({
+        episode: ep,
+        totalReward,
+        steps,
+        explorationRate: this.explorationRate
+      });
     }
   }
 
   private selectAction(state: RLState, actions: RLAction[]): RLAction {
     // Epsilon-greedy action selection
-    if (Math.random() < this.explorationRate) {
+    if (this.rng() < this.explorationRate) {
       // Explore: random action
-      return actions[Math.floor(Math.random() * actions.length)];
+      return actions[Math.floor(this.rng() * actions.length)];
     } else {
       // Exploit: best action
       return this.getBestAction(state, actions);
@@ -448,7 +557,7 @@ export class ReinforcementLearningOptimizer {
     const batch: typeof this.experienceReplay = [];
 
     for (let i = 0; i < batchSize; i++) {
-      const index = Math.floor(Math.random() * this.experienceReplay.length);
+      const index = Math.floor(this.rng() * this.experienceReplay.length);
       batch.push(this.experienceReplay[index]);
     }
 
@@ -513,6 +622,8 @@ export class ParticleSwarmOptimizer {
     fitness: number;
   }> = [];
   private globalBest: { position: Record<string, number>; fitness: number } | null = null;
+  /** Injectable RNG so optimisation runs are reproducible in tests. */
+  private rng: () => number = Math.random;
 
   constructor(
     private config: {
@@ -521,8 +632,15 @@ export class ParticleSwarmOptimizer {
       inertia: number;
       cognitiveWeight: number;
       socialWeight: number;
+      /** Optional per-iteration progress observer — keeps the library silent by default. */
+      onProgress?: (info: { iteration: number; bestFitness: number }) => void;
     }
   ) {}
+
+  /** Override the RNG (e.g. with a seeded PRNG) for deterministic runs. */
+  setRandomSource(rng: () => number): void {
+    this.rng = rng;
+  }
 
   async optimize(
     initialPosition: Record<string, number>,
@@ -537,8 +655,8 @@ export class ParticleSwarmOptimizer {
 
       Object.keys(initialPosition).forEach(key => {
         const bound = bounds[key];
-        position[key] = bound.min + Math.random() * (bound.max - bound.min);
-        velocity[key] = (Math.random() - 0.5) * (bound.max - bound.min) * 0.1;
+        position[key] = bound.min + this.rng() * (bound.max - bound.min);
+        velocity[key] = (this.rng() - 0.5) * (bound.max - bound.min) * 0.1;
       });
 
       const fitness = await evaluateFitness(position);
@@ -561,8 +679,8 @@ export class ParticleSwarmOptimizer {
       for (const particle of this.particles) {
         // Update velocity
         Object.keys(particle.position).forEach(key => {
-          const r1 = Math.random();
-          const r2 = Math.random();
+          const r1 = this.rng();
+          const r2 = this.rng();
           const bound = bounds[key];
 
           particle.velocity[key] =
@@ -592,7 +710,7 @@ export class ParticleSwarmOptimizer {
         }
       }
 
-      console.log(`Iteration ${iter}: Best fitness = ${this.globalBest!.fitness.toFixed(4)}`);
+      this.config.onProgress?.({ iteration: iter, bestFitness: this.globalBest!.fitness });
     }
 
     return this.globalBest!.position;

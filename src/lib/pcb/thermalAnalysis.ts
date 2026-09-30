@@ -135,7 +135,7 @@ export class ThermalAnalysisEngine {
       hotspots,
       thermalGradient,
       steadyStateTemperature: Math.max(...currentTemperatures),
-      timeToSteadyState: this.estimateTimeToSteadyState(nodes, config),
+      timeToSteadyState: this.estimateTimeToSteadyState(config),
       recommendations
     };
   }
@@ -160,13 +160,20 @@ export class ThermalAnalysisEngine {
       const Qgen = node.powerDissipation; // W
 
       // Heat loss to ambient (convection)
-      const h = config.convectionCoefficient;
-      const A = this.estimateSurfaceArea();
+      const convectionBoundaries = boundaries.filter(boundary => boundary.type === 'convection');
+      const boundaryArea = convectionBoundaries.reduce((total, boundary) => total + boundary.area, 0);
+      const A = boundaryArea || this.estimateSurfaceArea();
+      const h = convectionBoundaries.length > 0
+        ? convectionBoundaries.reduce((total, boundary) => total + (boundary.heatTransferCoefficient ?? config.convectionCoefficient), 0) / convectionBoundaries.length
+        : config.convectionCoefficient;
       const Qconv = h * A * (T - config.ambientTemperature);
 
       // Heat loss through radiation
       const sigma = 5.67e-8; // Stefan-Boltzmann constant
-      const epsilon = material.emissivity;
+      const radiationBoundaries = boundaries.filter(boundary => boundary.type === 'radiation');
+      const epsilon = radiationBoundaries.length > 0
+        ? radiationBoundaries.reduce((total, boundary) => total + (boundary.emissivity ?? material.emissivity), 0) / radiationBoundaries.length
+        : material.emissivity;
       const Qrad = epsilon * sigma * A * (Math.pow(T + 273.15, 4) - Math.pow(config.ambientTemperature + 273.15, 4));
 
       // Conduction to neighboring nodes
@@ -284,7 +291,7 @@ export class ThermalAnalysisEngine {
     return recommendations;
   }
 
-  private estimateTimeToSteadyState(nodes: ThermalNode[], config: ThermalSimulationConfig): number {
+  private estimateTimeToSteadyState(config: ThermalSimulationConfig): number {
     // Estimate time constant using thermal mass and heat transfer
     const avgMaterial = this.thermalProperties['FR4'];
     const tau = (avgMaterial.density * avgMaterial.specificHeat * 0.001) / config.convectionCoefficient;

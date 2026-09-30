@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import { toolboxManager, type Toolbox } from '../../lib/toolbox/toolboxManager'
+import { toolboxManager, type Toolbox, type ToolboxItem } from '../../lib/toolbox/toolboxManager'
+import type { ToolboxComponent } from '../../types/toolbox'
 import { Button } from '../ui/button'
 import {
   CircuitBoard,
@@ -14,13 +15,6 @@ import {
   Wrench,
   type LucideIcon
 } from 'lucide-react'
-
-interface ToolboxComponent {
-  id: string;
-  name: string;
-  category: string;
-  description?: string;
-}
 
 interface ToolboxPanelProps {
   onComponentSelect: (component: ToolboxComponent) => void
@@ -45,7 +39,16 @@ export default function ToolboxPanel({ onComponentSelect, onToolSelect }: Toolbo
 
   const toolboxes = toolboxManager.getAllToolboxes()
   const activeToolboxData = toolboxManager.getToolbox(activeToolbox)
-  const allComponents = toolboxManager.getToolboxComponents(activeToolbox) as ToolboxComponent[]
+  const allComponents = toolboxManager.getToolboxComponents(activeToolbox).filter(isToolboxComponent)
+
+  function isToolboxComponent(value: unknown): value is ToolboxComponent {
+    if (!value || typeof value !== 'object') return false
+    const component = value as Partial<ToolboxComponent>
+    return typeof component.id === 'string' &&
+      typeof component.name === 'string' &&
+      typeof component.category === 'string' &&
+      Array.isArray(component.ports)
+  }
 
   // Filter components based on search and category
   const filteredComponents = allComponents.filter((component: ToolboxComponent) => {
@@ -213,7 +216,7 @@ export default function ToolboxPanel({ onComponentSelect, onToolSelect }: Toolbo
         <div className="p-4 border-t border-border">
           <h4 className="font-semibold text-foreground mb-3">Tools</h4>
           <div className="space-y-2">
-            {activeToolboxData.tools.map((tool: { id: string; name: string; description: string; icon: string; category: string; action: () => void }) => (
+            {activeToolboxData.tools.map((tool: ToolboxItem) => (
               <Button
                 key={tool.id}
                 variant="outline"

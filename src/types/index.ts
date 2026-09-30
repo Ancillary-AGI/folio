@@ -1,3 +1,119 @@
+/**
+ * types/index.ts
+ *
+ * Canonical type definitions for Folio.
+ *
+ * IMPORTANT — Category type policy:
+ *   Components from Supabase use  `category: string`.
+ *   The AI / domain services use  `category: { id: string; name: string }`.
+ *   To bridge both, CategoryLike is exported and getCategoryName() is the
+ *   single helper that normalises either form to a plain string — use it
+ *   everywhere instead of `typeof c.category === 'string'` guards.
+ */
+
+// ── Category helpers (eliminates the string-vs-object inconsistency) ──────────
+
+export type CategoryLike = string | { id: string; name: string }
+
+export function getCategoryName(category: CategoryLike): string {
+  if (typeof category === 'string') return category
+  return category.name
+}
+
+export function getCategoryId(category: CategoryLike): string {
+  if (typeof category === 'string') return category.toLowerCase().replace(/\s+/g, '_')
+  return category.id
+}
+
+// ── Simulation aggregate type (wraps params + result + metadata) ──────────────
+
+export interface Simulation {
+  id: string
+  name: string
+  type: 'dc' | 'ac' | 'transient' | 'noise' | 'montecarlo'
+  parameters: SimulationParameters
+  result: SimulationResult | null
+  status: 'idle' | 'running' | 'completed' | 'failed'
+  createdAt: string
+  completedAt?: string
+}
+
+// ── Component library ─────────────────────────────────────────────────────────
+
+export interface ComponentLibrary {
+  id: string
+  name: string
+  description?: string
+  version: string
+  components: Component[]
+  author?: string
+  tags?: string[]
+}
+
+// ── Validation error (shape used by project.store validateProject) ─────────────
+
+export interface ValidationError {
+  id: string
+  type: 'schematic' | 'pcb' | 'simulation' | 'general'
+  severity: 'error' | 'warning' | 'info'
+  message: string
+  location?: {
+    componentId?: string
+    wireId?: string
+    netId?: string
+    elementId?: string
+  }
+}
+
+// ── Domain-level Component type (used by aiService, nlpService, domain libs) ──
+
+export interface DomainComponent {
+  id: string
+  name: string
+  category: CategoryLike
+  description?: string
+  symbol: ComponentSymbol
+  pins: Pin[]
+  properties: ComponentProperties
+  cost?: number
+  availability?: { status: 'available' | 'limited' | 'obsolete'; suppliers?: string[] }
+  tags?: string[]
+  metadata?: {
+    createdAt?: Date | string
+    updatedAt?: Date | string
+    author?: string
+    version?: string
+    tags?: string[]
+  }
+  /** optional legacy net reference on wires */
+  netId?: string
+}
+
+// ── Wire domain extension ─────────────────────────────────────────────────────
+
+export interface DomainWire {
+  id: string
+  points: Point[]
+  netName?: string
+  netId?: string
+  connectedPins: Array<{ componentId: string; pinId: string }>
+  style?: { color?: string; width?: number; dashArray?: number[] }
+  selected?: boolean
+  current?: number
+  voltage?: number
+}
+
+// ── Net domain extension ──────────────────────────────────────────────────────
+
+export interface DomainNet {
+  id: string
+  name: string
+  connectedPins: Array<{ componentId: string; pinId: string }>
+  wires: string[]
+  voltage?: number
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Core application types
 export interface Point {
   x: number
@@ -350,6 +466,43 @@ export interface ToolState {
   }
 }
 
+export type Viewport = {
+  zoom: number
+  pan: Point
+  bounds: Bounds
+  gridSize: number
+  snapToGrid: boolean
+  showGrid: boolean
+  showRulers: boolean
+}
+
+export type Selection = SelectionState
+export type Tool = ToolState['activeTool']
+
+export interface ApplicationSettings {
+  theme: 'light' | 'dark' | 'professional' | 'system'
+  language: string
+  units: 'metric' | 'imperial'
+  gridSize: number
+  snapToGrid: boolean
+  autoSave: boolean
+  autoSaveInterval: number
+  showTooltips: boolean
+  showAnimations: boolean
+  performance: {
+    maxUndoSteps: number
+    canvasResolution: number
+    simulationPrecision: number
+    enableHardwareAcceleration: boolean
+  }
+}
+
+export interface UserPreferences {
+  theme?: 'light' | 'dark' | 'professional'
+  language?: string
+  units?: 'metric' | 'imperial'
+}
+
 // Export and Import Types
 export interface ExportOptions {
   format: 'png' | 'svg' | 'pdf' | 'netlist' | 'json' | 'gerber'
@@ -364,8 +517,7 @@ export interface ImportResult {
   error?: string
   components?: PlacedComponent[]
   wires?: Wire[]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  metadata?: any
+  metadata?: Record<string, unknown>
 }
 
 // Plugin and Extension Types
@@ -395,7 +547,7 @@ export interface PluginAPI {
   
   // UI
   showNotification: (message: string, type?: 'info' | 'warning' | 'error') => void
-  openDialog: (content: React.ReactNode) => void
+  openDialog: (content: unknown) => void
   
   // Events
   on: (event: string, callback: (...args: unknown[]) => void) => void
@@ -443,7 +595,8 @@ export interface User {
   name: string
   email: string
   avatar?: string
-  role: 'owner' | 'editor' | 'viewer'
+  role: 'owner' | 'editor' | 'viewer' | 'admin' | 'user'
+  preferences?: UserPreferences
 }
 
 export interface CollaborativeUser extends User {

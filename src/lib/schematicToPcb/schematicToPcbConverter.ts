@@ -126,39 +126,30 @@ export class SchematicToPcbConverter {
   }
 
   private createLayers(layerCount: number): PCBLayer[] {
-    const layers: PCBLayer[] = [];
-
-    // Signal layers
-    for (let i = 1; i <= layerCount; i++) {
-      layers.push({
-        id: `signal-${i}`,
-        name: `Signal Layer ${i}`,
-        type: 'signal',
-        thickness: 0.035, // 35μm copper
-        material: 'copper'
-      });
+    if (!Number.isInteger(layerCount) || layerCount < 1 || layerCount > 32) {
+      throw new Error('PCB copper layer count must be an integer between 1 and 32')
     }
 
-    // Power and ground planes
-    if (layerCount >= 2) {
-      layers.splice(1, 0, {
-        id: 'power',
-        name: 'Power Plane',
-        type: 'power',
-        thickness: 0.035,
-        material: 'copper'
-      });
-
-      layers.splice(-1, 0, {
-        id: 'ground',
-        name: 'Ground Plane',
-        type: 'ground',
-        thickness: 0.035,
-        material: 'copper'
-      });
+    const layers: PCBLayer[] = []
+    const addCopperLayer = (id: string, name: string, type: PCBLayer['type'] = 'signal') => {
+      layers.push({ id, name, type, thickness: 0.035, material: 'copper' })
     }
 
-    // Silk screen and solder mask
+    if (layerCount === 1) {
+      addCopperLayer('signal-1', 'Signal Layer 1')
+    } else if (layerCount === 2) {
+      addCopperLayer('signal-1', 'Top Signal Layer')
+      addCopperLayer('signal-2', 'Bottom Signal Layer')
+    } else {
+      addCopperLayer('signal-1', 'Top Signal Layer')
+      addCopperLayer('power', 'Power Plane', 'power')
+      addCopperLayer('ground', 'Ground Plane', 'ground')
+      addCopperLayer('signal-2', 'Bottom Signal Layer')
+      for (let index = 5; index <= layerCount; index += 1) {
+        addCopperLayer(`signal-${index - 2}`, `Signal Layer ${index - 2}`)
+      }
+    }
+
     layers.push(
       {
         id: 'top-silk',
@@ -175,6 +166,14 @@ export class SchematicToPcbConverter {
         thickness: 0.02,
         material: 'solder_mask',
         color: '#00ff00'
+      },
+      {
+        id: 'bottom-silk',
+        name: 'Bottom Silk Screen',
+        type: 'silk',
+        thickness: 0.01,
+        material: 'ink',
+        color: '#ffffff'
       },
       {
         id: 'bottom-solder-mask',

@@ -164,7 +164,7 @@ function SensorVisualization({ sensors }: { sensors: Sensor[] }) {
 
 // Environment obstacles
 function Environment() {
-  const obstacles = [
+  const obstacles: Array<{ position: [number, number, number]; size: [number, number, number] }> = [
     { position: [2, 0, 0], size: [0.5, 2, 0.5] },
     { position: [-1.5, 0, 1], size: [1, 1, 1] },
     { position: [0, 0, -2], size: [2, 0.1, 2] }
@@ -286,7 +286,7 @@ export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-overlay/70 flex items-center justify-center z-50">
       <div className="bg-card border border-border rounded-lg shadow-xl w-full max-w-7xl h-[90vh] flex">
         {/* 3D Simulation Viewport */}
         <div className="flex-1 relative">

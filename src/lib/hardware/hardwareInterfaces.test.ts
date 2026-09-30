@@ -146,9 +146,11 @@ describe('HardwareInterfaces', () => {
     });
 
     it('should receive data from UART', async () => {
-      const data = await uart.receive(5);
+      const expected = new Uint8Array([0x10, 0x20, 0x30, 0x40, 0x50]);
+      uart.simulateReceive(expected);
+      const data = await uart.receive(expected.length);
       expect(data).toBeInstanceOf(Uint8Array);
-      expect(data.length).toBe(5);
+      expect(data).toEqual(expected);
     });
 
     it('should handle UART receive callback', () => {

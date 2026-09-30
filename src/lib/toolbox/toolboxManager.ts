@@ -8,7 +8,13 @@ export interface ToolboxItem {
   description: string;
   icon: string;
   category: string;
-  action: () => void;
+  /**
+   * Optional host hook. `ToolboxPanel` never calls this directly — it forwards
+   * `tool.id` through `onToolSelect` so the mounted workspace decides what a tool
+   * means. Kept optional so default toolboxes don't ship dead `console.log`
+   * pseudo-actions.
+   */
+  action?: () => void;
 }
 
 export interface Toolbox {
@@ -39,17 +45,17 @@ class ToolboxManager {
           id: 'schematic',
           name: 'Schematic Editor',
           description: 'Design circuit schematics',
-          icon: '⚡',
+          icon: 'SCH',
           category: 'electronics',
-          action: () => console.log('Open schematic editor')
+
         },
         {
           id: 'pcb',
           name: 'PCB Layout',
           description: 'Design PCB layouts',
-          icon: '🔧',
+          icon: 'PCB',
           category: 'electronics',
-          action: () => console.log('Open PCB layout')
+
         }
       ],
       components: []
@@ -66,17 +72,17 @@ class ToolboxManager {
           id: 'cad',
           name: '3D CAD',
           description: '3D mechanical design',
-          icon: '🎨',
+          icon: 'CAD',
           category: 'mechanics',
-          action: () => console.log('Open 3D CAD')
+
         },
         {
           id: 'fea',
           name: 'FEA Analysis',
           description: 'Finite element analysis',
-          icon: '📊',
+          icon: 'FEA',
           category: 'mechanics',
-          action: () => console.log('Open FEA')
+
         }
       ],
       components: []
@@ -93,17 +99,17 @@ class ToolboxManager {
           id: 'robot-sim',
           name: 'Robot Simulator',
           description: '6-DOF robot simulation',
-          icon: '🤖',
+          icon: 'ROBOT',
           category: 'robotics',
-          action: () => console.log('Open robot simulator')
+
         },
         {
           id: 'kinematics',
           name: 'Kinematics',
           description: 'Forward/inverse kinematics',
-          icon: '🔄',
+          icon: 'KIN',
           category: 'robotics',
-          action: () => console.log('Open kinematics')
+
         }
       ],
       components: []
@@ -120,17 +126,17 @@ class ToolboxManager {
           id: 'arduino',
           name: 'Arduino IDE',
           description: 'Program Arduino boards',
-          icon: '💻',
+          icon: 'MCU',
           category: 'programming',
-          action: () => console.log('Open Arduino IDE')
+
         },
         {
           id: 'visual-prog',
           name: 'Visual Programming',
           description: 'Block-based programming',
-          icon: '🧩',
+          icon: 'BLOCK',
           category: 'programming',
-          action: () => console.log('Open visual programming')
+
         }
       ],
       components: []
@@ -147,17 +153,17 @@ class ToolboxManager {
           id: 'spice',
           name: 'SPICE Simulator',
           description: 'Circuit simulation',
-          icon: '📈',
+          icon: 'SPICE',
           category: 'simulation',
-          action: () => console.log('Open SPICE')
+
         },
         {
           id: 'thermal',
           name: 'Thermal Analysis',
           description: 'Thermal simulation',
-          icon: '🌡️',
+          icon: 'TEMP',
           category: 'simulation',
-          action: () => console.log('Open thermal analysis')
+
         }
       ],
       components: []
@@ -174,17 +180,17 @@ class ToolboxManager {
           id: 'realtime',
           name: 'Real-time Editing',
           description: 'Multi-user collaboration',
-          icon: '👥',
+          icon: 'TEAM',
           category: 'collaboration',
-          action: () => console.log('Open collaboration')
+
         },
         {
           id: 'version-control',
           name: 'Version Control',
           description: 'Git-like versioning',
-          icon: '📝',
+          icon: 'VCS',
           category: 'collaboration',
-          action: () => console.log('Open version control')
+
         }
       ],
       components: []

@@ -1,12 +1,33 @@
 import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
+import { normalizeThemePreference } from '../lib/theme/themeController'
+import type { ThemePreference } from '../lib/theme/tokens'
+
+export type WorkspaceMode =
+  | 'schematic'
+  | 'mechanical'
+  | 'pcb'
+  | 'convert'
+  | 'preview3d'
+  | 'robotics'
+  | 'embedded'
+  | 'fpga'
+  | 'hil'
+  | 'twin'
+  | 'siem'
+  | 'marketplace'
+  | 'dashboard'
+  | 'bom'
 
 export interface AppSettings {
-  theme: 'light' | 'dark' | 'professional'
+  /** `system` follows the OS; every other value is an explicit user choice. */
+  theme: ThemePreference
   gridSize: number
   snapToGrid: boolean
   showGrid: boolean
   showRulers: boolean
+  /** When false the shell applies `.reduce-motion` and suppresses transitions. */
+  animations: boolean
   autoSave: boolean
   autoSaveInterval: number
   language: string
@@ -30,6 +51,9 @@ export interface AppState {
   setPan: (pan: { x: number; y: number }) => void
   setCanvasSize: (size: { width: number; height: number }) => void
   
+  workspaceMode: WorkspaceMode
+  setWorkspaceMode: (mode: WorkspaceMode) => void
+
   // UI State
   sidebarOpen: boolean
   propertiesPanelOpen: boolean
@@ -70,11 +94,13 @@ export interface AppState {
 }
 
 const defaultSettings: AppSettings = {
-  theme: 'professional',
+  // `system` follows the OS appearance and contrast hints; explicit themes never drift.
+  theme: 'system',
   gridSize: 10,
   snapToGrid: true,
   showGrid: true,
   showRulers: true,
+  animations: true,
   autoSave: true,
   autoSaveInterval: 30000, // 30 seconds
   language: 'en',
@@ -113,6 +139,9 @@ export const useAppStore = create<AppState>()(
             viewport: { ...state.viewport, canvasSize }
           })),
         
+        workspaceMode: 'schematic',
+        setWorkspaceMode: (workspaceMode) => set({ workspaceMode }),
+
         // UI State
         sidebarOpen: true,
         propertiesPanelOpen: false,
@@ -180,6 +209,19 @@ export const useAppStore = create<AppState>()(
           simulationPanelOpen: state.simulationPanelOpen,
           componentLibraryOpen: state.componentLibraryOpen,
         }),
+        /** Normalise values written by earlier releases before they reach the UI. */
+        migrate: (persisted) => {
+          const state = persisted as Partial<AppState> | undefined
+          if (!state?.settings) return persisted as AppState
+          return {
+            ...state,
+            settings: {
+              ...state.settings,
+              theme: normalizeThemePreference(state.settings.theme),
+            },
+          } as AppState
+        },
+        version: 2,
       }
     )
   )

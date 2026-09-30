@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Grid, GizmoHelper, GizmoViewport } from '@react-three/drei';
+import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -9,7 +9,7 @@ import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Slider } from '../ui/slider';
 import { Badge } from '../ui/badge';
-import { advancedRobotics, Mechanism, Joint, Link, Trajectory } from '../../lib/robotics/advancedRobotics';
+import { advancedRobotics, Mechanism, Joint, Link, Trajectory, KinematicsResult, DynamicsResult } from '../../lib/robotics/advancedRobotics';
 
 interface AdvancedRoboticsPanelProps {
   onClose?: () => void;
@@ -20,30 +20,37 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
   const [selectedMechanism, setSelectedMechanism] = useState<Mechanism | null>(null);
   const [jointAngles, setJointAngles] = useState<number[]>([]);
   const [isSimulating, setIsSimulating] = useState(false);
-  const [_simulationResults] = useState<unknown[]>([]); // eslint-disable-line @typescript-eslint/no-unused-vars
+  const [, setSimulationResults] = useState<ReturnType<typeof advancedRobotics.simulateMechanism>>([]);
   const [targetPosition, setTargetPosition] = useState({ x: 0.5, y: 0.3, z: 0.2 });
   const [trajectory, setTrajectory] = useState<Trajectory | null>(null);
   const [showWorkspace, setShowWorkspace] = useState(false);
+  const [kinematicsResult, setKinematicsResult] = useState<KinematicsResult | null>(null);
+  const [dynamicsResult, setDynamicsResult] = useState<DynamicsResult | null>(null);
+  const [runMessage, setRunMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    loadMechanisms();
-  }, []);
-
-  const loadMechanisms = () => {
-    const allMechanisms = advancedRobotics.getAllMechanisms();
-    setMechanisms(allMechanisms);
-    if (allMechanisms.length > 0 && !selectedMechanism) {
-      setSelectedMechanism(allMechanisms[0]);
-      initializeJointAngles(allMechanisms[0]);
-    }
-  };
 
   const initializeJointAngles = (mechanism: Mechanism) => {
     const angles = Array.from(mechanism.joints.values()).map(joint => joint.angle);
     setJointAngles(angles);
   };
+
+  const loadMechanisms = useCallback(() => {
+    const allMechanisms = advancedRobotics.getAllMechanisms();
+    setMechanisms(allMechanisms);
+    // Select the first mechanism only when nothing is selected yet, so a
+    // reload cannot silently discard the user's choice.
+    setSelectedMechanism((current) => {
+      if (current || allMechanisms.length === 0) return current;
+      const first = allMechanisms[0];
+      setJointAngles(Array.from(first.joints.values()).map((joint) => joint.angle));
+      return first;
+    });
+  }, []);
+
+  useEffect(() => {
+    loadMechanisms();
+  }, [loadMechanisms]);
 
   const createSampleMechanism = () => {
     // Create a 6-DOF robotic arm
@@ -192,12 +199,18 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
 
     const joints = Array.from(selectedMechanism.joints.values());
     const result = advancedRobotics.forwardKinematics(joints, jointAngles);
+    setKinematicsResult(result);
 
-    if (result.success) {
-      console.log('Forward Kinematics Result:', result);
-      // Update 3D visualization
+    if (result.success && result.positions.length > 0) {
+      const endEffector = result.positions[result.positions.length - 1];
+      setRunMessage({
+        kind: 'ok',
+        text: `End effector at (${endEffector.x.toFixed(3)}, ${endEffector.y.toFixed(3)}, ${endEffector.z.toFixed(3)})`,
+      });
+    } else if (result.success) {
+      setRunMessage({ kind: 'error', text: 'Forward kinematics returned no joint positions.' });
     } else {
-      console.error('Forward Kinematics Failed:', result.error);
+      setRunMessage({ kind: 'error', text: result.error ?? 'Forward kinematics failed.' });
     }
   };
 
@@ -208,20 +221,27 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
     const result = advancedRobotics.inverseKinematics(selectedMechanism, target);
 
     if (result.success) {
-      console.log('Inverse Kinematics Result:', result);
       setJointAngles(result.jointAngles);
+      setRunMessage({
+        kind: 'ok',
+        text: `IK solved: ${result.jointAngles.map(angle => `${(angle * 180 / Math.PI).toFixed(1)}°`).join(', ')}`,
+      });
     } else {
-      console.error('Inverse Kinematics Failed:', result.error);
+      setRunMessage({ kind: 'error', text: result.error ?? 'Inverse kinematics failed.' });
     }
   };
 
   const runDynamicsSimulation = () => {
     if (!selectedMechanism) return;
 
-    const velocities = jointAngles.map(() => Math.random() * 0.5); // Mock velocities
+    const velocities = jointAngles.map(() => 0); // Start from rest
     const result = advancedRobotics.computeDynamics(selectedMechanism, jointAngles, velocities);
 
-    console.log('Dynamics Result:', result);
+    setDynamicsResult(result);
+    setRunMessage({
+      kind: 'ok',
+      text: `Dynamics: energy ${result.totalEnergy.toFixed(3)} J · stability index ${result.stability.toFixed(3)}`,
+    });
   };
 
   const planTrajectory = () => {
@@ -239,7 +259,10 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
     );
 
     setTrajectory(trajectory);
-    console.log('Planned Trajectory:', trajectory);
+    setRunMessage({
+      kind: 'ok',
+      text: `Trajectory "${trajectory.name}": ${trajectory.waypoints.length} waypoints · ${trajectory.duration.toFixed(1)} s · ${trajectory.profile} profile`,
+    });
   };
 
   const runSimulation = async () => {
@@ -256,6 +279,7 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
     }
 
     setIsSimulating(false);
+    setRunMessage({ kind: 'ok', text: `Simulation finished — ${results.length} frames replayed.` });
   };
 
   const exportSTL = () => {
@@ -420,6 +444,73 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
           </CardContent>
         </Card>
 
+        {/* Results */}
+        {(runMessage || kinematicsResult?.success || dynamicsResult || trajectory) && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">Results</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              {runMessage && (
+                <p role="status" className={runMessage.kind === 'error' ? 'text-destructive' : 'text-foreground'}>
+                  {runMessage.text}
+                </p>
+              )}
+              {kinematicsResult?.success && kinematicsResult.positions.length > 0 && (
+                <div className="space-y-1">
+                  <div className="flex justify-between">
+                    <span>End effector</span>
+                    <span className="font-mono">
+                      {(() => {
+                        const p = kinematicsResult.positions[kinematicsResult.positions.length - 1];
+                        return `(${p.x.toFixed(3)}, ${p.y.toFixed(3)}, ${p.z.toFixed(3)})`;
+                      })()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Joints</span>
+                    <span className="font-mono">
+                      {kinematicsResult.jointAngles.map(a => (a * 180 / Math.PI).toFixed(0)).join(' ')}°
+                    </span>
+                  </div>
+                </div>
+              )}
+              {dynamicsResult && (
+                <div className="space-y-1">
+                  <div className="flex justify-between">
+                    <span>Total energy</span>
+                    <span className="font-mono">{dynamicsResult.totalEnergy.toFixed(3)} J</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Stability index</span>
+                    <span className="font-mono">{dynamicsResult.stability.toFixed(3)}</span>
+                  </div>
+                  {dynamicsResult.jointTorques.length > 0 && (
+                    <div className="flex justify-between">
+                      <span>Peak |torque|</span>
+                      <span className="font-mono">
+                        {Math.max(...dynamicsResult.jointTorques.map(Math.abs)).toFixed(2)} N·m
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {trajectory && (
+                <div className="space-y-1">
+                  <div className="flex justify-between">
+                    <span>Waypoints</span>
+                    <span className="font-mono">{trajectory.waypoints.length}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Duration</span>
+                    <span className="font-mono">{trajectory.duration.toFixed(1)} s</span>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Export */}
         <Card>
           <CardHeader className="pb-3">
@@ -582,11 +673,8 @@ const WorkspaceVisualization: React.FC<{ workspace: Mechanism['workspace'] }> = 
 
 const TrajectoryVisualization: React.FC<{ trajectory: Trajectory }> = ({ trajectory }) => {
   const points = trajectory.waypoints.map(wp => new THREE.Vector3(wp.position.x, wp.position.y, wp.position.z));
-  const geometry = new THREE.BufferGeometry().setFromPoints(points);
 
   return (
-    <line geometry={geometry}>
-      <lineBasicMaterial color="purple" linewidth={2} />
-    </line>
+    <Line points={points} color="purple" lineWidth={2} />
   );
 };

@@ -66,12 +66,12 @@ function MechanicalComponentView({
   selectedComponent: string;
 }) {
   return (
-    <div className="w-full h-full bg-gray-900 relative overflow-hidden flex items-center justify-center">
+    <div className="w-full h-full bg-canvas relative overflow-hidden flex items-center justify-center">
       <svg
         width="400"
         height="300"
         viewBox="0 0 400 300"
-        className="border border-gray-600"
+        className="border border-border"
       >
         {/* Grid */}
         <defs>
@@ -174,7 +174,7 @@ function MechanicalComponentView({
         </defs>
       </svg>
       
-      <div className="absolute top-4 left-4 bg-black/70 text-white px-2 py-1 rounded text-sm">
+      <div className="absolute top-4 left-4 bg-overlay/70 text-overlay-foreground px-2 py-1 rounded text-sm">
         Mechanical Analysis View
       </div>
     </div>
@@ -252,30 +252,45 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
 
   const handleRunAnalysis = async () => {
     setIsAnalyzing(true);
-    
     try {
-      // Simulate analysis
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      const mockResult: AnalysisResult = {
-        displacement: [
-          { nodeId: 'beam-1', x: 0.001, y: -0.005, z: 0 },
-          { nodeId: 'plate-1', x: 0, y: -0.002, z: 0 }
-        ],
-        stress: [
-          { nodeId: 'beam-1', vonMises: 45.2, principal: [50.1, 25.3, -5.2] },
-          { nodeId: 'plate-1', vonMises: 12.8, principal: [15.2, 8.4, -2.1] }
-        ],
-        strain: [
-          { nodeId: 'beam-1', x: 0.0002, y: -0.0008, z: 0 },
-          { nodeId: 'plate-1', x: 0, y: -0.0003, z: 0 }
-        ],
-        naturalFrequencies: [125.5, 387.2, 892.1, 1456.8],
-        buckling: { criticalLoad: 15000, mode: 1 },
-        fatigue: { cycles: 1000000, safetyFactor: 2.5 }
-      };
-      
-      setAnalysisResult(mockResult);
+      const youngsModulus: Record<string, number> = { aluminum: 69e9, steel: 200e9, titanium: 114e9 };
+      const yieldStrength: Record<string, number> = { aluminum: 276e6, steel: 250e6, titanium: 880e6 };
+      const displacement = components.map(component => {
+        const { length, width, height } = component.geometry.dimensions;
+        const force = component.loads.forces.reduce((sum, load) => sum + load.magnitude, 0);
+        const E = youngsModulus[component.material] ?? youngsModulus.aluminum;
+        const I = Math.max(width * Math.pow(height, 3) / 12, 1e-12);
+        const deflection = component.constraints.fixed ? force * Math.pow(length, 3) / (3 * E * I) : force * Math.pow(length, 3) / (48 * E * I);
+        return { nodeId: component.id, x: 0, y: -deflection, z: 0 };
+      });
+      const stress = components.map(component => {
+        const { length, width, height } = component.geometry.dimensions;
+        const force = component.loads.forces.reduce((sum, load) => sum + load.magnitude, 0);
+        const I = Math.max(width * Math.pow(height, 3) / 12, 1e-12);
+        const bending = force * length * (height / 2) / I;
+        return { nodeId: component.id, vonMises: bending / 1e6, principal: [bending / 1e6, 0, 0] as [number, number, number] };
+      });
+      const strain = components.map((component, index) => {
+        const E = youngsModulus[component.material] ?? youngsModulus.aluminum;
+        return { nodeId: component.id, x: 0, y: -(stress[index].vonMises * 1e6) / E, z: 0 };
+      });
+      const first = components[0];
+      const firstE = youngsModulus[first.material] ?? youngsModulus.aluminum;
+      const { length, width, height } = first.geometry.dimensions;
+      const area = Math.max(width * height, 1e-12);
+      const inertia = Math.max(width * Math.pow(height, 3) / 12, 1e-12);
+      const density = first.properties.mass / Math.max(first.properties.volume, 1e-12);
+      const baseFrequency = Math.pow(1.875, 2) / (2 * Math.PI * Math.pow(length, 2)) * Math.sqrt(firstE * inertia / (density * area));
+      const maxStressPa = Math.max(...stress.map(item => item.vonMises)) * 1e6;
+      const safetyFactor = (yieldStrength[first.material] ?? yieldStrength.aluminum) / Math.max(maxStressPa, 1);
+      setAnalysisResult({
+        displacement,
+        stress,
+        strain,
+        naturalFrequencies: [1, 2.757, 5.404, 8.933].map(mode => baseFrequency * mode * mode),
+        buckling: { criticalLoad: Math.PI ** 2 * firstE * inertia / Math.pow(length, 2), mode: 1 },
+        fatigue: { cycles: Math.max(1, Math.round(1e6 * safetyFactor)), safetyFactor },
+      });
     } catch (error) {
       console.error('Analysis failed:', error);
     } finally {
@@ -305,7 +320,7 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
   const selectedComponentData = components.find(c => c.id === selectedComponent);
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-overlay/70 flex items-center justify-center z-50">
       <div className="bg-card border border-border rounded-lg shadow-xl w-full max-w-7xl h-[90vh] flex">
         {/* Visualization Area */}
         <div className="flex-1 relative">
@@ -491,7 +506,7 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
                         </div>
                         <div className="flex justify-between">
                           <span>Safety Factor:</span>
-                          <span className="text-green-600">2.5</span>
+                          <span className="text-success">2.5</span>
                         </div>
                       </div>
                     </div>

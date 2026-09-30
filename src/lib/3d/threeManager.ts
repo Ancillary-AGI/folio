@@ -22,9 +22,37 @@ export interface ThreeDScene {
   lights: THREE.Light[];
 }
 
+/** Printability metrics for a single model, computed from its mesh geometry. */
+export interface ModelPrintability {
+  id: string;
+  name: string;
+  /** Bounding-box extents in world units (y is the build direction). */
+  size: { x: number; y: number; z: number };
+  /** Combined area of downward faces tilted past the overhang limit. */
+  overhangArea: number;
+  /** Overhang area × drop height to the build plate — support material volume. */
+  supportVolume: number;
+  /** XZ footprint of the bounding box: the area a raft would cover. */
+  raftFootprint: number;
+  /** Smallest bounding-box extent (a lower bound on wall thickness). */
+  minExtent: number;
+  /** True when `minExtent` reaches the requested minimum wall thickness. */
+  meetsMinimumWall: boolean;
+}
+
+export interface PrintabilityReport {
+  sceneId: string;
+  minWallThickness: number;
+  maxOverhangAngleDeg: number;
+  models: ModelPrintability[];
+}
+
 export class ThreeManager {
   private scenes: Map<string, ThreeDScene> = new Map();
   private activeScene: string | null = null;
+  private modelCounter = 0;
+  /** Fixed neutral palette — new models cycle through it deterministically. */
+  private static readonly MODEL_COLORS = [0x4f7cff, 0x38bdf8, 0x34d399, 0xfbbf24, 0xf472b6, 0xa78bfa];
 
   createScene(name: string, canvas: HTMLCanvasElement): ThreeDScene {
     const scene = new THREE.Scene();
@@ -108,7 +136,7 @@ export class ThreeManager {
     }
 
     const material = new THREE.MeshPhongMaterial({
-      color: Math.random() * 0xffffff,
+      color: ThreeManager.MODEL_COLORS[this.modelCounter % ThreeManager.MODEL_COLORS.length],
       shininess: 100,
       specular: 0x111111,
       transparent: false,
@@ -119,8 +147,9 @@ export class ThreeManager {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
 
+    this.modelCounter += 1;
     const model: ThreeDModel = {
-      id: `model_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `model_${Date.now()}_${this.modelCounter}`,
       name,
       geometry,
       material,
@@ -220,7 +249,7 @@ export class ThreeManager {
     if (!scene) return '';
 
     // Enhanced STL export with proper triangulation and normals
-    let stlContent = 'solid CircuitCAD_Model\n';
+    let stlContent = 'solid Folio_Model\n';
 
     scene.models.forEach(model => {
       const geometry = model.geometry as THREE.BufferGeometry;
@@ -286,7 +315,7 @@ export class ThreeManager {
       }
     });
 
-    stlContent += 'endsolid CircuitCAD_Model\n';
+    stlContent += 'endsolid Folio_Model\n';
     return stlContent;
   }
 
@@ -377,48 +406,102 @@ export class ThreeManager {
     });
   }
 
-  // 3D Printing optimizations
-  optimizeFor3DPrinting(sceneId: string): void {
+  /**
+   * Analyze every model in the scene for FDM printability. Every number comes
+   * from the actual mesh triangles: overhang area from face normals in world
+   * space, support volume from overhang area × mean drop height to the build
+   * plate, and the wall check from the bounding-box extent (a slicer-grade
+   * cross-section measurement would require the slicing engine itself).
+   */
+  optimizeFor3DPrinting(
+    sceneId: string,
+    minWallThickness = 0.8,
+    maxOverhangAngleDeg = 45
+  ): PrintabilityReport | null {
     const scene = this.scenes.get(sceneId);
-    if (!scene) return;
+    if (!scene) return null;
 
-    scene.models.forEach(model => {
-      // Add support structures for overhangs
-      this.addSupportStructures(model);
+    const cosThreshold = Math.cos(THREE.MathUtils.degToRad(maxOverhangAngleDeg));
+    const models: ModelPrintability[] = scene.models.map(model => {
+      const geometry = model.mesh.geometry;
+      geometry.computeBoundingBox();
+      const localBox = geometry.boundingBox;
+      if (!localBox) {
+        throw new Error(`Model ${model.name} has no computable bounding box`);
+      }
+      model.mesh.updateMatrixWorld(true);
+      const worldBox = localBox.clone().applyMatrix4(model.mesh.matrixWorld);
+      const size = worldBox.getSize(new THREE.Vector3());
 
-      // Ensure minimum wall thickness
-      this.ensureMinimumWallThickness(model);
+      const positions = geometry.getAttribute('position');
+      const index = geometry.getIndex();
+      const triangleCount = index ? index.count / 3 : positions.count / 3;
+      const matrix = model.mesh.matrixWorld;
+      const a = new THREE.Vector3();
+      const b = new THREE.Vector3();
+      const c = new THREE.Vector3();
+      const ab = new THREE.Vector3();
+      const ac = new THREE.Vector3();
+      const cross = new THREE.Vector3();
+      let overhangArea = 0;
+      let supportVolume = 0;
 
-      // Add raft/base for stability
-      this.addRaft(model);
+      for (let triangle = 0; triangle < triangleCount; triangle++) {
+        const i0 = index ? index.getX(triangle * 3) : triangle * 3;
+        const i1 = index ? index.getX(triangle * 3 + 1) : triangle * 3 + 1;
+        const i2 = index ? index.getX(triangle * 3 + 2) : triangle * 3 + 2;
+        a.fromBufferAttribute(positions, i0).applyMatrix4(matrix);
+        b.fromBufferAttribute(positions, i1).applyMatrix4(matrix);
+        c.fromBufferAttribute(positions, i2).applyMatrix4(matrix);
+
+        ab.subVectors(b, a);
+        ac.subVectors(c, a);
+        cross.crossVectors(ab, ac);
+        const length = cross.length();
+        if (length === 0) continue;
+
+        // Faces tilted less than `maxOverhangAngleDeg` from the build plate
+        // (normalY < −cosθ) cannot be printed without support material.
+        if (cross.y / length >= -cosThreshold) continue;
+
+        const area = length * 0.5;
+        const dropHeight = (a.y + b.y + c.y) / 3 - worldBox.min.y;
+        if (dropHeight <= 1e-6) continue; // resting on the build plate
+        overhangArea += area;
+        supportVolume += area * dropHeight;
+      }
+
+      const minExtent = Math.min(size.x, size.y, size.z);
+      return {
+        id: model.id,
+        name: model.name,
+        size: { x: size.x, y: size.y, z: size.z },
+        overhangArea,
+        supportVolume,
+        raftFootprint: size.x * size.z,
+        minExtent,
+        meetsMinimumWall: minExtent >= minWallThickness
+      };
     });
-  }
 
-  private addSupportStructures(model: ThreeDModel): void {
-    // Simplified support structure generation
-    // In practice, this would analyze the mesh for overhangs and add supports
-    console.log(`Adding support structures for model ${model.name}`);
-  }
-
-  private ensureMinimumWallThickness(model: ThreeDModel): void {
-    // Ensure model has minimum wall thickness for printability
-    const minThickness = 0.8; // mm
-    console.log(`Ensuring minimum wall thickness of ${minThickness}mm for model ${model.name}`);
-  }
-
-  private addRaft(model: ThreeDModel): void {
-    // Add raft/base structure for better bed adhesion
-    console.log(`Adding raft for model ${model.name}`);
+    return { sceneId, minWallThickness, maxOverhangAngleDeg, models };
   }
 
   // Advanced rendering features
+  /**
+   * Enable real renderer-level tone mapping, color space and shadow settings
+   * for the scene. Full-screen passes (bloom, SSAO) would require
+   * `EffectComposer`, which this app does not bundle.
+   */
   addPostProcessing(sceneId: string): void {
     const scene = this.scenes.get(sceneId);
     if (!scene) return;
 
-    // Add anti-aliasing, bloom, etc.
-    // This would require additional Three.js libraries like EffectComposer
-    console.log('Post-processing effects added to scene');
+    scene.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    scene.renderer.toneMappingExposure = 1.0;
+    scene.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    scene.renderer.shadowMap.enabled = true;
+    scene.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   }
 
   addEnvironmentMap(sceneId: string, environmentMap: THREE.CubeTexture): void {
@@ -438,7 +521,7 @@ export class ThreeManager {
     const scene = this.scenes.get(sceneId);
     if (!scene) return '';
 
-    let objContent = `# Circuit CAD 3D Model Export\n# Generated on ${new Date().toISOString()}\n\n`;
+    let objContent = `# Folio 3D Model Export\n# Generated on ${new Date().toISOString()}\n\n`;
     let vertexOffset = 1;
 
     scene.models.forEach((model) => {

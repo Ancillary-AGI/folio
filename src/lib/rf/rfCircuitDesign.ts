@@ -549,9 +549,11 @@ export class RFCircuitDesigner {
 
   calculateSParameters(circuit: RFCircuit, frequency: number): ScatteringParameters {
     // Simplified S-parameter calculation
+    const elementCount = Math.max(circuit.elements.length, 1);
+    const topologyLoss = Math.min(0.15, (elementCount - 1) * 0.01);
     const s11 = { real: -0.1, imag: -0.05 }; // Input reflection
     const s12 = { real: 0.01, imag: 0.005 }; // Reverse transmission
-    const s21 = { real: 0.9, imag: 0.1 }; // Forward transmission
+    const s21 = { real: 0.9 - topologyLoss, imag: 0.1 }; // Forward transmission
     const s22 = { real: -0.1, imag: -0.05 }; // Output reflection
 
     return {

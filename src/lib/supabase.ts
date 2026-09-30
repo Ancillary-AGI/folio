@@ -3,7 +3,22 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+const isValidSupabaseUrl = (value: string | undefined): boolean => {
+  if (!value || value.startsWith('your_')) return false
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' || url.protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
+export const isSupabaseConfigured = Boolean(isValidSupabaseUrl(supabaseUrl) && supabaseAnonKey && !supabaseAnonKey.startsWith('your_'))
+
+export const supabase = createClient(
+  isSupabaseConfigured ? supabaseUrl! : 'http://127.0.0.1:54321',
+  isSupabaseConfigured ? supabaseAnonKey! : 'local-development-placeholder',
+)
 
 // Database types
 export interface Project {

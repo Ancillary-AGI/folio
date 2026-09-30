@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { supabase, Project } from '../lib/supabase'
+import { offlineProjectStore } from '../lib/offlineProjectStore'
 import { Button } from './ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Plus, FolderOpen, Calendar, User, Search, Trash2 } from 'lucide-react'
@@ -7,20 +8,21 @@ import { Plus, FolderOpen, Calendar, User, Search, Trash2 } from 'lucide-react'
 interface ProjectManagerProps {
   onSelectProject: (project: Project) => void
   onNewProject: () => void
+  offlineMode?: boolean
 }
 
-export default function ProjectManager({ onSelectProject, onNewProject }: ProjectManagerProps) {
+export default function ProjectManager({ onSelectProject, onNewProject, offlineMode = false }: ProjectManagerProps) {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedProject, setSelectedProject] = useState<string | null>(null)
 
-  useEffect(() => {
-    loadProjects()
-  }, [])
-
-  const loadProjects = async () => {
+  const loadProjects = useCallback(async () => {
     try {
+      if (offlineMode) {
+        setProjects(offlineProjectStore.list())
+        return
+      }
       const { data, error } = await supabase
         .from('projects')
         .select('*')
@@ -33,12 +35,22 @@ export default function ProjectManager({ onSelectProject, onNewProject }: Projec
     } finally {
       setLoading(false)
     }
-  }
+  }, [offlineMode])
+
+  useEffect(() => {
+    void loadProjects()
+  }, [loadProjects])
 
   const handleDeleteProject = async (projectId: string, e: React.MouseEvent) => {
     e.stopPropagation()
     
     if (!confirm('Are you sure you want to delete this project? This action cannot be undone.')) {
+      return
+    }
+
+    if (offlineMode) {
+      offlineProjectStore.delete(projectId)
+      setProjects((current) => current.filter((project) => project.id !== projectId))
       return
     }
 
@@ -65,7 +77,7 @@ export default function ProjectManager({ onSelectProject, onNewProject }: Projec
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-gray-500">Loading projects...</div>
+        <div className="text-muted-foreground">Loading projects...</div>
       </div>
     )
   }
@@ -79,7 +91,7 @@ export default function ProjectManager({ onSelectProject, onNewProject }: Projec
 
       <div className="flex gap-4 mb-6">
         <div className="flex-1 relative">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+          <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
             placeholder="Search projects..."
@@ -98,7 +110,7 @@ export default function ProjectManager({ onSelectProject, onNewProject }: Projec
       {filteredProjects.length === 0 ? (
         <Card className="text-center py-12">
           <CardContent>
-            <FolderOpen className="w-16 h-16 mx-auto text-gray-400 mb-4" />
+            <FolderOpen className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">
               {searchTerm ? 'No projects found' : 'No projects yet'}
             </h3>
@@ -138,7 +150,7 @@ export default function ProjectManager({ onSelectProject, onNewProject }: Projec
                     variant="ghost"
                     size="icon"
                     onClick={(e) => handleDeleteProject(project.id, e)}
-                    className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
                   >
                     <Trash2 className="w-4 h-4" />
                   </Button>

@@ -1,45 +1,51 @@
 import { describe, it, expect } from 'vitest';
 import { schematicToPcbConverter } from './schematicToPcbConverter';
+import type { Schematic } from '../../types';
+
+const makeSchematic = (
+  id: string,
+  name: string,
+  components: Schematic['components'] = [],
+  wires: Schematic['wires'] = [],
+): Schematic => ({
+  id,
+  name,
+  components,
+  wires,
+  nets: [],
+  metadata: { created: '2026-01-01T00:00:00.000Z', modified: '2026-01-01T00:00:00.000Z', version: '1.0.0' },
+  settings: { gridSize: 10, snapToGrid: true, showGrid: true, showPinNumbers: true, showPinNames: true, showNetNames: true },
+});
 
 describe('SchematicToPcbConverter', () => {
   describe('convertSchematicToPCB', () => {
     it('should convert a basic schematic to PCB layout', async () => {
-      const mockCircuit = {
-        id: 'circuit-1',
-        name: 'Test Circuit',
-        components: [
-          {
-            id: 'comp-1',
-            name: 'Resistor',
-            category: 'passive',
-            type: 'resistor',
-            symbol: {
-              width: 20,
-              height: 10,
-              paths: [],
-              pins: [
-                { id: '1', name: 'A', x: 0, y: 5, type: 'passive' as const },
-                { id: '2', name: 'B', x: 20, y: 5, type: 'passive' as const }
-              ]
-            },
-            pins: [
-              { id: '1', name: 'A', x: 0, y: 5, type: 'passive' as const },
-              { id: '2', name: 'B', x: 20, y: 5, type: 'passive' as const }
-            ],
-            properties: { resistance: '10k' },
-          }
-        ],
-        wires: [
-          {
-            id: 'wire-1',
-            points: [
-              { x: 20, y: 5 },
-              { x: 40, y: 5 }
-            ],
-            net: 'GND'
-          }
-        ]
-      };
+      const pins = [
+        { id: '1', name: 'A', x: 0, y: 5, type: 'passive' as const },
+        { id: '2', name: 'B', x: 20, y: 5, type: 'passive' as const },
+      ];
+      const mockCircuit = makeSchematic('circuit-1', 'Test Circuit', [{
+        id: 'comp-1',
+        componentId: 'resistor',
+        component: {
+          id: 'resistor',
+          name: 'Resistor',
+          category: 'passive',
+          symbol: { width: 20, height: 10, paths: [] },
+          pins,
+          properties: { resistance: '10k' },
+        },
+        position: { x: 10, y: 10 },
+        rotation: 0,
+        scale: 1,
+        reference: 'R1',
+        properties: { resistance: '10k' },
+      }], [{
+        id: 'wire-1',
+        points: [{ x: 20, y: 5 }, { x: 40, y: 5 }],
+        netName: 'GND',
+        connectedPins: [{ componentId: 'comp-1', pinId: '2' }],
+      }]);
 
       const options = {
         boardSize: { width: 100, height: 80 },
@@ -63,18 +69,13 @@ describe('SchematicToPcbConverter', () => {
       expect(layout.name).toBe('Test Circuit PCB');
       expect(layout.width).toBe(100);
       expect(layout.height).toBe(80);
-      expect(layout.layers).toHaveLength(4); // 2 signal + power + ground + silk + solder mask
+      expect(layout.layers).toHaveLength(6); // 2 copper + top/bottom solder mask and silkscreen
       expect(layout.components).toHaveLength(1);
       expect(layout.traces).toHaveLength(1);
     });
 
     it('should create correct layer structure', async () => {
-      const mockCircuit = {
-        id: 'circuit-2',
-        name: 'Layer Test',
-        components: [],
-        wires: []
-      };
+      const mockCircuit = makeSchematic('circuit-2', 'Layer Test');
 
       const options = {
         boardSize: { width: 50, height: 50 },
@@ -95,7 +96,7 @@ describe('SchematicToPcbConverter', () => {
 
       expect(layout.layers).toHaveLength(8); // 4 signal + power + ground + silk + solder mask x2
       expect(layout.layers[0].type).toBe('signal');
-      expect(layout.layers[0].name).toBe('Signal Layer 1');
+      expect(layout.layers[0].name).toBe('Top Signal Layer');
       expect(layout.layers[1].type).toBe('power');
       expect(layout.layers[2].type).toBe('ground');
     });
@@ -103,12 +104,7 @@ describe('SchematicToPcbConverter', () => {
 
   describe('validateDesign', () => {
     it('should validate a correct design', async () => {
-      const mockCircuit = {
-        id: 'circuit-3',
-        name: 'Valid Circuit',
-        components: [],
-        wires: []
-      };
+      const mockCircuit = makeSchematic('circuit-3', 'Valid Circuit');
 
       const options = {
         boardSize: { width: 50, height: 50 },
@@ -133,12 +129,7 @@ describe('SchematicToPcbConverter', () => {
     });
 
     it('should detect trace width violations', async () => {
-      const mockCircuit = {
-        id: 'circuit-4',
-        name: 'Invalid Circuit',
-        components: [],
-        wires: []
-      };
+      const mockCircuit = makeSchematic('circuit-4', 'Invalid Circuit');
 
       const options = {
         boardSize: { width: 50, height: 50 },
@@ -179,12 +170,7 @@ describe('SchematicToPcbConverter', () => {
 
   describe('exportToGerber', () => {
     it('should generate Gerber format output', async () => {
-      const mockCircuit = {
-        id: 'circuit-5',
-        name: 'Gerber Test',
-        components: [],
-        wires: []
-      };
+      const mockCircuit = makeSchematic('circuit-5', 'Gerber Test');
 
       const options = {
         boardSize: { width: 50, height: 50 },
@@ -213,12 +199,7 @@ describe('SchematicToPcbConverter', () => {
 
   describe('getPCBLayout', () => {
     it('should retrieve stored PCB layout', async () => {
-      const mockCircuit = {
-        id: 'circuit-6',
-        name: 'Retrieval Test',
-        components: [],
-        wires: []
-      };
+      const mockCircuit = makeSchematic('circuit-6', 'Retrieval Test');
 
       const options = {
         boardSize: { width: 30, height: 30 },

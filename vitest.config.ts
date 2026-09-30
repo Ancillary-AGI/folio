@@ -6,6 +6,12 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'jsdom',
+    globals: true,
+    exclude: ['**/node_modules/**', '**/dist/**', '**/.kilo/**'],
+    setupFiles: ['./src/__tests__/setup.ts'],
+    typecheck: {
+      enabled: false
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

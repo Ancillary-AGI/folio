@@ -254,7 +254,7 @@ export class AntennaDesigner {
       const array = antenna as AntennaArray;
       for (let i = 0; i < numPoints; i++) {
         const theta_rad = (theta[i] * Math.PI) / 180;
-        let totalField = 0;
+        let totalField = complex(0);
 
         array.elements.forEach((element, idx) => {
           const phase = array.phaseTaper[idx] * Math.PI / 180;
@@ -269,10 +269,10 @@ export class AntennaDesigner {
           const arrayPhase = k * pathLength;
 
           const field = multiply(complex(amplitude * elementFactor), exp(multiply(complex1, complex(phase + arrayPhase))));
-          totalField = multiply(totalField, complex(1)).re + field.re; // Simplified accumulation
+          totalField = { re: totalField.re + field.re, im: totalField.im + field.im };
         });
 
-        const gain_dBi = 20 * Math.log10(Math.abs(totalField) / array.elements.length) + 2.15;
+        const gain_dBi = 20 * Math.log10(Math.hypot(totalField.re, totalField.im) / array.elements.length) + 2.15;
         gain.push([gain_dBi]);
       }
     } else {
@@ -295,7 +295,7 @@ export class AntennaDesigner {
           case 'patch': {
             // Patch antenna pattern (broadside)
             const theta_3dB = 60 * Math.PI / 180; // 60° beamwidth
-            elementGain = Math.abs(Math.sinc(theta_rad / theta_3dB));
+            elementGain = Math.abs(sinc(theta_rad / theta_3dB));
             break;
           }
           default:
@@ -401,6 +401,10 @@ function exp(i: { re: number; im: number }) {
     re: r * Math.cos(i.im),
     im: r * Math.sin(i.im)
   };
+}
+
+function sinc(value: number): number {
+  return Math.abs(value) < 1e-12 ? 1 : Math.sin(value) / value;
 }
 
 // TypeScript doesn't have built-in complex numbers, so we'll use a simple implementation

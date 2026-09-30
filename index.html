@@ -4,10 +4,58 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Engineering IDE Pro - Integrated CAD, PCB, Robotics & AI</title>
+    <title>Folio - Integrated CAD, PCB, Robotics &amp; AI</title>
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      /*
+       * Pre-paint theme bootstrap.
+       *
+       * main.tsx applies the full token set, but that runs after the bundle is
+       * parsed. This tiny script only needs to stop the white flash, so it sets
+       * `color-scheme` and the two possible background colours and nothing else.
+       * The hex literals must equal `THEMES.dark['--background']` and
+       * `THEMES.light['--background']` in src/lib/theme/tokens.ts —
+       * `theme.test.ts` asserts that so they can never drift.
+       */
+      (function () {
+        var key = 'circuit-cad-app-store';
+        var preference = 'system';
+        try {
+          var raw = localStorage.getItem(key);
+          if (raw) {
+            var parsed = JSON.parse(raw);
+            var stored = parsed && parsed.state && parsed.state.settings && parsed.state.settings.theme;
+            if (stored) preference = stored;
+          }
+        } catch (error) {
+          /* storage disabled — fall through to system */
+        }
+        var prefersDark = false;
+        var prefersContrast = false;
+        try {
+          prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          prefersContrast = window.matchMedia('(prefers-contrast: more)').matches;
+        } catch (error) {
+          /* no matchMedia — treat as light */
+        }
+        var theme =
+          preference === 'system'
+            ? prefersContrast
+              ? 'high-contrast'
+              : prefersDark
+                ? 'dark'
+                : 'light'
+            : preference;
+        var isDark = theme !== 'light';
+        var root = document.documentElement;
+        root.dataset.theme = theme;
+        if (isDark) root.classList.add('dark');
+        root.style.colorScheme = isDark ? 'dark' : 'light';
+        root.style.backgroundColor = isDark ? '#0a0f1a' : '#ffffff';
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

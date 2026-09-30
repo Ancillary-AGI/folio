@@ -47,4 +47,10 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 )
 Button.displayName = "Button"
 
-export { Button, buttonVariants }
+/*
+ * Only components are exported from this module: exporting the `cva` recipe as
+ * well would defeat React Fast Refresh for every file that imports a Button.
+ * Component styling lives in `buttonVariants`; component API lives in the props
+ * interface. Add a variant there rather than reaching for a one-off class.
+ */
+export { Button }

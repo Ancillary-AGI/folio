@@ -1,6 +1,6 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useMemo } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Grid, Box, Cylinder } from '@react-three/drei';
+import { OrbitControls, Grid } from '@react-three/drei';
 import * as THREE from 'three';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -17,6 +17,9 @@ import {
   X
 } from 'lucide-react';
 import { useProjectStore } from '../../stores/useProjectStore';
+import { downloadFile } from '../../lib/exportUtils';
+import { STLExporter } from '../../lib/3d/stlExporter';
+import { objExporter } from '../../lib/3d/objExporter';
 
 interface Circuit3DViewerProps {
   onClose: () => void;
@@ -40,33 +43,39 @@ interface PCBLayer {
   opacity: number;
 }
 
+type ComponentShape =
+  | { kind: 'box'; size: [number, number, number] }
+  | { kind: 'cylinder'; radiusTop: number; radiusBottom: number; height: number; segments: number };
+
+/** Shared geometry spec so the rendered scene and the exporters can never drift apart. */
+const COMPONENT_SHAPES: Record<string, ComponentShape> = {
+  resistor: { kind: 'cylinder', radiusTop: 0.5, radiusBottom: 0.5, height: 2, segments: 8 },
+  capacitor: { kind: 'cylinder', radiusTop: 0.7, radiusBottom: 0.7, height: 1.5, segments: 8 },
+  ic: { kind: 'box', size: [2, 0.3, 1] },
+  led: { kind: 'cylinder', radiusTop: 0.3, radiusBottom: 0.3, height: 1, segments: 8 },
+  transistor: { kind: 'box', size: [0.8, 0.5, 0.6] },
+};
+
+const DEFAULT_SHAPE: ComponentShape = { kind: 'box', size: [1, 0.5, 1] };
+
+function geometryFor(type: string): THREE.BufferGeometry {
+  const shape = COMPONENT_SHAPES[type] ?? DEFAULT_SHAPE;
+  return shape.kind === 'box'
+    ? new THREE.BoxGeometry(...shape.size)
+    : new THREE.CylinderGeometry(shape.radiusTop, shape.radiusBottom, shape.height, shape.segments);
+}
+
 // Component 3D representations
 function Component3DModel({ component }: { component: Component3D }) {
   const meshRef = useRef<THREE.Mesh>(null);
-  
+  const geometry = useMemo(() => geometryFor(component.type), [component.type]);
+
   useFrame((state) => {
     if (meshRef.current) {
       // Add subtle animation for selected components
       meshRef.current.rotation.y = Math.sin(state.clock.elapsedTime) * 0.1;
     }
   });
-
-  const getComponentGeometry = () => {
-    switch (component.type) {
-      case 'resistor':
-        return <Cylinder args={[0.5, 0.5, 2, 8]} />;
-      case 'capacitor':
-        return <Cylinder args={[0.7, 0.7, 1.5, 8]} />;
-      case 'ic':
-        return <Box args={[2, 0.3, 1]} />;
-      case 'led':
-        return <Cylinder args={[0.3, 0.3, 1, 8]} />;
-      case 'transistor':
-        return <Box args={[0.8, 0.5, 0.6]} />;
-      default:
-        return <Box args={[1, 0.5, 1]} />;
-    }
-  };
 
   if (!component.visible) return null;
 
@@ -76,8 +85,8 @@ function Component3DModel({ component }: { component: Component3D }) {
       position={component.position}
       rotation={component.rotation}
       scale={component.scale}
+      geometry={geometry}
     >
-      {getComponentGeometry()}
       <meshStandardMaterial color={component.color} />
     </mesh>
   );
@@ -128,34 +137,31 @@ function Trace3D({
   );
 }
 
+const VIEW_POSITIONS: Record<string, [number, number, number]> = {
+  iso: [15, 15, 15],
+  top: [0, 20, 0],
+  front: [0, 5, 20],
+  side: [20, 5, 0],
+};
+
 // Camera controller
 function CameraController({
-  view
+  view,
+  zoom,
+  reframe
 }: {
   view: string;
+  zoom: number;
+  reframe: number;
 }) {
   const { camera } = useThree();
 
   useEffect(() => {
-    switch (view) {
-      case 'top':
-        camera.position.set(0, 20, 0);
-        camera.lookAt(0, 0, 0);
-        break;
-      case 'front':
-        camera.position.set(0, 5, 20);
-        camera.lookAt(0, 0, 0);
-        break;
-      case 'side':
-        camera.position.set(20, 5, 0);
-        camera.lookAt(0, 0, 0);
-        break;
-      case 'iso':
-        camera.position.set(15, 15, 15);
-        camera.lookAt(0, 0, 0);
-        break;
-    }
-  }, [view, camera]);
+    const base = VIEW_POSITIONS[view] ?? VIEW_POSITIONS.iso;
+    // Scale the canonical viewpoint so the zoom buttons have a real effect.
+    camera.position.set(base[0] / zoom, base[1] / zoom, base[2] / zoom);
+    camera.lookAt(0, 0, 0);
+  }, [view, zoom, reframe, camera]);
 
   return null;
 }
@@ -185,6 +191,10 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
   const [showTraces, setShowTraces] = useState(true);
   const [showPCB, setShowPCB] = useState(true);
   const [selectedLayer, setSelectedLayer] = useState<string | null>(null);
+  const [hiddenComponentIds, setHiddenComponentIds] = useState<string[]>([]);
+  const [zoom, setZoom] = useState(1);
+  const [reframe, setReframe] = useState(0);
+  const glRef = useRef<THREE.WebGLRenderer | null>(null);
   
   // Convert 2D components to 3D
   const components3D: Component3D[] = components.map((comp, index) => ({
@@ -198,17 +208,17 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
     scale: [1, 1, 1],
     type: comp.component.category,
     color: getComponentColor(comp.component.category),
-    visible: true
+    visible: !hiddenComponentIds.includes(comp.id),
   }));
 
-  // PCB layers
-  const pcbLayers: PCBLayer[] = [
+  // PCB layers (state, so the layer eye-toggles actually hide geometry)
+  const [pcbLayers, setPcbLayers] = useState<PCBLayer[]>([
     { name: 'Substrate', color: '#2d5016', thickness: 1.6, visible: true, opacity: 0.8 },
     { name: 'Bottom Copper', color: '#b87333', thickness: 0.035, visible: true, opacity: 0.9 },
     { name: 'Solder Mask', color: '#0f4c0f', thickness: 0.025, visible: true, opacity: 0.7 },
     { name: 'Top Copper', color: '#b87333', thickness: 0.035, visible: true, opacity: 0.9 },
     { name: 'Silkscreen', color: '#ffffff', thickness: 0.01, visible: true, opacity: 1.0 }
-  ];
+  ]);
 
   // Convert 2D wires to 3D traces
   const traces3D = wires.map(wire => ({
@@ -240,27 +250,136 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
     return colors[category] || '#696969';
   }
 
-  const handleExport3D = () => {
-    // Export 3D model (STL, OBJ, etc.)
-    console.log('Exporting 3D model...');
+  const handleToggleLayer = (layerName: string) => {
+    setPcbLayers(layers =>
+      layers.map(layer =>
+        layer.name === layerName ? { ...layer, visible: !layer.visible } : layer
+      )
+    );
   };
 
-  const handleToggleLayer = (layerName: string) => {
-    // Toggle layer visibility
-    console.log('Toggling layer:', layerName);
+  const handleToggleComponent = (componentId: string) => {
+    setHiddenComponentIds(ids =>
+      ids.includes(componentId)
+        ? ids.filter(id => id !== componentId)
+        : [...ids, componentId]
+    );
+  };
+
+  /**
+   * Rebuild the visible scene as a standalone THREE.Scene so every export path
+   * (STL, OBJ, image) sees exactly what the viewport shows.
+   */
+  const buildExportScene = (): THREE.Scene => {
+    const scene = new THREE.Scene();
+
+    if (showPCB) {
+      pcbLayers.forEach((layer, index) => {
+        if (!layer.visible) return;
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(20, layer.thickness, 15));
+        mesh.name = `layer-${layer.name}`;
+        mesh.position.set(0, -index * layer.thickness, 0);
+        scene.add(mesh);
+      });
+    }
+
+    if (showComponents) {
+      components3D.forEach(comp => {
+        if (!comp.visible) return;
+        const mesh = new THREE.Mesh(geometryFor(comp.type));
+        mesh.name = `component-${comp.id}`;
+        mesh.position.set(...comp.position);
+        mesh.rotation.set(...comp.rotation);
+        scene.add(mesh);
+      });
+    }
+
+    if (showTraces) {
+      traces3D.forEach(trace => {
+        if (trace.points.length < 2) return;
+        const curve = new THREE.CatmullRomCurve3(
+          trace.points.map(p => new THREE.Vector3(...p))
+        );
+        const mesh = new THREE.Mesh(
+          new THREE.TubeGeometry(curve, trace.points.length * 2, 0.1, 8, false)
+        );
+        mesh.name = `trace-${trace.id}`;
+        scene.add(mesh);
+      });
+    }
+
+    scene.updateMatrixWorld(true);
+    return scene;
+  };
+
+  const handleExportSTL = () => {
+    const stl = STLExporter.exportScene(buildExportScene());
+    downloadFile(
+      typeof stl === 'string' ? stl : new TextDecoder().decode(stl),
+      'circuit_3d.stl',
+      'model/stl'
+    );
+  };
+
+  const handleExportOBJ = () => {
+    const scene = buildExportScene();
+    const meshes: Array<{ name: string; vertices: Array<{ x: number; y: number; z: number }>; faces: number[][] }> = [];
+
+    scene.traverse(object => {
+      if (!(object instanceof THREE.Mesh) || !object.geometry) return;
+      const position = object.geometry.getAttribute('position');
+      if (!position) return;
+
+      const vertices: Array<{ x: number; y: number; z: number }> = [];
+      for (let i = 0; i < position.count; i++) {
+        const vertex = new THREE.Vector3()
+          .fromBufferAttribute(position, i)
+          .applyMatrix4(object.matrixWorld);
+        vertices.push({ x: vertex.x, y: vertex.y, z: vertex.z });
+      }
+
+      const faces: number[][] = [];
+      const index = object.geometry.getIndex();
+      if (index) {
+        for (let i = 0; i + 2 < index.count; i += 3) {
+          faces.push([index.getX(i), index.getX(i + 1), index.getX(i + 2)]);
+        }
+      } else {
+        for (let i = 0; i + 2 < position.count; i += 3) {
+          faces.push([i, i + 1, i + 2]);
+        }
+      }
+
+      meshes.push({ name: object.name || 'mesh', vertices, faces });
+    });
+
+    const result = objExporter.exportMeshes(meshes, 'circuit');
+    downloadFile(result.obj, 'circuit_3d.obj', 'text/plain');
+    downloadFile(result.mtl, 'model.mtl', 'text/plain');
+  };
+
+  const handleExportImage = () => {
+    const canvas = glRef.current?.domElement;
+    if (!canvas) return;
+    const link = document.createElement('a');
+    link.href = canvas.toDataURL('image/png');
+    link.download = 'circuit_3d.png';
+    link.click();
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-overlay/70 flex items-center justify-center z-50">
       <div className="bg-card border border-border rounded-lg shadow-xl w-full max-w-7xl h-[90vh] flex">
         {/* 3D Viewport */}
         <div className="flex-1 relative">
           <Canvas
             shadows
             camera={{ position: [15, 15, 15], fov: 50 }}
+            gl={{ preserveDrawingBuffer: true }}
+            onCreated={({ gl }) => { glRef.current = gl; }}
             style={{ background: 'linear-gradient(to bottom, #87CEEB, #E0F6FF)' }}
           >
-            <CameraController view={currentView} />
+            <CameraController view={currentView} zoom={zoom} reframe={reframe} />
             <Lighting />
             
             {showGrid && <Grid args={[50, 50]} />}
@@ -303,7 +422,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
               <Button
                 variant="outline"
                 size="icon"
-                onClick={() => setCurrentView('iso')}
+                onClick={() => { setCurrentView('iso'); setZoom(1); }}
                 title="Reset View"
               >
                 <Home className="w-4 h-4" />
@@ -311,6 +430,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
               <Button
                 variant="outline"
                 size="icon"
+                onClick={() => setZoom(z => Math.min(4, z * 1.25))}
                 title="Zoom In"
               >
                 <ZoomIn className="w-4 h-4" />
@@ -318,6 +438,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
               <Button
                 variant="outline"
                 size="icon"
+                onClick={() => setZoom(z => Math.max(0.25, z / 1.25))}
                 title="Zoom Out"
               >
                 <ZoomOut className="w-4 h-4" />
@@ -325,6 +446,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
               <Button
                 variant="outline"
                 size="icon"
+                onClick={() => setReframe(n => n + 1)}
                 title="Reset Rotation"
               >
                 <RotateCcw className="w-4 h-4" />
@@ -467,6 +589,10 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                       variant="ghost"
                       size="icon"
                       className="h-5 w-5"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleComponent(comp.id);
+                      }}
                     >
                       {comp.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
                     </Button>
@@ -484,7 +610,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleExport3D}
+                  onClick={handleExportSTL}
                   className="w-full flex items-center gap-2"
                 >
                   <Download className="w-3 h-3" />
@@ -493,6 +619,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={handleExportOBJ}
                   className="w-full flex items-center gap-2"
                 >
                   <Download className="w-3 h-3" />
@@ -501,6 +628,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={handleExportImage}
                   className="w-full flex items-center gap-2"
                 >
                   <Download className="w-3 h-3" />

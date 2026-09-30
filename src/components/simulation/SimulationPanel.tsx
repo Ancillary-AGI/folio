@@ -1,80 +1,84 @@
-import { useState, useEffect } from 'react'
-import { Play, Square, Download, Zap, BarChart3, X } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Play, Download, Zap, BarChart3, X, AlertCircle, Info } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { spiceEngine, SimulationParameters, SimulationResult } from '../../lib/simulation/spiceEngine'
+import { buildCircuitNetlist } from '../../lib/simulation/netlistBuilder'
 import { useProjectStore } from '../../stores/useProjectStore'
+import { useTheme } from '../../lib/theme/useTheme'
+import { chartSeriesColors } from '../../lib/theme/tokens'
+import { describeError } from '../../lib/utils'
 
 interface SimulationPanelProps {
   onClose: () => void
 }
 
+/** Analyses the solver actually implements, in menu order. */
+const ANALYSIS_TYPES = ['dc', 'transient', 'ac', 'noise', 'montecarlo'] as const
+type AnalysisType = (typeof ANALYSIS_TYPES)[number]
+
+const ANALYSIS_LABELS: Record<AnalysisType, string> = {
+  dc: 'DC operating point',
+  transient: 'Transient',
+  ac: 'AC sweep',
+  noise: 'Noise',
+  montecarlo: 'Monte Carlo',
+}
+
+const ANALYSIS_SUMMARY: Record<AnalysisType, string> = {
+  dc: 'Solves the bias point by modified nodal analysis. Capacitors are open, inductors are shorts, and diodes are linearised by Newton iteration.',
+  transient: 'Integrates capacitors and inductors with backward-Euler companion models — unconditionally stable, and it will not ring on an ideal step.',
+  ac: 'Sweeps the complex small-signal network, linearising diodes at the DC operating point so the response belongs to the bias you designed.',
+  noise: 'Output-referred thermal and shot noise via the adjoint (transposed) network method, with an integrated RMS figure.',
+  montecarlo: 'Re-solves the bias with R/C/L perturbed inside a tolerance band, reporting the mean and the ±3σ envelope. Seeded, so a sweep is reproducible.',
+}
+
 export default function SimulationPanel({ onClose }: SimulationPanelProps) {
   const [isSimulating, setIsSimulating] = useState(false)
   const [simulationResults, setSimulationResults] = useState<SimulationResult | null>(null)
-  const [selectedAnalysis, setSelectedAnalysis] = useState<'dc' | 'ac' | 'transient' | 'noise'>('transient')
-  const [parameters, setParameters] = useState<SimulationParameters>({
-    type: 'transient',
-    startTime: 0,
-    stopTime: 0.001,
-    stepTime: 0.000001,
-    temperature: 27
-  })
+  const [selectedAnalysis, setSelectedAnalysis] = useState<AnalysisType>('dc')
+  const [error, setError] = useState<string | null>(null)
+  const [parameters, setParameters] = useState<SimulationParameters>({ type: 'dc' })
   const [selectedWaveforms, setSelectedWaveforms] = useState<string[]>([])
-  
-  const { components, wires } = useProjectStore()
-  
+
+  const { components, wires, addSimulationRun } = useProjectStore()
+  const { theme } = useTheme()
+  const seriesColors = useMemo(() => chartSeriesColors(theme), [theme])
+
   useEffect(() => {
-    setParameters(prev => ({ ...prev, type: selectedAnalysis }))
+    setParameters((previous) => ({ ...previous, type: selectedAnalysis }))
   }, [selectedAnalysis])
-  
+
   const handleRunSimulation = async () => {
-    if (components.length === 0) {
-      alert('No components to simulate')
-      return
-    }
-    
     setIsSimulating(true)
-    
+    setError(null)
+
     try {
-      // Generate netlist from current circuit
-      const netlist = {
-        title: 'Circuit Simulation',
-        components: components.map(comp => ({
-          type: comp.component.name.toLowerCase().replace(/\s+/g, '_'),
-          name: comp.reference,
-          nodes: comp.component.pins.map(pin => {
-            const connectedWire = wires.find(wire =>
-              wire.connectedPins.some(p => p.componentId === comp.id && p.pinId === pin.id)
-            )
-            return connectedWire?.netName || `net_${comp.id}_${pin.id}`
-          }),
-          parameters: comp.properties
-        })),
-        analyses: [parameters]
-      }
-      
+      const netlist = buildCircuitNetlist('Circuit Simulation', components, wires, parameters)
       const result = await spiceEngine.simulate(netlist)
       setSimulationResults(result)
-      
-      if (result.success && result.waveforms.length > 0) {
-        setSelectedWaveforms([result.waveforms[0].name])
-      }
-    } catch (error) {
-      console.error('Simulation error:', error)
-      alert('Simulation failed: ' + (error instanceof Error ? error.message : 'Unknown error'))
+      setSelectedWaveforms(result.waveforms.length > 0 ? [result.waveforms[0].name] : [])
+      // Persist the run into the design so it survives save/load and VCS commits.
+      addSimulationRun({
+        name: `${ANALYSIS_LABELS[selectedAnalysis]} — ${new Date().toLocaleString()}`,
+        type: selectedAnalysis,
+        parameters: parameters as unknown as Record<string, unknown>,
+        results: result as unknown as Record<string, unknown>,
+        status: 'completed',
+      })
+    } catch (thrown) {
+      // Building the netlist can fail (conflicting net names). Report it here
+      // rather than in an `alert`, so it stays attached to the panel.
+      setError(describeError(thrown))
+      setSimulationResults(null)
     } finally {
       setIsSimulating(false)
     }
   }
-  
-  const handleStopSimulation = () => {
-    setIsSimulating(false)
-  }
-  
-  const handleParameterChange = (key: keyof SimulationParameters, value: string | number) => {
-    setParameters(prev => ({ ...prev, [key]: value }))
+
+  const handleParameterChange = (key: keyof SimulationParameters, value: string | number | boolean) => {
+    setParameters((previous) => ({ ...previous, [key]: value }))
   }
   
   const handleExportResults = () => {
@@ -122,18 +126,17 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
   }
   
   const getWaveformColors = () => {
-    const colors = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#00ff00', '#ff00ff']
-    return selectedWaveforms.reduce((acc, name, index) => {
-      acc[name] = colors[index % colors.length]
+    return selectedWaveforms.reduce<Record<string, string>>((acc, name, index) => {
+      acc[name] = seriesColors[index % seriesColors.length]
       return acc
-    }, {} as Record<string, string>)
+    }, {})
   }
   
   return (
     <Card className="h-full flex flex-col">
       <CardHeader className="flex-row items-center justify-between space-y-0 pb-4">
         <CardTitle className="flex items-center gap-2">
-          <BarChart3 className="w-5 h-5 text-green-600" />
+          <BarChart3 className="w-5 h-5 text-success" />
           Circuit Simulation
         </CardTitle>
         <Button variant="ghost" size="icon" onClick={onClose}>
@@ -141,105 +144,223 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
         </Button>
       </CardHeader>
       
-      <CardContent className="flex-1 flex flex-col space-y-4">
+      <CardContent className="flex-1 flex flex-col space-y-4 overflow-y-auto scrollbar-thin">
         {/* Analysis Type Selection */}
         <div>
-          <label className="text-sm font-medium mb-2 block">Analysis Type</label>
-          <div className="flex gap-2">
-            {(['dc', 'ac', 'transient', 'noise'] as const).map(type => (
+          <span className="text-sm font-medium mb-2 block">Analysis type</span>
+          <div className="flex flex-wrap gap-2">
+            {ANALYSIS_TYPES.map((type) => (
               <Button
                 key={type}
                 variant={selectedAnalysis === type ? 'default' : 'outline'}
                 size="sm"
+                disabled={isSimulating}
                 onClick={() => setSelectedAnalysis(type)}
-                className="capitalize"
               >
-                {type}
+                {ANALYSIS_LABELS[type]}
               </Button>
             ))}
           </div>
+          <p className="mt-2 flex gap-2 text-xs leading-relaxed text-muted-foreground">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            {ANALYSIS_SUMMARY[selectedAnalysis]}
+          </p>
         </div>
-        
+
         {/* Parameters */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="sim-temperature" className="text-sm font-medium mb-1 block">
+              Temperature (°C)
+            </label>
+            <input
+              id="sim-temperature"
+              type="number"
+              value={parameters.temperature ?? 27}
+              onChange={(event) => handleParameterChange('temperature', Number(event.target.value))}
+              className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
+            />
+          </div>
+
           {selectedAnalysis === 'transient' && (
             <>
               <div>
-                <label className="text-sm font-medium mb-1 block">Start Time (s)</label>
+                <label htmlFor="sim-stop" className="text-sm font-medium mb-1 block">
+                  Stop time (s)
+                </label>
                 <input
+                  id="sim-stop"
                   type="number"
-                  value={parameters.startTime || 0}
-                  onChange={(e) => handleParameterChange('startTime', parseFloat(e.target.value))}
-                  className="w-full px-3 py-1 border rounded text-sm"
+                  value={parameters.stopTime ?? 1e-3}
+                  onChange={(event) => handleParameterChange('stopTime', Number(event.target.value))}
+                  className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
                   step="0.000001"
+                  min="0"
                 />
               </div>
               <div>
-                <label className="text-sm font-medium mb-1 block">Stop Time (s)</label>
+                <label htmlFor="sim-step" className="text-sm font-medium mb-1 block">
+                  Max step (s)
+                </label>
                 <input
+                  id="sim-step"
                   type="number"
-                  value={parameters.stopTime || 0.001}
-                  onChange={(e) => handleParameterChange('stopTime', parseFloat(e.target.value))}
-                  className="w-full px-3 py-1 border rounded text-sm"
-                  step="0.000001"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">Step Time (s)</label>
-                <input
-                  type="number"
-                  value={parameters.stepTime || 0.000001}
-                  onChange={(e) => handleParameterChange('stepTime', parseFloat(e.target.value))}
-                  className="w-full px-3 py-1 border rounded text-sm"
+                  value={parameters.stepTime ?? 1e-6}
+                  onChange={(event) => handleParameterChange('stepTime', Number(event.target.value))}
+                  className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
                   step="0.0000001"
+                  min="0"
                 />
               </div>
+              <label className="col-span-2 flex items-center justify-between gap-3 rounded-md border border-border p-2">
+                <span className="text-sm text-card-foreground">
+                  Start from zero stored energy
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    Off: begin at the DC operating point (SPICE default). On: watch capacitors charge.
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-[hsl(var(--primary))]"
+                  checked={parameters.useInitialConditions ?? false}
+                  onChange={(event) => handleParameterChange('useInitialConditions', event.target.checked)}
+                />
+              </label>
             </>
           )}
-          
-          {selectedAnalysis === 'ac' && (
-            <>
-              <div>
-                <label className="text-sm font-medium mb-1 block">Start Freq (Hz)</label>
-                <input
-                  type="number"
-                  value={parameters.startFreq || 1}
-                  onChange={(e) => handleParameterChange('startFreq', parseFloat(e.target.value))}
-                  className="w-full px-3 py-1 border rounded text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">Stop Freq (Hz)</label>
-                <input
-                  type="number"
-                  value={parameters.stopFreq || 1000000}
-                  onChange={(e) => handleParameterChange('stopFreq', parseFloat(e.target.value))}
-                  className="w-full px-3 py-1 border rounded text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">Points/Decade</label>
-                <input
-                  type="number"
-                  value={parameters.pointsPerDecade || 10}
-                  onChange={(e) => handleParameterChange('pointsPerDecade', parseInt(e.target.value))}
-                  className="w-full px-3 py-1 border rounded text-sm"
-                />
-              </div>
-            </>
-          )}
-          
-          <div>
-            <label className="text-sm font-medium mb-1 block">Temperature (°C)</label>
-            <input
-              type="number"
-              value={parameters.temperature || 27}
-              onChange={(e) => handleParameterChange('temperature', parseFloat(e.target.value))}
-              className="w-full px-3 py-1 border rounded text-sm"
-            />
-          </div>
         </div>
-        
+
+        {/* Frequency-domain and tolerance controls */}
+        {(selectedAnalysis === 'ac' || selectedAnalysis === 'noise' || selectedAnalysis === 'montecarlo') && (
+          <div className="grid grid-cols-2 gap-3">
+            {(selectedAnalysis === 'ac' || selectedAnalysis === 'noise') && (
+              <>
+                <div>
+                  <label htmlFor="sim-fstart" className="text-sm font-medium mb-1 block">
+                    Start frequency (Hz)
+                  </label>
+                  <input
+                    id="sim-fstart"
+                    type="number"
+                    value={parameters.startFreq ?? 10}
+                    onChange={(event) => handleParameterChange('startFreq', Number(event.target.value))}
+                    className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="sim-fstop" className="text-sm font-medium mb-1 block">
+                    Stop frequency (Hz)
+                  </label>
+                  <input
+                    id="sim-fstop"
+                    type="number"
+                    value={parameters.stopFreq ?? 1e6}
+                    onChange={(event) => handleParameterChange('stopFreq', Number(event.target.value))}
+                    className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="sim-ppd" className="text-sm font-medium mb-1 block">
+                    Points per decade
+                  </label>
+                  <input
+                    id="sim-ppd"
+                    type="number"
+                    value={parameters.pointsPerDecade ?? (selectedAnalysis === 'noise' ? 10 : 20)}
+                    onChange={(event) => handleParameterChange('pointsPerDecade', Number(event.target.value))}
+                    className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
+                    min="2"
+                    max="200"
+                  />
+                </div>
+              </>
+            )}
+
+            {selectedAnalysis === 'noise' && (
+              <div>
+                <label htmlFor="sim-out" className="text-sm font-medium mb-1 block">
+                  Output net
+                </label>
+                <input
+                  id="sim-out"
+                  type="text"
+                  value={parameters.outputNode ?? ''}
+                  placeholder="Auto-detect a net named OUT"
+                  onChange={(event) => handleParameterChange('outputNode', event.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
+                />
+              </div>
+            )}
+
+            {selectedAnalysis === 'montecarlo' && (
+              <>
+                <div>
+                  <label htmlFor="sim-runs" className="text-sm font-medium mb-1 block">
+                    Runs
+                  </label>
+                  <input
+                    id="sim-runs"
+                    type="number"
+                    value={parameters.iterations ?? 100}
+                    onChange={(event) => handleParameterChange('iterations', Number(event.target.value))}
+                    className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
+                    min="1"
+                    max="500"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="sim-tol" className="text-sm font-medium mb-1 block">
+                    Tolerance (%)
+                  </label>
+                  <input
+                    id="sim-tol"
+                    type="number"
+                    value={Number(((parameters.tolerance ?? 0.05) * 100).toFixed(2))}
+                    onChange={(event) =>
+                      handleParameterChange('tolerance', Math.max(0, Number(event.target.value)) / 100)
+                    }
+                    className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
+                    min="0"
+                    step="0.1"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label htmlFor="sim-seed" className="text-sm font-medium mb-1 block">
+                    Random seed
+                  </label>
+                  <input
+                    id="sim-seed"
+                    type="number"
+                    value={parameters.seed ?? 20260101}
+                    onChange={(event) => handleParameterChange('seed', Number(event.target.value))}
+                    className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    The same seed reproduces the same sweep exactly.
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+        {components.length === 0 && (
+          <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+            Place at least one component on the schematic before simulating.
+          </p>
+        )}
+
+        {error && (
+          <p
+            role="alert"
+            className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+          >
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            {error}
+          </p>
+        )}
+
         {/* Control Buttons */}
         <div className="flex gap-2">
           <Button
@@ -249,40 +370,52 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
           >
             {isSimulating ? (
               <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Simulating...
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                Solving…
               </>
             ) : (
               <>
-                <Play className="w-4 h-4" />
-                Run Simulation
+                <Play className="h-4 w-4" />
+                Run simulation
               </>
             )}
           </Button>
-          
-          {isSimulating && (
-            <Button
-              onClick={handleStopSimulation}
-              variant="destructive"
-              className="flex items-center gap-2"
-            >
-              <Square className="w-4 h-4" />
-              Stop
-            </Button>
-          )}
-          
+
           {simulationResults && (
-            <Button
-              onClick={handleExportResults}
-              variant="outline"
-              className="flex items-center gap-2"
-            >
-              <Download className="w-4 h-4" />
-              Export
+            <Button onClick={handleExportResults} variant="outline" className="flex items-center gap-2">
+              <Download className="h-4 w-4" />
+              Export results
             </Button>
           )}
         </div>
-        
+
+        {/* Solver diagnostics: floating nets, non-convergence, step widening. */}
+        {simulationResults?.notes && simulationResults.notes.length > 0 && (
+          <div className="rounded-md border border-border bg-muted/50 p-3">
+            <h4 className="mb-1 flex items-center gap-2 text-xs font-medium text-card-foreground">
+              <Info className="h-3.5 w-3.5" aria-hidden="true" />
+              Solver diagnostics
+            </h4>
+            <ul className="space-y-1">
+              {simulationResults.notes.map((note) => (
+                <li key={note} className="text-xs leading-relaxed text-muted-foreground">
+                  {note}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {simulationResults && !simulationResults.success && (
+          <p
+            role="alert"
+            className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+          >
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            {simulationResults.error ?? 'The simulation could not be completed.'}
+          </p>
+        )}
+
         {/* Results */}
         {simulationResults && (
           <div className="flex-1 flex flex-col space-y-4">
@@ -294,9 +427,9 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
                     <h4 className="text-sm font-medium mb-2">Operating Point</h4>
                     <div className="grid grid-cols-3 gap-2 text-xs">
                       {Object.entries(simulationResults.operatingPoint).map(([node, value]) => (
-                        <div key={node} className="bg-gray-50 p-2 rounded">
+                        <div key={node} className="bg-muted p-2 rounded">
                           <div className="font-medium">{node}</div>
-                          <div className="text-gray-600">{value.toFixed(3)}V</div>
+                          <div className="text-muted-foreground">{value.toFixed(6)} V</div>
                         </div>
                       ))}
                     </div>
@@ -323,7 +456,7 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
                             className="w-3 h-3"
                           />
                           <span>{waveform.name}</span>
-                          <span className="text-gray-500">({waveform.unit})</span>
+                          <span className="text-muted-foreground">({waveform.unit})</span>
                         </label>
                       ))}
                     </div>
@@ -384,19 +517,19 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
                 
                 {/* Convergence Info */}
                 {simulationResults.convergenceInfo && (
-                  <div className="text-xs text-gray-600">
+                  <div className="text-xs text-muted-foreground">
                     Convergence: {simulationResults.convergenceInfo.converged ? 'Success' : 'Failed'} 
                     ({simulationResults.convergenceInfo.iterations} iterations)
                   </div>
                 )}
               </>
             ) : (
-              <div className="text-red-600 text-sm">
+              <div className="text-destructive text-sm">
                 <div className="flex items-center gap-2 mb-2">
                   <Zap className="w-4 h-4" />
                   Simulation Error
                 </div>
-                <div className="bg-red-50 p-3 rounded">
+                <div className="bg-destructive/10 p-3 rounded">
                   {simulationResults.error}
                 </div>
               </div>
@@ -406,7 +539,7 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
         
         {/* Empty State */}
         {!simulationResults && !isSimulating && (
-          <div className="flex-1 flex items-center justify-center text-gray-500">
+          <div className="flex-1 flex items-center justify-center text-muted-foreground">
             <div className="text-center">
               <BarChart3 className="w-12 h-12 mx-auto mb-4 opacity-50" />
               <p className="text-sm">Configure parameters and run simulation</p>

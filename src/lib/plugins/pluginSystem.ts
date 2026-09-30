@@ -75,19 +75,13 @@ export interface Plugin {
 export class PluginManager {
   private plugins: Map<string, Plugin> = new Map();
   private tools: Map<string, PluginTool> = new Map();
-  private hooks: Map<string, Array<(...args: unknown[]) => unknown>> = new Map();
+  private components: Map<string, PluginComponent> = new Map();
+  private simulators: Map<string, PluginSimulator> = new Map();
+  private exporters: Map<string, PluginExporter> = new Map();
+  private hooks: Map<string, Array<{ pluginId: string; handler: (...args: unknown[]) => unknown }>> = new Map();
   private events: Map<string, Array<(...args: unknown[]) => void>> = new Map();
   private services: Map<string, unknown> = new Map();
   private storage: Map<string, Map<string, unknown>> = new Map();
-
-  constructor() {
-    this.initializeCoreServices();
-  }
-
-  private initializeCoreServices(): void {
-    // Register core services that plugins can access
-    // This would include access to existing services like aiService, collaborationService, etc.
-  }
 
   async loadPlugin(manifest: PluginManifest, pluginFactory: (context: PluginContext) => Plugin): Promise<void> {
     if (this.plugins.has(manifest.id)) {
@@ -127,16 +121,21 @@ export class PluginManager {
     // Unload plugin
     await plugin.unload();
 
-    // Remove plugin tools
-    const toolsToRemove: string[] = [];
-    this.tools.forEach((tool, id) => {
-      if (tool.id.startsWith(pluginId + ':')) {
-        toolsToRemove.push(id);
+    // Remove plugin tools and other registrations (components, simulators,
+    // exports) — all are keyed with a `${pluginId}:` prefix.
+    const prefix = `${pluginId}:`;
+    for (const map of [this.tools, this.components, this.simulators, this.exporters]) {
+      for (const key of Array.from(map.keys())) {
+        if (key.startsWith(prefix)) map.delete(key);
       }
-    });
-    toolsToRemove.forEach(id => this.tools.delete(id));
+    }
 
-    // Remove plugin hooks - implementation would filter handlers by plugin ID
+    // Remove this plugin's hook handlers
+    for (const [hook, entries] of Array.from(this.hooks.entries())) {
+      const remaining = entries.filter(entry => entry.pluginId !== pluginId);
+      if (remaining.length === 0) this.hooks.delete(hook);
+      else this.hooks.set(hook, remaining);
+    }
 
     // Remove plugin
     this.plugins.delete(pluginId);
@@ -154,25 +153,25 @@ export class PluginManager {
       },
 
       registerComponent: (type: string, component: PluginComponent) => {
-        // Register component type
-        console.log(`Component type ${type} registered by plugin ${pluginId}`, component);
+        this.components.set(`${pluginId}:${type}`, component);
+        console.log(`Component type ${pluginId}:${type} registered by plugin ${pluginId}`);
       },
 
       registerSimulation: (engine: string, simulator: PluginSimulator) => {
-        // Register simulation engine
-        console.log(`Simulation engine ${engine} registered by plugin ${pluginId}`, simulator);
+        this.simulators.set(`${pluginId}:${engine}`, simulator);
+        console.log(`Simulation engine ${pluginId}:${engine} registered by plugin ${pluginId}`);
       },
 
       registerExport: (format: string, exporter: PluginExporter) => {
-        // Register export format
-        console.log(`Export format ${format} registered by plugin ${pluginId}`, exporter);
+        this.exporters.set(`${pluginId}:${format}`, exporter);
+        console.log(`Export format ${pluginId}:${format} registered by plugin ${pluginId}`);
       },
 
       registerHook: (hook: string, handler: (...args: unknown[]) => unknown) => {
         if (!this.hooks.has(hook)) {
           this.hooks.set(hook, []);
         }
-        this.hooks.get(hook)!.push(handler);
+        this.hooks.get(hook)!.push({ pluginId, handler });
         console.log(`Hook ${hook} registered by plugin ${pluginId}`);
       },
 
@@ -224,7 +223,7 @@ export class PluginManager {
     const handlers = this.hooks.get(hook) || [];
     const results: unknown[] = [];
 
-    for (const handler of handlers) {
+    for (const { handler } of handlers) {
       try {
         const result = await handler(...args);
         results.push(result);
@@ -257,6 +256,18 @@ export class PluginManager {
 
   getAllTools(): PluginTool[] {
     return Array.from(this.tools.values());
+  }
+
+  getComponent(type: string): PluginComponent | undefined {
+    return this.components.get(type);
+  }
+
+  getSimulator(engine: string): PluginSimulator | undefined {
+    return this.simulators.get(engine);
+  }
+
+  getExporter(format: string): PluginExporter | undefined {
+    return this.exporters.get(format);
   }
 
   getPlugin(pluginId: string): Plugin | undefined {
@@ -325,20 +336,22 @@ export class BasePlugin implements Plugin {
     this.context = context;
   }
 
+  /** Default: no initialisation. Subclasses override for real setup. */
   async load(): Promise<void> {
-    // Plugin initialization
-    console.log(`Loading plugin ${this.manifest.id}`);
+    // Intentionally a no-op — PluginManager logs load success around this call.
   }
 
+  /** Default: no cleanup. Subclasses override to release resources. */
   async unload(): Promise<void> {
-    // Plugin cleanup
-    console.log(`Unloading plugin ${this.manifest.id}`);
+    // Intentionally a no-op — PluginManager logs unload around this call.
   }
 
   async execute(command: string, ...args: unknown[]): Promise<unknown> {
-    // Execute plugin command
-    console.log(`Executing command ${command} in plugin ${this.manifest.id}`, args);
-    return undefined;
+    // Fail closed: plugins must override `execute`; returning undefined would
+    // silently pretend the command ran.
+    throw new Error(
+      `Plugin ${this.manifest.id} does not implement command "${command}" (received ${args.length} argument(s)).`
+    );
   }
 }
 

@@ -133,23 +133,28 @@ export class SignalIntegrityAnalyzer {
     receiver: SignalReceiver,
     config: SignalIntegrityConfig
   ): Promise<SignalIntegrityAnalysis> {
+    const material = this.materialProperties[config.boardMaterial] ?? this.materialProperties.FR4;
+    const effectiveTrace = {
+      ...trace,
+      dielectricConstant: trace.dielectricConstant > 0 ? trace.dielectricConstant : material.dielectricConstant,
+    };
     // Calculate characteristic impedance
-    const Z0 = this.calculateCharacteristicImpedance(trace);
+    const Z0 = this.calculateCharacteristicImpedance(effectiveTrace);
 
     // Calculate propagation delay
-    const delay = this.calculatePropagationDelay(trace);
+    const delay = this.calculatePropagationDelay(effectiveTrace);
 
     // Simulate signal behavior
-    const signalResponse = this.simulateSignalResponse(trace, driver, receiver);
+    const signalResponse = this.simulateSignalResponse(effectiveTrace, driver, receiver);
 
     // Calculate crosstalk (simplified)
-    const crosstalk = this.calculateCrosstalk(trace, []);
+    const crosstalk = this.calculateCrosstalk(effectiveTrace, []);
 
     // Generate eye diagram
     const eyeDiagram = this.generateEyeDiagram(signalResponse, config);
 
     // Generate recommendations
-    const recommendations = this.generateRecommendations(trace, Z0, signalResponse);
+    const recommendations = this.generateRecommendations(effectiveTrace, Z0, signalResponse);
 
     return {
       traceId: trace.id,

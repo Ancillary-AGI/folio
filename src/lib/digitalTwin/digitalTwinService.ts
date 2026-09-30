@@ -97,10 +97,33 @@ export interface IoTTelemetry {
 export class DigitalTwinService {
   private twins: Map<string, DigitalTwin> = new Map();
   private iotDevices: Map<string, IoTDevice> = new Map();
-  private synchronizationActive: boolean = false;
+  private idCounter = 0;
 
   constructor() {
-    this.startSynchronization();
+    // No background timers: the service is a deterministic in-memory model.
+    // Callers drive synchronization explicitly via synchronizeDigitalTwin().
+  }
+
+  /**
+   * Monotonic local id with no Math.random — unique within this service
+   * instance and stable across test runs.
+   */
+  private nextId(prefix: string): string {
+    this.idCounter += 1;
+    return `${prefix}_${Date.now().toString(36)}_${this.idCounter.toString(36)}`;
+  }
+
+  /**
+   * Deterministic 32-bit hash of a string (FNV-1a). Used to derive
+   * repeatable pseudo-sensor values from an id instead of Math.random.
+   */
+  private hashString(value: string): number {
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return hash >>> 0;
   }
 
   // Digital Twin Management
@@ -110,7 +133,7 @@ export class DigitalTwinService {
     if (typeof physicalAssetIdOrConfig === 'string') {
       // Original signature: createDigitalTwin(physicalAssetId, name?, virtualModel?)
       const twin: DigitalTwin = {
-        id: `dt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: this.nextId('dt'),
         name: name || 'Digital Twin',
         physicalAssetId: physicalAssetIdOrConfig,
         physicalDeviceId: physicalAssetIdOrConfig,
@@ -134,7 +157,7 @@ export class DigitalTwinService {
       // Test signature: createDigitalTwin(config)
       const config = physicalAssetIdOrConfig;
       const twin: DigitalTwin = {
-        id: `dt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: this.nextId('dt'),
         name: 'Test Digital Twin',
         physicalAssetId: config.physicalDeviceId,
         physicalDeviceId: config.physicalDeviceId,
@@ -221,7 +244,7 @@ export class DigitalTwinService {
     if (twin) {
       const newSensor: Sensor = {
         ...sensor,
-        id: `sensor_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        id: this.nextId('sensor')
       };
       twin.sensors.push(newSensor);
     }
@@ -232,7 +255,7 @@ export class DigitalTwinService {
     if (twin) {
       const newActuator: Actuator = {
         ...actuator,
-        id: `actuator_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        id: this.nextId('actuator')
       };
       twin.actuators.push(newActuator);
     }
@@ -306,7 +329,7 @@ export class DigitalTwinService {
   registerIoTDevice(device: Omit<IoTDevice, 'id' | 'status' | 'lastSeen' | 'telemetry'>): IoTDevice {
     const iotDevice: IoTDevice = {
       ...device,
-      id: `iot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: this.nextId('iot'),
       status: 'disconnected',
       lastSeen: 0,
       telemetry: []
@@ -400,7 +423,7 @@ export class DigitalTwinService {
     if (twin) {
       const newRule: SynchronizationRule = {
         ...rule,
-        id: `rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: this.nextId('rule'),
         lastExecution: 0
       };
       twin.synchronizationRules.push(newRule);
@@ -408,60 +431,46 @@ export class DigitalTwinService {
   }
 
   // Private helper methods
-  private startSynchronization(): void {
-    this.synchronizationActive = true;
-
-    // Synchronize all twins every 5 seconds
-    setInterval(async () => {
-      if (this.synchronizationActive) {
-        for (const [twinId] of this.twins) {
-          try {
-            await this.synchronizeDigitalTwin(twinId);
-          } catch (error) {
-            console.warn(`Failed to synchronize twin ${twinId}:`, error);
-          }
-        }
-      }
-    }, 5000);
-
-    // Check IoT device connectivity every 30 seconds
-    setInterval(async () => {
-      if (this.synchronizationActive) {
-        for (const [deviceId, device] of this.iotDevices) {
-          try {
-            await this.checkIoTDeviceConnectivity(device);
-          } catch (error) {
-            console.warn(`Failed to check connectivity for device ${deviceId}:`, error);
-          }
-        }
-      }
-    }, 30000);
-  }
-
+  /**
+   * Pseudo-sensor model: repeatable per sensor id, derived from the id hash.
+   * Returns the range midpoint perturbed by ±5% of span. A real deployment
+   * replaces this with a hardware read; it never pretends to be one.
+   */
   private async readSensorData(sensor: Sensor): Promise<SensorReading> {
-    // Simulate sensor reading - in real implementation, this would interface with actual sensors
     const value = this.generateSensorValue(sensor);
-    const quality = Math.random() > 0.1 ? 'good' : Math.random() > 0.5 ? 'fair' : 'poor';
 
     return {
       timestamp: Date.now(),
       value,
       unit: this.getSensorUnit(sensor.type),
-      quality,
+      quality: 'good',
       metadata: {
         accuracy: sensor.accuracy,
-        range: sensor.range
+        range: sensor.range,
+        source: 'deterministic-model'
       }
     };
   }
 
+  /**
+   * Actuator mirror: reports the last commanded state, or a safe idle when
+   * nothing was commanded. No hardware is contacted here.
+   */
   private async getActuatorState(actuator: Actuator): Promise<unknown> {
-    // Simulate actuator state reading
+    if (actuator.lastCommand) {
+      return {
+        lastCommand: actuator.lastCommand.command,
+        parameters: actuator.lastCommand.parameters,
+        executed: actuator.lastCommand.executed,
+        commandedAt: actuator.lastCommand.timestamp
+      };
+    }
     return {
-      position: Math.random() * 360, // degrees
-      velocity: Math.random() * 100, // units/s
-      current: Math.random() * actuator.powerRequirements.current,
-      temperature: 25 + Math.random() * 30
+      position: 0,
+      velocity: 0,
+      current: 0,
+      temperature: 25,
+      idle: true
     };
   }
 
@@ -496,15 +505,12 @@ export class DigitalTwinService {
   }
 
   private async runTwinSimulation(model: VirtualModel, inputs: Record<string, unknown>): Promise<Record<string, unknown>> {
-    // Simplified simulation - in practice, this would run the actual simulation engine
+    // Echo model: carries forward the stored simulation state plus the fresh
+    // inputs. No physics is solved here; the caller connects a real engine.
     return {
       ...model.simulationState,
       inputs,
-      outputs: {
-        temperature: 25 + Math.random() * 20,
-        pressure: 1013 + Math.random() * 50,
-        efficiency: 0.8 + Math.random() * 0.2
-      },
+      outputs: { ...inputs },
       timestamp: Date.now()
     };
   }
@@ -530,25 +536,13 @@ export class DigitalTwinService {
   }
 
   private async establishIoTConnection(): Promise<void> {
-    // Simulate IoT connection establishment
-    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
+    // No transport is bundled: connecting requires a configured MQTT/CoAP/
+    // WebSocket endpoint. Fail loudly instead of pretending a link exists.
+    throw new Error('No IoT transport is configured. Register an endpoint and connect through it.');
   }
 
   private async sendCommandToIoTDevice(): Promise<void> {
-    // Simulate sending command to IoT device
-    await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 500));
-  }
-
-  private async checkIoTDeviceConnectivity(device: IoTDevice): Promise<void> {
-    // Simulate connectivity check
-    const isConnected = Math.random() > 0.1; // 90% uptime
-
-    if (isConnected) {
-      device.status = 'connected';
-      device.lastSeen = Date.now();
-    } else {
-      device.status = 'disconnected';
-    }
+    throw new Error('No IoT transport is configured. Register an endpoint and send through it.');
   }
 
   private async runSimulationStep(twin: DigitalTwin): Promise<SimulationResult> {
@@ -578,42 +572,21 @@ export class DigitalTwinService {
     };
   }
 
-  private async getHistoricalTwinData(twin: DigitalTwin): Promise<Array<{ timestamp: number; sensors: Array<{ id: string; value: number | number[] }>; actuators: Array<{ id: string; state: number }> }>> {
-    // Simulate retrieving historical data
-    const dataPoints = [];
-    const now = Date.now();
-
-    for (let i = 0; i < 100; i++) {
-      dataPoints.push({
-        timestamp: now - (i * 60000), // 1 minute intervals
-        sensors: twin.sensors.map(sensor => ({
-          id: sensor.id,
-          value: this.generateSensorValue(sensor)
-        })),
-        actuators: twin.actuators.map(actuator => ({
-          id: actuator.id,
-          state: Math.random()
-        }))
-      });
-    }
-
-    return dataPoints.reverse();
-  }
-
   private async runPredictiveModels(): Promise<Record<string, { current: number | number[]; predicted: number; confidence: number } | number>> {
-    // Simplified predictive modeling
+    // Baseline predictor: persistence forecast (predicted = current) with a
+    // documented low confidence. A real deployment fits a model on telemetry.
     const predictions = {
       temperature: {
         current: 25,
-        predicted: 25 + Math.random() * 10,
-        confidence: 0.8
+        predicted: 25,
+        confidence: 0.5
       },
       efficiency: {
         current: 0.85,
-        predicted: 0.85 + (Math.random() - 0.5) * 0.1,
-        confidence: 0.75
+        predicted: 0.85,
+        confidence: 0.5
       },
-      failure_probability: Math.random() * 0.1
+      failure_probability: 0
     };
 
     return predictions;
@@ -628,8 +601,10 @@ export class DigitalTwinService {
   // Utility methods
   private generateSensorValue(sensor: Sensor): number | number[] {
     const baseValue = (sensor.range.min + sensor.range.max) / 2;
-    const variation = (sensor.range.max - sensor.range.min) * 0.1;
-    const value = baseValue + (Math.random() - 0.5) * variation;
+    const span = sensor.range.max - sensor.range.min;
+    // Deterministic ±5% dither from the id hash: stable across runs.
+    const fraction = this.hashString(sensor.id) / 0xffffffff;
+    const value = baseValue + (fraction - 0.5) * span * 0.1;
 
     return Math.max(sensor.range.min, Math.min(sensor.range.max, value));
   }
@@ -649,7 +624,8 @@ export class DigitalTwinService {
   }
 
   stopSynchronization(): void {
-    this.synchronizationActive = false;
+    // Background sync was removed (it fabricated sensor/IoT traffic on a
+    // timer); kept as a no-op so existing callers keep compiling.
   }
 
   getAllDigitalTwins(): DigitalTwin[] {

@@ -5,6 +5,29 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/**
+ * Turn an unknown thrown value into a message that is safe to show a user.
+ *
+ * `catch (error)` narrows to `unknown` under `strict`, and reaching for
+ * `(error as Error).message` is how `undefined` ends up on screen. This helper
+ * always returns something actionable.
+ */
+export function describeError(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message
+  if (typeof error === 'string' && error.trim()) return error
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === 'string' && message.trim()) return message
+  }
+  try {
+    const serialised = JSON.stringify(error)
+    if (serialised && serialised !== '{}') return serialised
+  } catch {
+    /* circular or non-serialisable */
+  }
+  return 'Unknown error'
+}
+
 export function formatBytes(bytes: number, decimals = 2) {
   if (bytes === 0) return '0 Bytes'
   const k = 1024
@@ -39,8 +62,15 @@ export function throttle<T extends (...args: unknown[]) => unknown>(
   }
 }
 
-export function generateId(): string {
-  return Math.random().toString(36).substr(2, 9)
+/**
+ * Monotonic in-process id. Replaces `Math.random().toString(36)` fingerprints
+ * with a counter that is unique within the session and stable to reason about.
+ * Pass a distinct prefix per call site (e.g. `generateId('op')`).
+ */
+let idCounter = 0;
+export function generateId(prefix = 'id'): string {
+  idCounter += 1;
+  return `${prefix}_${Date.now()}_${idCounter}`;
 }
 
 export function clamp(value: number, min: number, max: number): number {

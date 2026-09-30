@@ -1,3 +1,28 @@
+/**
+ * Circuit simulation engine — public facade.
+ *
+ * This module owns the shape of a simulation request/result and nothing else.
+ * All numerics live in the modules beside it:
+ *
+ *   numeric.ts      complex arithmetic, LU solvers, seeded PRNG
+ *   devices.ts      device model + SPICE value parsing
+ *   circuitModel.ts netlist → typed devices + MNA unknown layout
+ *   stamping.ts     device → matrix contributions (DC / transient / AC)
+ *   solver.ts       Newton iteration, operating point, transient, AC sweep
+ *   noise.ts        adjoint-method output noise
+ *   monteCarlo.ts   seeded tolerance sweep
+ *
+ * Every analysis returns numbers derived from the circuit that was drawn. When
+ * an analysis cannot be computed (singular topology, missing output net,
+ * non-convergence) the result carries `success: false` and an explanation —
+ * never a synthesised curve.
+ */
+
+import { buildCircuitModel, type CircuitModel } from './circuitModel'
+import { resolveOutputNode, runNoiseAnalysis } from './noise'
+import { runMonteCarlo } from './monteCarlo'
+import { runAcSweep, runOperatingPoint, runTransient, type AnalysisOutcome } from './solver'
+
 export interface SimulationParameters {
   type: 'dc' | 'ac' | 'transient' | 'noise' | 'montecarlo'
   startTime?: number
@@ -6,8 +31,21 @@ export interface SimulationParameters {
   startFreq?: number
   stopFreq?: number
   pointsPerDecade?: number
+  /** Operating temperature in degrees Celsius. Defaults to 27 °C. */
   temperature?: number
+  /**
+   * Start a transient from zero stored energy instead of the DC operating point.
+   * `false` matches SPICE (`.tran` without `UIC`).
+   */
+  useInitialConditions?: boolean
+  /** Net whose voltage noise is measured, for `noise` analysis. */
+  outputNode?: string
+  /** Number of perturbed runs, for `montecarlo`. */
   iterations?: number
+  /** Fractional R/C/L tolerance for `montecarlo` (0.05 = ±5 %). */
+  tolerance?: number
+  /** Seed for the `montecarlo` PRNG; the same seed reproduces the sweep. */
+  seed?: number
 }
 
 export interface SimulationNode {
@@ -31,6 +69,10 @@ export interface SimulationResult {
     iterations: number
     converged: boolean
   }
+  /** Diagnostics: floating nets, non-convergence, step-size adjustments. */
+  notes?: string[]
+  /** Which analysis produced this result, for the UI to label the plot. */
+  analysis?: SimulationParameters['type']
 }
 
 export interface Component {
@@ -47,256 +89,179 @@ export interface CircuitNetlist {
   options?: Record<string, string | number | boolean>
 }
 
-class SPICEEngine {
-  private worker: Worker | null = null
-  private isInitialized = false
-  
-  async initialize(): Promise<void> {
-    if (this.isInitialized) return
-    
-    try {
-      // In a real implementation, you would load a WebAssembly SPICE engine
-      // For now, we'll simulate the initialization
-      this.isInitialized = true
-      console.log('SPICE Engine initialized')
-    } catch (error) {
-      throw new Error(`Failed to initialize SPICE engine: ${error}`)
+const DEFAULT_TEMPERATURE_CELSIUS = 27
+
+/** Run the analysis requested by `parameters` against `model`. */
+function dispatch(model: CircuitModel, parameters: SimulationParameters): AnalysisOutcome {
+  const temperatureCelsius = parameters.temperature ?? DEFAULT_TEMPERATURE_CELSIUS
+
+  switch (parameters.type) {
+    case 'dc':
+      return runOperatingPoint(model, { temperatureCelsius }).outcome
+
+    case 'transient':
+      return runTransient(model, {
+        temperatureCelsius,
+        stopTime: parameters.stopTime ?? 1e-3,
+        stepTime: parameters.stepTime ?? 1e-6,
+        useInitialConditions: parameters.useInitialConditions ?? false,
+      })
+
+    case 'ac':
+      return runAcSweep(model, {
+        temperatureCelsius,
+        startFrequency: parameters.startFreq ?? 10,
+        stopFrequency: parameters.stopFreq ?? 1e6,
+        pointsPerDecade: parameters.pointsPerDecade ?? 20,
+      })
+
+    case 'noise':
+      return runNoiseAnalysis(model, {
+        temperatureCelsius,
+        startFrequency: parameters.startFreq ?? 10,
+        stopFrequency: parameters.stopFreq ?? 1e6,
+        pointsPerDecade: parameters.pointsPerDecade ?? 10,
+        outputNode: parameters.outputNode,
+      })
+
+    case 'montecarlo': {
+      /*
+       * A tolerance sweep has to sweep a measurement, so it repeats the *parent*
+       * analysis. Without an explicit parent we sweep the operating point, which
+       * is the common case: "how far does my bias move over tolerance?".
+       */
+      const parent: SimulationParameters = { ...parameters, type: 'dc' }
+      return runMonteCarlo(model, (perturbed) => dispatch(perturbed, parent), {
+        iterations: parameters.iterations ?? 100,
+        tolerance: parameters.tolerance ?? 0.05,
+        seed: parameters.seed,
+      })
     }
   }
-  
+}
+
+class SPICEEngine {
+  private isInitialized = false
+
+  /**
+   * The solver is pure TypeScript and needs no warm-up, but the lifecycle is
+   * kept so a future WASM or worker backend can be slotted in without touching
+   * call sites.
+   */
+  async initialize(): Promise<void> {
+    this.isInitialized = true
+  }
+
   async simulate(netlist: CircuitNetlist): Promise<SimulationResult> {
-    if (!this.isInitialized) {
-      await this.initialize()
+    if (!this.isInitialized) await this.initialize()
+
+    const parameters = netlist.analyses[0]
+    if (!parameters) {
+      return {
+        success: false,
+        error: 'Select an analysis before running the simulation.',
+        nodes: [],
+        waveforms: [],
+      }
     }
-    
+
+    const { model, errors } = buildCircuitModel(netlist)
+    if (errors.length > 0) {
+      return {
+        success: false,
+        error: errors.join(' '),
+        nodes: [],
+        waveforms: [],
+        notes: model.notes,
+        analysis: parameters.type,
+      }
+    }
+
     try {
-      // Convert netlist to SPICE format
-      const spiceNetlist = this.generateSPICENetlist(netlist)
-      
-      // Simulate the circuit (mock implementation)
-      const result = await this.runSimulation(spiceNetlist, netlist.analyses[0])
-      
-      return result
+      const outcome = dispatch(model, parameters)
+      return {
+        success: outcome.converged,
+        error: outcome.converged ? undefined : outcome.notes[0],
+        nodes: outcome.nodes,
+        waveforms: outcome.waveforms,
+        operatingPoint: outcome.operatingPoint,
+        convergenceInfo: { iterations: outcome.iterations, converged: outcome.converged },
+        notes: [...model.notes, ...outcome.notes],
+        analysis: parameters.type,
+      }
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown simulation error',
+        error: error instanceof Error ? error.message : 'The simulation failed unexpectedly.',
         nodes: [],
-        waveforms: []
+        waveforms: [],
+        notes: model.notes,
+        analysis: parameters.type,
       }
     }
   }
-  
-  private generateSPICENetlist(netlist: CircuitNetlist): string {
-    let spice = `* ${netlist.title}\n`
-    spice += `* Generated by Circuit CAD Pro\n\n`
-    
-    // Add components
-    netlist.components.forEach(comp => {
-      spice += this.componentToSPICE(comp) + '\n'
-    })
-    
-    // Add analyses
-    netlist.analyses.forEach(analysis => {
-      spice += this.analysisToSPICE(analysis) + '\n'
-    })
-    
-    // Add options
+
+  /**
+   * Render a SPICE deck for the netlist. Useful for export, for review by another
+   * engineer, and for cross-checking results against ngspice.
+   */
+  generateSPICENetlist(netlist: CircuitNetlist): string {
+    const lines: string[] = [`* ${netlist.title || 'Untitled circuit'}`, '* Generated by Folio', '']
+
+    for (const component of netlist.components) {
+      const value =
+        component.parameters.value ?? component.parameters.dcVoltage ?? component.parameters.dc
+      lines.push(
+        `${component.name} ${component.nodes.join(' ')}${value !== undefined ? ` ${String(value)}` : ''}`,
+      )
+    }
+
+    lines.push('')
+    for (const analysis of netlist.analyses) {
+      switch (analysis.type) {
+        case 'dc':
+          lines.push('.op')
+          break
+        case 'transient':
+          lines.push(`.tran ${analysis.stepTime ?? 1e-6} ${analysis.stopTime ?? 1e-3}`)
+          break
+        case 'ac':
+          lines.push(
+            `.ac dec ${analysis.pointsPerDecade ?? 20} ${analysis.startFreq ?? 10} ${analysis.stopFreq ?? 1e6}`,
+          )
+          break
+        case 'noise':
+          lines.push(
+            `.noise v(${analysis.outputNode ?? 'out'}) v1 dec ${analysis.pointsPerDecade ?? 10} ` +
+              `${analysis.startFreq ?? 10} ${analysis.stopFreq ?? 1e6}`,
+          )
+          break
+        case 'montecarlo':
+          lines.push(
+            `* Monte Carlo: ${analysis.iterations ?? 100} runs, ` +
+              `±${((analysis.tolerance ?? 0.05) * 100).toFixed(1)} %`,
+          )
+          break
+      }
+    }
+
     if (netlist.options) {
-      Object.entries(netlist.options).forEach(([key, value]) => {
-        spice += `.options ${key}=${value}\n`
-      })
-    }
-    
-    spice += '.end\n'
-    return spice
-  }
-  
-  private componentToSPICE(comp: Component): string {
-    switch (comp.type.toLowerCase()) {
-      case 'resistor':
-        return `${comp.name} ${comp.nodes.join(' ')} ${comp.parameters.value || '1k'}`
-      
-      case 'capacitor':
-        return `${comp.name} ${comp.nodes.join(' ')} ${comp.parameters.value || '1u'}`
-      
-      case 'inductor':
-        return `${comp.name} ${comp.nodes.join(' ')} ${comp.parameters.value || '1m'}`
-      
-      case 'voltage_source':
-        if (comp.parameters.type === 'dc') {
-          return `${comp.name} ${comp.nodes.join(' ')} DC ${comp.parameters.value || '5'}`
-        } else if (comp.parameters.type === 'ac') {
-          return `${comp.name} ${comp.nodes.join(' ')} AC ${comp.parameters.amplitude || '1'} ${comp.parameters.phase || '0'}`
-        }
-        return `${comp.name} ${comp.nodes.join(' ')} ${comp.parameters.value || '0'}`
-      
-      case 'current_source':
-        return `${comp.name} ${comp.nodes.join(' ')} DC ${comp.parameters.value || '1m'}`
-      
-      case 'diode':
-        return `${comp.name} ${comp.nodes.join(' ')} ${comp.parameters.model || 'D1N4148'}`
-      
-      case 'bjt':
-        return `${comp.name} ${comp.nodes.join(' ')} ${comp.parameters.model || 'Q2N2222'}`
-      
-      case 'mosfet':
-        return `${comp.name} ${comp.nodes.join(' ')} ${comp.parameters.model || 'NMOS'}`
-      
-      case 'opamp':
-        return `X${comp.name} ${comp.nodes.join(' ')} ${comp.parameters.model || 'LM358'}`
-      
-      default:
-        return `* Unknown component: ${comp.name}`
-    }
-  }
-  
-  private analysisToSPICE(analysis: SimulationParameters): string {
-    switch (analysis.type) {
-      case 'dc': {
-        return '.op'
-      }
-      
-      case 'ac': {
-        const start = analysis.startFreq || 1
-        const stop = analysis.stopFreq || 1000000
-        const points = analysis.pointsPerDecade || 10
-        return `.ac dec ${points} ${start} ${stop}`
-      }
-      
-      case 'transient': {
-        const startTime = analysis.startTime || 0
-        const stopTime = analysis.stopTime || 1e-3
-        const stepTime = analysis.stepTime || (stopTime - startTime) / 1000
-        return `.tran ${stepTime} ${stopTime} ${startTime}`
-      }
-      
-      case 'noise': {
-        return `.noise v(out) vin dec 10 1 1meg`
-      }
-      
-      default:
-        return '* Unknown analysis type'
-    }
-  }
-  
-  private async runSimulation(_spiceNetlist: string, analysis: SimulationParameters): Promise<SimulationResult> {
-    // Mock simulation - in a real implementation, this would call the SPICE engine
-    await new Promise(resolve => setTimeout(resolve, 1000)) // Simulate processing time
-    
-    const result: SimulationResult = {
-      success: true,
-      nodes: [
-        { name: 'VCC', voltage: 5.0 },
-        { name: 'OUT', voltage: 2.5 },
-        { name: 'GND', voltage: 0.0 }
-      ],
-      waveforms: [],
-      operatingPoint: {
-        'VCC': 5.0,
-        'OUT': 2.5,
-        'GND': 0.0
-      },
-      convergenceInfo: {
-        iterations: 15,
-        converged: true
+      for (const [key, value] of Object.entries(netlist.options)) {
+        lines.push(`.options ${key}=${String(value)}`)
       }
     }
-    
-    // Generate mock waveforms based on analysis type
-    if (analysis.type === 'transient') {
-      result.waveforms = this.generateTransientWaveforms(analysis)
-    } else if (analysis.type === 'ac') {
-      result.waveforms = this.generateACWaveforms(analysis)
-    }
-    
-    return result
+
+    lines.push('.end')
+    return `${lines.join('\n')}\n`
   }
-  
-  private generateTransientWaveforms(analysis: SimulationParameters): Array<{
-    name: string
-    type: 'voltage' | 'current' | 'power'
-    unit: string
-    data: Array<{ x: number; y: number }>
-  }> {
-    const stopTime = analysis.stopTime || 1e-3
-    const points = 1000
-    const dt = stopTime / points
-    
-    const waveforms = []
-    
-    // Generate a sine wave for demonstration
-    const sineWave = {
-      name: 'V(OUT)',
-      type: 'voltage' as const,
-      unit: 'V',
-      data: Array.from({ length: points }, (_, i) => ({
-        x: i * dt,
-        y: 2.5 + 2 * Math.sin(2 * Math.PI * 1000 * i * dt)
-      }))
-    }
-    
-    waveforms.push(sineWave)
-    
-    // Generate a current waveform
-    const currentWave = {
-      name: 'I(R1)',
-      type: 'current' as const,
-      unit: 'A',
-      data: Array.from({ length: points }, (_, i) => ({
-        x: i * dt,
-        y: 0.001 * Math.sin(2 * Math.PI * 1000 * i * dt + Math.PI / 4)
-      }))
-    }
-    
-    waveforms.push(currentWave)
-    
-    return waveforms
-  }
-  
-  private generateACWaveforms(analysis: SimulationParameters): Array<{
-    name: string
-    type: 'voltage' | 'current' | 'power'
-    unit: string
-    data: Array<{ x: number; y: number }>
-  }> {
-    const startFreq = analysis.startFreq || 1
-    const stopFreq = analysis.stopFreq || 1000000
-    const points = 100
-    
-    const waveforms = []
-    
-    // Generate magnitude response
-    const magnitudeResponse = {
-      name: '|V(OUT)|',
-      type: 'voltage' as const,
-      unit: 'dB',
-      data: Array.from({ length: points }, (_, i) => {
-        const freq = startFreq * Math.pow(stopFreq / startFreq, i / (points - 1))
-        const magnitude = 20 * Math.log10(1 / Math.sqrt(1 + Math.pow(freq / 1000, 2)))
-        return { x: freq, y: magnitude }
-      })
-    }
-    
-    waveforms.push(magnitudeResponse)
-    
-    // Generate phase response
-    const phaseResponse = {
-      name: '∠V(OUT)',
-      type: 'voltage' as const,
-      unit: '°',
-      data: Array.from({ length: points }, (_, i) => {
-        const freq = startFreq * Math.pow(stopFreq / startFreq, i / (points - 1))
-        const phase = -Math.atan(freq / 1000) * 180 / Math.PI
-        return { x: freq, y: phase }
-      })
-    }
-    
-    waveforms.push(phaseResponse)
-    
-    return waveforms
-  }
-  
+
+  /**
+   * Pre-flight validation.
+   *
+   * Structural checks (ground reference, floating nets) are combined with the
+   * model builder's own findings, so the user sees everything that would stop a
+   * simulation in one pass instead of one problem per run.
+   */
   async validateNetlist(netlist: CircuitNetlist): Promise<{
     isValid: boolean
     errors: string[]
@@ -304,58 +269,49 @@ class SPICEEngine {
   }> {
     const errors: string[] = []
     const warnings: string[] = []
-    
-    // Check for basic netlist validity
-    if (!netlist.title) {
-      warnings.push('Netlist has no title')
-    }
-    
-    if (netlist.components.length === 0) {
-      errors.push('Netlist has no components')
-    }
-    
-    if (netlist.analyses.length === 0) {
-      warnings.push('No analysis specified')
-    }
-    
-    // Check for ground node
-    const hasGround = netlist.components.some(comp =>
-      comp.nodes.some(node => node.toLowerCase() === 'gnd' || node === '0')
-    )
-    
-    if (!hasGround) {
-      errors.push('Circuit has no ground reference')
-    }
-    
-    // Check for floating nodes
-    const allNodes = new Set<string>()
+
+    if (!netlist.title) warnings.push('The netlist has no title.')
+    if (netlist.components.length === 0) errors.push('The circuit has no components.')
+    if (netlist.analyses.length === 0) warnings.push('No analysis is selected.')
+
+    const { model, errors: modelErrors } = buildCircuitModel(netlist)
+    errors.push(...modelErrors)
+    warnings.push(...model.notes)
+
     const nodeConnections = new Map<string, number>()
-    
-    netlist.components.forEach(comp => {
-      comp.nodes.forEach(node => {
-        allNodes.add(node)
-        nodeConnections.set(node, (nodeConnections.get(node) || 0) + 1)
-      })
-    })
-    
-    for (const [node, connections] of nodeConnections) {
-      if (connections < 2 && node !== 'gnd' && node !== '0') {
-        warnings.push(`Node '${node}' has only one connection`)
+    for (const device of model.devices) {
+      for (const node of [device.p, device.n]) {
+        nodeConnections.set(node, (nodeConnections.get(node) ?? 0) + 1)
       }
     }
-    
-    return {
-      isValid: errors.length === 0,
-      errors,
-      warnings
+
+    const hasGroundReference = netlist.components.some((component) =>
+      component.nodes.some((node) => node === '0' || node.trim().toUpperCase() === 'GND'),
+    )
+    if (!hasGroundReference && model.groundNodes.size === 1 && model.devices.length > 0) {
+      errors.push('The circuit has no ground reference. Add a ground symbol, or name a net "0".')
     }
+
+    for (const [node, connections] of nodeConnections) {
+      if (connections < 2 && !model.groundNodes.has(node)) {
+        warnings.push(`Net "${node}" connects to only one terminal and will float.`)
+      }
+    }
+
+    const analysis = netlist.analyses[0]
+    if (analysis?.type === 'noise' && !resolveOutputNode(model, analysis.outputNode)) {
+      errors.push(
+        analysis.outputNode
+          ? `Noise analysis: output net "${analysis.outputNode}" does not exist in this circuit.`
+          : 'Noise analysis: choose an output net, or name one "OUT".',
+      )
+    }
+
+    return { isValid: errors.length === 0, errors, warnings }
   }
-  
+
+  /** Release any resources. A no-op for the pure-TypeScript solver. */
   dispose(): void {
-    if (this.worker) {
-      this.worker.terminate()
-      this.worker = null
-    }
     this.isInitialized = false
   }
 }

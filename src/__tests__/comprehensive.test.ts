@@ -6,7 +6,8 @@
 import { describe, it, expect } from 'vitest';
 
 // Import types
-import type { Component, Wire, Net } from '@/types';
+import type { Component, Wire, Net, Schematic } from '../types/domain';
+import type { ThermalNode } from '../lib/pcb/thermalAnalysis';
 
 // Import actual services
 import { aiService } from '../lib/ai/aiService';
@@ -14,7 +15,8 @@ import { roboticsSimulationService } from '../lib/robotics/roboticsSimulation';
 import { evolutionaryOptimizer } from '../lib/optimization/evolutionaryOptimization';
 import { thermalAnalysisEngine } from '../lib/pcb/thermalAnalysis';
 import { signalIntegrityAnalyzer } from '../lib/pcb/signalIntegrity';
-import { multiPhysicsEngine } from '../lib/simulation/multiPhysicsEngine';
+import { solveBarConduction, solveTruss } from '../lib/simulation/multiphysics';
+import { MATERIAL_LIBRARY } from '../lib/simulation/materials';
 import { hardwareInterfaceManager } from '../lib/hardware/hardwareInterfaces';
 import { digitalTwinService } from '../lib/digitalTwin/digitalTwinService';
 import { pluginManager } from '../lib/plugins/pluginManager';
@@ -28,41 +30,29 @@ import { siemService } from '../lib/siem/siemService';
 describe('1. CAD & Mechanical Design - Functional Tests', () => {
   
   it('should perform structural FEA analysis', () => {
-    const model = {
-      id: 'test-model',
-      name: 'Test Structure',
-      domains: ['structural'],
-      geometry: {
-        nodes: [
-          { id: 'n1', x: 0, y: 0, z: 0 },
-          { id: 'n2', x: 1, y: 0, z: 0 },
-          { id: 'n3', x: 0, y: 1, z: 0 }
-        ],
-        elements: [
-          { id: 'e1', type: 'triangle', nodes: ['n1', 'n2', 'n3'] }
-        ]
-      },
-      materials: {
-        steel: {
-          youngsModulus: 200e9,
-          poissonsRatio: 0.3,
-          density: 7850
-        }
-      },
-      boundaryConditions: {
-        structural: {
-          fixedNodes: ['n1'],
-          loads: [{ node: 'n3', force: { x: 0, y: -1000, z: 0 } }]
-        }
-      }
-    };
+    /*
+     * A triangular, statically stable truss with one node loaded vertically.
+     * The exact, checkable properties are used rather than "the result object
+     * exists": global equilibrium and the direction of the loaded node.
+     */
+    const truss = solveTruss(
+      [
+        { x: 0, y: 0, fixX: true, fixY: true },
+        { x: 1, y: 0, fixX: true, fixY: true },
+        { x: 0.5, y: 0.8, loadY: -1000 },
+      ],
+      [
+        { from: 0, to: 2, area: 1e-4, youngsModulus: 200e9 },
+        { from: 1, to: 2, area: 1e-4, youngsModulus: 200e9 },
+        { from: 0, to: 1, area: 1e-4, youngsModulus: 200e9 },
+      ],
+    );
 
-    const result = multiPhysicsEngine.runStructuralAnalysis(model);
-    
-    expect(result).toBeDefined();
-    expect(result.displacements).toBeDefined();
-    expect(result.stresses).toBeDefined();
-    expect(result.converged).toBe(true);
+    expect(truss.converged).toBe(true);
+    expect(truss.displacements[2].y).toBeLessThan(0);
+    // ΣFy = 0: the supports together carry the applied 1000 N.
+    expect(truss.reactions[0].y + truss.reactions[1].y).toBeCloseTo(1000, 3);
+    expect(truss.memberForces).toHaveLength(3);
   });
 
   it('should export STL file with valid mesh', () => {
@@ -119,7 +109,7 @@ describe('1. CAD & Mechanical Design - Functional Tests', () => {
 describe('2. Circuit & PCB Design - Functional Tests', () => {
   
   it('should perform thermal analysis on PCB with real calculations', async () => {
-    const nodes: any[] = [
+    const nodes: ThermalNode[] = [
       {
         id: 'ic1',
         position: { x: 5, y: 5, z: 0 },
@@ -177,7 +167,7 @@ describe('2. Circuit & PCB Design - Functional Tests', () => {
   });
 
   it('should convert schematic to PCB layout', async () => {
-    const schematic: any = {
+    const schematic = {
       id: 'test-schematic',
       name: 'Test Circuit',
       components: [
@@ -192,33 +182,56 @@ describe('2. Circuit & PCB Design - Functional Tests', () => {
           component: {
             id: 'resistor',
             name: 'Resistor',
-            category: 'passive',
-            symbol: { width: 20, height: 10, paths: [], circles: [], rectangles: [] },
+            category: { id: 'passive', name: 'Passive' },
+            symbol: {
+              width: 20,
+              height: 10,
+              paths: [],
+              circles: [],
+              rectangles: [],
+              text: [],
+              pins: [
+                { id: 'p1', position: { x: 0, y: 5 }, orientation: 'left', length: 10, name: '1', number: '1' },
+                { id: 'p2', position: { x: 20, y: 5 }, orientation: 'right', length: 10, name: '2', number: '2' }
+              ]
+            },
             pins: [
-              { id: 'p1', name: '1', x: 0, y: 0, type: 'passive' as const },
-              { id: 'p2', name: '2', x: 20, y: 0, type: 'passive' as const }
+              { id: 'p1', name: '1', number: '1', position: { x: 0, y: 5 }, type: 'passive', electricalType: 'analog', connected: false },
+              { id: 'p2', name: '2', number: '2', position: { x: 20, y: 5 }, type: 'passive', electricalType: 'analog', connected: false }
             ],
-            properties: {}
+            properties: {},
+            availability: { status: 'available', suppliers: [] },
+            tags: ['resistor'],
+            metadata: { createdAt: new Date(), updatedAt: new Date(), author: 'test', version: '1.0', tags: [] }
           }
         }
       ],
       wires: [],
       nets: [],
+      sheets: [],
       metadata: {
-        created: new Date().toISOString(),
-        modified: new Date().toISOString(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        author: 'test',
         version: '1.0',
-        author: 'test'
+        revision: '1',
+        description: 'Test schematic'
       },
       settings: {
+        units: 'mm',
         gridSize: 10,
         snapToGrid: true,
         showGrid: true,
+        showRulers: false,
         showPinNumbers: true,
         showPinNames: true,
-        showNetNames: true
+        showNetNames: true,
+        showComponentValues: true,
+        backgroundColor: '#ffffff',
+        gridColor: '#e0e0e0',
+        selectionColor: '#007bff'
       }
-    };
+    } as unknown as Schematic;
 
     const options = {
       boardSize: { width: 100, height: 100 },
@@ -332,7 +345,7 @@ describe('3. Robotics & Embedded Systems - Functional Tests', () => {
     const twin = digitalTwinService.createDigitalTwin(config);
     
     expect(twin).toBeDefined();
-    expect(twin.id).toBe('twin-001');
+    expect(twin.id).toMatch(/^dt_[a-z0-9]+_[a-z0-9]+$/);
     expect(twin.physicalDeviceId).toBe('robot-001');
     expect(twin.sensors.length).toBe(2);
     expect(twin.actuators.length).toBe(1);
@@ -374,7 +387,7 @@ describe('4. Agentic AI & Intelligent Design Automation - Functional Tests', () 
       { name: 'performance', type: 'maximize' as const, weight: 0.5 }
     ];
 
-    const fitnessFunction = (_genome: { genes: Record<string, unknown> }) => {
+    const fitnessFunction = () => {
       const cost = Math.random() * 100;
       const performance = Math.random() * 100;
       return { cost, performance };
@@ -400,24 +413,26 @@ describe('4. Agentic AI & Intelligent Design Automation - Functional Tests', () 
   });
 
   it('should analyze circuit with AI', async () => {
-    const components: Component[] = [
+    const testComponents: Component[] = [
       {
         id: 'r1',
         name: 'Resistor',
         category: 'passive',
-        symbol: { width: 20, height: 10, paths: [], circles: [], rectangles: [] },
+        symbol: { width: 20, height: 10, paths: [] },
         pins: [
-          { id: 'p1', name: '1', x: 0, y: 5, type: 'passive' },
-          { id: 'p2', name: '2', x: 20, y: 5, type: 'passive' }
+          { id: 'p1', name: '1', x: 0, y: 5, type: 'passive', electricalType: 'analog' },
+          { id: 'p2', name: '2', x: 20, y: 5, type: 'passive', electricalType: 'analog' }
         ],
-        properties: { value: '10k' }
+        properties: { value: '10k' },
+        availability: 'available',
+        tags: ['resistor'],
       }
     ];
 
     const wires: Wire[] = [];
     const nets: Net[] = [];
 
-    const analysis = await aiService.analyzeCircuit(components, wires, nets);
+    const analysis = await aiService.analyzeCircuit(testComponents, wires, nets);
     
     expect(analysis).toBeDefined();
     expect(analysis.analysis).toBeDefined();
@@ -480,40 +495,28 @@ describe('5. IDE & Collaboration Environment - Functional Tests', () => {
 describe('6. Integration Tests - Cross-Domain Functionality', () => {
   
   it('should integrate CAD with thermal analysis', () => {
-    // Create a simple mechanical model
-    const model = {
-      id: 'integrated-test',
-      name: 'Integrated Model',
-      domains: ['thermal'],
-      geometry: {
-        nodes: [
-          { id: 'n1', x: 0, y: 0, z: 0 },
-          { id: 'n2', x: 1, y: 0, z: 0 }
-        ],
-        elements: [
-          { id: 'e1', type: 'line', nodes: ['n1', 'n2'] }
-        ]
-      },
-      materials: {
-        copper: {
-          thermalConductivity: 400,
-          specificHeat: 385,
-          density: 8960
-        }
-      },
-      boundaryConditions: {
-        thermal: {
-          fixedTemperatures: [{ node: 'n1', temperature: 100 }],
-          heatSources: [{ node: 'n2', power: 10 }]
-        }
-      }
-    };
+    /*
+     * A copper bar from the CAD model above, solved by steady-state conduction.
+     * The material properties come from the shared library, so this also checks
+     * that the CAD material table and the solver agree on units (W/(m·K)).
+     */
+    const copper = MATERIAL_LIBRARY.copper;
+    const thermal = solveBarConduction({
+      length: 0.15,
+      area: 1e-4,
+      thermalConductivity: copper.thermalConductivity,
+      segments: 6,
+      temperatureAtStart: 100,
+      temperatureAtEnd: 25,
+    });
 
-    const result = multiPhysicsEngine.runThermalAnalysis(model);
-    
-    expect(result).toBeDefined();
-    expect(result.temperatures).toBeDefined();
-    expect(result.heatFlux).toBeDefined();
+    expect(thermal.converged).toBe(true);
+    expect(thermal.temperatures).toHaveLength(7);
+    thermal.temperatures.forEach((temperature, index) => {
+      expect(temperature).toBeCloseTo(100 - index * 12.5, 6);
+    });
+    // q″ = k·ΔT/L for pure conduction.
+    expect(thermal.flux).toBeCloseTo((401 * 75) / 0.15, 4);
   });
 
   it('should integrate robotics with digital twin', () => {
@@ -548,26 +551,11 @@ describe('6. Integration Tests - Cross-Domain Functionality', () => {
   });
 
   it('should integrate AI with circuit optimization', async () => {
-    const components = [
-      {
-        id: 'r1',
-        name: 'Resistor',
-        category: 'passive',
-        properties: { value: '1k', power: '0.25W' }
-      },
-      {
-        id: 'c1',
-        name: 'Capacitor',
-        category: 'passive',
-        properties: { value: '100nF', voltage: '50V' }
-      }
-    ];
-
     const suggestions = await aiService.suggestComponents('filter capacitor', {
       frequency: 1000,
       voltage: 5
     });
-    
+
     expect(suggestions).toBeDefined();
     expect(Array.isArray(suggestions)).toBe(true);
   });
@@ -647,7 +635,8 @@ describe('7. Performance & Scalability Tests', () => {
     expect(robots.length).toBe(5);
     robots.forEach(robot => {
       expect(robot).toBeDefined();
-      expect(robot.id).toContain('perf-robot-');
+      expect(robot.id).toMatch(/^robot_\d+_[a-z0-9]+$/);
     });
+    expect(new Set(robots.map(robot => robot.id)).size).toBe(robots.length);
   });
 });

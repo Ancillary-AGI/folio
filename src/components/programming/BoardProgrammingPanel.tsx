@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { describeError } from '../../lib/utils';
 import { 
   Play, 
   Upload, 
@@ -25,16 +26,18 @@ import {
   CODE_TEMPLATES,
   ArduinoIDEIntegration
 } from '../../lib/programming/boardProgrammer';
+import { useProjectStore } from '../../stores/useProjectStore';
 
 interface BoardProgrammingPanelProps {
   onClose: () => void;
 }
 
 export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanelProps) {
+  const { firmwareCode, setFirmwareCode } = useProjectStore()
   const [selectedBoard, setSelectedBoard] = useState<string>('arduino_uno');
   const [availablePorts, setAvailablePorts] = useState<string[]>([]);
   const [selectedPort, setSelectedPort] = useState<string>('');
-  const [code, setCode] = useState<string>(CODE_TEMPLATES.basic);
+  const [code, setCode] = useState<string>(firmwareCode || CODE_TEMPLATES.basic);
   const [isCompiling, setIsCompiling] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [compilationResult, setCompilationResult] = useState<CompilationResult | null>(null);
@@ -43,50 +46,44 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
   const [showOutput, setShowOutput] = useState(false);
   const [installedLibraries, setInstalledLibraries] = useState<Array<{ name: string; version: string; description: string }>>([]);
   const [arduinoIDEVersion, setArduinoIDEVersion] = useState<string | null>(null);
+  const [toolchainError, setToolchainError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Initialize board programmer
-    boardProgrammer.setBoard(selectedBoard);
-    
-    // Load available ports
-    loadAvailablePorts();
-    
-    // Load installed libraries
-    loadInstalledLibraries();
-    
-    // Check Arduino IDE
-    checkArduinoIDE();
-  }, [selectedBoard]);
-
-  const loadAvailablePorts = async () => {
+  /*
+   * Loaders are stable callbacks declared before the effect that uses them, so
+   * the effect's dependency array is exactly what it reads.
+   */
+  const loadAvailablePorts = useCallback(async () => {
     try {
       const ports = await boardProgrammer.getAvailablePorts();
       setAvailablePorts(ports);
-      if (ports.length > 0 && !selectedPort) {
-        setSelectedPort(ports[0]);
-      }
+      setSelectedPort((current) => (current || ports.length === 0 ? current : ports[0]));
     } catch (error) {
-      console.error('Failed to load ports:', error);
+      setToolchainError(`Could not enumerate serial ports: ${describeError(error)}`);
     }
-  };
+  }, []);
 
-  const loadInstalledLibraries = async () => {
+  const loadInstalledLibraries = useCallback(async () => {
     try {
-      const libraries = await boardProgrammer.getInstalledLibraries();
-      setInstalledLibraries(libraries);
+      setInstalledLibraries(await boardProgrammer.getInstalledLibraries());
     } catch (error) {
-      console.error('Failed to load libraries:', error);
+      setToolchainError(`Could not read the installed library index: ${describeError(error)}`);
     }
-  };
+  }, []);
 
-  const checkArduinoIDE = async () => {
+  const checkArduinoIDE = useCallback(async () => {
     try {
-      const version = await ArduinoIDEIntegration.getArduinoIDEVersion();
-      setArduinoIDEVersion(version);
+      setArduinoIDEVersion(await ArduinoIDEIntegration.getArduinoIDEVersion());
     } catch (error) {
-      console.error('Failed to check Arduino IDE:', error);
+      setToolchainError(`Could not detect the Arduino toolchain: ${describeError(error)}`);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    boardProgrammer.setBoard(selectedBoard);
+    void loadAvailablePorts();
+    void loadInstalledLibraries();
+    void checkArduinoIDE();
+  }, [selectedBoard, loadAvailablePorts, loadInstalledLibraries, checkArduinoIDE]);
 
   const handleBoardChange = (boardId: string) => {
     setSelectedBoard(boardId);
@@ -97,7 +94,14 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
 
   const handleTemplateChange = (template: string) => {
     setSelectedTemplate(template);
-    setCode(CODE_TEMPLATES[template as keyof typeof CODE_TEMPLATES] || CODE_TEMPLATES.basic);
+    const next = CODE_TEMPLATES[template as keyof typeof CODE_TEMPLATES] || CODE_TEMPLATES.basic
+    setCode(next);
+    setFirmwareCode(next);
+  };
+
+  const handleCodeChange = (next: string) => {
+    setCode(next);
+    setFirmwareCode(next);
   };
 
   const handleCompile = async () => {
@@ -156,13 +160,38 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
   };
 
   const handleCompileAndUpload = async () => {
-    await handleCompile();
-    // Wait a bit for compilation to complete
-    setTimeout(async () => {
-      if (compilationResult?.success) {
-        await handleUpload();
+    setIsCompiling(true);
+    setCompilationResult(null);
+    setShowOutput(true);
+    try {
+      const result = await boardProgrammer.compileSketch(code);
+      setCompilationResult(result);
+      if (result.success && selectedPort) {
+        setIsUploading(true);
+        try {
+          setUploadResult(await boardProgrammer.uploadSketch(selectedPort));
+        } finally {
+          setIsUploading(false);
+        }
+      } else if (result.success && !selectedPort) {
+        setToolchainError('No serial port is available in this browser build, so upload cannot proceed.');
       }
-    }, 1000);
+    } catch (error) {
+      setCompilationResult({
+        success: false,
+        output: 'Compilation failed',
+        errors: [error instanceof Error ? error.message : 'Unknown error'],
+        warnings: [],
+        binarySize: 0,
+        memoryUsage: {
+          flash: { used: 0, total: 0, percentage: 0 },
+          ram: { used: 0, total: 0, percentage: 0 }
+        },
+        compilationTime: 0
+      });
+    } finally {
+      setIsCompiling(false);
+    }
   };
 
   const handleOpenInArduinoIDE = async () => {
@@ -196,7 +225,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
       if (file) {
         const reader = new FileReader();
         reader.onload = (e) => {
-          setCode(e.target?.result as string || '');
+          handleCodeChange(e.target?.result as string || '');
         };
         reader.readAsText(file);
       }
@@ -207,12 +236,12 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
   const currentBoard = BOARD_DEFINITIONS[selectedBoard];
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-card border border-border rounded-lg shadow-xl w-full max-w-7xl h-[90vh] flex">
+    <div className="fixed inset-0 bg-overlay/70 flex items-center justify-center z-50">
+      <div className="app-panel flex h-[90vh] w-full max-w-7xl overflow-hidden rounded-xl border border-border shadow-2xl">
         {/* Code Editor */}
-        <div className="flex-1 flex flex-col">
-          <div className="flex items-center justify-between p-4 border-b border-border">
-            <h3 className="font-semibold text-foreground">Arduino Programming</h3>
+        <div className="flex flex-1 flex-col">
+          <div className="app-panel-header">
+            <h3 className="font-semibold text-surface-foreground">Arduino Programming</h3>
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
@@ -249,8 +278,34 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
             </div>
           </div>
 
+          {/* Toolchain problems are surfaced, never swallowed into the console. */}
+          {toolchainError && (
+            <div
+              role="alert"
+              className="flex items-start justify-between gap-3 border-b border-destructive/40 bg-destructive/10 px-4 py-2 text-xs text-destructive"
+            >
+              <span className="flex items-start gap-2">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                {toolchainError}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setToolchainError(null);
+                  void loadAvailablePorts();
+                  void loadInstalledLibraries();
+                  void checkArduinoIDE();
+                }}
+                className="flex shrink-0 items-center gap-1 font-medium underline underline-offset-2"
+              >
+                <RefreshCw className="h-3 w-3" />
+                Retry
+              </button>
+            </div>
+          )}
+
           {/* Template Selection */}
-          <div className="p-4 border-b border-border">
+          <div className="border-b border-border p-4">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">Template:</span>
               <select
@@ -270,7 +325,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
           <div className="flex-1 p-4">
             <textarea
               value={code}
-              onChange={(e) => setCode(e.target.value)}
+              onChange={(e) => handleCodeChange(e.target.value)}
               className="w-full h-full font-mono text-sm border border-input rounded-md p-4 bg-background resize-none focus:ring-2 focus:ring-ring focus:border-transparent"
               placeholder="Enter your Arduino code here..."
               spellCheck={false}
@@ -418,9 +473,9 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm flex items-center gap-2">
                     {compilationResult.success ? (
-                      <CheckCircle className="w-4 h-4 text-green-500" />
+                      <CheckCircle className="w-4 h-4 text-success" />
                     ) : (
-                      <AlertCircle className="w-4 h-4 text-red-500" />
+                      <AlertCircle className="w-4 h-4 text-destructive" />
                     )}
                     Compilation
                   </CardTitle>
@@ -429,7 +484,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                   <div className="text-xs space-y-1">
                     <div className="flex justify-between">
                       <span>Status:</span>
-                      <span className={compilationResult.success ? 'text-green-600' : 'text-red-600'}>
+                      <span className={compilationResult.success ? 'text-success' : 'text-destructive'}>
                         {compilationResult.success ? 'Success' : 'Failed'}
                       </span>
                     </div>
@@ -450,7 +505,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                           </div>
                           <div className="w-full bg-muted rounded-full h-2">
                             <div
-                              className="bg-blue-500 h-2 rounded-full"
+                              className="bg-primary h-2 rounded-full"
                               style={{ width: `${Math.min(compilationResult.memoryUsage.flash.percentage, 100)}%` }}
                             />
                           </div>
@@ -460,7 +515,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                           </div>
                           <div className="w-full bg-muted rounded-full h-2">
                             <div
-                              className="bg-green-500 h-2 rounded-full"
+                              className="bg-success h-2 rounded-full"
                               style={{ width: `${Math.min(compilationResult.memoryUsage.ram.percentage, 100)}%` }}
                             />
                           </div>
@@ -471,8 +526,8 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
 
                   {compilationResult.errors.length > 0 && (
                     <div className="text-xs">
-                      <div className="font-medium text-red-600 mb-1">Errors:</div>
-                      <div className="bg-red-50 p-2 rounded text-red-700 max-h-20 overflow-y-auto">
+                      <div className="font-medium text-destructive mb-1">Errors:</div>
+                      <div className="bg-destructive/10 p-2 rounded text-destructive max-h-20 overflow-y-auto">
                         {compilationResult.errors.map((error, index) => (
                           <div key={index}>{error}</div>
                         ))}
@@ -482,8 +537,8 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
 
                   {compilationResult.warnings.length > 0 && (
                     <div className="text-xs">
-                      <div className="font-medium text-yellow-600 mb-1">Warnings:</div>
-                      <div className="bg-yellow-50 p-2 rounded text-yellow-700 max-h-20 overflow-y-auto">
+                      <div className="font-medium text-warning mb-1">Warnings:</div>
+                      <div className="bg-warning/10 p-2 rounded text-warning max-h-20 overflow-y-auto">
                         {compilationResult.warnings.map((warning, index) => (
                           <div key={index}>{warning}</div>
                         ))}
@@ -500,9 +555,9 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm flex items-center gap-2">
                     {uploadResult.success ? (
-                      <CheckCircle className="w-4 h-4 text-green-500" />
+                      <CheckCircle className="w-4 h-4 text-success" />
                     ) : (
-                      <AlertCircle className="w-4 h-4 text-red-500" />
+                      <AlertCircle className="w-4 h-4 text-destructive" />
                     )}
                     Upload
                   </CardTitle>
@@ -511,7 +566,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                   <div className="text-xs space-y-1">
                     <div className="flex justify-between">
                       <span>Status:</span>
-                      <span className={uploadResult.success ? 'text-green-600' : 'text-red-600'}>
+                      <span className={uploadResult.success ? 'text-success' : 'text-destructive'}>
                         {uploadResult.success ? 'Success' : 'Failed'}
                       </span>
                     </div>
@@ -527,8 +582,8 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
 
                   {uploadResult.error && (
                     <div className="text-xs">
-                      <div className="font-medium text-red-600 mb-1">Error:</div>
-                      <div className="bg-red-50 p-2 rounded text-red-700">
+                      <div className="font-medium text-destructive mb-1">Error:</div>
+                      <div className="bg-destructive/10 p-2 rounded text-destructive">
                         {uploadResult.error}
                       </div>
                     </div>

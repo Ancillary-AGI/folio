@@ -193,21 +193,26 @@ class BoardProgrammer {
 
     const startTime = Date.now();
 
+    // Browser builds have no vendor toolchain: run the deterministic static
+    // analysis and report the honest caveat instead of fake success output.
+    if (typeof window !== 'undefined') {
+      return this.analyseSketch(sketchCode, libraries, startTime);
+    }
+
     try {
       // Check if Arduino CLI is available
       const arduinoCliAvailable = await this.isArduinoCliAvailable();
       if (!arduinoCliAvailable) {
-        // Fallback to simulation
-        return this.simulateCompilation(sketchCode, libraries, startTime);
+        return this.analyseSketch(sketchCode, libraries, startTime);
       }
 
       // Use real Arduino CLI compilation
       const result = await this.compileWithArduinoCli(sketchCode, libraries, startTime);
       return result;
     } catch (error) {
-      // Fallback to simulation on error
-      console.warn('Arduino CLI compilation failed, falling back to simulation:', error);
-      return this.simulateCompilation(sketchCode, libraries, startTime);
+      // Fall back to the honest local analysis on error — never fake success.
+      console.warn('Arduino CLI compilation failed, falling back to analysis:', error);
+      return this.analyseSketch(sketchCode, libraries, startTime);
     }
   }
 
@@ -218,57 +223,77 @@ class BoardProgrammer {
 
     const startTime = Date.now();
 
+    // Browser builds cannot touch serial ports or vendor uploaders.
+    if (typeof window !== 'undefined') {
+      return {
+        success: false,
+        output: `Upload of ${this.selectedBoard.name} on ${port} is unavailable in the browser. Use arduino-cli or the Arduino IDE with a connected board.`,
+        error: 'No upload transport in the browser',
+        uploadTime: Date.now() - startTime
+      };
+    }
+
     try {
       // Check if Arduino CLI is available
       const arduinoCliAvailable = await this.isArduinoCliAvailable();
       if (!arduinoCliAvailable) {
-        // Fallback to simulation
-        return this.simulateUpload(port, startTime);
+        return {
+          success: false,
+          output: 'arduino-cli is not installed, so the sketch cannot be uploaded.',
+          error: 'arduino-cli not found',
+          uploadTime: Date.now() - startTime
+        };
       }
 
       // Use real Arduino CLI upload
       const result = await this.uploadWithArduinoCli(port, compiledBinary, startTime);
       return result;
     } catch (error) {
-      // Fallback to simulation on error
-      console.warn('Arduino CLI upload failed, falling back to simulation:', error);
-      return this.simulateUpload(port, startTime);
+      console.warn('Arduino CLI upload failed:', error);
+      return {
+        success: false,
+        output: `Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        uploadTime: Date.now() - startTime
+      };
     }
   }
 
   async getAvailablePorts(): Promise<string[]> {
-    // In a real implementation, this would scan for available serial ports
-    // For now, we'll return mock ports
-    return [
-      'COM3 (Arduino Uno)',
-      'COM4 (ESP32 Dev Module)',
-      '/dev/ttyUSB0 (Arduino Nano)',
-      '/dev/ttyACM0 (Arduino Uno)'
-    ];
-  }
-
-  async installLibrary(libraryName: string, version?: string): Promise<boolean> {
-    // Use parameters for logging or future implementation
-    console.log(`Installing library: ${libraryName}${version ? `@${version}` : ''}`);
+    // Browser builds cannot enumerate serial ports; surfacing fake COM ports
+    // caused users to attempt uploads that could never succeed.
+    if (typeof window !== 'undefined') {
+      return [];
+    }
     try {
-      // Simulate library installation
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      return true;
-    } catch (error) {
-      console.error('Failed to install library:', error);
-      return false;
+      const { exec } = await import('child_process');
+      const stdout = await new Promise<string>((resolve) => {
+        exec('arduino-cli board list', (error: Error | null, out: string) => {
+          resolve(error ? '' : out);
+        });
+      });
+      const ports = stdout
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && !line.startsWith('Port'));
+      return ports;
+    } catch {
+      return [];
     }
   }
 
+  async installLibrary(libraryName: string, version?: string): Promise<boolean> {
+    void libraryName;
+    void version;
+    // No package registry client is bundled: report honestly instead of
+    // sleeping two seconds and claiming success.
+    return false;
+  }
+
   async getInstalledLibraries(): Promise<Array<{ name: string; version: string; description: string }>> {
-    // Mock installed libraries
-    return [
-      { name: 'Servo', version: '1.1.8', description: 'Servo motor control library' },
-      { name: 'LiquidCrystal', version: '1.0.7', description: 'LCD display library' },
-      { name: 'WiFi', version: '1.2.7', description: 'WiFi connectivity library' },
-      { name: 'ArduinoJson', version: '6.19.4', description: 'JSON parsing library' },
-      { name: 'DHT sensor library', version: '1.4.4', description: 'Temperature and humidity sensor library' }
-    ];
+    // No library index is bundled; the toolchain panel renders the empty
+    // state instead of a fabricated catalog.
+    return [];
   }
 
   private validateSyntax(code: string): string[] {
@@ -646,88 +671,76 @@ class BoardProgrammer {
     return checksum.toString(16).padStart(2, '0').toUpperCase();
   }
 
-  private async simulateCompilation(sketchCode: string, libraries: string[], startTime: number): Promise<CompilationResult> {
-    // Validate the code syntax
+  /**
+   * Deterministic local analysis shared by every "no toolchain" path.
+   *
+   * Runs the real syntax/brace/entry-point checks, estimates flash/RAM from
+   * the source length with a documented model, and labels the result as an
+   * *analysis* — never as a successful vendor compilation.
+   */
+  private analyseSketch(sketchCode: string, libraries: string[], startTime: number): CompilationResult {
     const syntaxErrors = this.validateSyntax(sketchCode);
+    const flash = this.estimateFlashUsage(sketchCode, libraries);
+    const ram = this.estimateRamUsage(sketchCode);
+    const total = this.selectedBoard?.flash || 0;
+    const ramTotal = this.selectedBoard?.ram || 0;
+
     if (syntaxErrors.length > 0) {
       return {
         success: false,
-        output: 'Compilation failed',
+        output: 'Static analysis failed. Install arduino-cli for a real compilation.',
         errors: syntaxErrors,
         warnings: [],
         binarySize: 0,
         memoryUsage: {
-          flash: { used: 0, total: this.selectedBoard?.flash || 0, percentage: 0 },
-          ram: { used: 0, total: this.selectedBoard?.ram || 0, percentage: 0 }
+          flash: { used: 0, total, percentage: 0 },
+          ram: { used: 0, total: ramTotal, percentage: 0 },
         },
         compilationTime: Date.now() - startTime
       };
     }
 
-    // Simulate compilation process
-    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
-
-    // Calculate estimated memory usage
-    const estimatedFlashUsage = this.estimateFlashUsage(sketchCode, libraries);
-    const estimatedRamUsage = this.estimateRamUsage(sketchCode);
-
-    const result: CompilationResult = {
+    return {
       success: true,
-      output: this.generateCompilationOutput(),
+      output:
+        `Static analysis passed (arduino-cli not available, so this is not a real build). ` +
+        `Estimated ${flash} bytes flash / ${ram} bytes RAM on ${this.selectedBoard?.name}.`,
       errors: [],
-      warnings: this.generateWarnings(sketchCode),
-      binarySize: estimatedFlashUsage,
+      warnings: [
+        ...this.generateWarnings(sketchCode),
+        'No vendor toolchain ran: install arduino-cli for machine code and exact sizes.'
+      ],
+      binarySize: flash,
       memoryUsage: {
         flash: {
-          used: estimatedFlashUsage,
-          total: this.selectedBoard?.flash || 0,
-          percentage: (estimatedFlashUsage / (this.selectedBoard?.flash || 1)) * 100
+          used: flash,
+          total,
+          percentage: total === 0 ? 0 : (flash / total) * 100
         },
         ram: {
-          used: estimatedRamUsage,
-          total: this.selectedBoard?.ram || 0,
-          percentage: (estimatedRamUsage / (this.selectedBoard?.ram || 1)) * 100
+          used: ram,
+          total: ramTotal,
+          percentage: ramTotal === 0 ? 0 : (ram / ramTotal) * 100
         }
       },
       compilationTime: Date.now() - startTime
     };
+  }
 
-    return result;
+  private async simulateCompilation(sketchCode: string, libraries: string[], startTime: number): Promise<CompilationResult> {
+    return this.analyseSketch(sketchCode, libraries, startTime);
   }
 
   private async simulateUpload(port: string, startTime: number): Promise<UploadResult> {
-    // Simulate upload time
-    await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
-
+    void port;
+    // Legacy shim: every caller now goes through uploadSketch(), which fails
+    // honestly when no transport exists. Kept so older call sites compile.
     return {
-      success: true,
-      output: this.generateUploadOutput(port),
+      success: false,
+      output: 'Upload is unavailable without arduino-cli and a connected board.',
+      error: 'No upload transport',
       uploadTime: Date.now() - startTime
     };
-  }
-
-  private generateCompilationOutput(): string {
-    return `
-Sketch uses ${this.estimateFlashUsage('', [])} bytes (${((this.estimateFlashUsage('', []) / (this.selectedBoard?.flash || 32768)) * 100).toFixed(1)}%) of program storage space. Maximum is ${this.selectedBoard?.flash} bytes.
-Global variables use ${this.estimateRamUsage('')} bytes (${((this.estimateRamUsage('') / (this.selectedBoard?.ram || 2048)) * 100).toFixed(1)}%) of dynamic memory, leaving ${(this.selectedBoard?.ram || 2048) - this.estimateRamUsage('')} bytes for local variables. Maximum is ${this.selectedBoard?.ram} bytes.
-
-Compilation complete.
-    `.trim();
-  }
-
-  private generateUploadOutput(port: string): string {
-    return `
-Uploading to ${this.selectedBoard?.name} on ${port}
-
-Writing at 0x00000000... (100%)
-Wrote ${this.estimateFlashUsage('', [])} bytes at 0x00000000 in ${(Math.random() * 3 + 1).toFixed(1)} seconds (effective ${(this.estimateFlashUsage('', []) / 1024 / (Math.random() * 3 + 1)).toFixed(1)} kbit/s)...
-Hash of data verified.
-
-Leaving...
-Hard resetting via RTS pin...
-
-Upload complete.
-    `.trim();
   }
 }
 
@@ -954,35 +967,61 @@ export class ArduinoIDEIntegration {
     }
   }
 
+  /**
+   * Validate the HIL configuration before any stimulus is attempted. Real
+   * drive/measure hardware is checked in `applyTestInputs` /
+   * `measureOutputs`, which fail closed when nothing is attached — this step
+   * guarantees the suite itself is coherent (interfaces enabled, test cases
+   * well-formed) so later failures are about hardware, not typos.
+   */
   private static async initializeHILHardware(config: HILTestConfig): Promise<void> {
-    // Initialize hardware interfaces (CAN, SPI, I2C, etc.)
-    console.log('Initializing HIL hardware interfaces...');
+    const kinds = ['digital', 'analog', 'can', 'spi', 'i2c', 'uart'] as const;
 
-    // Setup digital I/O
-    if (config.hardwareInterfaces.digital) {
-      // Configure digital pins
+    const enabled = kinds.filter(kind => config.hardwareInterfaces[kind]);
+    if (enabled.length === 0) {
+      throw new Error('HIL setup requires at least one enabled hardware interface.');
+    }
+    if (config.testCases.length === 0) {
+      throw new Error('HIL setup requires at least one test case.');
+    }
+    if (config.samplingRate !== undefined && config.samplingRate <= 0) {
+      throw new Error('HIL samplingRate must be greater than zero.');
+    }
+    if (config.timeout !== undefined && config.timeout <= 0) {
+      throw new Error('HIL timeout must be greater than zero.');
     }
 
-    // Setup analog I/O
-    if (config.hardwareInterfaces.analog) {
-      // Configure ADC/DAC
-    }
+    const seenIds = new Set<string>();
+    for (const testCase of config.testCases) {
+      if (seenIds.has(testCase.id)) {
+        throw new Error(`Duplicate HIL test case id "${testCase.id}".`);
+      }
+      seenIds.add(testCase.id);
 
-    // Setup communication interfaces
-    if (config.hardwareInterfaces.can) {
-      // Initialize CAN bus
-    }
+      const used = kinds.filter(
+        kind => testCase.inputs[kind] !== undefined || testCase.expectedOutputs[kind] !== undefined
+      );
+      if (used.length === 0) {
+        throw new Error(`HIL test case "${testCase.id}" declares no inputs or expected outputs.`);
+      }
+      for (const kind of used) {
+        if (!config.hardwareInterfaces[kind]) {
+          throw new Error(
+            `HIL test case "${testCase.id}" uses ${kind.toUpperCase()} I/O but that interface is not enabled.`
+          );
+        }
+      }
 
-    if (config.hardwareInterfaces.spi) {
-      // Initialize SPI
-    }
-
-    if (config.hardwareInterfaces.i2c) {
-      // Initialize I2C
-    }
-
-    if (config.hardwareInterfaces.uart) {
-      // Initialize UART
+      const analogTolerances = testCase.tolerances?.analog;
+      if (analogTolerances) {
+        for (const [channel, tolerance] of Object.entries(analogTolerances)) {
+          if (!Number.isFinite(tolerance) || tolerance < 0) {
+            throw new Error(
+              `HIL test case "${testCase.id}": tolerance for ${channel} must be a non-negative number.`
+            );
+          }
+        }
+      }
     }
   }
 
@@ -1026,88 +1065,17 @@ export class ArduinoIDEIntegration {
   }
 
   private static async applyTestInputs(inputs: Record<string, unknown>): Promise<void> {
-    // Apply digital inputs
-    for (const [pin, value] of Object.entries(inputs.digital || {})) {
-      // Set digital pin value - implementation would interface with hardware
-      console.log(`Setting digital pin ${pin} to ${value}`);
-    }
-
-    // Apply analog inputs
-    for (const [channel, value] of Object.entries(inputs.analog || {})) {
-      // Set analog output value - implementation would interface with hardware
-      console.log(`Setting analog channel ${channel} to ${value}`);
-    }
-
-    // Send CAN messages
-    const canMessages = Array.isArray(inputs.can) ? inputs.can : [];
-    for (const message of canMessages) {
-      // Send CAN message - implementation would interface with hardware
-      console.log('Sending CAN message:', message);
-    }
-
-    // Send SPI data
-    if (inputs.spi) {
-      // Send SPI data
-    }
-
-    // Send I2C data
-    if (inputs.i2c) {
-      // Send I2C data
-    }
-
-    // Send UART data
-    if (inputs.uart) {
-      // Send UART data
-    }
+    // No drive hardware is attached: fail closed instead of logging
+    // "Setting pin…" lines that imply actuation happened.
+    void inputs;
+    throw new Error('HIL stimulus requires connected hardware. No drive interface is attached.');
   }
 
   private static async measureOutputs(expectedOutputs: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const measured: Record<string, unknown> = {};
-
-    // Measure digital outputs
-    if (expectedOutputs.digital && typeof expectedOutputs.digital === 'object') {
-      measured.digital = {};
-      const digitalOutputs = expectedOutputs.digital as Record<string, boolean>;
-      const measuredDigital = measured.digital as Record<string, boolean>;
-      for (const pin of Object.keys(digitalOutputs)) {
-        // Read digital pin value
-        measuredDigital[pin] = Math.random() > 0.5; // Simulated
-      }
-    }
-
-    // Measure analog outputs
-    if (expectedOutputs.analog && typeof expectedOutputs.analog === 'object') {
-      measured.analog = {};
-      const analogOutputs = expectedOutputs.analog as Record<string, number>;
-      const measuredAnalog = measured.analog as Record<string, number>;
-      for (const channel of Object.keys(analogOutputs)) {
-        // Read analog input value
-        measuredAnalog[channel] = Math.random() * 5; // Simulated 0-5V
-      }
-    }
-
-    // Receive CAN messages
-    if (expectedOutputs.can) {
-      measured.can = [];
-      // Receive and store CAN messages
-    }
-
-    // Receive SPI data
-    if (expectedOutputs.spi) {
-      measured.spi = new Uint8Array(0); // Simulated SPI response
-    }
-
-    // Receive I2C data
-    if (expectedOutputs.i2c) {
-      measured.i2c = new Uint8Array(0); // Simulated I2C response
-    }
-
-    // Receive UART data
-    if (expectedOutputs.uart) {
-      measured.uart = ''; // Simulated UART response
-    }
-
-    return measured;
+    // No measurement hardware is attached in the browser: report the absence
+    // explicitly so HIL verdicts are "cannot measure", never a coin flip.
+    void expectedOutputs;
+    throw new Error('HIL measurement requires connected hardware. No measurement interface is attached.');
   }
 
   private static validateTestResults(measured: Record<string, unknown>, expected: Record<string, unknown>, tolerances: Record<string, unknown> = {}): boolean {

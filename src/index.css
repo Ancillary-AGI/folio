@@ -2,298 +2,413 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222.2 84% 4.9%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222.2 84% 4.9%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
-    
-    /* Circuit-specific colors */
-    --wire-color: 34 197 94;
-    --component-color: 71 85 105;
-    --pin-color: 239 68 68;
-    --grid-color: 229 231 235;
-    --grid-major-color: 156 163 175;
-    --selection-color: 59 130 246;
-    --hover-color: 147 197 253;
-  }
-
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 84% 4.9%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 94.1%;
-    
-    /* Circuit-specific colors for dark theme */
-    --wire-color: 34 197 94;
-    --component-color: 148 163 184;
-    --pin-color: 248 113 113;
-    --grid-color: 55 65 81;
-    --grid-major-color: 75 85 99;
-    --selection-color: 96 165 250;
-    --hover-color: 59 130 246;
-  }
-}
+/*
+ * ────────────────────────────────────────────────────────────────────────────
+ *  Folio — global stylesheet
+ * ────────────────────────────────────────────────────────────────────────────
+ *
+ *  This file deliberately contains **no colour values**.
+ *
+ *  Every colour lives in `src/lib/theme/tokens.ts` and is written onto <html>
+ *  as a CSS custom property by `src/lib/theme/themeController.ts`. That module
+ *  is unit-tested for HSL validity and WCAG contrast, so it is impossible to
+ *  reintroduce the failure mode where a theme block held RGB triplets and the
+ *  whole app rendered brown.
+ *
+ *  Rules for contributors:
+ *    • use token-backed utilities (`bg-card`, `text-muted-foreground`, …);
+ *    • never write `hsl(15 23 42)`-style literals, and never a raw hex here;
+ *    • if a new semantic role is needed, add a token + a contrast contract row.
+ * ────────────────────────────────────────────────────────────────────────────
+ */
 
 @layer base {
+  html {
+    height: 100%;
+    /* `color-scheme` is also set from JS; keeping it here covers the first frame. */
+    color-scheme: light dark;
+    -webkit-text-size-adjust: 100%;
+  }
+
   * {
     @apply border-border;
   }
+
   body {
-    @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    @apply bg-background text-foreground antialiased;
+    height: 100%;
+    margin: 0;
+    font-family: theme(
+      'fontFamily.sans',
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      'Segoe UI',
+      Roboto,
+      'Helvetica Neue',
+      Arial,
+      sans-serif
+    );
+    font-feature-settings:
+      'rlig' 1,
+      'calt' 1;
+    overscroll-behavior: none;
+  }
+
+  #root {
+    height: 100%;
+    isolation: isolate;
+  }
+
+  /* Focus is always visible, never suppressed, and uses the themed ring. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  ::selection {
+    background-color: hsl(var(--selection) / 0.24);
+    color: hsl(var(--foreground));
+  }
+
+  /* Native form controls follow the active theme instead of the OS default. */
+  input,
+  select,
+  textarea,
+  button {
+    color: inherit;
+  }
+
+  ::placeholder {
+    color: hsl(var(--muted-foreground));
+    opacity: 1;
   }
 }
 
 @layer components {
-  .circuit-canvas {
-    @apply bg-background;
-    background-image: 
-      linear-gradient(hsl(var(--grid-color)) 1px, transparent 1px),
-      linear-gradient(90deg, hsl(var(--grid-color)) 1px, transparent 1px);
+  /* ── Shell surfaces ───────────────────────────────────────────────────────
+   * Three visually distinct layers, in order of recess:
+   *   app-chrome  (menus, toolbars, panel headers)  → --surface
+   *   app-panel   (content panes, cards)            → --card
+   *   editor-surface (the design sheet)             → --canvas
+   * A dark shell puts the sheet *below* the chrome; a light shell puts it at
+   * the brightest level. Text tokens are paired per layer, so a light element
+   * can never end up inside a dark container.
+   */
+  .app-shell {
+    @apply flex h-full min-h-0 flex-col bg-background text-foreground;
+  }
+
+  .app-chrome {
+    @apply bg-surface text-surface-foreground;
+  }
+
+  .app-chrome-divider {
+    @apply border-b border-border;
+  }
+
+  .app-panel {
+    @apply bg-card text-card-foreground;
+  }
+
+  .app-panel-header {
+    @apply flex items-center justify-between border-b border-border bg-surface px-4 py-2 text-surface-foreground;
+  }
+
+  .app-sidebar {
+    @apply flex min-h-0 flex-col border-r border-border bg-card text-card-foreground;
+  }
+
+  .editor-surface {
+    @apply relative min-h-0 flex-1 overflow-hidden bg-canvas text-canvas-foreground;
+  }
+
+  /* The schematic / PCB grid. Drawn from tokens so it is subtle in both themes
+     and never fights the sheet colour. */
+  .editor-grid {
+    background-image:
+      linear-gradient(hsl(var(--grid)) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--grid)) 1px, transparent 1px);
     background-size: 10px 10px;
   }
-  
-  .circuit-canvas-major-grid {
-    background-image: 
-      linear-gradient(hsl(var(--grid-major-color)) 1px, transparent 1px),
-      linear-gradient(90deg, hsl(var(--grid-major-color)) 1px, transparent 1px),
-      linear-gradient(hsl(var(--grid-color)) 1px, transparent 1px),
-      linear-gradient(90deg, hsl(var(--grid-color)) 1px, transparent 1px);
-    background-size: 100px 100px, 100px 100px, 10px 10px, 10px 10px;
+
+  .editor-grid-major {
+    background-image:
+      linear-gradient(hsl(var(--grid-major)) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--grid-major)) 1px, transparent 1px),
+      linear-gradient(hsl(var(--grid)) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--grid)) 1px, transparent 1px);
+    background-size:
+      100px 100px,
+      100px 100px,
+      10px 10px,
+      10px 10px;
   }
-  
+
+  /* HUD / floating readout drawn over a scrim. */
+  .editor-hud {
+    @apply rounded bg-overlay/80 px-2 py-1 text-xs text-overlay-foreground;
+  }
+
+  .status-bar {
+    @apply flex h-7 flex-shrink-0 items-stretch border-t border-border bg-surface text-xs text-muted-foreground;
+  }
+
+  /* One monospace cell of the segmented status bar (CAD-style readouts). */
+  .status-segment {
+    @apply inline-flex h-full items-center gap-1.5 whitespace-nowrap border-r border-border px-3 text-[10px] uppercase tracking-[0.08em];
+  }
+
+  .modal-scrim {
+    @apply fixed inset-0 z-50 flex items-center justify-center bg-overlay/70 p-4 backdrop-blur-sm;
+  }
+
+  /* ── Buttons & controls ─────────────────────────────────────────────────── */
   .toolbar-button {
-    @apply inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 h-10 px-4 py-2;
+    @apply inline-flex h-9 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50;
   }
-  
+
   .toolbar-button-active {
     @apply bg-primary text-primary-foreground;
   }
-  
+
   .toolbar-button-inactive {
-    @apply bg-secondary text-secondary-foreground hover:bg-secondary/80;
+    @apply text-muted-foreground hover:bg-accent hover:text-accent-foreground;
   }
-  
+
   .component-library-item {
-    @apply flex flex-col items-center p-3 rounded-lg border-2 border-transparent hover:border-primary/50 hover:bg-accent cursor-pointer transition-all duration-200;
+    @apply flex cursor-pointer flex-col items-center rounded-lg border-2 border-transparent p-3 transition-colors hover:border-primary/50 hover:bg-accent;
   }
-  
+
   .component-library-item-selected {
     @apply border-primary bg-primary/10;
   }
-  
+
   .properties-panel {
-    @apply w-80 bg-card border-l border-border p-4 overflow-y-auto;
+    @apply flex min-h-0 w-80 flex-col overflow-y-auto border-l border-border bg-card p-4 text-card-foreground;
   }
-  
+
+  /* ── CAD workstation chrome ────────────────────────────────────────────────
+   * The visual language of ECAD/MCAD editors: docked palettes around a gridded
+   * sheet, a vertical tool rail, document-style workspace tabs, and monospace
+   * numeric readouts. Token-backed only — no colour values here.
+   */
+  .cad-tab {
+    @apply inline-flex h-7 flex-shrink-0 items-center whitespace-nowrap border-r border-border px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground;
+  }
+
+  .cad-tab-active {
+    @apply border-b-2 border-b-primary bg-background text-foreground;
+  }
+
+  .cad-rail {
+    @apply flex w-11 flex-shrink-0 flex-col items-center gap-0.5 border-r border-border bg-surface py-1.5 text-surface-foreground;
+  }
+
+  .cad-rail-btn {
+    @apply relative flex h-8 w-8 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  .cad-rail-btn-active {
+    @apply bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground;
+  }
+
+  /* Mono shortcut badge pinned in a rail button's corner (V, D, G, F…). */
+  .cad-rail-key {
+    @apply pointer-events-none absolute bottom-0 right-0.5 font-mono text-[8px] font-semibold leading-none text-muted-foreground;
+  }
+
+  .cad-rail-btn-active .cad-rail-key {
+    @apply text-primary-foreground;
+  }
+
+  .cad-rail-sep {
+    @apply my-1 h-px w-6 bg-border;
+  }
+
+  .cad-dock {
+    @apply flex w-64 min-h-0 flex-shrink-0 flex-col overflow-hidden border-r border-border bg-card text-card-foreground;
+  }
+
+  /* Inspector dock — same palette anatomy as the library, mirrored border. */
+  .cad-inspector {
+    @apply flex w-72 min-h-0 flex-shrink-0 flex-col overflow-hidden border-l border-border bg-card text-card-foreground;
+  }
+
+  /* Fixed 28px palette title bar shared by every docked panel. */
+  .cad-palette-title {
+    @apply flex h-7 flex-shrink-0 items-center justify-between gap-2 border-b border-border bg-surface px-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground;
+  }
+
+  /* Sticky section header bar inside a palette body. */
+  .cad-section-title {
+    @apply sticky top-0 z-10 flex h-6 items-center justify-between gap-2 border-b border-border bg-surface px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground;
+  }
+
+  .cad-readout {
+    @apply font-mono text-[11px] tabular-nums;
+  }
+
+  /* Editor-local status strip pinned to the bottom of the sheet. */
+  .cad-hud {
+    @apply pointer-events-none absolute inset-x-0 bottom-0 flex h-6 items-center justify-between border-t border-border bg-surface px-2 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground;
+  }
+
+  /* Chip shown while a library part is armed for placement. */
+  .cad-place-chip {
+    @apply pointer-events-none absolute left-1/2 top-7 z-10 flex -translate-x-1/2 items-center gap-2 border border-border border-l-2 border-l-primary bg-surface px-3 py-1 text-[11px] text-surface-foreground shadow;
+  }
+
+  .cad-ruler-face {
+    @apply pointer-events-none absolute bg-surface;
+  }
+
+
+  /* ── Inspector field system ───────────────────────────────────────────────
+   * Dense label → value rows and flat monospace inputs — the row rhythm of a
+   * CAD properties inspector, not a web form.
+   */
+  .cad-prop-row {
+    @apply grid min-h-[26px] grid-cols-[86px_minmax(0,1fr)] items-center gap-2 border-b border-border/50 px-2 py-0.5 text-[11px];
+  }
+
+  .cad-prop-label {
+    @apply truncate text-[10px] font-medium uppercase tracking-[0.06em] text-muted-foreground;
+  }
+
+  .cad-prop-value {
+    @apply min-w-0 truncate font-mono text-[11px] tabular-nums text-foreground;
+  }
+
+  .cad-field {
+    @apply h-[22px] min-w-0 rounded-sm border border-border/70 bg-background px-1.5 font-mono text-[11px] text-foreground outline-none transition-colors hover:border-border focus:border-ring;
+  }
+
+  .cad-field:disabled {
+    @apply border-transparent bg-muted/40 text-muted-foreground;
+  }
+
+  /* ── Parts browser rows ─────────────────────────────────────────────────── */
+  .cad-lib-row {
+    @apply relative flex h-[30px] w-full cursor-grab items-center gap-2 px-2 text-left transition-colors hover:bg-accent active:cursor-grabbing;
+  }
+
+  .cad-lib-row-armed {
+    @apply bg-primary/10;
+  }
+
+  .cad-lib-row-armed::before {
+    content: '';
+    @apply absolute inset-y-0 left-0 w-0.5 bg-primary;
+  }
+
+  /* Bordered monospace glyph standing in for a symbol thumbnail. */
+  .cad-glyph {
+    @apply flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded-sm border border-border bg-muted/50 font-mono text-[9px] font-bold leading-none text-muted-foreground;
+  }
+
+  /* Bare search input — its container draws the border. */
+  .cad-search {
+    @apply h-full w-full min-w-0 bg-transparent px-2 font-mono text-[11px] text-foreground outline-none placeholder:font-sans placeholder:text-muted-foreground;
+  }
+
+  /* Palette footer readout. */
+  .cad-palette-foot {
+    @apply flex h-6 flex-shrink-0 items-center justify-between gap-2 border-t border-border bg-surface px-2.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground;
+  }
+
+  /* Keyboard chip used in the placement banner. */
+  .cad-kbd {
+    @apply rounded-sm border border-border bg-muted/60 px-1 font-mono text-[9px] font-semibold leading-[14px] text-foreground;
+  }
+
   .simulation-waveform {
-    @apply bg-card border border-border rounded-lg p-4;
-  }
-  
-  .status-bar {
-    @apply h-6 bg-muted border-t border-border px-4 flex items-center text-xs text-muted-foreground;
+    @apply rounded-lg border border-border bg-card p-4 text-card-foreground;
   }
 }
 
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground)) hsl(var(--muted));
+    scrollbar-color: hsl(var(--border)) transparent;
   }
-  
+
   .scrollbar-thin::-webkit-scrollbar {
-    width: 6px;
+    width: 8px;
+    height: 8px;
   }
-  
+
   .scrollbar-thin::-webkit-scrollbar-track {
-    background: hsl(var(--muted));
+    background: transparent;
   }
-  
+
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted-foreground));
-    border-radius: 3px;
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
   }
-  
+
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--foreground));
+    background-color: hsl(var(--muted-foreground));
+    background-clip: content-box;
+  }
+
+  /* Text that must not be selectable while dragging on the sheet. */
+  .no-select {
+    user-select: none;
+    -webkit-user-select: none;
   }
 }
 
-/* Animation classes */
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+@layer base {
+  /*
+   * Motion is opt-out at the OS level. `showAnimations` in app settings layers
+   * on top of this by toggling the `.reduce-motion` class on <html>.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  .reduce-motion *,
+  .reduce-motion *::before,
+  .reduce-motion *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
 
-@keyframes slideIn {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(0); }
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
-@keyframes pulse-ring {
-  0% { transform: scale(0.33); }
-  40%, 50% { opacity: 1; }
-  100% { opacity: 0; transform: scale(1.33); }
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.2s ease-in-out;
+  animation: fade-in 0.18s ease-out both;
 }
 
-.animate-slide-in {
-  animation: slideIn 0.3s ease-out;
-}
-
-.animate-pulse-ring {
-  animation: pulse-ring 1.5s ease-out infinite;
-}
-
-/* Circuit-specific styles */
-.wire-connection-point {
-  @apply absolute w-2 h-2 bg-green-500 rounded-full transform -translate-x-1 -translate-y-1 opacity-0 transition-opacity duration-200;
-}
-
-.wire-connection-point.visible {
-  @apply opacity-100;
-}
-
-.component-pin {
-  @apply absolute w-1.5 h-1.5 bg-red-500 rounded-full transform -translate-x-0.5 -translate-y-0.5;
-}
-
-.component-pin.connected {
-  @apply bg-green-500;
-}
-
-.selection-box {
-  @apply absolute border-2 border-blue-500 bg-blue-500/10 pointer-events-none;
-}
-
-/* Professional dark theme for technical users */
-.professional {
-  --background: 15 23 42;
-  --foreground: 248 250 252;
-  --card: 30 41 59;
-  --card-foreground: 248 250 252;
-  --popover: 30 41 59;
-  --popover-foreground: 248 250 252;
-  --primary: 59 130 246;
-  --primary-foreground: 15 23 42;
-  --secondary: 51 65 85;
-  --secondary-foreground: 248 250 252;
-  --muted: 51 65 85;
-  --muted-foreground: 148 163 184;
-  --accent: 71 85 105;
-  --accent-foreground: 248 250 252;
-  --destructive: 239 68 68;
-  --destructive-foreground: 248 250 252;
-  --border: 51 65 85;
-  --input: 51 65 85;
-  --ring: 59 130 246;
-  
-  /* Circuit-specific colors for professional theme */
-  --wire-color: 34 197 94;
-  --component-color: 148 163 184;
-  --pin-color: 248 113 113;
-  --grid-color: 51 65 85;
-  --grid-major-color: 71 85 105;
-  --selection-color: 59 130 246;
-  --hover-color: 96 165 250;
-}
-
-/* High contrast theme for accessibility */
-.high-contrast {
-  --background: 0 0% 0%;
-  --foreground: 0 0% 100%;
-  --card: 0 0% 10%;
-  --card-foreground: 0 0% 100%;
-  --popover: 0 0% 10%;
-  --popover-foreground: 0 0% 100%;
-  --primary: 60 100% 50%;
-  --primary-foreground: 0 0% 0%;
-  --secondary: 0 0% 20%;
-  --secondary-foreground: 0 0% 100%;
-  --muted: 0 0% 20%;
-  --muted-foreground: 0 0% 70%;
-  --accent: 0 0% 30%;
-  --accent-foreground: 0 0% 100%;
-  --destructive: 0 100% 50%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 30%;
-  --input: 0 0% 20%;
-  --ring: 60 100% 50%;
-  
-  /* Circuit-specific colors for high contrast theme */
-  --wire-color: 120 100% 50%;
-  --component-color: 0 0% 80%;
-  --pin-color: 0 100% 60%;
-  --grid-color: 0 0% 25%;
-  --grid-major-color: 0 0% 40%;
-  --selection-color: 60 100% 50%;
-  --hover-color: 60 100% 70%;
-}
-
-/* Solarized theme for reduced eye strain */
-.solarized {
-  --background: 193 100% 11%;
-  --foreground: 44 87% 94%;
-  --card: 192 81% 14%;
-  --card-foreground: 44 87% 94%;
-  --popover: 192 81% 14%;
-  --popover-foreground: 44 87% 94%;
-  --primary: 205 69% 98%;
-  --primary-foreground: 193 100% 11%;
-  --secondary: 180 25% 25%;
-  --secondary-foreground: 44 87% 94%;
-  --muted: 180 25% 25%;
-  --muted-foreground: 186 8% 55%;
-  --accent: 175 74% 65%;
-  --accent-foreground: 193 100% 11%;
-  --destructive: 1 71% 52%;
-  --destructive-foreground: 44 87% 94%;
-  --border: 180 25% 25%;
-  --input: 180 25% 25%;
-  --ring: 205 69% 98%;
-  
-  /* Circuit-specific colors for solarized theme */
-  --wire-color: 68 100% 30%;
-  --component-color: 186 8% 55%;
-  --pin-color: 1 71% 52%;
-  --grid-color: 180 25% 20%;
-  --grid-major-color: 180 25% 30%;
-  --selection-color: 205 69% 98%;
-  --hover-color: 175 74% 65%;
+.animate-rise-in {
+  animation: rise-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
 }

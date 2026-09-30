@@ -123,13 +123,19 @@ export class RoboticsSimulationService {
   private tasks: Map<string, RobotTask> = new Map();
   private environments: Map<string, SimulationEnvironment> = new Map();
   private policies: Map<string, AgenticControlPolicy> = new Map();
+  private idCounter = 0;
+
+  private nextId(prefix: string): string {
+    this.idCounter += 1;
+    return `${prefix}_${Date.now()}_${this.idCounter}`;
+  }
   private simulations: Map<string, SimulationResult> = new Map();
 
   // Robot Management
   createRobot(config: Omit<RobotConfiguration, 'id'>): RobotConfiguration {
     const robot: RobotConfiguration = {
       ...config,
-      id: `robot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      id: this.nextId('robot')
     };
 
     this.robots.set(robot.id, robot);
@@ -242,7 +248,7 @@ export class RoboticsSimulationService {
   createTask(task: Omit<RobotTask, 'id'>): RobotTask {
     const newTask: RobotTask = {
       ...task,
-      id: `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      id: this.nextId('task')
     };
 
     this.tasks.set(newTask.id, newTask);
@@ -257,7 +263,7 @@ export class RoboticsSimulationService {
   createEnvironment(env: Omit<SimulationEnvironment, 'id'>): SimulationEnvironment {
     const environment: SimulationEnvironment = {
       ...env,
-      id: `env_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      id: this.nextId('env')
     };
 
     this.environments.set(environment.id, environment);
@@ -268,7 +274,7 @@ export class RoboticsSimulationService {
   createControlPolicy(policy: Omit<AgenticControlPolicy, 'id'>): AgenticControlPolicy {
     const newPolicy: AgenticControlPolicy = {
       ...policy,
-      id: `policy_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      id: this.nextId('policy')
     };
 
     this.policies.set(newPolicy.id, newPolicy);
@@ -283,16 +289,19 @@ export class RoboticsSimulationService {
   }>): Promise<void> {
     const policy = this.policies.get(policyId);
     if (!policy) throw new Error('Policy not found');
+    if (trainingData.length === 0) throw new Error(`No training samples for policy '${policyId}'`);
 
-    // Simulate policy training
-    console.log(`Training policy ${policyId} with ${trainingData.length} samples`);
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // No RL backend is bundled: mark the policy so the simulator can gate on
+    // it, and report the honest baseline (mean batch reward) instead of an
+    // invented success rate.
+    const meanReward =
+      trainingData.reduce((sum, sample) => sum + sample.reward, 0) / trainingData.length;
 
     policy.trained = true;
     policy.performance = {
-      successRate: 0.85 + Math.random() * 0.1,
-      averageTime: 5.0 + Math.random() * 2.0,
-      energyEfficiency: 0.75 + Math.random() * 0.15
+      successRate: 0,
+      averageTime: 0,
+      energyEfficiency: Math.max(0, Math.min(1, meanReward))
     };
   }
 
@@ -389,9 +398,17 @@ export class RoboticsSimulationService {
   }
 
   private async applyControlPolicy(policy: AgenticControlPolicy, robot: RobotConfiguration): Promise<void> {
-    // Apply control policy to adjust trajectory
-    // In a real implementation, this would use the trained policy to generate optimal actions
-    console.log(`Applying control policy ${policy.id} to robot ${robot.id}`);
+    // Gating layer: an untrained policy has no authority, so it must not mutate
+    // the robot. A trained policy contributes a documented velocity override map
+    // (joint id → target velocity), which executeTask can merge into waypoints.
+    if (!policy.trained) return;
+    const override = policy.parameters?.velocityOverride;
+    if (override === null || typeof override !== 'object' || Array.isArray(override)) return;
+    for (const [jointId, value] of Object.entries(override as Record<string, unknown>)) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+      const joint = robot.joints.find(candidate => candidate.id === jointId);
+      if (joint) joint.velocity = value;
+    }
   }
 
   private calculatePathLength(trajectory: TrajectoryPoint[]): number {
@@ -410,14 +427,37 @@ export class RoboticsSimulationService {
     return length;
   }
 
+  /**
+   * Trajectory smoothness from mean absolute jerk.
+   *
+   * Uses finite differences on the recorded joint angles (assumed uniformly
+   * spaced in time): acceleration is the second difference, jerk the third.
+   * Returns 1 for a perfectly smooth trajectory and decays toward 0 as mean
+   * |jerk| grows. Short trajectories without enough samples score 1.
+   */
   private calculateTrajectorySmoothness(trajectory: TrajectoryPoint[]): number {
-    // Calculate smoothness based on jerk (rate of change of acceleration)
-    let totalJerk = 0;
-    for (let i = 2; i < trajectory.length; i++) {
-      // Simplified jerk calculation
-      totalJerk += 1.0; // Placeholder
+    if (trajectory.length < 4) return 1.0;
+
+    const jointIds = new Set<string>();
+    for (const point of trajectory) {
+      for (const id of Object.keys(point.jointAngles)) jointIds.add(id);
     }
-    return 1.0 / (1.0 + totalJerk / trajectory.length);
+    if (jointIds.size === 0) return 1.0;
+
+    let totalJerk = 0;
+    let samples = 0;
+    for (const id of jointIds) {
+      const angles = trajectory.map(point => point.jointAngles[id] ?? 0);
+      for (let i = 3; i < angles.length; i++) {
+        // Third finite difference of the joint-angle sequence.
+        const jerk = Math.abs(angles[i] - 3 * angles[i - 1] + 3 * angles[i - 2] - angles[i - 3]);
+        totalJerk += jerk;
+        samples += 1;
+      }
+    }
+    if (samples === 0) return 1.0;
+    const meanJerk = totalJerk / samples;
+    return 1.0 / (1.0 + meanJerk);
   }
 
   // Digital Twin Visualization
@@ -488,16 +528,13 @@ export class RoboticsSimulationService {
     return this.simulations.get(simulationId);
   }
 
-  // Test compatibility methods
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  forwardKinematics(robotId: string, jointAngles: Record<string, number>): unknown {
+  /** Alias kept for older call sites; delegates to computeForwardKinematics. */
+  forwardKinematics(robotId: string, jointAngles: Record<string, number>): ReturnType<RoboticsSimulationService['computeForwardKinematics']> {
     return this.computeForwardKinematics(robotId, jointAngles);
   }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  simulateTrajectory(robotId: string, startPose: unknown, endPose: unknown): unknown {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return this.planTrajectory(robotId, startPose as any, endPose as any);
+  /** Alias kept for older call sites; delegates to planTrajectory. */
+  simulateTrajectory(robotId: string, startPose: TrajectoryPoint, endPose: TrajectoryPoint): TrajectoryPoint[] {
+    return this.planTrajectory(robotId, startPose, endPose);
   }
 }
 

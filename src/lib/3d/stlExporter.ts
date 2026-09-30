@@ -6,6 +6,11 @@ export interface STLExportOptions {
   scale?: number;
 }
 
+export interface TriangleMeshData {
+  vertices: number[][];
+  faces: number[][];
+}
+
 export class STLExporter {
   private static readonly DEFAULT_OPTIONS: Required<STLExportOptions> = {
     binary: false,
@@ -35,11 +40,32 @@ export class STLExporter {
     }
   }
 
-  static exportToSTL(geometry: any, filename?: string): string {
-    // Simplified export method for test compatibility
+  static exportToSTL(geometry: THREE.BufferGeometry | TriangleMeshData, filename = 'Folio_Model'): string {
     const opts = this.DEFAULT_OPTIONS;
-    const processedGeometry = this.processGeometry(geometry, new THREE.Matrix4(), opts.scale);
-    return this.exportASCII([processedGeometry], opts);
+    const bufferGeometry = geometry instanceof THREE.BufferGeometry ? geometry : this.createBufferGeometry(geometry);
+    const processedGeometry = this.processGeometry(bufferGeometry, new THREE.Matrix4(), opts.scale);
+    const solidName = filename.replace(/[^a-zA-Z0-9_.-]/g, '_') || 'Folio_Model';
+    return this.exportASCII([processedGeometry], opts, solidName);
+  }
+
+  private static createBufferGeometry(mesh: TriangleMeshData): THREE.BufferGeometry {
+    if (!Array.isArray(mesh.vertices) || !Array.isArray(mesh.faces) || mesh.vertices.length < 3 || mesh.faces.length === 0) {
+      throw new Error('STL export requires at least three vertices and one triangle');
+    }
+    if (mesh.vertices.some(vertex => vertex.length !== 3 || vertex.some(value => !Number.isFinite(value)))) {
+      throw new Error('Every STL vertex must contain three finite coordinates');
+    }
+    if (mesh.faces.some(face => face.length !== 3 || face.some(index =>
+      !Number.isInteger(index) || index < 0 || index >= mesh.vertices.length
+    ))) {
+      throw new Error('Every STL face must contain three valid vertex indices');
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(mesh.vertices.flat(), 3));
+    geometry.setIndex(mesh.faces.flat());
+    geometry.computeVertexNormals();
+    return geometry;
   }
 
   private static collectGeometries(scene: THREE.Scene): Array<{ vertices: Float32Array; normals: Float32Array; indices: Uint32Array }> {
@@ -104,8 +130,12 @@ export class STLExporter {
     return { vertices, normals, indices };
   }
 
-  private static exportASCII(geometries: Array<{ vertices: Float32Array; normals: Float32Array; indices: Uint32Array }>, options: Required<STLExportOptions>): string {
-    let stl = 'solid CircuitCAD_Model\n';
+  private static exportASCII(
+    geometries: Array<{ vertices: Float32Array; normals: Float32Array; indices: Uint32Array }>,
+    options: Required<STLExportOptions>,
+    solidName = 'Folio_Model',
+  ): string {
+    let stl = `solid ${solidName}\n`;
 
     geometries.forEach(geometry => {
       const { vertices, normals, indices } = geometry;
@@ -140,7 +170,7 @@ export class STLExporter {
       }
     });
 
-    stl += 'endsolid CircuitCAD_Model\n';
+    stl += `endsolid ${solidName}\n`;
     return stl;
   }
 
@@ -158,7 +188,7 @@ export class STLExporter {
     const uint8View = new Uint8Array(buffer);
 
     // Write header (80 bytes)
-    const header = 'CircuitCAD Binary STL Export';
+    const header = 'Folio Binary STL Export';
     for (let i = 0; i < Math.min(header.length, 80); i++) {
       uint8View[i] = header.charCodeAt(i);
     }

@@ -79,21 +79,6 @@ export interface Trajectory {
 export class AdvancedRobotics {
   private mechanisms: Map<string, Mechanism> = new Map();
   private trajectories: Map<string, Trajectory> = new Map();
-  private physicsWorld!: { gravity: THREE.Vector3; bodies: Map<string, unknown>; constraints: Map<string, unknown> }; // Cannon.js world would be used here
-
-  constructor() {
-    this.initializePhysics();
-  }
-
-  private initializePhysics(): void {
-    // Initialize physics world for multibody dynamics
-    // This would typically use Cannon.js or similar physics engine
-    this.physicsWorld = {
-      gravity: new THREE.Vector3(0, -9.81, 0),
-      bodies: new Map(),
-      constraints: new Map()
-    };
-  }
 
   // Mechanism Design and Creation
   createMechanism(config: {
@@ -175,18 +160,24 @@ export class AdvancedRobotics {
   }
 
   private calculateWorkspace(joints: Map<string, Joint>): Mechanism['workspace'] {
-    // Calculate reachable and dexterous workspace
-    // This is a simplified Monte Carlo approach
+    // Deterministic workspace grid: samples each joint at its min, mid, and
+    // max and forwards the configurations through FK. Exhaustive per-joint
+    // sampling is exponential, so cap the joint count and document it.
+    const jointList = Array.from(joints.values()).slice(0, 6);
+    const samplesPerJoint = 3;
     const positions: THREE.Vector3[] = [];
-    const numSamples = 1000;
 
-    for (let i = 0; i < numSamples; i++) {
-      // Random joint configuration
-      const config = Array.from(joints.values()).map(joint =>
-        joint.limits.min + Math.random() * (joint.limits.max - joint.limits.min)
-      );
+    const total = Math.pow(samplesPerJoint, Math.max(1, jointList.length));
+    for (let i = 0; i < total; i++) {
+      let remainder = i;
+      const config = jointList.map((joint) => {
+        const slot = remainder % samplesPerJoint;
+        remainder = Math.floor(remainder / samplesPerJoint);
+        const fraction = slot / (samplesPerJoint - 1);
+        return joint.limits.min + fraction * (joint.limits.max - joint.limits.min);
+      });
 
-      const fkResult = this.forwardKinematics(Array.from(joints.values()), config);
+      const fkResult = this.forwardKinematics(jointList, config);
       if (fkResult.success) {
         positions.push(fkResult.positions[fkResult.positions.length - 1]);
       }
@@ -290,14 +281,28 @@ export class AdvancedRobotics {
 
       const currentPosition = fkResult.positions[fkResult.positions.length - 1];
       const positionError = targetPosition.clone().sub(currentPosition);
+      const currentOrientation = fkResult.orientations[fkResult.orientations.length - 1];
+      const orientationError = targetOrientation && currentOrientation
+        ? currentOrientation.angleTo(targetOrientation)
+        : 0;
 
       // Check convergence
-      if (positionError.length() < tolerance) {
+      if (positionError.length() < tolerance && orientationError < tolerance) {
         return {
           success: true,
           positions: fkResult.positions,
           orientations: fkResult.orientations,
           jointAngles
+        };
+      }
+
+      if (positionError.length() < tolerance && targetOrientation && orientationError >= tolerance) {
+        return {
+          success: false,
+          positions: fkResult.positions,
+          orientations: fkResult.orientations,
+          jointAngles,
+          error: 'Position-only IK cannot satisfy the requested end-effector orientation'
         };
       }
 
@@ -358,11 +363,8 @@ export class AdvancedRobotics {
     const joints = Array.from(mechanism.joints.values());
     const links = Array.from(mechanism.links.values());
 
-    // Mass matrix computation (simplified)
-    // const massMatrix = this.computeMassMatrix(links, jointAngles);
-
     // Coriolis and centrifugal forces (simplified)
-    const coriolisForces = this.computeCoriolisForces(links, jointAngles, jointVelocities);
+    const coriolisForces = this.computeCoriolisForces(links, jointVelocities);
 
     // Gravity forces
     const gravityForces = this.computeGravityForces(links);
@@ -389,19 +391,7 @@ export class AdvancedRobotics {
     };
   }
 
-  private computeMassMatrix(links: Link[]): number[][] {
-    // Simplified mass matrix computation
-    const n = links.length;
-    const M = Array(n).fill(0).map(() => Array(n).fill(0));
-
-    for (let i = 0; i < n; i++) {
-      M[i][i] = links[i].mass; // Diagonal elements
-    }
-
-    return M;
-  }
-
-  private computeCoriolisForces(links: Link[], jointAngles: number[], jointVelocities: number[]): number[] {
+  private computeCoriolisForces(links: Link[], jointVelocities: number[]): number[] {
     // Simplified Coriolis and centrifugal forces
     return links.map((_, i) => {
       // Simplified calculation
@@ -459,9 +449,24 @@ export class AdvancedRobotics {
     duration: number,
     profile: Trajectory['profile'] = 'quintic'
   ): Trajectory {
+    const joints = Array.from(mechanism.joints.values());
+    if (!Number.isFinite(duration) || duration <= 0) throw new Error('Trajectory duration must be a positive finite number');
+    if (startConfig.length !== joints.length || endConfig.length !== joints.length) {
+      throw new Error(`Trajectory configurations must contain ${joints.length} joint values`);
+    }
+    for (let index = 0; index < joints.length; index += 1) {
+      const joint = joints[index];
+      if (![startConfig[index], endConfig[index]].every(value =>
+        Number.isFinite(value) && value >= joint.limits.min && value <= joint.limits.max
+      )) {
+        throw new Error(`Trajectory joint ${joint.name} exceeds its position limits`);
+      }
+    }
+
     const trajectoryId = `trajectory-${Date.now()}`;
 
     const waypoints = this.generateTrajectoryWaypoints(
+      mechanism,
       startConfig,
       endConfig,
       duration,
@@ -486,6 +491,7 @@ export class AdvancedRobotics {
   }
 
   private generateTrajectoryWaypoints(
+    mechanism: Mechanism,
     start: number[],
     end: number[],
     duration: number,
@@ -494,6 +500,7 @@ export class AdvancedRobotics {
     const waypoints: Trajectory['waypoints'] = [];
     const steps = 100;
     const dt = duration / steps;
+    const joints = Array.from(mechanism.joints.values());
 
     for (let i = 0; i <= steps; i++) {
       const t = (i * dt) / duration; // Normalized time [0, 1]
@@ -510,7 +517,7 @@ export class AdvancedRobotics {
 
       // Compute forward kinematics for position/orientation
       const fkResult = this.forwardKinematics(
-        Array.from(this.mechanisms.values())[0]?.joints.values() || [],
+        joints,
         jointAngles
       );
 
@@ -587,22 +594,10 @@ export class AdvancedRobotics {
   }
 
   private checkLinkCollision(link1: Link, link2: Link): { link1: string; link2: string; contactPoint: THREE.Vector3; normal: THREE.Vector3; penetration: number } | null {
-    // Simplified collision detection using bounding boxes
-    // In practice, this would use more sophisticated algorithms like GJK or SAT
-
-    // This is a placeholder - real implementation would check actual geometries
-    const distance = Math.random(); // Mock distance calculation
-
-    if (distance < 0.1) { // Arbitrary collision threshold
-      return {
-        link1: link1.id,
-        link2: link2.id,
-        contactPoint: new THREE.Vector3(),
-        normal: new THREE.Vector3(0, 1, 0),
-        penetration: 0.1 - distance
-      };
-    }
-
+    // Genuine narrow-phase data (meshes, convex hulls) is not wired up yet:
+    // report "no contact" honestly instead of rolling dice on a collision.
+    void link1;
+    void link2;
     return null;
   }
 
@@ -626,21 +621,21 @@ export class AdvancedRobotics {
   }
 
   private generateLinkSTL(link: Link, position: THREE.Vector3): string {
-    // Generate STL triangles for the link geometry
-    // This is a simplified implementation
     let stl = '';
 
-    // Create a simple box geometry for demonstration
-    const halfSize = 0.05;
+    link.geometry.computeBoundingBox();
+    const halfSize = link.geometry.boundingBox
+      ? link.geometry.boundingBox.getSize(new THREE.Vector3()).multiplyScalar(0.5)
+      : new THREE.Vector3(0.05, 0.05, 0.05);
     const vertices = [
-      new THREE.Vector3(-halfSize, -halfSize, -halfSize),
-      new THREE.Vector3(halfSize, -halfSize, -halfSize),
-      new THREE.Vector3(halfSize, halfSize, -halfSize),
-      new THREE.Vector3(-halfSize, halfSize, -halfSize),
-      new THREE.Vector3(-halfSize, -halfSize, halfSize),
-      new THREE.Vector3(halfSize, -halfSize, halfSize),
-      new THREE.Vector3(halfSize, halfSize, halfSize),
-      new THREE.Vector3(-halfSize, halfSize, halfSize)
+      new THREE.Vector3(-halfSize.x, -halfSize.y, -halfSize.z),
+      new THREE.Vector3(halfSize.x, -halfSize.y, -halfSize.z),
+      new THREE.Vector3(halfSize.x, halfSize.y, -halfSize.z),
+      new THREE.Vector3(-halfSize.x, halfSize.y, -halfSize.z),
+      new THREE.Vector3(-halfSize.x, -halfSize.y, halfSize.z),
+      new THREE.Vector3(halfSize.x, -halfSize.y, halfSize.z),
+      new THREE.Vector3(halfSize.x, halfSize.y, halfSize.z),
+      new THREE.Vector3(-halfSize.x, halfSize.y, halfSize.z)
     ];
 
     // Transform vertices to world position

@@ -45,14 +45,68 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        // Circuit-specific colors
-        wire: "hsl(var(--wire-color))",
-        component: "hsl(var(--component-color))",
-        pin: "hsl(var(--pin-color))",
-        grid: "hsl(var(--grid-color))",
-        "grid-major": "hsl(var(--grid-major-color))",
-        selection: "hsl(var(--selection-color))",
-        hover: "hsl(var(--hover-color))",
+        /*
+         * Shell surfaces. `surface` is the chrome (toolbars, panel headers),
+         * `canvas` is the editor sheet, `overlay` is the modal scrim. They are
+         * separate tokens so a dark shell can recess the sheet below the chrome
+         * without ever inverting text inside a panel.
+         */
+        surface: {
+          DEFAULT: "hsl(var(--surface))",
+          foreground: "hsl(var(--surface-foreground))",
+        },
+        "surface-variant": {
+          DEFAULT: "hsl(var(--surface-variant))",
+          foreground: "hsl(var(--surface-variant-foreground))",
+        },
+        canvas: {
+          DEFAULT: "hsl(var(--canvas))",
+          foreground: "hsl(var(--canvas-foreground))",
+        },
+        overlay: {
+          DEFAULT: "hsl(var(--overlay))",
+          foreground: "hsl(var(--overlay-foreground))",
+        },
+        // Semantic status. Each has a matching `-foreground` that is verified
+        // against it by the theme contrast test.
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          foreground: "hsl(var(--warning-foreground))",
+        },
+        info: {
+          DEFAULT: "hsl(var(--info))",
+          foreground: "hsl(var(--info-foreground))",
+        },
+        // Editor palette
+        grid: "hsl(var(--grid))",
+        "grid-major": "hsl(var(--grid-major))",
+        wire: "hsl(var(--wire))",
+        bus: "hsl(var(--bus))",
+        symbol: "hsl(var(--symbol))",
+        pin: "hsl(var(--pin))",
+        junction: "hsl(var(--junction))",
+        selection: "hsl(var(--selection))",
+        cursor: "hsl(var(--hover))",
+        "net-label": "hsl(var(--net-label))",
+        "ref-label": "hsl(var(--reference-label))",
+        "value-label": "hsl(var(--value-label))",
+        /*
+         * Chart series. Recharts needs literal colour strings for SVG attributes,
+         * so panels resolve these from the active theme at render time rather
+         * than relying on `var()` inside a presentation attribute.
+         */
+        chart: {
+          1: "hsl(var(--chart-1))",
+          2: "hsl(var(--chart-2))",
+          3: "hsl(var(--chart-3))",
+          4: "hsl(var(--chart-4))",
+          5: "hsl(var(--chart-5))",
+          6: "hsl(var(--chart-6))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

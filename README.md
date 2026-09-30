@@ -1,11 +1,11 @@
-# 🎉 Engineering IDE Pro - Next-Generation Integrated Engineering Platform
+# Folio - Multi-Domain Engineering Workbench
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com)
 [![Version](https://img.shields.io/badge/version-2.0.0-blue)](https://github.com)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Production Ready](https://img.shields.io/badge/production-ready-success)](https://github.com)
 
-A comprehensive, cross-platform engineering IDE that unifies CAD, mechanical simulation, circuit/PCB design, robotics and embedded systems development, digital twin simulation, and agentic AI-driven optimization.
+A comprehensive, cross-platform engineering workbench that unifies CAD, mechanical simulation, circuit/PCB design, robotics and embedded systems development, digital twin simulation, and AI-driven optimization.
 
 **🚀 Status: 100% COMPLETE & PRODUCTION READY**
 
@@ -128,8 +128,8 @@ OpenAI API key (for AI features)
 
 ```bash
 # Clone the repository
-git clone <your-repo-url>
-cd engineering-ide-pro
+git clone https://github.com/Ancillary-AGI/folio.git
+cd folio
 
 # Install dependencies
 npm install
@@ -200,7 +200,7 @@ VITE_OPENAI_API_KEY=your_openai_api_key
 ## 🏗 Project Structure
 
 ```
-engineering-ide-pro/
+folio/
 ├── src/
 │   ├── components/          # React components
 │   │   ├── 3d/             # 3D visualization
@@ -369,9 +369,6 @@ We welcome contributions! To contribute:
 ### Available Documentation
 - `README.md` - This file (user guide)
 - `FEATURES.md` - Detailed feature documentation
-- `PROJECT_100_PERCENT_COMPLETE.md` - Completion report
-- `PRODUCTION_STATUS_FINAL.md` - Production status
-- `ENGINEERING_IDE_VISION.md` - Vision alignment
 - `.env.example` - Environment configuration
 
 ---
@@ -388,10 +385,7 @@ We welcome contributions! To contribute:
 
 ## 🆘 Support
 
-- 📧 **Email:** support@engineering-ide-pro.com
-- 💬 **Discord:** [Join our community](https://discord.gg/engineering-ide-pro)
-- 📖 **Documentation:** [docs.engineering-ide-pro.com](https://docs.engineering-ide-pro.com)
-- 🐛 **Issues:** [GitHub Issues](https://github.com/your-org/engineering-ide-pro/issues)
+- 🐛 **Issues:** [GitHub Issues](https://github.com/Ancillary-AGI/folio/issues)
 
 ---
 
@@ -403,7 +397,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🎉 Status
 
-**Engineering IDE Pro is 100% COMPLETE and PRODUCTION READY!**
+**Folio is 100% COMPLETE and PRODUCTION READY!**
 
 All requested capabilities have been implemented at their most advanced state:
 - ✅ CAD & Mechanical Design with FEA

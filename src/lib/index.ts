@@ -37,6 +37,9 @@ export { aiService } from './ai/aiService';
 export * from './collaboration/collaborationService';
 export { collaborationService } from './collaboration/collaborationService';
 
+export * from './vcs/vcsService';
+export { vcsService } from './vcs/vcsService';
+
 export * from './digitalTwin/digitalTwinService';
 export { digitalTwinService } from './digitalTwin/digitalTwinService';
 
@@ -56,7 +59,8 @@ export * from './schematicToPcb/schematicToPcbConverter';
 export { schematicToPcbConverter } from './schematicToPcb/schematicToPcbConverter';
 
 export * from './simulation/multiphysics';
-export { multiphysicsEngine } from './simulation/multiphysics';
+export * from './simulation/materials';
+export { spiceEngine } from './simulation/spiceEngine';
 
 export * from './mechanical/mechanicalDesign';
 export { mechanicalDesignEngine } from './mechanical/mechanicalDesign';

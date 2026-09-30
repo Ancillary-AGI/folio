@@ -16,18 +16,34 @@ import {
 import 'reactflow/dist/style.css';
 import { Button } from '../ui/button';
 import {
-  Play,
-  Pause,
-  Square,
+  Wrench,
   Download,
   Upload,
   Code,
   X,
   Copy
 } from 'lucide-react';
+import {
+  analyseSource,
+  buildFirmwareImage,
+  describeImageCaveat,
+} from '../../lib/compilation/compiler';
+import { downloadFile } from '../../lib/exportUtils';
 
 interface VisualProgrammingEditorProps {
   onClose: () => void;
+}
+
+/** Result of the last real build (static analysis + firmware image). */
+interface BuildReport {
+  ok: boolean;
+  flashEstimate: number;
+  ramEstimate: number;
+  imageBytes: number;
+  baseAddress: number;
+  hex: string;
+  errors: string[];
+  notes: Array<{ severity: 'warning' | 'info'; text: string }>;
 }
 
 interface NodeData {
@@ -52,7 +68,7 @@ interface NodeData {
 
 // Custom node types
 const InputNode = ({ data }: { data: NodeData }) => (
-  <div className="px-4 py-2 shadow-md rounded-md bg-blue-500 text-white border-2 border-blue-600">
+  <div className="px-4 py-2 shadow-md rounded-md bg-primary text-primary-foreground border-2 border-primary">
     <div className="flex items-center">
       <div className="ml-2">
         <div className="text-lg font-bold">{data.label}</div>
@@ -63,7 +79,7 @@ const InputNode = ({ data }: { data: NodeData }) => (
 );
 
 const OutputNode = ({ data }: { data: NodeData }) => (
-  <div className="px-4 py-2 shadow-md rounded-md bg-green-500 text-white border-2 border-green-600">
+  <div className="px-4 py-2 shadow-md rounded-md bg-success text-success-foreground border-2 border-success">
     <div className="flex items-center">
       <div className="ml-2">
         <div className="text-lg font-bold">{data.label}</div>
@@ -74,7 +90,7 @@ const OutputNode = ({ data }: { data: NodeData }) => (
 );
 
 const ProcessNode = ({ data }: { data: NodeData }) => (
-  <div className="px-4 py-2 shadow-md rounded-md bg-purple-500 text-white border-2 border-purple-600">
+  <div className="px-4 py-2 shadow-md rounded-md bg-info text-info-foreground border-2 border-info">
     <div className="flex items-center">
       <div className="ml-2">
         <div className="text-lg font-bold">{data.label}</div>
@@ -92,7 +108,7 @@ const ProcessNode = ({ data }: { data: NodeData }) => (
 );
 
 const ConditionNode = ({ data }: { data: NodeData }) => (
-  <div className="px-4 py-2 shadow-md rounded-md bg-yellow-500 text-white border-2 border-yellow-600">
+  <div className="px-4 py-2 shadow-md rounded-md bg-warning text-warning-foreground border-2 border-warning">
     <div className="flex items-center">
       <div className="ml-2">
         <div className="text-lg font-bold">{data.label}</div>
@@ -103,7 +119,7 @@ const ConditionNode = ({ data }: { data: NodeData }) => (
 );
 
 const LoopNode = ({ data }: { data: NodeData }) => (
-  <div className="px-4 py-2 shadow-md rounded-md bg-red-500 text-white border-2 border-red-600">
+  <div className="px-4 py-2 shadow-md rounded-md bg-destructive text-destructive-foreground border-2 border-destructive">
     <div className="flex items-center">
       <div className="ml-2">
         <div className="text-lg font-bold">{data.label}</div>
@@ -115,7 +131,7 @@ const LoopNode = ({ data }: { data: NodeData }) => (
 );
 
 const FunctionNode = ({ data }: { data: NodeData }) => (
-  <div className="px-4 py-2 shadow-md rounded-md bg-indigo-500 text-white border-2 border-indigo-600">
+  <div className="px-4 py-2 shadow-md rounded-md bg-primary text-primary-foreground border-2 border-primary">
     <div className="flex items-center">
       <div className="ml-2">
         <div className="text-lg font-bold">{data.label}</div>
@@ -142,15 +158,15 @@ const nodeTypes: NodeTypes = {
 // Block categories for the palette
 const blockCategories = {
   'Input/Output': [
-    { type: 'input', label: 'Digital Input', icon: '📥', data: { type: 'digital', pin: 2 } },
-    { type: 'input', label: 'Analog Input', icon: '📊', data: { type: 'analog', pin: 'A0' } },
-    { type: 'output', label: 'Digital Output', icon: '📤', data: { type: 'digital', pin: 13 } },
-    { type: 'output', label: 'PWM Output', icon: '〰️', data: { type: 'pwm', pin: 9 } },
-    { type: 'output', label: 'Serial Print', icon: '🖨️', data: { type: 'serial' } },
+    { type: 'input', label: 'Digital Input', icon: 'DIN', data: { type: 'digital', pin: 2 } },
+    { type: 'input', label: 'Analog Input', icon: 'AIN', data: { type: 'analog', pin: 'A0' } },
+    { type: 'output', label: 'Digital Output', icon: 'DOUT', data: { type: 'digital', pin: 13 } },
+    { type: 'output', label: 'PWM Output', icon: 'PWM', data: { type: 'pwm', pin: 9 } },
+    { type: 'output', label: 'Serial Print', icon: 'UART', data: { type: 'serial' } },
   ],
   'Logic': [
-    { type: 'condition', label: 'If Statement', icon: '❓', data: { condition: 'if (condition)' } },
-    { type: 'condition', label: 'If-Else', icon: '⚖️', data: { condition: 'if-else' } },
+    { type: 'condition', label: 'If Statement', icon: 'IF', data: { condition: 'if (condition)' } },
+    { type: 'condition', label: 'If-Else', icon: 'IF/ELSE', data: { condition: 'if-else' } },
     { type: 'process', label: 'AND Gate', icon: '&', data: { operation: 'AND' } },
     { type: 'process', label: 'OR Gate', icon: '|', data: { operation: 'OR' } },
     { type: 'process', label: 'NOT Gate', icon: '!', data: { operation: 'NOT' } },
@@ -160,40 +176,50 @@ const blockCategories = {
     { type: 'process', label: 'Subtract', icon: '-', data: { operation: 'subtract' } },
     { type: 'process', label: 'Multiply', icon: '×', data: { operation: 'multiply' } },
     { type: 'process', label: 'Divide', icon: '÷', data: { operation: 'divide' } },
-    { type: 'process', label: 'Map', icon: '🗺️', data: { operation: 'map', parameters: { fromLow: 0, fromHigh: 1023, toLow: 0, toHigh: 255 } } },
+    { type: 'process', label: 'Map', icon: 'MAP', data: { operation: 'map', parameters: { fromLow: 0, fromHigh: 1023, toLow: 0, toHigh: 255 } } },
   ],
   'Control': [
-    { type: 'loop', label: 'For Loop', icon: '🔄', data: { loopType: 'for', iterations: 10 } },
-    { type: 'loop', label: 'While Loop', icon: '⏳', data: { loopType: 'while' } },
-    { type: 'process', label: 'Delay', icon: '⏱️', data: { operation: 'delay', parameters: { ms: 1000 } } },
-    { type: 'process', label: 'Wait Until', icon: '⏸️', data: { operation: 'waitUntil' } },
+    { type: 'loop', label: 'For Loop', icon: 'FOR', data: { loopType: 'for', iterations: 10 } },
+    { type: 'loop', label: 'While Loop', icon: 'WHILE', data: { loopType: 'while' } },
+    { type: 'process', label: 'Delay', icon: 'WAIT', data: { operation: 'delay', parameters: { ms: 1000 } } },
+    { type: 'process', label: 'Wait Until', icon: 'UNTIL', data: { operation: 'waitUntil' } },
   ],
   'Functions': [
-    { type: 'function', label: 'Custom Function', icon: '🔧', data: { functionName: 'myFunction', inputs: ['param1'] } },
-    { type: 'function', label: 'Setup', icon: '🚀', data: { functionName: 'setup', inputs: [] } },
-    { type: 'function', label: 'Loop', icon: '♾️', data: { functionName: 'loop', inputs: [] } },
+    { type: 'function', label: 'Custom Function', icon: 'FN', data: { functionName: 'myFunction', inputs: ['param1'] } },
+    { type: 'function', label: 'Setup', icon: 'INIT', data: { functionName: 'setup', inputs: [] } },
+    { type: 'function', label: 'Loop', icon: 'LOOP', data: { functionName: 'loop', inputs: [] } },
   ],
   'Sensors': [
-    { type: 'input', label: 'Temperature', icon: '🌡️', data: { type: 'temperature', sensor: 'DHT22' } },
-    { type: 'input', label: 'Ultrasonic', icon: '📡', data: { type: 'ultrasonic', trigPin: 7, echoPin: 8 } },
-    { type: 'input', label: 'Accelerometer', icon: '📱', data: { type: 'accelerometer', sensor: 'MPU6050' } },
-    { type: 'input', label: 'Light Sensor', icon: '💡', data: { type: 'light', pin: 'A1' } },
+    { type: 'input', label: 'Temperature', icon: 'TEMP', data: { type: 'temperature', sensor: 'DHT22' } },
+    { type: 'input', label: 'Ultrasonic', icon: 'SONAR', data: { type: 'ultrasonic', trigPin: 7, echoPin: 8 } },
+    { type: 'input', label: 'Accelerometer', icon: 'IMU', data: { type: 'accelerometer', sensor: 'MPU6050' } },
+    { type: 'input', label: 'Light Sensor', icon: 'LIGHT', data: { type: 'light', pin: 'A1' } },
   ],
   'Actuators': [
-    { type: 'output', label: 'Servo Motor', icon: '🔄', data: { type: 'servo', pin: 9 } },
-    { type: 'output', label: 'DC Motor', icon: '⚙️', data: { type: 'dcMotor', pin1: 3, pin2: 4 } },
-    { type: 'output', label: 'Stepper Motor', icon: '🎯', data: { type: 'stepper', pins: [8, 9, 10, 11] } },
-    { type: 'output', label: 'Buzzer', icon: '🔊', data: { type: 'buzzer', pin: 12 } },
+    { type: 'output', label: 'Servo Motor', icon: 'SERVO', data: { type: 'servo', pin: 9 } },
+    { type: 'output', label: 'DC Motor', icon: 'MOTOR', data: { type: 'dcMotor', pin1: 3, pin2: 4 } },
+    { type: 'output', label: 'Stepper Motor', icon: 'STEP', data: { type: 'stepper', pins: [8, 9, 10, 11] } },
+    { type: 'output', label: 'Buzzer', icon: 'BUZZ', data: { type: 'buzzer', pin: 12 } },
   ]
 };
+
+function getBlockDescription(data: unknown): string {
+  if (!data || typeof data !== 'object') return ''
+  const properties = data as Record<string, unknown>
+  for (const key of ['operation', 'type', 'functionName']) {
+    const value = properties[key]
+    if (typeof value === 'string') return value
+  }
+  return ''
+}
 
 export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEditorProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [isRunning, setIsRunning] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('Input/Output');
   const [generatedCode, setGeneratedCode] = useState('');
   const [showCode, setShowCode] = useState(false);
+  const [buildReport, setBuildReport] = useState<BuildReport | null>(null);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
 
@@ -295,6 +321,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
     
     setGeneratedCode(code);
     setShowCode(true);
+    return code;
   };
 
   const generateNodeCode = (node: Node): string => {
@@ -342,14 +369,38 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
   };
 
   const handleRunProgram = () => {
-    setIsRunning(true);
-    generateArduinoCode();
-    // In a real implementation, this would compile and upload to Arduino
-    setTimeout(() => setIsRunning(false), 2000);
+    // A browser cannot flash hardware, so "Run" performs the real part of the
+    // pipeline: generate the sketch, run the compiler's static checks, and build
+    // a spec-correct firmware image. Results are reported verbatim below.
+    const code = generateArduinoCode();
+    const analysis = analyseSource(code, { requireSetupAndLoop: true });
+    const image = buildFirmwareImage(code);
+
+    setBuildReport({
+      ok: analysis.errors.length === 0,
+      flashEstimate: analysis.flashEstimate,
+      ramEstimate: analysis.ramEstimate,
+      imageBytes: image.imageBytes,
+      baseAddress: image.baseAddress,
+      hex: image.hex,
+      errors: analysis.errors.map(error => `Line ${error.line}:${error.column} — ${error.message}`),
+      notes: [
+        ...analysis.warnings.map(warning => ({
+          severity: warning.severity as 'warning' | 'info',
+          text: `Line ${warning.line}:${warning.column} — ${warning.message}`,
+        })),
+        { severity: 'info' as const, text: describeImageCaveat() },
+        {
+          severity: 'info' as const,
+          text: 'Uploading to a physical board requires a connected programmer — see the Arduino / HIL workspace.',
+        },
+      ],
+    });
   };
 
-  const handleStopProgram = () => {
-    setIsRunning(false);
+  const handleDownloadHex = () => {
+    if (!buildReport?.ok) return;
+    downloadFile(buildReport.hex, 'visual_program.hex', 'text/plain');
   };
 
   const handleSaveProgram = () => {
@@ -394,7 +445,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-overlay/70 flex items-center justify-center z-50">
       <div className="bg-card border border-border rounded-lg shadow-xl w-full max-w-7xl h-[90vh] flex">
         {/* Block Palette */}
         <div className="w-80 bg-card border-r border-border flex flex-col">
@@ -436,7 +487,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
                   <div>
                     <div className="font-medium text-sm">{block.label}</div>
                     <div className="text-xs text-muted-foreground">
-                      {(block.data as any).operation || (block.data as any).type || (block.data as any).functionName}
+                      {getBlockDescription(block.data)}
                     </div>
                   </div>
                 </div>
@@ -449,32 +500,12 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
             <div className="flex gap-2">
               <Button
                 onClick={handleRunProgram}
-                disabled={isRunning}
                 className="flex-1 flex items-center gap-2"
-                variant={isRunning ? 'destructive' : 'default'}
+                variant={buildReport && !buildReport.ok ? 'destructive' : 'default'}
               >
-                {isRunning ? (
-                  <>
-                    <Pause className="w-4 h-4" />
-                    Running...
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4" />
-                    Run
-                  </>
-                )}
+                <Wrench className="w-4 h-4" />
+                Build &amp; Verify
               </Button>
-              
-              {isRunning && (
-                <Button
-                  onClick={handleStopProgram}
-                  variant="destructive"
-                  size="icon"
-                >
-                  <Square className="w-4 h-4" />
-                </Button>
-              )}
             </div>
             
             <div className="flex gap-2">
@@ -534,7 +565,15 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
             <div className="text-sm space-y-1">
               <div>Blocks: {nodes.length}</div>
               <div>Connections: {edges.length}</div>
-              <div>Status: {isRunning ? 'Running' : 'Stopped'}</div>
+              <div>
+                Status:{' '}
+                {buildReport
+                  ? buildReport.ok
+                    ? 'Build OK'
+                    : 'Build failed'
+                  : 'Not built'}
+              </div>
+              {buildReport && <div>Flash ≈ {buildReport.flashEstimate} B</div>}
             </div>
           </div>
         </div>
@@ -550,12 +589,46 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
             </div>
             
             <div className="flex-1 overflow-y-auto p-4">
+              {buildReport && (
+                <div className="mb-3 space-y-1 text-xs">
+                  <div className={buildReport.ok ? 'text-success font-medium' : 'text-destructive font-medium'}>
+                    {buildReport.ok
+                      ? `Static checks passed — image ${buildReport.imageBytes} bytes at 0x${buildReport.baseAddress
+                          .toString(16)
+                          .toUpperCase()
+                          .padStart(4, '0')}, flash ≈ ${buildReport.flashEstimate} B, RAM ≈ ${buildReport.ramEstimate} B`
+                      : `Static checks failed — ${buildReport.errors.length} error(s)`}
+                  </div>
+                  {buildReport.errors.map((error, index) => (
+                    <div key={`error-${index}`} className="text-destructive">{error}</div>
+                  ))}
+                  {buildReport.notes.map((note, index) => (
+                    <div
+                      key={`note-${index}`}
+                      className={note.severity === 'warning' ? 'text-warning' : 'text-muted-foreground'}
+                    >
+                      {note.text}
+                    </div>
+                  ))}
+                </div>
+              )}
               <pre className="text-xs bg-muted p-4 rounded-lg overflow-x-auto">
                 <code>{generatedCode}</code>
               </pre>
             </div>
             
-            <div className="p-4 border-t border-border">
+            <div className="p-4 border-t border-border space-y-2">
+              {buildReport?.ok && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownloadHex}
+                  className="w-full flex items-center gap-2"
+                >
+                  <Download className="w-3 h-3" />
+                  Download HEX
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"

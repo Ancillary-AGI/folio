@@ -1,9 +1,11 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { Stage, Layer, Rect, Text, Group, Line, Circle } from 'react-konva'
 import Konva from 'konva'
 import { CodeBlock, CodeConnection, CodePort } from '../../types/toolbox'
 import { Button } from '../ui/button'
 import { Play, Square, RotateCcw, Download } from 'lucide-react'
+import { useTheme } from '../../lib/theme/useTheme'
+import { THEMES, hslTripletToRgb, rgbToHex } from '../../lib/theme/tokens'
 
 interface VisualProgrammingCanvasProps {
   blocks: CodeBlock[]
@@ -37,6 +39,29 @@ export default function VisualProgrammingCanvas({
     startPos: { x: number; y: number }
     currentPos: { x: number; y: number }
   } | null>(null)
+
+  // Same contract as SchematicCanvas: Konva cannot read CSS variables, so the
+  // whole palette is resolved from the validated theme tokens.
+  const { theme } = useTheme()
+  const palette = useMemo(() => {
+    const hex = (token: string) => rgbToHex(hslTripletToRgb(THEMES[theme][token]))
+    return {
+      sheet: hex('--canvas'),
+      body: hex('--symbol-fill'),
+      bodyStroke: hex('--symbol-outline'),
+      line: hex('--symbol'),
+      ref: hex('--reference-label'),
+      value: hex('--value-label'),
+      pinFill: hex('--pin'),
+      pinStroke: hex('--pin-ring'),
+      portOutFill: hex('--success'),
+      portOutStroke: hex('--success'),
+      wire: hex('--wire'),
+      connectLine: hex('--info'),
+      selectedBody: hex('--symbol-selected-fill'),
+      selectedStroke: hex('--selection'),
+    }
+  }, [theme])
 
   useEffect(() => {
     const handleResize = () => {
@@ -165,8 +190,8 @@ export default function VisualProgrammingCanvas({
         <Rect
           width={blockWidth}
           height={blockHeight}
-          fill={isSelected ? '#e3f2fd' : '#ffffff'}
-          stroke={isSelected ? '#2196f3' : '#666666'}
+          fill={isSelected ? palette.selectedBody : palette.body}
+          stroke={isSelected ? palette.selectedStroke : palette.bodyStroke}
           strokeWidth={isSelected ? 2 : 1}
           cornerRadius={4}
         />
@@ -177,7 +202,7 @@ export default function VisualProgrammingCanvas({
           x={blockWidth / 2}
           y={8}
           fontSize={12}
-          fill="#333333"
+          fill={palette.ref}
           align="center"
           offsetX={block.name.length * 3}
         />
@@ -189,8 +214,8 @@ export default function VisualProgrammingCanvas({
               x={-portRadius}
               y={20 + index * 15}
               radius={portRadius}
-              fill="#ff9800"
-              stroke="#f57c00"
+              fill={palette.pinFill}
+              stroke={palette.pinStroke}
               strokeWidth={1}
               onMouseDown={(e) => handlePortMouseDown(e, block.id, port.id)}
               onMouseUp={(e) => handlePortMouseUp(e, block.id, port.id, port)}
@@ -200,7 +225,7 @@ export default function VisualProgrammingCanvas({
               x={-portRadius - 25}
               y={16 + index * 15}
               fontSize={10}
-              fill="#666666"
+              fill={palette.value}
               align="right"
             />
           </Group>
@@ -213,10 +238,10 @@ export default function VisualProgrammingCanvas({
               x={blockWidth + portRadius}
               y={20 + index * 15}
               radius={portRadius}
-              fill="#4caf50"
-              stroke="#388e3c"
+              fill={palette.portOutFill}
+              stroke={palette.portOutStroke}
               strokeWidth={1}
-              onMouseDown={(e) => handlePortMouseDown(e, block.id, port.id, port)}
+              onMouseDown={(e) => handlePortMouseDown(e, block.id, port.id)}
               onMouseUp={(e) => handlePortMouseUp(e, block.id, port.id, port)}
             />
             <Text
@@ -224,13 +249,13 @@ export default function VisualProgrammingCanvas({
               x={blockWidth + portRadius + 8}
               y={16 + index * 15}
               fontSize={10}
-              fill="#666666"
+              fill={palette.value}
             />
           </Group>
         ))}
       </Group>
     )
-  }, [selectedBlock, handleBlockDragStart, handleBlockDragEnd, handlePortMouseDown, handlePortMouseUp])
+  }, [selectedBlock, handleBlockDragStart, handleBlockDragEnd, handlePortMouseDown, handlePortMouseUp, palette])
 
   const renderConnection = useCallback((connection: CodeConnection) => {
     const fromBlock = blocks.find(b => b.id === connection.fromBlock)
@@ -254,13 +279,13 @@ export default function VisualProgrammingCanvas({
       <Line
         key={connection.id}
         points={[startX, startY, endX, endY]}
-        stroke="#2196f3"
+        stroke={palette.wire}
         strokeWidth={2}
         lineCap="round"
         lineJoin="round"
       />
     )
-  }, [blocks])
+  }, [blocks, palette])
 
   const renderConnectingLine = useCallback(() => {
     if (!connecting) return null
@@ -268,19 +293,19 @@ export default function VisualProgrammingCanvas({
     return (
       <Line
         points={[connecting.startPos.x, connecting.startPos.y, connecting.currentPos.x, connecting.currentPos.y]}
-        stroke="#ff9800"
+        stroke={palette.connectLine}
         strokeWidth={2}
         lineCap="round"
         lineJoin="round"
         dash={[5, 5]}
       />
     )
-  }, [connecting])
+  }, [connecting, palette])
 
   return (
     <div className={`relative ${className}`}>
       {/* Control Panel */}
-      <div className="absolute top-4 left-4 z-10 bg-card border border-border rounded-lg p-2 shadow-lg">
+      <div className="absolute left-4 top-4 z-10 rounded-lg border border-border bg-card p-2 text-card-foreground shadow-lg">
         <div className="flex gap-2">
           <Button
             size="sm"
@@ -295,7 +320,7 @@ export default function VisualProgrammingCanvas({
             <Button
               size="sm"
               onClick={onRun}
-              className="flex items-center gap-1 bg-green-600 hover:bg-green-700"
+              className="flex items-center gap-1 bg-success text-success-foreground hover:bg-success/90"
             >
               <Play className="w-4 h-4" />
               Run
@@ -304,7 +329,7 @@ export default function VisualProgrammingCanvas({
             <Button
               size="sm"
               onClick={onStop}
-              className="flex items-center gap-1 bg-red-600 hover:bg-red-700"
+              className="flex items-center gap-1 bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               <Square className="w-4 h-4" />
               Stop
@@ -332,11 +357,11 @@ export default function VisualProgrammingCanvas({
         onClick={handleStageClick}
       >
         <Layer>
-          {/* Grid */}
+          {/* Sheet */}
           <Rect
             width={stageSize.width}
             height={stageSize.height}
-            fill="#f8f9fa"
+            fill={palette.sheet}
           />
 
           {/* Connections */}
@@ -351,8 +376,8 @@ export default function VisualProgrammingCanvas({
       </Stage>
 
       {/* Info Panel */}
-      <div className="absolute bottom-4 left-4 bg-card border border-border rounded-lg p-3 shadow-lg text-sm">
-        <div className="text-foreground">
+      <div className="absolute bottom-4 left-4 rounded-lg border border-border bg-card p-3 text-sm text-card-foreground shadow-lg">
+        <div>
           Blocks: {blocks.length} | Connections: {connections.length}
         </div>
         <div className="text-muted-foreground">

@@ -1,4 +1,4 @@
-# Circuit CAD Pro - Feature Documentation
+# Folio - Feature Documentation
 
 ## 🎯 Core Features
 
@@ -69,18 +69,17 @@
 - **Quick Actions**: One-click access to common operations
 
 ### Enhanced Properties Panel
-- **Component Information**: Detailed component specifications and datasheets
-- **Electrical Properties**: Editable parameters with validation
-- **Transform Controls**: Position, rotation, and scaling with precision input
-- **Pin Configuration**: Visual pin mapping and electrical types
-- **Action Buttons**: Quick access to duplicate, delete, lock, and hide operations
+- **Component Information**: Reference, type, category, lock and visibility
+- **Electrical Properties**: Editable attribute rows with typed monospace fields
+- **Transform Controls**: Position and rotation edits applied straight to the sheet
+- **Pin Configuration**: Read-only pin table with electrical types
+- **Apply / Reset**: Explicit commit of inspector edits to the design
 
 ### Advanced Component Library
-- **Smart Search**: Fuzzy search with filters and categories
-- **Visual Preview**: Component symbols with pin information
-- **Favorites System**: Personal component collections
-- **Grid/List Views**: Flexible viewing options
-- **Category Organization**: Hierarchical component organization
+- **Parts Browser**: Search over a grouped, alphabetical parts list with sticky category headers
+- **Symbol Glyphs**: Monospace glyph badges with pin counts on every row
+- **Arm & Drag**: Click a row to arm it for click-to-place, or drag it onto the sheet
+- **Live Counts**: Footer readout of shown vs total parts
 
 ### AI Chat Interface
 - **Natural Language**: Conversational interface for design assistance
@@ -204,4 +203,4 @@
 - **Data Export**: Comprehensive data export for further analysis
 - **Collaboration**: Research team collaboration features
 
-This comprehensive feature set makes Circuit CAD Pro a professional, adaptive, and user-friendly solution for circuit design across all skill levels and use cases.
+This comprehensive feature set makes Folio a professional, adaptive, and user-friendly solution for circuit design across all skill levels and use cases.

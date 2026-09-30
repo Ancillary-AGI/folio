@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import { Component, Project, Schematic } from '../lib/supabase'
+import { generateId } from '../lib/utils'
 
 export interface CanvasComponent {
   id: string
@@ -78,6 +79,14 @@ export interface ProjectState {
   componentLibrary: Component[]
   setComponentLibrary: (components: Component[]) => void
   
+  // Firmware / embedded code (part of the design snapshot, versioned by VCS)
+  firmwareCode: string
+  setFirmwareCode: (code: string) => void
+
+  // Simulation runs (persisted history, not just in-memory waveforms)
+  simulationRuns: Array<{ id: string; name: string; type: string; parameters: Record<string, unknown>; results?: Record<string, unknown>; status: string; createdAt: number }>
+  addSimulationRun: (run: { name: string; type: string; parameters: Record<string, unknown>; results?: Record<string, unknown>; status: string }) => { id: string }
+
   // Auto-save
   isDirty: boolean
   lastSaved: number
@@ -94,6 +103,9 @@ export interface ProjectState {
 }
 
 let componentCounter = 1
+
+/** Monotonic per-process suffix for simulation-run ids (no Math.random). */
+let simRunSeq = 0
 
 export const useProjectStore = create<ProjectState>()(
   devtools((set, get) => ({
@@ -136,7 +148,7 @@ export const useProjectStore = create<ProjectState>()(
         
         const duplicate: CanvasComponent = {
           ...original,
-          id: `comp-${Date.now()}-${Math.random()}`,
+          id: generateId('comp'),
           x: original.x + 50,
           y: original.y + 50,
           reference: `${original.reference.replace(/\d+$/, '')}${componentCounter++}`
@@ -216,6 +228,22 @@ export const useProjectStore = create<ProjectState>()(
     // Component library
     componentLibrary: [],
     setComponentLibrary: (components) => set({ componentLibrary: components }),
+
+    // Firmware code lives with the design so commits/saves include it
+    firmwareCode: '',
+    setFirmwareCode: (code) => set({ firmwareCode: code, isDirty: true }),
+
+    // Simulation run history (kept alongside the design, survives save/load)
+    simulationRuns: [],
+    addSimulationRun: (run) => {
+      simRunSeq += 1
+      const id = `sim_${Date.now().toString(36)}_${simRunSeq.toString(36)}`
+      set((state) => ({
+        simulationRuns: [...state.simulationRuns, { ...run, id, createdAt: Date.now() }].slice(-100),
+        isDirty: true,
+      }))
+      return { id }
+    },
     
     // Auto-save
     isDirty: false,

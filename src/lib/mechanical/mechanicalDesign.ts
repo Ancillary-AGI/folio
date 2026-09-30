@@ -42,11 +42,13 @@ export interface MechanicalAssembly {
 
 export class MechanicalDesignEngine {
   private assemblies: Map<string, MechanicalAssembly> = new Map();
+  private idSeq = 0;
 
   createComponent(type: MechanicalComponent['type'], dimensions: Size, material: string): MechanicalComponent {
+    this.idSeq += 1;
     return {
-      id: `mech_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      name: `${type}_${Date.now()}`,
+      id: `mech_${Date.now()}_${this.idSeq}`,
+      name: `${type}_${this.idSeq}`,
       type,
       dimensions,
       material,

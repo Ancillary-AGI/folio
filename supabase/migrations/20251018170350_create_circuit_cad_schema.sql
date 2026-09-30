@@ -1,5 +1,5 @@
 /*
-  # Circuit CAD Database Schema
+  # Folio Database Schema
 
   ## Overview
   This migration creates the complete database structure for a professional electronic circuit design CAD application.

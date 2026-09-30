@@ -1,6 +1,22 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { AIService } from './aiService';
-import type { Component } from '../../types';
+import type { Component } from '../../types/domain';
+
+const makeComponent = (
+  id: string,
+  name: string,
+  category: string,
+  pins: Component['pins'],
+  properties: Component['properties'],
+): Component => ({
+  id,
+  name,
+  category,
+  symbol: { width: 20, height: 10, paths: [] },
+  pins,
+  properties,
+  availability: 'available',
+});
 
 describe('AIService', () => {
   let service: AIService;
@@ -9,28 +25,14 @@ describe('AIService', () => {
   beforeEach(() => {
     service = new AIService();
     mockComponents = [
-      {
-        id: 'comp1',
-        name: 'Resistor',
-        category: 'passive',
-        symbol: { width: 20, height: 10, paths: [] },
-        pins: [
-          { id: '1', name: 'A', x: 0, y: 5, type: 'passive' },
-          { id: '2', name: 'B', x: 20, y: 5, type: 'passive' }
-        ],
-        properties: { resistance: '10k' }
-      },
-      {
-        id: 'comp2',
-        name: 'LED',
-        category: 'semiconductor',
-        symbol: { width: 20, height: 10, paths: [] },
-        pins: [
-          { id: '1', name: 'Anode', x: 0, y: 5, type: 'input', electricalType: 'digital' },
-          { id: '2', name: 'Cathode', x: 20, y: 5, type: 'output', electricalType: 'digital' }
-        ],
-        properties: { color: 'red' }
-      }
+      makeComponent('comp1', 'Resistor', 'passive', [
+        { id: '1', name: 'A', x: 0, y: 5, type: 'passive' },
+        { id: '2', name: 'B', x: 20, y: 5, type: 'passive' },
+      ], { resistance: '10k' }),
+      makeComponent('comp2', 'LED', 'semiconductor', [
+        { id: '1', name: 'Anode', x: 0, y: 5, type: 'input' },
+        { id: '2', name: 'Cathode', x: 20, y: 5, type: 'output' },
+      ], { color: 'red' }),
     ];
   });
 
@@ -96,19 +98,10 @@ describe('AIService', () => {
     });
 
     it('should detect floating inputs', async () => {
-      const components: Component[] = [
-        {
-          id: 'ic1',
-          name: 'Microcontroller',
-          category: 'ic',
-          symbol: { width: 40, height: 20, paths: [] },
-          pins: [
-            { id: '1', name: 'VCC', x: 0, y: 5, type: 'input', electricalType: 'power' },
-            { id: '2', name: 'GND', x: 0, y: 15, type: 'input', electricalType: 'ground' }
-          ],
-          properties: {}
-        }
-      ];
+      const components: Component[] = [makeComponent('ic1', 'Microcontroller', 'ic', [
+        { id: '1', name: 'VCC', x: 0, y: 5, type: 'input', electricalType: 'power' },
+        { id: '2', name: 'GND', x: 0, y: 15, type: 'input', electricalType: 'ground' },
+      ], {})];
 
       const analysis = await service.analyzeCircuit(components, [], []);
 
