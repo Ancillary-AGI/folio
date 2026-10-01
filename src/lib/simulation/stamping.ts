@@ -119,9 +119,9 @@ function addCurrentInjection(system: RealSystem, model: CircuitModel, p: string,
  *
  * Sign convention, checked against SPICE: a positive controlling voltage drives
  * a positive current `i` from output node `p` through the source to node `n`.
- * In nodal analysis the KCL current *leaving* a node is negative on the RHS,
- * so the current leaving `p` (and symmetrically the current entering `n`)
- * appears as `−gm·v` conductances: `rhs(p) -= i`, `rhs(n) += i`.
+ * MNA rows are KCL sums of currents LEAVING the node, so the current leaving
+ * `p` (and symmetrically the current entering `n`) appears as `+gm·v` in row
+ * `p` and `−gm·v` in row `n`.
  *
  * The controlling voltages stay on the left-hand side because they are
  * unknowns: that is what makes this a genuine four-terminal element instead of a
@@ -140,6 +140,10 @@ function addControlledCurrent(
   const b = model.nodeIndex.get(n)
   const controlP = model.nodeIndex.get(ip)
   const controlN = model.nodeIndex.get(inn)
+  // MNA rows are KCL sums of currents LEAVING the node: the controlled current
+  // leaves `p` toward `n`, so row `p` gains +gm at the control columns and row
+  // `n` gains −gm — the same leaving-positive convention the hand-derived
+  // resistor stamp in `addConductance` uses.
   if (a !== undefined) {
     if (controlP !== undefined) system.matrix[a][controlP] += gm
     if (controlN !== undefined) system.matrix[a][controlN] -= gm

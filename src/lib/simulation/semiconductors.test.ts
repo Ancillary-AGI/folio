@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { spiceEngine, type CircuitNetlist, type Component } from './spiceEngine'
+import { spiceEngine, type CircuitNetlist, type Component, type SimulationResult } from './spiceEngine'
 import {
   bjtBias,
   mosfetBias,
@@ -95,6 +95,23 @@ const voltageAt = (result: { operatingPoint?: Record<string, number> }, node: st
   return value
 }
 
+/**
+ * Sample a transient waveform at the step nearest `time` (seconds).
+ *
+ * The solver's step grid is the requested `stepTime`, so a sample is always
+ * within one step of the requested instant — close enough for a physics
+ * assertion and honest about it, unlike interpolating a curve the solver never
+ * produced.
+ */
+const waveformAt = (result: SimulationResult, name: string, time: number): number => {
+  const waveform = result.waveforms.find((candidate) => candidate.name === name)
+  if (!waveform) throw new Error(`the transient produced no ${name} waveform`)
+  const point = waveform.data.reduce((closest, sample) =>
+    Math.abs(sample.x - time) < Math.abs(closest.x - time) ? sample : closest,
+  )
+  return point.y
+}
+
 describe('Gummel–Poon BJT', () => {
   /*
    * Common-emitter stage: 5 V through 220 kΩ into the base, 1 kΩ collector load.
@@ -128,6 +145,36 @@ describe('Gummel–Poon BJT', () => {
     expect(collectorCurrent / baseCurrent).toBeCloseTo(100, 3)
     // Vbc < 0 is what "active region" means: base above collector voltage.
     expect(base - collector).toBeLessThan(0)
+  })
+
+  it('stamps series RB/RC/RE into the DC operating point', async () => {
+    /*
+     * Stock model cards (2N3904, 2N2222, …) ship RB/RC/RE, which inserts an
+     * internal node between every terminal and the intrinsic device. Those taps
+     * are joined to the terminals by the *bias-independent* stamp, so an
+     * operating-point solve that forgets it leaves the transistor as an open
+     * circuit: OUT parks at VCC and nothing anywhere reports an error. With the
+     * stamp present the bias point moves by the ohmic drops alone — microvolts
+     * across 20 Ω against a 220 kΩ bias resistor.
+     */
+    const ideal = await spiceEngine.simulate(amplifier({}))
+    const parasitic = await spiceEngine.simulate(amplifier({ rb: 20, rc: 0.1, re: 0.1 }))
+    expect(parasitic.success).toBe(true)
+
+    const collector = voltageAt(parasitic, 'OUT')
+    expect(collector).toBeGreaterThan(2)
+    expect(collector).toBeLessThan(4)
+    // A few percent of collector current, because the series drop shifts Vbe in
+    // this stiff bias — but it has to stay the same stage.
+    expect(collector).toBeCloseTo(voltageAt(ideal, 'OUT'), 1)
+
+    const collectorCurrent = (5 - collector) / 1000
+    const baseCurrent = (5 - voltageAt(parasitic, 'B')) / 220_000
+    expect(collectorCurrent / baseCurrent).toBeCloseTo(100, 1)
+
+    // The taps are model-internal: solved, but never surfaced as nets.
+    expect(parasitic.operatingPoint?.INT_Q1_B).toBeUndefined()
+    expect(parasitic.operatingPoint?.INT_Q1_C).toBeUndefined()
   })
 
   it('scales the collector current with BF', async () => {
@@ -603,24 +650,25 @@ describe('controlled sources', () => {
   it('drives a transconductance into the load', async () => {
     const result = await spiceEngine.simulate(
       netlist(
-        [dc('V1', ['C', '0'], 1), resistor('RL', ['OUT', '0'], '1k'), vccs('G1', ['0', 'OUT', 'C', '0'], 0.002)],
+        [dc('V1', ['C', '0'], 1), resistor('RL', ['OUT', '0'], '1k'), vccs('G1', ['OUT', '0', 'C', '0'], 0.002)],
         [{ type: 'dc' }],
       ),
     )
     expect(result.success).toBe(true)
-    // The VCCS pushes 2 mA from ground through itself into the 1 kΩ load: 2 V.
-    expect(voltageAt(result, 'OUT')).toBeCloseTo(2, 6)
+    // SPICE flows the controlled current from OUT through the source to ground:
+    // 2 mA leaving OUT through 1 kΩ to ground means OUT sits at −2 V.
+    expect(voltageAt(result, 'OUT')).toBeCloseTo(-2, 6)
   })
 
   it('reverses the current when the control terminals are swapped', async () => {
     const result = await spiceEngine.simulate(
       netlist(
-        [dc('V1', ['C', '0'], 1), resistor('RL', ['OUT', '0'], '1k'), vccs('G1', ['0', 'OUT', '0', 'C'], 0.002)],
+        [dc('V1', ['C', '0'], 1), resistor('RL', ['OUT', '0'], '1k'), vccs('G1', ['OUT', '0', '0', 'C'], 0.002)],
         [{ type: 'dc' }],
       ),
     )
     expect(result.success).toBe(true)
-    expect(voltageAt(result, 'OUT')).toBeCloseTo(-2, 6)
+    expect(voltageAt(result, 'OUT')).toBeCloseTo(2, 6)
   })
 })
 
@@ -690,21 +738,85 @@ describe('source waveforms', () => {
       ),
     )
     expect(result.success).toBe(true)
-    const output = result.waveforms.find((waveform) => waveform.name === 'V(OUT)')
-    expect(output).toBeDefined()
-    const at = (time: number): number => {
-      const point = output?.data.reduce((closest, sample) =>
-        Math.abs(sample.x - time) < Math.abs(closest.x - time) ? sample : closest,
-      )
-      if (!point) throw new Error('the transient produced no samples')
-      return point.y
-    }
     /*
      * R = 1 kΩ and C = 1 µF is a 1 ms time constant driven by a unit step, so
      * the analytic answer at one and two time constants is 1 − 1/e and
      * 1 − 1/e². Backward Euler at dt = τ/100 is within half a percent of it.
      */
-    expect(Math.abs(at(1e-3) - (1 - 1 / Math.E))).toBeLessThan(0.01)
-    expect(Math.abs(at(2e-3) - (1 - 1 / (Math.E * Math.E)))).toBeLessThan(0.01)
+    expect(Math.abs(waveformAt(result, 'V(OUT)', 1e-3) - (1 - 1 / Math.E))).toBeLessThan(0.01)
+    expect(Math.abs(waveformAt(result, 'V(OUT)', 2e-3) - (1 - 1 / (Math.E * Math.E)))).toBeLessThan(0.01)
+  })
+
+  it('switches a BJT stage with a PULSE source', async () => {
+    /*
+     * The waveform has to reach the device, not just the linear network. A PULSE
+     * through 10 kΩ of base resistance is 420 µA of base current; a beta of 100
+     * would ask for 42 mA through a 1 kΩ collector load that can only pass 5 mA,
+     * so the stage is a saturated switch: high input ⇒ OUT at Vce,sat, low input
+     * ⇒ OUT at VCC.
+     *
+     * The pulse is delayed by 10 µs on purpose. The transient samples from its
+     * first step (t = dt), so the 0 → 5 V edge would otherwise be in the past by
+     * the first sample and the "off" half of the cycle would never be visible;
+     * a delay also exercises `td` end to end, which is what the PULSE symbol
+     * exposes in its property sheet.
+     */
+    const result = await spiceEngine.simulate(
+      netlist(
+        [
+          dc('VCC', ['VCC', '0'], 5),
+          pulse('V1', ['IN', '0'], {
+            type: 'pulse',
+            v1: 0,
+            v2: 5,
+            td: 1e-5,
+            tr: 1e-8,
+            tf: 1e-8,
+            pw: 1e-5,
+            per: 4e-5,
+          }),
+          resistor('RB', ['IN', 'B'], '10k'),
+          resistor('RC', ['VCC', 'OUT'], '1k'),
+          bjt('Q1', ['OUT', 'B', '0'], { is: '1e-14', bf: 100 }),
+        ],
+        [{ type: 'transient', stopTime: 4e-5, stepTime: 1e-7 }],
+      ),
+    )
+    expect(result.success).toBe(true)
+    // Before the delay elapses the transistor is off, so the collector is at VCC.
+    expect(waveformAt(result, 'V(OUT)', 1e-6)).toBeGreaterThan(4.9)
+    // Mid-pulse it is saturated: Vce,sat is only a small fraction of a volt.
+    expect(waveformAt(result, 'V(OUT)', 2e-5)).toBeLessThan(0.3)
+    // And after the fall the stage returns to the off state.
+    expect(waveformAt(result, 'V(OUT)', 3.5e-5)).toBeGreaterThan(4.5)
+  })
+
+  it('inverts a SINE through a MOSFET common-source stage', async () => {
+    /*
+     * Vgs = 2 V + 2 V·sin(2π·1 kHz·t) against Vt = 2 V. At the sine's peak the
+     * overdrive is 2 V, so KP/2·(2 V)² = 2 mA through 10 kΩ cannot be supported:
+     * the device falls into triode and the drain collapses to ~0.55 V. At the
+     * trough the gate sits at threshold, the device is off, and the drain returns
+     * to the 10 V rail — the inverting behaviour a common-source stage owes.
+     */
+    const result = await spiceEngine.simulate(
+      netlist(
+        [
+          dc('VDD', ['VDD', '0'], 10),
+          source('VG', ['G', '0'], { type: 'sine', vo: 2, va: 2, freq: 1000, theta: 0, phase: 0, td: 0 }),
+          resistor('RD', ['VDD', 'D'], '10k'),
+          mosfet('M1', ['D', 'G', '0'], { vto: 2, kp: 1e-3 }),
+        ],
+        [{ type: 'transient', stopTime: 1e-3, stepTime: 1e-5 }],
+      ),
+    )
+    expect(result.success).toBe(true)
+    // Quarter period is the sine peak, three quarters is the trough.
+    const peak = waveformAt(result, 'V(D)', 250e-6)
+    const trough = waveformAt(result, 'V(D)', 750e-6)
+    expect(peak).toBeLessThan(2)
+    expect(trough).toBeGreaterThan(9)
+    // Inverted, and confined to the supply rails.
+    expect(peak).toBeLessThan(trough)
   })
 })

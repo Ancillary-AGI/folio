@@ -193,6 +193,62 @@ function parseWaveform(component: Component): SourceWaveform | undefined {
  * omits a parameter behaves exactly like the reference simulator.
  * `VAF`/`VAR`/`IKF`/`IKR` default to Infinity, meaning "not in effect".
  */
+/**
+ * Stock model cards keyed by part number, taken from LTspice's own
+ * `standard.bjt` library. The keys are bare part numbers; the lookup strips
+ * manufacturer suffixes (`2N2222A` matches `2N2222`), so a suffixed symbol
+ * still finds its card. Only parameters this solver models are carried over —
+ * `XTB` (temperature exponent) and rating fields like `VCEO`/`ICRATING` have
+ * no level-1 counterpart and are ignored. `VAR` (reverse Early) is absent on
+ * purpose: LTspice's `standard.bjt` cards do not ship one, and the SPICE
+ * default is infinity — a hand check of the library confirms this.
+ *
+ * Card keys are the exact SPICE names (`is`, `vaf`, `bf`, …): `modelParameter`
+ * looks the card up under the canonical SPICE key only, while the user-facing
+ * symbol keeps accepting every alias — so a card value can never shadow the
+ * wrong field through a shared alias (`is` vs `ise`, `ikf` vs `ikr`).
+ */
+const BJT_MODEL_DEFAULTS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  '2N2222': { is: '1E-14', vaf: '100', bf: '200', br: '3', ikf: '0.3', cjc: '8E-12', cje: '25E-12', tf: '400E-12', tr: '100E-9', rb: '10', rc: '0.3', re: '0.2' },
+  '2N3904': { is: '1E-14', vaf: '100', bf: '300', br: '4', ikf: '0.4', cjc: '4E-12', cje: '8E-12', rb: '20', rc: '0.1', re: '0.1' },
+  '2N2907': { is: '1E-14', vaf: '120', bf: '250', br: '3', ikf: '0.3', cjc: '8E-12', cje: '30E-12', tf: '400E-12', tr: '100E-9', rb: '10', rc: '0.3', re: '0.2' },
+  '2N3906': { is: '1E-14', vaf: '100', bf: '200', br: '4', ikf: '0.4', cjc: '4.5E-12', cje: '10E-12', rb: '20', rc: '0.1', re: '0.1' },
+}
+
+/** Part number behind the symbol's `type` property (`2N2222A` → `2N2222`). */
+const partNumber = (component: Component): string | undefined => {
+  const raw = pickParameter(component.parameters, 'part', 'model', 'type', 'mpn')
+  if (typeof raw !== 'string') return undefined
+  // A single trailing letter is the usual gain-bin suffix (`2N2222A`,
+  // `BC547C`); anything longer is the name itself (`TL071`, `IRF540`).
+  return raw.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/([0-9])[A-Z]$/, '$1')
+}
+
+/**
+ * Merge order for every transistor parameter: a value the user typed on the
+ * symbol wins, then the stock card for the part number, then the SPICE default.
+ * An explicit value is never silently replaced by a library card. Infinite
+ * defaults (`VAF`/`VAR`/`IKF`/`IKR` = "not in effect") are returned directly:
+ * they are semantic, and `parseSpiceValue` would reject the string "Infinity".
+ * The card is consulted under the single canonical SPICE key (`canonical`);
+ * every other entry in `keys` is a user-facing alias the card never uses.
+ */
+const modelParameter = (
+  component: Component,
+  card: Readonly<Record<string, string>> | undefined,
+  fallback: number,
+  label: string,
+  canonical: string,
+  ...keys: string[]
+): number => {
+  const explicit = pickParameter(component.parameters, canonical, ...keys)
+  if (explicit !== undefined) return parseSpiceValue(explicit, `${component.name} ${label}`)
+  const carded = card === undefined ? undefined : pickParameter(card, canonical)
+  if (carded !== undefined) return parseSpiceValue(carded, `${component.name} ${label}`)
+  if (!Number.isFinite(fallback)) return fallback
+  return parseSpiceValue(fallback, `${component.name} ${label}`)
+}
+
 function parseBjtModel(component: Component): { polarity: 'npn' | 'pnp'; model: BjtModelParams } {
   const declared = `${component.type} ${component.name}`.toLowerCase().replace(/[^a-z]/g, '')
   const requested = pickParameter(component.parameters, 'polarity')
@@ -202,36 +258,57 @@ function parseBjtModel(component: Component): { polarity: 'npn' | 'pnp'; model: 
       : declared.includes('pnp')
         ? 'pnp'
         : 'npn'
+  const part = partNumber(component)
+  const card = part === undefined ? undefined : BJT_MODEL_DEFAULTS[part]
   return {
     polarity,
     model: {
-      is: optionalValue(component, 1e-14, 'saturation current (is)', 'is'),
-      bf: optionalValue(component, 100, 'forward beta (bf)', 'bf'),
-      br: optionalValue(component, 1, 'reverse beta (br)', 'br'),
-      nf: optionalValue(component, 1, 'forward emission coefficient (nf)', 'nf'),
-      nr: optionalValue(component, 1, 'reverse emission coefficient (nr)', 'nr'),
-      vaf: optionalValue(component, Infinity, 'forward Early voltage (vaf)', 'vaf'),
-      var: optionalValue(component, Infinity, 'reverse Early voltage (var)', 'var'),
-      ikf: optionalValue(component, Infinity, 'forward rolloff corner (ikf)', 'ikf'),
-      ikr: optionalValue(component, Infinity, 'reverse rolloff corner (ikr)', 'ikr'),
-      ise: optionalValue(component, 0, 'B–E leakage current (ise)', 'ise'),
-      ne: optionalValue(component, 1.5, 'B–E leakage coefficient (ne)', 'ne'),
-      isc: optionalValue(component, 0, 'B–C leakage current (isc)', 'isc'),
-      nc: optionalValue(component, 2, 'B–C leakage coefficient (nc)', 'nc'),
-      cje: optionalValue(component, 0, 'B–E capacitance (cje)', 'cje'),
-      vje: optionalValue(component, 0.75, 'B–E built-in potential (vje)', 'vje'),
-      mje: optionalValue(component, 0.33, 'B–E exponent (mje)', 'mje'),
-      cjc: optionalValue(component, 0, 'B–C capacitance (cjc)', 'cjc'),
-      vjc: optionalValue(component, 0.75, 'B–C built-in potential (vjc)', 'vjc'),
-      mjc: optionalValue(component, 0.33, 'B–C exponent (mjc)', 'mjc'),
-      fc: optionalValue(component, 0.5, 'capacitance blend coefficient (fc)', 'fc'),
-      tf: optionalValue(component, 0, 'forward transit time (tf)', 'tf'),
-      tr: optionalValue(component, 0, 'reverse transit time (tr)', 'tr'),
-      rb: optionalValue(component, 0, 'base resistance (rb)', 'rb'),
-      rc: optionalValue(component, 0, 'collector resistance (rc)', 'rc'),
-      re: optionalValue(component, 0, 'emitter resistance (re)', 're'),
+      is: modelParameter(component, card, 1e-14, 'saturation current (is)', 'is'),
+      bf: modelParameter(component, card, 100, 'forward beta (bf)', 'bf'),
+      br: modelParameter(component, card, 1, 'reverse beta (br)', 'br'),
+      nf: modelParameter(component, card, 1, 'forward emission coefficient (nf)', 'nf'),
+      nr: modelParameter(component, card, 1, 'reverse emission coefficient (nr)', 'nr'),
+      vaf: modelParameter(component, card, Infinity, 'forward Early voltage (vaf)', 'vaf'),
+      var: modelParameter(component, card, Infinity, 'reverse Early voltage (var)', 'var'),
+      ikf: modelParameter(component, card, Infinity, 'forward rolloff corner (ikf)', 'ikf'),
+      ikr: modelParameter(component, card, Infinity, 'reverse rolloff corner (ikr)', 'ikr'),
+      ise: modelParameter(component, card, 0, 'B–E leakage current (ise)', 'ise'),
+      ne: modelParameter(component, card, 1.5, 'B–E leakage coefficient (ne)', 'ne'),
+      isc: modelParameter(component, card, 0, 'B–C leakage current (isc)', 'isc'),
+      nc: modelParameter(component, card, 2, 'B–C leakage coefficient (nc)', 'nc'),
+      cje: modelParameter(component, card, 0, 'B–E capacitance (cje)', 'cje'),
+      vje: modelParameter(component, card, 0.75, 'B–E built-in potential (vje)', 'vje'),
+      mje: modelParameter(component, card, 0.33, 'B–E exponent (mje)', 'mje'),
+      cjc: modelParameter(component, card, 0, 'B–C capacitance (cjc)', 'cjc'),
+      vjc: modelParameter(component, card, 0.75, 'B–C built-in potential (vjc)', 'vjc'),
+      mjc: modelParameter(component, card, 0.33, 'B–C exponent (mjc)', 'mjc'),
+      fc: modelParameter(component, card, 0.5, 'capacitance blend coefficient (fc)', 'fc'),
+      tf: modelParameter(component, card, 0, 'forward transit time (tf)', 'tf'),
+      tr: modelParameter(component, card, 0, 'reverse transit time (tr)', 'tr'),
+      rb: modelParameter(component, card, 0, 'base resistance (rb)', 'rb'),
+      rc: modelParameter(component, card, 0, 'collector resistance (rc)', 'rc'),
+      re: modelParameter(component, card, 0, 'emitter resistance (re)', 're'),
     },
   }
+}
+
+/**
+ * Stock level-1 cards keyed by part number. Discrete power MOSFETs ship as
+ * VDMOS subcircuits in LTspice's `standard.mos`, whose dozens of parameters
+ * have no level-1 counterpart; what a level-1 card needs is the threshold and
+ * the transconductance, and those come from the datasheet instead:
+ *
+ *   N-channel IRF540: VGS(th) 2–4 V (use 2.8), ID = 14 A at VGS = 10 V with
+ *     a ~5 V overdrive → KP ≈ 2·ID/Vov² ≈ 1.1 A/V².
+ *   P-channel IRF9540: VGS(th) −2…−4 V (use −2.8), ID = −23 A at VGS = −10 V
+ *     → KP ≈ 1.7 A/V².
+ *
+ * Large KP values are the honest consequence of real power FETs — the solver
+ * handles them with the same voltage clamping as small-signal parts.
+ */
+const MOSFET_MODEL_DEFAULTS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  IRF540: { vto: '2.8', kp: '1.1', lambda: '0.005' },
+  IRF9540: { vto: '-2.8', kp: '1.7', lambda: '0.005' },
 }
 
 /** Parse Level-1 MOSFET model parameters, with SPICE's own defaults. */
@@ -244,20 +321,62 @@ function parseMosfetModel(component: Component): { polarity: 'n' | 'p'; model: M
       : declared.includes('pchannel') || declared.includes('pmos')
         ? 'p'
         : 'n'
+  const mosPart = partNumber(component)
+  const mosCard = mosPart === undefined ? undefined : MOSFET_MODEL_DEFAULTS[mosPart]
   return {
     polarity,
     model: {
-      vto: optionalValue(component, 0, 'threshold voltage (vto)', 'vto', 'vth', 'vt'),
-      kp: optionalValue(component, 2e-5, 'transconductance (kp)', 'kp', 'k'),
-      gamma: optionalValue(component, 0, 'body effect (gamma)', 'gamma'),
-      phi: optionalValue(component, 0.6, 'surface potential (phi)', 'phi'),
-      lambda: optionalValue(component, 0, 'channel-length modulation (lambda)', 'lambda'),
-      is: optionalValue(component, 1e-14, 'body diode saturation current (is)', 'is'),
-      n: optionalValue(component, 1, 'body diode coefficient (n)', 'n'),
-      cgs: optionalValue(component, 0, 'gate–source capacitance (cgs)', 'cgs'),
-      cgd: optionalValue(component, 0, 'gate–drain capacitance (cgd)', 'cgd'),
+      vto: modelParameter(component, mosCard, 0, 'threshold voltage (vto)', 'vto', 'vth', 'vt'),
+      kp: modelParameter(component, mosCard, 2e-5, 'transconductance (kp)', 'kp', 'k'),
+      gamma: modelParameter(component, mosCard, 0, 'body effect (gamma)', 'gamma'),
+      phi: modelParameter(component, mosCard, 0.6, 'surface potential (phi)', 'phi'),
+      lambda: modelParameter(component, mosCard, 0, 'channel-length modulation (lambda)', 'lambda'),
+      is: modelParameter(component, mosCard, 1e-14, 'body diode saturation current (is)', 'is'),
+      n: modelParameter(component, mosCard, 1, 'body diode coefficient (n)', 'n'),
+      cgs: modelParameter(component, mosCard, 0, 'gate–source capacitance (cgs)', 'cgs'),
+      cgd: modelParameter(component, mosCard, 0, 'gate–drain capacitance (cgd)', 'cgd'),
     },
   }
+}
+
+/**
+ * Stock op-amp cards keyed by part number, from the datasheet numbers every
+ * E-CAD user expects:
+ *
+ *   LM358: GBW 1 MHz, slew 0.5 V/µs, bipolar inputs (2 MΩ differential),
+ *     1.5 V headroom hits both rails on a single 32 V-capable part.
+ *   TL071: JFET inputs (1 TΩ), GBW 3 MHz, slew 13 V/µs.
+ *   LM741: the classic — GBW 1 MHz, slew 0.5 V/µs.
+ */
+const OPAMP_MODEL_DEFAULTS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  LM358: { gain: '100dB', gbw: '1MHz', slew: '0.5e6', rin: '2MEG', rout: '50', vPlus: '16', vMinus: '-16', dropout: '1.5' },
+  TL071: { gain: '106dB', gbw: '3MHz', slew: '13e6', rin: '1T', rout: '50', vPlus: '15', vMinus: '-15', dropout: '1.5' },
+  LM741: { gain: '100dB', gbw: '1MHz', slew: '0.5e6', rin: '2MEG', rout: '75', vPlus: '15', vMinus: '-15', dropout: '1.5' },
+}
+
+/**
+ * Merge order for op-amp scalars: explicit symbol value, then the stock card,
+ * then the generic default. `modelParameter` cannot be reused directly because
+ * gain accepts decibels (`100dB`), which `parseSpiceValue` would reject.
+ */
+const opAmpParameter = (
+  component: Component,
+  card: Readonly<Record<string, string>> | undefined,
+  fallback: string | number,
+  label: string,
+  ...keys: string[]
+): number => {
+  const explicit = pickParameter(component.parameters, ...keys)
+  if (explicit !== undefined) return parseGain(component, NaN, label, ...keys)
+  const carded = card === undefined ? undefined : pickParameter(card, ...keys)
+  if (carded !== undefined) {
+    if (typeof carded === 'string') {
+      const decibels = /^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*dB?\s*$/i.exec(carded)
+      if (decibels) return Math.pow(10, Number(decibels[1]) / 20)
+    }
+    return parseSpiceValue(carded, `${component.name} ${label}`)
+  }
+  return typeof fallback === 'number' ? fallback : parseSpiceValue(fallback, `${component.name} ${label}`)
 }
 
 /**
@@ -314,12 +433,27 @@ function toDevice(
         const storageKey = kind === 'voltage-source' ? 'dcVoltage' : 'dcCurrent'
         const waveform = parseWaveform(component)
         /*
-         * A waveform source still needs a DC value for the operating point, but
-         * its initial level (`v1`/`vo`) is a far better default than an error:
-         * it is also the value the transient run starts from, so the operating
-         * point and t = 0 agree and nothing jumps at the first time step.
+         * Electrical value aliases first: the canvas property panel edits
+         * generic `value`/`voltage`/`current` fields, and library cards carry
+         * shorthand aliases (`v`, `i`) — but waveform shape keys (`v1`, `v2`,
+         * `vo`, `va`) must never masquerade as the DC level, or a PULSE source
+         * silently reads its high level as its resting voltage.
+         *
+         * With no explicit DC value a waveform source rests at its initial
+         * level (`v1`/`vo`), which is also the value the transient run starts
+         * from, so the operating point and t = 0 agree and nothing jumps at
+         * the first time step.
          */
-        const explicitDc = pickParameter(component.parameters, storageKey, 'dc', 'value')
+        const explicitDc = pickParameter(
+          component.parameters,
+          storageKey,
+          'dc',
+          'value',
+          'voltage',
+          'current',
+          'v',
+          'i',
+        )
         const dcValue =
           explicitDc === undefined && waveform
             ? waveform.kind === 'pulse'
@@ -408,14 +542,17 @@ function toDevice(
          */
         const vPlusNode = nodes.length > 3 && !isUnconnectedNode(nodes[3]) ? nodes[3] : undefined
         const vMinusNode = nodes.length > 4 && !isUnconnectedNode(nodes[4]) ? nodes[4] : undefined
-        const gain = parseGain(component, 1e5, 'open-loop gain (gain)', 'gain', 'a', 'aol', 'openLoopGain')
-        const gbw = optionalValue(component, 1e6, 'gain-bandwidth product (gbw)', 'gbw', 'unityGainFrequency')
-        const slew = optionalValue(component, 5e5, 'slew rate (slew)', 'slew', 'slewRate')
-        const rin = optionalValue(component, 2e6, 'input resistance (rin)', 'rin', 'inputResistance')
-        const rout = optionalValue(component, 50, 'output resistance (rout)', 'rout', 'outputResistance')
-        const vPlusFixed = optionalValue(component, 15, 'positive rail (vPlus)', 'vPlus', 'vPlusFixed', 'vcc', 'vpos')
-        const vMinusFixed = optionalValue(
+        const opPart = partNumber(component)
+        const opCard = opPart === undefined ? undefined : OPAMP_MODEL_DEFAULTS[opPart]
+        const gain = opAmpParameter(component, opCard, 1e5, 'open-loop gain (gain)', 'gain', 'a', 'aol', 'openLoopGain')
+        const gbw = opAmpParameter(component, opCard, 1e6, 'gain-bandwidth product (gbw)', 'gbw', 'unityGainFrequency')
+        const slew = opAmpParameter(component, opCard, 5e5, 'slew rate (slew)', 'slew', 'slewRate')
+        const rin = opAmpParameter(component, opCard, 2e6, 'input resistance (rin)', 'rin', 'inputResistance')
+        const rout = opAmpParameter(component, opCard, 50, 'output resistance (rout)', 'rout', 'outputResistance')
+        const vPlusFixed = opAmpParameter(component, opCard, 15, 'positive rail (vPlus)', 'vPlus', 'vPlusFixed', 'vcc', 'vpos')
+        const vMinusFixed = opAmpParameter(
           component,
+          opCard,
           -15,
           'negative rail (vMinus)',
           'vMinus',
@@ -423,7 +560,7 @@ function toDevice(
           'vee',
           'vneg',
         )
-        const dropout = optionalValue(component, 1.5, 'output headroom (dropout)', 'dropout', 'headroom')
+        const dropout = opAmpParameter(component, opCard, 1.5, 'output headroom (dropout)', 'dropout', 'headroom')
         if (!(gain > 0)) return { error: `${component.name} open-loop gain must be > 0.` }
         if (!(gbw > 0)) return { error: `${component.name} gain-bandwidth product must be > 0.` }
         if (!(slew > 0)) return { error: `${component.name} slew rate must be > 0 V/s.` }
@@ -458,7 +595,7 @@ function toDevice(
       }
       case 'vcvs': {
         /* SPICE order for an E element: out+, out-, in+, in-. */
-        const gain = parseGain(component, 1, 'voltage gain', 'gain', 'value', 'k', 'e')
+        const gain = parseGain(component, 1, 'voltage gain', 'gain', 'k', 'e')
         return {
           device: {
             kind,
@@ -478,7 +615,6 @@ function toDevice(
           1,
           'transconductance',
           'gain',
-          'value',
           'gm',
           'transconductance',
           'g',
@@ -621,13 +757,23 @@ export function buildCircuitModel(netlist: CircuitNetlist): BuildModelResult {
 
   /*
    * Discover unknowns from real device terminals only. `deviceNodes` reports
-   * every terminal a part touches, so transistors, op-amps and controlled
-   * sources contribute their control nodes, and models with series parasitics
-   * (RB/RC/RE) contribute their hidden internal nodes too.
+   * every terminal a part touches, so transistors and op-amps contribute their
+   * hidden internal nodes too. Controlled sources deliberately do NOT
+   * contribute their control nodes (`devices.ts`): a VCCS gate draws no
+   * current and a VCVS input is the reference of a voltage constraint, so an
+   * unwired control terminal is a user error the solver must report (a
+   * floating row) rather than a node the model silently invents.
+   *
+   * Ground unification happens here too: the netlist layer emits canonical
+   * `0` for named ground nets, but a hand-written netlist may call the same
+   * net GND or VSS, so every alias found on a device joins `groundNodes`.
    */
   for (const device of devices) {
     for (const node of deviceNodes(device)) {
-      if (isGroundNode(node) || groundNodes.has(node)) continue
+      if (isGroundNode(node) || groundNodes.has(node)) {
+        groundNodes.add(node)
+        continue
+      }
       if (isUnconnectedNode(node)) {
         errors.push(`${device.name} has an unconnected terminal. Connect it or delete the part.`)
         continue

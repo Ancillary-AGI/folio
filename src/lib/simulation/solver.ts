@@ -232,10 +232,27 @@ export interface OperatingPointResult {
  * bias rather than guessing.
  */
 export function runOperatingPoint(model: CircuitModel, options: OperatingPointOptions): OperatingPointResult {
-  const newton = solveNewton(model, (system) => stampDc(system, model), {
-    temperatureCelsius: options.temperatureCelsius,
-    gmin: options.gmin,
-  })
+  const newton = solveNewton(
+    model,
+    (system) => {
+      stampDc(system, model)
+      /*
+       * The bias-independent half of every semiconductor device: the BJT series
+       * resistances (RB/RC/RE) and the op-amp's input resistance and first-stage
+       * load. They are ordinary linear elements, so they are stamped here in the
+       * same pass `solveNewton` rebuilds each iteration — a BJT whose internal
+       * base node is never tied to its terminal is simply an open circuit, and
+       * the operating point would read "every transistor off" with no error.
+       * `semiconductors.ts` owns the stamps (hence the call rather than a case
+       * in `stampDc`), and the transient path adds them beside its companions.
+       */
+      stampSemiconductorLinear(system, model)
+    },
+    {
+      temperatureCelsius: options.temperatureCelsius,
+      gmin: options.gmin,
+    },
+  )
 
   if (!newton) {
     return {

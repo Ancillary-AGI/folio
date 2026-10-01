@@ -199,6 +199,35 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
     }
   },
   {
+    category: 'semiconductor',
+    name: 'P-Channel MOSFET',
+    is_standard: true,
+    symbol_data: {
+      width: 70,
+      height: 60,
+      paths: [
+        'M 0,30 L 25,30',
+        'M 25,10 L 25,50',
+        'M 30,15 L 30,25',
+        'M 30,32 L 30,42',
+        'M 30,20 L 50,20 L 50,5 L 70,5',
+        'M 30,37 L 50,37 L 50,55 L 70,55',
+        'M 50,37 L 50,20',
+        'M 43,20 L 50,13 L 57,20'
+      ]
+    },
+    pins: [
+      { id: 'drain', name: 'D', x: 70, y: 55, type: 'output' },
+      { id: 'gate', name: 'G', x: 0, y: 30, type: 'input' },
+      { id: 'source', name: 'S', x: 70, y: 5, type: 'output' }
+    ],
+    default_properties: {
+      type: 'IRF9540',
+      voltage: '100V',
+      current: '23A'
+    }
+  },
+  {
     category: 'power',
     name: 'DC Voltage Source',
     is_standard: true,
@@ -221,6 +250,63 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       voltage: '5V',
       type: 'DC'
     }
+  },
+  {
+    category: 'power',
+    name: 'Pulse Voltage Source',
+    is_standard: true,
+    symbol_data: {
+      width: 60,
+      height: 60,
+      paths: [
+        'M 30,0 L 30,15',
+        'M 30,30 A 15,15 0 1,1 30,30',
+        'M 30,45 L 30,60',
+        'M 18,30 L 18,38 L 27,38 L 27,22 L 36,22 L 36,38 L 42,38',
+      ],
+    },
+    pins: [
+      { id: 'positive', name: '+', x: 30, y: 0, type: 'power' },
+      { id: 'negative', name: '-', x: 30, y: 60, type: 'ground' },
+    ],
+    default_properties: {
+      type: 'PULSE',
+      v1: '0V',
+      v2: '5V',
+      td: '0',
+      tr: '1ns',
+      tf: '1ns',
+      pw: '5us',
+      per: '10us',
+    },
+  },
+  {
+    category: 'power',
+    name: 'Sine Voltage Source',
+    is_standard: true,
+    symbol_data: {
+      width: 60,
+      height: 60,
+      paths: [
+        'M 30,0 L 30,15',
+        'M 30,30 A 15,15 0 1,1 30,30',
+        'M 30,45 L 30,60',
+        'M 19,30 Q 24,19 30,30 T 41,30',
+      ],
+    },
+    pins: [
+      { id: 'positive', name: '+', x: 30, y: 0, type: 'power' },
+      { id: 'negative', name: '-', x: 30, y: 60, type: 'ground' },
+    ],
+    default_properties: {
+      type: 'SINE',
+      vo: '0V',
+      va: '1V',
+      freq: '1kHz',
+      theta: '0',
+      phase: '0',
+      td: '0',
+    },
   },
   {
     category: 'power',
@@ -266,8 +352,15 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
     ],
     default_properties: {
       type: 'LM358',
-      voltage: '32V',
-      gain: '100dB'
+      gain: '100dB',
+      gbw: '1MHz',
+      slew: '0.5e6',
+      rin: '2MEG',
+      rout: '50',
+      vPlus: '16',
+      vMinus: '-16',
+      dropout: '1.5',
+      voltage: '32V'
     }
   },
   {

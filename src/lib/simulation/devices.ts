@@ -380,6 +380,7 @@ export interface OpAmpDevice extends DeviceBase {
 
 export interface VcvsDevice extends DeviceBase {
   kind: 'vcvs'
+  /** Controlling input nodes (in+, in−). Floated first, constrained by the branch row. */
   ip: string
   inn: string
   gain: number
@@ -387,6 +388,7 @@ export interface VcvsDevice extends DeviceBase {
 
 export interface VccsDevice extends DeviceBase {
   kind: 'vccs'
+  /** Controlling input nodes (in+, in−). Floating (no gate current), like a MOSFET gate. */
   ip: string
   inn: string
   /** Transconductance, A/V. */
@@ -436,16 +438,22 @@ export function deviceNodes(device: Device): string[] {
       push(device.inP)
       push(device.inN)
       push(device.out)
-      push(device.vPlusNode)
-      push(device.vMinusNode)
       push(device.internal)
+      if (device.vPlusNode !== undefined) push(device.vPlusNode)
+      if (device.vMinusNode !== undefined) push(device.vMinusNode)
       break
     case 'vcvs':
+      push(device.p)
+      push(device.n)
+      // An ideal voltage source pins its output to the control input exactly,
+      // so the two output nodes are the only new unknowns: control nets must
+      // already exist elsewhere or the source is genuinely floating there.
+      break
     case 'vccs':
       push(device.p)
       push(device.n)
-      push(device.ip)
-      push(device.inn)
+      // A current source draws no control current, so its control nodes float
+      // like MOSFET gates: discovered when (and only when) wired elsewhere.
       break
     default:
       push(device.p)

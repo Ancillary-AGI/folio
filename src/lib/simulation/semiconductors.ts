@@ -166,10 +166,14 @@ export function bjtBias(device: BjtDevice, vbe: number, vbc: number, thermal: nu
   const gleakBc = (m.isc * expLeakReverse) / (m.nc * thermal)
 
   /*
-   * Base charge. `denom` collapses only when both junctions are driven far past
-   * the Early voltages, which cannot happen in a converging solution; SPICE
-   * clamps it the same way (and the clamp is a constant region, so its
-   * derivative is zero there rather than the unclamped 1/VAR).
+   * Base charge. `q1` is the Early term; `q2` is the high-current term.
+   * Gummel–Poon divides the transfer current by `qb` but leaves the base
+   * current's ideal components UNDIVIDED (SPICE: `ib = cbe/bf + cbc/br` with
+   * no `/qb`): physically the stored base charge steals from the collector
+   * transfer, not from the base recombination current. Dividing `ib` by `qb`
+   * would compute beta·qb instead of beta — a 2N3904 with VAF=100 would read
+   * BF=300 as ~247 in-circuit, which is exactly the failure this comment
+   * guards against.
    */
   const denominator = 1 - vbc / m.vaf - vbe / m.var
   const clamped = denominator < 1e-4
@@ -259,12 +263,19 @@ export function addComplexAdmittance(
  * cancel in every Jacobian entry (`d(−i)/d(−v) = di/dv`) and only the constant
  * terms carry the polarity factor `s`. Folding it here means the two domains
  * can never drift apart.
+ *
+ * Tuple layout per current: `[d/dVb, d/dVc, d/dVe, norton]`, where `norton`
+ * is `i0 − g·v0` (the stamp adds `+g` entries and puts `-norton` on the row).
  */
 function bjtPortCoefficients(
   device: BjtDevice,
   bias: BjtBias,
 ): { ic: [number, number, number, number]; ib: [number, number, number, number] } {
   const s = device.polarity === 'npn' ? 1 : -1
+  // Entering-positive device rows: the Jacobian of the physical currents, then
+  // the Norton constant `i0 − g·v0`. The stamps below put `-norton` on each
+  // leaving-positive MNA row. The emitter row is the negative sum of the
+  // other two, keeping ie + ic + ib = 0 to machine precision.
   return {
     ic: [
       bias.dIcDVbe + bias.dIcDVbc,
@@ -289,6 +300,13 @@ function bjtPortCoefficients(
  * sum, which is what makes the device current-conserving to machine precision
  * (no artificial `ie = ic + ib` fudge). Series RB/RC/RE are stamped separately
  * in the linear pass, so the junctions always see the *internal* nodes.
+ *
+ * Sign bookkeeping (MNA rows are KCL sums of currents LEAVING the node):
+ * linearising `ic(vb, vc, ve)` gives
+ * `ic ≈ ic0 + gcb·(vb−vb0) + gcc·(vc−vc0) + gce·(ve−ve0)`, and the current
+ * LEAVING the collector node is that `ic` — so the row gains `+g` entries and
+ * the bias-point constant `-(ic0 − g·v0)` sits on the RHS, exactly like the
+ * diode's `-Ieq` in `stampNonlinearDiodes`.
  */
 export function stampBjt(
   system: RealSystem,
@@ -307,7 +325,7 @@ export function stampBjt(
     addEntry(system, model, node, bInt, dBase)
     addEntry(system, model, node, cInt, dCollector)
     addEntry(system, model, node, eInt, dEmitter)
-    // The bias-point constant moves to the right-hand side of KCL.
+    // The bias-point constant enters KCL with the opposite sign.
     addSource(system, model, node, -constant)
   }
   addEntry(system, model, eInt, bInt, -(ic[0] + ib[0]))
@@ -357,6 +375,16 @@ export function stampBjtSmallSignal(
 ): void {
   const { ic, ib } = bjtPortCoefficients(device, bias)
   const { cInt, bInt, eInt } = device
+  /*
+   * Series RB/RC/RE belong to the small-signal network too: they are the same
+   * ohmic elements the DC and transient passes stamp. Leaving them out makes an
+   * AC sweep disagree with the operating point it was linearised about (a CE
+   * stage would report an unloaded gain its DC bias cannot deliver).
+   */
+  const { rc, rb, re } = device.model
+  if (cInt !== device.c) addComplexAdmittance(system, model, device.c, cInt, complex(1 / rc))
+  if (bInt !== device.b) addComplexAdmittance(system, model, device.b, bInt, complex(1 / rb))
+  if (eInt !== device.e) addComplexAdmittance(system, model, device.e, eInt, complex(1 / re))
   const rows: Array<[string, [number, number, number, number]]> = [
     [cInt, ic],
     [bInt, ib],
