@@ -457,13 +457,17 @@ class BoardProgrammer {
     // Dynamic imports for Node.js only
     const fs = await import('fs');
     const path = await import('path');
-    const { exec } = await import('child_process');
+    const { execFile } = await import('child_process');
     const os = await import('os');
 
     // Create temporary directory for sketch
     const tempDir = path.join(os.tmpdir(), 'arduino-sketch-' + Date.now());
     const sketchDir = path.join(tempDir, 'sketch');
     const sketchFile = path.join(sketchDir, 'sketch.ino');
+
+    // Held in one place because the compile and the upload both need the
+    // identical `vendor:architecture:board` string.
+    const fqbn = `${this.selectedBoard?.architecture}:${this.selectedBoard?.programmer}:${this.selectedBoard?.id}`;
 
     try {
       // Create directories
@@ -472,21 +476,33 @@ class BoardProgrammer {
       // Write sketch code
       fs.writeFileSync(sketchFile, sketchCode);
 
-      // Install required libraries
+      // Install required libraries. A library name is user input, so it is
+      // passed as an argument instead of interpolated into a command line.
       for (const lib of libraries) {
         await new Promise<void>((resolve) => {
-          exec(`arduino-cli lib install "${lib}"`, { cwd: sketchDir }, (error: Error | null) => {
-            if (error) console.warn(`Failed to install library ${lib}:`, error.message);
-            resolve(); // Continue even if library install fails
-          });
+          execFile(
+            'arduino-cli',
+            ['lib', 'install', lib],
+            { cwd: sketchDir, windowsHide: true },
+            (error: Error | null) => {
+              if (error) console.warn(`Failed to install library ${lib}:`, error.message);
+              resolve(); // Continue even if library install fails
+            }
+          );
         });
       }
 
-      // Compile with Arduino CLI
-      const compileCommand = `arduino-cli compile --fqbn ${this.selectedBoard?.architecture}:${this.selectedBoard?.programmer}:${this.selectedBoard?.id} --output-dir ${tempDir}/build ${sketchDir}`;
+      // Compile with Arduino CLI. The build directory is joined rather than
+      // concatenated with a forward slash, so it is right on Windows too, and
+      // the sketch path never reaches a shell.
+      const outputDir = path.join(tempDir, 'build');
 
       return new Promise((resolve) => {
-        exec(compileCommand, { cwd: sketchDir }, (error: Error | null, stdout: string, stderr: string) => {
+        execFile(
+          'arduino-cli',
+          ['compile', '--fqbn', fqbn, '--output-dir', outputDir, sketchDir],
+          { cwd: sketchDir, windowsHide: true },
+          (error: Error | null, stdout: string, stderr: string) => {
           const compilationTime = Date.now() - startTime;
 
           if (error) {
@@ -544,7 +560,7 @@ class BoardProgrammer {
     // Dynamic imports for Node.js only
     const fs = await import('fs');
     const path = await import('path');
-    const { exec } = await import('child_process');
+    const { execFile } = await import('child_process');
     const os = await import('os');
 
     // Create temporary directory for binary if provided
@@ -559,10 +575,14 @@ class BoardProgrammer {
       fs.writeFileSync(binaryPath, hexContent);
     }
 
-    const uploadCommand = `arduino-cli upload -p ${port} --fqbn ${this.selectedBoard?.architecture}:${this.selectedBoard?.programmer}:${this.selectedBoard?.id}${binaryPath ? ` --input-file ${binaryPath}` : ''}`;
+    // Argument array: the serial port, the board and the temp file path all
+    // come from outside, and a shell would reinterpret the last two.
+    const fqbn = `${this.selectedBoard?.architecture}:${this.selectedBoard?.programmer}:${this.selectedBoard?.id}`;
+    const uploadArgs = ['upload', '-p', port, '--fqbn', fqbn];
+    if (binaryPath) uploadArgs.push('--input-file', binaryPath);
 
     return new Promise((resolve) => {
-      exec(uploadCommand, (error: Error | null, stdout: string, stderr: string) => {
+      execFile('arduino-cli', uploadArgs, { windowsHide: true }, (error: Error | null, stdout: string, stderr: string) => {
         const uploadTime = Date.now() - startTime;
 
         if (binaryPath) {
@@ -746,6 +766,98 @@ class BoardProgrammer {
 
 export const boardProgrammer = new BoardProgrammer();
 
+/* ────────────────────────────────────────────────────────────────────────────
+ * Launching external tools
+ *
+ * Processes are started from an argument array, never from an interpolated
+ * command line. A sketch path, a library name or a board id can contain a
+ * space, a quote or a shell metacharacter, and `exec` would mangle the first
+ * and execute the last.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Start `command` with `args` and resolve as soon as it is *running*.
+ *
+ * `spawn` rather than `exec` because a launched IDE outlives the call and may
+ * stay open for hours; `detached` + `unref` keeps that child from holding the
+ * workbench open, and the promise settles on `spawn`/`error` instead of on
+ * exit. `windowsHide` stops a console window flashing up behind a GUI launch.
+ */
+async function launchDetached(command: string, args: readonly string[]): Promise<boolean> {
+  const { spawn } = await import('child_process')
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (value: boolean): void => {
+      if (!settled) {
+        settled = true
+        resolve(value)
+      }
+    }
+    try {
+      const child = spawn(command, [...args], { detached: true, stdio: 'ignore', windowsHide: true })
+      child.once('error', () => finish(false))
+      child.once('spawn', () => {
+        child.unref()
+        finish(true)
+      })
+    } catch {
+      finish(false)
+    }
+  })
+}
+
+/**
+ * Hand `filePath` to the operating system's default handler.
+ *
+ * Windows' `start` is a `cmd` builtin rather than an executable, and it takes
+ * its first *quoted* argument as the window title — so
+ * `start "C:\...\sketch.ino"` opens an empty console window and drops the
+ * file. The empty title argument is what makes it open the document.
+ */
+async function openWithDefaultApplication(filePath: string): Promise<boolean> {
+  if (process.platform === 'win32') return launchDetached('cmd', ['/c', 'start', '', filePath])
+  if (process.platform === 'darwin') return launchDetached('open', [filePath])
+  return launchDetached('xdg-open', [filePath])
+}
+
+/** Overrides every derived Arduino IDE location below. */
+const ARDUINO_IDE_EXE_ENV = 'FOLIO_ARDUINO_IDE_EXE'
+
+/**
+ * Where an Arduino IDE install is likely to live, most specific first.
+ *
+ * A fixed `C:\Program Files\...` literal is correct only on the machine that
+ * typed it, and it is wrong even on Windows for the per-user install that
+ * Arduino IDE 2.x defaults to (`%LOCALAPPDATA%\Programs`). The install roots
+ * are read from the environment instead, so the list is right on whichever
+ * machine runs it, and `FOLIO_ARDUINO_IDE_EXE` covers a copy that lives
+ * somewhere else entirely. macOS bundles sit at fixed *system* paths rather
+ * than under a user profile, so those are written out.
+ */
+function arduinoIdeCandidates(): string[] {
+  const candidates: string[] = []
+  const configured = process.env[ARDUINO_IDE_EXE_ENV]
+  if (configured) candidates.push(configured)
+
+  if (process.platform === 'win32') {
+    const localPrograms = process.env.LOCALAPPDATA
+    if (localPrograms) candidates.push(`${localPrograms}\\Programs\\Arduino IDE\\Arduino IDE.exe`)
+    for (const key of ['ProgramFiles', 'ProgramFiles(x86)'] as const) {
+      const root = process.env[key]
+      if (root) candidates.push(`${root}\\Arduino IDE\\Arduino IDE.exe`)
+    }
+  } else if (process.platform === 'darwin') {
+    const bundle = 'Arduino IDE.app/Contents/MacOS/Arduino IDE'
+    candidates.push(`/Applications/${bundle}`)
+    const home = process.env.HOME
+    if (home) candidates.push(`${home}/Applications/${bundle}`)
+  }
+
+  // Whatever the launcher on PATH resolves to; `spawn` searches PATH itself.
+  candidates.push('arduino', 'arduino-ide')
+  return candidates
+}
+
 // Arduino IDE integration utilities
 export class ArduinoIDEIntegration {
   static async openInArduinoIDE(code: string): Promise<boolean> {
@@ -758,7 +870,6 @@ export class ArduinoIDEIntegration {
     try {
       const fs = await import('fs');
       const path = await import('path');
-      const { exec } = await import('child_process');
       const os = await import('os');
 
       // Create temporary sketch file
@@ -768,61 +879,62 @@ export class ArduinoIDEIntegration {
       fs.mkdirSync(tempDir, { recursive: true });
       fs.writeFileSync(sketchFile, code);
 
-      // Try to open with Arduino IDE
-      const commands = [
-        'arduino', // Linux
-        '"C:\\Program Files\\Arduino IDE\\Arduino IDE.exe"', // Windows
-        '/Applications/Arduino IDE.app/Contents/MacOS/Arduino IDE' // macOS
-      ];
-
-      for (const command of commands) {
-        try {
-          await new Promise<void>((resolve, reject) => {
-            exec(`${command} "${sketchFile}"`, (error: Error | null) => {
-              if (!error) {
-                resolve();
-              } else {
-                reject(error);
-              }
-            });
-          });
+      // Try each known install location; the first one that starts wins.
+      for (const command of arduinoIdeCandidates()) {
+        if (await launchDetached(command, [sketchFile])) {
           return true;
-        } catch {
-          continue; // Try next command
         }
       }
 
-      // If Arduino IDE not found, try opening with default editor
-      exec(`start "${sketchFile}"`, (error: Error | null) => {
-        if (!error) {
-          console.log('Opened sketch in default editor');
-        }
-      });
-
-      return true;
+      // No Arduino IDE found: open the sketch with the OS default handler
+      // rather than reporting success for a file nobody can see.
+      return await openWithDefaultApplication(sketchFile);
     } catch {
       console.error('Failed to open Arduino IDE');
       return false;
     }
   }
 
+  /**
+   * Ask one candidate for its version.
+   *
+   * Resolves to the version string, or `null` when that command is not
+   * installed or does not answer.
+   */
+  private static async probeArduinoIdeVersion(command: string): Promise<string | null> {
+    const { execFile } = await import('child_process');
+
+    return new Promise((resolve) => {
+      execFile(command, ['--version'], { timeout: 10_000, windowsHide: true }, (error, stdout) => {
+        if (error) {
+          resolve(null);
+          return;
+        }
+        const match = /(\d+\.\d+\.\d+)/.exec(stdout);
+        resolve(match ? match[1] : null);
+      });
+    });
+  }
+
+  /**
+   * Version of the first installed Arduino IDE, or `null` if none is found.
+   *
+   * Probes the same locations `openInArduinoIDE` launches from: asking only
+   * about `arduino` on `PATH` reported "not installed" for the default
+   * Windows install, which the open path could happily start.
+   */
   static async getArduinoIDEVersion(): Promise<string | null> {
     if (typeof window !== 'undefined') {
       return null;
     }
     try {
-      const { exec } = await import('child_process');
-
-      return new Promise((resolve) => {
-        exec('arduino --version', (error: Error | null, stdout: string) => {
-          if (!error) {
-            const match = stdout.match(/Arduino IDE (\d+\.\d+\.\d+)/);
-            resolve(match ? match[1] : null);
-          } else {
-            resolve(null);
-          }
-        });
-      });
+      for (const command of arduinoIdeCandidates()) {
+        const version = await ArduinoIDEIntegration.probeArduinoIdeVersion(command);
+        if (version !== null) {
+          return version;
+        }
+      }
+      return null;
     } catch {
       return null;
     }
@@ -832,17 +944,7 @@ export class ArduinoIDEIntegration {
     if (typeof window !== 'undefined') {
       return false;
     }
-    try {
-      const { exec } = await import('child_process');
-
-      return new Promise((resolve) => {
-        exec('arduino --version', (error: Error | null, stdout: string) => {
-          resolve(!error && stdout.includes('Arduino'));
-        });
-      });
-    } catch {
-      return false;
-    }
+    return (await ArduinoIDEIntegration.getArduinoIDEVersion()) !== null;
   }
 
   static async installBoard(boardId: string): Promise<boolean> {
@@ -850,10 +952,12 @@ export class ArduinoIDEIntegration {
       return false;
     }
     try {
-      const { exec } = await import('child_process');
+      const { execFile } = await import('child_process');
 
       return new Promise((resolve) => {
-        exec(`arduino-cli core install ${boardId}`, (error: Error | null) => {
+        // Argument array, not an interpolated command line: `boardId` is public
+        // API, and a shell would run whatever it contained.
+        execFile('arduino-cli', ['core', 'install', boardId], { windowsHide: true }, (error: Error | null) => {
           resolve(!error);
         });
       });
@@ -867,10 +971,10 @@ export class ArduinoIDEIntegration {
       return false;
     }
     try {
-      const { exec } = await import('child_process');
+      const { execFile } = await import('child_process');
 
       return new Promise((resolve) => {
-        exec('arduino-cli core update-index', (error: Error | null) => {
+        execFile('arduino-cli', ['core', 'update-index'], { windowsHide: true }, (error: Error | null) => {
           resolve(!error);
         });
       });
@@ -879,29 +983,41 @@ export class ArduinoIDEIntegration {
     }
   }
 
-  // FPGA programming integration
+  /**
+   * Program an FPGA through the matching vendor toolchain.
+   *
+   * Each entry is `[executable, ...arguments]` instead of one command string,
+   * because `bitstreamPath` is a filesystem path: through a shell it would be
+   * split on its own spaces, and the `p;<file>` payload `quartus_pgm` expects
+   * has to reach the tool verbatim.
+   */
   static async programFPGA(bitstreamPath: string, device: string): Promise<boolean> {
     if (typeof window !== 'undefined') {
       return false;
     }
     try {
-      const { exec } = await import('child_process');
+      const { execFile } = await import('child_process');
 
-      // Support for common FPGA programming tools
-      const programmingCommands: Record<string, string> = {
-        'xilinx': `vivado -mode batch -source program_fpga.tcl -tclargs ${bitstreamPath}`,
-        'intel': `quartus_pgm -c 1 -m JTAG -o "p;${bitstreamPath}"`,
-        'lattice': `pgrcmd -infile ${bitstreamPath}`,
-        'gowin': `openFPGALoader -b tangnano ${bitstreamPath}`
+      // Support for common FPGA programming tools. Each entry is an argument
+      // array, not a command string: a bitstream path handed to a shell is a
+      // path that gets split on its own spaces, and the Intel entry's payload
+      // has to survive verbatim.
+      const programmingCommands: Record<string, [string, ...string[]]> = {
+        'xilinx': ['vivado', '-mode', 'batch', '-source', 'program_fpga.tcl', '-tclargs', bitstreamPath],
+        'intel': ['quartus_pgm', '-c', '1', '-m', 'JTAG', '-o', `p;${bitstreamPath}`],
+        'lattice': ['pgrcmd', '-infile', bitstreamPath],
+        'gowin': ['openFPGALoader', '-b', 'tangnano', bitstreamPath]
       };
 
-      const command = programmingCommands[device.toLowerCase()];
-      if (!command) {
+      const programmingCommand = programmingCommands[device.toLowerCase()];
+      if (!programmingCommand) {
         throw new Error(`Unsupported FPGA device: ${device}`);
       }
 
+      const [programmer, ...programmerArgs] = programmingCommand;
+
       return new Promise((resolve) => {
-        exec(command, (error: Error | null, _stdout: string, stderr: string) => {
+        execFile(programmer, programmerArgs, { windowsHide: true }, (error: Error | null, _stdout: string, stderr: string) => {
           if (error) {
             console.error('FPGA programming failed:', stderr);
             resolve(false);

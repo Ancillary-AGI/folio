@@ -54,8 +54,6 @@ const safeExp = (argument: number): number => Math.exp(Math.min(argument, MAX_EX
 function junctionCapacitance(cj: number, vj: number, mj: number, fc: number, voltage: number): number {
   if (!(cj > 0) || !(vj > 0)) return 0
   if (voltage < fc * vj) return cj * Math.pow(1 - voltage / vj, -mj)
-  if (!(cj > 0) || !(vj > 0)) return 0
-  if (voltage < fc * vj) return cj * Math.pow(1 - voltage / vj, -mj)
   return cj * Math.pow(1 - fc, -(1 + mj)) * (1 - fc * (1 + mj) + (mj * voltage) / vj)
 }
 
