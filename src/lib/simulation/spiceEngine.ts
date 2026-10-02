@@ -21,10 +21,10 @@
 import { buildCircuitModel, type CircuitModel } from './circuitModel'
 import { resolveOutputNode, runNoiseAnalysis } from './noise'
 import { runMonteCarlo } from './monteCarlo'
-import { runAcSweep, runOperatingPoint, runTransient, type AnalysisOutcome } from './solver'
+import { runAcSweep, runDcSweep, runOperatingPoint, runTransient, type AnalysisOutcome } from './solver'
 
 export interface SimulationParameters {
-  type: 'dc' | 'ac' | 'transient' | 'noise' | 'montecarlo'
+  type: 'dc' | 'dc-sweep' | 'transient' | 'ac' | 'noise' | 'montecarlo'
   startTime?: number
   stopTime?: number
   stepTime?: number
@@ -46,6 +46,17 @@ export interface SimulationParameters {
   tolerance?: number
   /** Seed for the `montecarlo` PRNG; the same seed reproduces the sweep. */
   seed?: number
+  /**
+   * `dc-sweep`: reference designator of the component to step (`V1`, `RLOAD`),
+   * or `TEMP` to step the junction temperature. Its value is the plot's x axis.
+   */
+  sweepSource?: string
+  /** `dc-sweep`: first value of the sweep. */
+  sweepStart?: number
+  /** `dc-sweep`: last value of the sweep. */
+  sweepStop?: number
+  /** `dc-sweep`: value added per point; its sign sets the direction. */
+  sweepStep?: number
 }
 
 export interface SimulationNode {
@@ -98,6 +109,22 @@ function dispatch(model: CircuitModel, parameters: SimulationParameters): Analys
   switch (parameters.type) {
     case 'dc':
       return runOperatingPoint(model, { temperatureCelsius }).outcome
+
+    case 'dc-sweep': {
+      /*
+       * `sweepSource` doubles as the selector between the two things SPICE's
+       * `.dc` can step: a component, or the temperature when it is `TEMP`.
+       */
+      const sweepsTemperature = (parameters.sweepSource ?? '').trim().toUpperCase() === 'TEMP'
+      return runDcSweep(model, {
+        temperatureCelsius,
+        deviceName: sweepsTemperature ? undefined : parameters.sweepSource,
+        sweepTemperature: sweepsTemperature,
+        startValue: parameters.sweepStart ?? 0,
+        stopValue: parameters.sweepStop ?? 5,
+        stepValue: parameters.sweepStep ?? 0.1,
+      }).outcome
+    }
 
     case 'transient':
       return runTransient(model, {
@@ -222,6 +249,18 @@ class SPICEEngine {
         case 'dc':
           lines.push('.op')
           break
+        case 'dc-sweep': {
+          /*
+           * `.dc <source> <start> <stop> <step>`, or `.dc TEMP …` for a thermal
+           * sweep — the same card LTspice and ngspice read back.
+           */
+          const target = (analysis.sweepSource ?? '').trim() || 'TEMP'
+          lines.push(
+            `.dc ${target} ${analysis.sweepStart ?? 0} ${analysis.sweepStop ?? 5} ` +
+              `${analysis.sweepStep ?? 0.1}`,
+          )
+          break
+        }
         case 'transient':
           lines.push(`.tran ${analysis.stepTime ?? 1e-6} ${analysis.stopTime ?? 1e-3}`)
           break

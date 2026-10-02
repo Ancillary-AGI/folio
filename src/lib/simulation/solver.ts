@@ -21,6 +21,7 @@ import {
   diodeCurrentAndConductance,
   type DiodeOperatingPoint,
   type RealSystem,
+  type SweepOverride,
   type TransientState,
 } from './stamping'
 import {
@@ -210,6 +211,14 @@ export function collectImplausibleNodes(voltages: ReadonlyMap<string, number>): 
 export interface OperatingPointOptions {
   temperatureCelsius: number
   gmin?: number
+  /** Substitute one device's DC value, or the junction temperature (DC sweep). */
+  override?: SweepOverride
+  /**
+   * Warm start for Newton. The DC sweep passes the previous point's solution:
+   * consecutive points of a sweep are nearly the same circuit, so this is where
+   * most of a sweep's speed comes from.
+   */
+  initial?: readonly number[]
 }
 
 export interface OperatingPointResult {
@@ -232,10 +241,19 @@ export interface OperatingPointResult {
  * bias rather than guessing.
  */
 export function runOperatingPoint(model: CircuitModel, options: OperatingPointOptions): OperatingPointResult {
+  /*
+   * A temperature sweep changes the thermal voltage, so it is resolved once here
+   * and every downstream call (Newton's linearisation, the returned bias points)
+   * uses that same value rather than each re-reading the nominal setting.
+   */
+  const temperatureCelsius =
+    options.override?.kind === 'temperature' ? options.override.value : options.temperatureCelsius
+  const thermal = thermalVoltage(temperatureCelsius)
+
   const newton = solveNewton(
     model,
     (system) => {
-      stampDc(system, model)
+      stampDc(system, model, options.override)
       /*
        * The bias-independent half of every semiconductor device: the BJT series
        * resistances (RB/RC/RE) and the op-amp's input resistance and first-stage
@@ -249,8 +267,9 @@ export function runOperatingPoint(model: CircuitModel, options: OperatingPointOp
       stampSemiconductorLinear(system, model)
     },
     {
-      temperatureCelsius: options.temperatureCelsius,
+      temperatureCelsius,
       gmin: options.gmin,
+      initial: options.initial,
     },
   )
 
@@ -268,13 +287,12 @@ export function runOperatingPoint(model: CircuitModel, options: OperatingPointOp
       },
       diodeConductances: new Map(),
       diodeOperatingPoints: new Map(),
-      semiconductor: createSemiconductorState(model, thermalVoltage(options.temperatureCelsius)),
+      semiconductor: createSemiconductorState(model, thermal),
       solution: [],
     }
   }
 
   const voltages = readNodeVoltages(model, newton.solution)
-  const thermal = thermalVoltage(options.temperatureCelsius)
   const diodeConductances = new Map<string, number>()
   for (const device of model.devices) {
     if (device.kind !== 'diode') continue
@@ -312,6 +330,228 @@ export function runOperatingPoint(model: CircuitModel, options: OperatingPointOp
     semiconductor: newton.semiconductor,
     solution: newton.solution,
   }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * DC sweep
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** What a DC sweep varies, and over what interval. */
+export interface DcSweepOptions {
+  /** Nominal junction temperature, °C. Replaced per point by a temperature sweep. */
+  temperatureCelsius: number
+  /** Reference designator of the device to vary, e.g. `V1`. */
+  deviceName?: string
+  /** Vary the junction temperature instead of a device (SPICE's `temp` sweep). */
+  sweepTemperature?: boolean
+  startValue: number
+  stopValue: number
+  /** Step magnitude and direction; its sign picks the sweep direction. */
+  stepValue: number
+  gmin?: number
+  /** Upper bound on points, so a sweep cannot outgrow the plot. */
+  maxPoints?: number
+}
+
+/** One solved sweep point. */
+export interface DcSweepPoint {
+  /** The swept value: volts, amperes, ohms or °C. */
+  value: number
+  /** Node name → voltage, internal model nodes excluded. */
+  voltages: Record<string, number>
+}
+
+export interface DcSweepResult {
+  outcome: AnalysisOutcome
+  points: DcSweepPoint[]
+}
+
+/**
+ * Build the swept values.
+ *
+ * SPICE's own rules, including the one that catches people out: the sign of the
+ * step decides the direction, and a step whose sign disagrees with the interval
+ * is an empty sweep rather than an infinite one.
+ */
+export function buildSweepValues(options: {
+  startValue: number
+  stopValue: number
+  stepValue: number
+  maxPoints?: number
+}): number[] {
+  const { startValue, stopValue, stepValue } = options
+  const maxPoints = options.maxPoints ?? 2000
+  if (!Number.isFinite(startValue) || !Number.isFinite(stopValue) || !Number.isFinite(stepValue)) return []
+  if (stepValue === 0) return []
+  if (stopValue > startValue && stepValue < 0) return []
+  if (stopValue < startValue && stepValue > 0) return []
+
+  const span = Math.abs(stopValue - startValue)
+  const step = Math.abs(stepValue)
+  const rawPoints = span / step
+  const points = Math.floor(rawPoints + 1e-9) + 1
+  const exact = Math.abs(rawPoints - Math.round(rawPoints)) < 1e-9
+  const count = Math.min(points, maxPoints)
+
+  const values: number[] = []
+  for (let index = 0; index < count; index += 1) {
+    /*
+     * The final point is snapped to `stopValue` when the interval is an exact
+     * multiple of the step: a thousand float additions drift, and a sweep whose
+     * last point is 4.999999999 instead of 5 is a sweep nobody can line up with
+     * a hand calculation.
+     */
+    values.push(exact && index === points - 1 ? stopValue : startValue + index * stepValue)
+  }
+  return values
+}
+
+/** Human-readable point label, with the unit the swept device actually uses. */
+function sweepLabel(options: DcSweepOptions, model: CircuitModel, value: number): string {
+  if (options.sweepTemperature) return `T = ${value} °C`
+  const device = model.devices.find((candidate) => candidate.name === options.deviceName)
+  const unit =
+    device?.kind === 'voltage-source'
+      ? ' V'
+      : device?.kind === 'current-source'
+        ? ' A'
+        : device?.kind === 'resistor'
+          ? ' Ω'
+          : ''
+  return `${options.deviceName} = ${value}${unit}`
+}
+
+/**
+ * Sweep one device value — or the temperature — and record the bias at each step.
+ *
+ * Every point is a full, warm-started Newton solve of the same network, so the
+ * result is the circuit's own DC transfer characteristic and not an
+ * interpolation between two endpoints. The substitution goes through the same
+ * stamping code as the operating point, which is what makes a sweep point and a
+ * standalone operating point of the same circuit agree exactly.
+ *
+ * Branch currents are recorded beside the node voltages, so a diode or a
+ * transistor can be plotted as the current curve a datasheet would show rather
+ * than only as a voltage.
+ */
+export function runDcSweep(model: CircuitModel, options: DcSweepOptions): DcSweepResult {
+  const maxPoints = options.maxPoints ?? 2000
+  const values = buildSweepValues({ ...options, maxPoints })
+  const notes: string[] = []
+
+  if (options.sweepTemperature !== true) {
+    const named = options.deviceName ?? ''
+    if (!model.devices.some((device) => device.name === named)) {
+      return {
+        outcome: {
+          nodes: [],
+          waveforms: [],
+          iterations: 0,
+          converged: false,
+          notes: [
+            named
+              ? `DC sweep: no component named "${named}" in this circuit.`
+              : 'DC sweep: choose the component to sweep, or sweep the temperature.',
+          ],
+        },
+        points: [],
+      }
+    }
+  }
+
+  if (values.length === 0) {
+    return {
+      outcome: {
+        nodes: [],
+        waveforms: [],
+        iterations: 0,
+        converged: false,
+        notes: [
+          'A DC sweep needs a non-zero step whose sign runs from the start value to the stop value.',
+        ],
+      },
+      points: [],
+    }
+  }
+
+  const span = Math.abs(options.stopValue - options.startValue)
+  const requestedPoints = Math.floor(span / Math.abs(options.stepValue) + 1e-9) + 1
+  if (values.length < requestedPoints) {
+    notes.push(
+      `The sweep was limited to ${maxPoints} points. Increase the step to cover ` +
+        `${options.startValue} … ${options.stopValue} in one pass.`,
+    )
+  }
+
+  const voltageSeries = new Map<string, Array<{ x: number; y: number }>>()
+  for (const node of model.nodeNames) {
+    if (!isInternalNode(node)) voltageSeries.set(node, [])
+  }
+  const currentSeries = new Map<string, Array<{ x: number; y: number }>>()
+
+  const points: DcSweepPoint[] = []
+  let warmStart: readonly number[] | undefined
+  let iterations = 0
+  let converged = true
+
+  for (const value of values) {
+    const override: SweepOverride = options.sweepTemperature
+      ? { kind: 'temperature', value }
+      : { kind: 'device', name: options.deviceName as string, value }
+
+    const solved = runOperatingPoint(model, {
+      temperatureCelsius: options.temperatureCelsius,
+      gmin: options.gmin,
+      override,
+      initial: warmStart,
+    })
+
+    if (solved.solution.length === 0) {
+      notes.push(`The sweep could not be solved at ${sweepLabel(options, model, value)}.`)
+      converged = false
+      break
+    }
+
+    iterations += solved.outcome.iterations
+    if (!solved.outcome.converged) {
+      notes.push(`Newton did not converge at ${sweepLabel(options, model, value)}.`)
+      converged = false
+      break
+    }
+
+    // The next point starts from this one: consecutive sweep points are nearly
+    // the same circuit, which is where a sweep gets its speed.
+    warmStart = solved.solution
+    const voltages = readNodeVoltages(model, solved.solution)
+    for (const [node, series] of voltageSeries) {
+      series.push({ x: value, y: voltages.get(node) ?? 0 })
+    }
+
+    for (const [name, current] of readBranchCurrents(model, solved.solution)) {
+      const series = currentSeries.get(name) ?? []
+      series.push({ x: value, y: current })
+      currentSeries.set(name, series)
+    }
+
+    points.push({
+      value,
+      voltages: Object.fromEntries(
+        [...voltages].filter(([name]) => name !== '0' && !isInternalNode(name)),
+      ),
+    })
+  }
+
+  const waveforms: Waveform[] = []
+  for (const [node, data] of voltageSeries) {
+    if (data.length === 0) continue
+    waveforms.push({ name: `V(${node})`, type: 'voltage', unit: 'V', data })
+  }
+  for (const [name, data] of currentSeries) {
+    if (data.length === 0) continue
+    waveforms.push({ name: `I(${name})`, type: 'current', unit: 'A', data })
+  }
+
+  return { outcome: { nodes: [], waveforms, iterations, converged, notes }, points }
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

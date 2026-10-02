@@ -184,15 +184,41 @@ function addVoltageConstraint(
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
+ * Override one device's DC value for this stamp pass.
+ *
+ * Used by the DC sweep, which re-solves the same network once per value. Going
+ * through `stampDc` rather than a parallel code path is what guarantees a sweep
+ * point and a standalone operating point of the same circuit are the same
+ * equations — and therefore the same numbers.
+ */
+/**
+ * What one pass of the DC sweep substitutes into an otherwise unchanged system.
+ *
+ * A sweep re-solves the same network once per value, so the substitution is
+ * expressed as data rather than as a second stamping path: that is what makes a
+ * sweep point and a standalone operating point of the same circuit the same
+ * equations, and therefore the same numbers.
+ */
+export type SweepOverride =
+  /** Replace one device's DC value: volts, amperes or ohms, per its kind. */
+  | { kind: 'device'; name: string; value: number }
+  /** Run this point at another junction temperature, °C (SPICE's `temp`). */
+  | { kind: 'temperature'; value: number }
+
+/**
  * Stamp the linear part of the DC system.
+ *
  * Capacitors become open circuits and inductors become shorts, which is what
  * "operating point" means for energy-storage elements.
+ *
+ * @param override optional per-device value substitution (DC sweep only).
  */
-export function stampDc(system: RealSystem, model: CircuitModel): void {
+export function stampDc(system: RealSystem, model: CircuitModel, override?: SweepOverride): void {
   for (const device of model.devices) {
+    const swept = override?.kind === 'device' && override.name === device.name ? override.value : undefined
     switch (device.kind) {
       case 'resistor':
-        addConductance(system, model, device.p, device.n, 1 / device.resistance)
+        addConductance(system, model, device.p, device.n, 1 / (swept ?? device.resistance))
         break
       case 'capacitor':
         break
@@ -204,12 +230,12 @@ export function stampDc(system: RealSystem, model: CircuitModel): void {
       case 'voltage-source': {
         const branch = model.branchRows.get(device.name)
         if (branch !== undefined) {
-          addVoltageConstraint(system, model, branch, device.p, device.n, device.dcVoltage)
+          addVoltageConstraint(system, model, branch, device.p, device.n, swept ?? device.dcVoltage)
         }
         break
       }
       case 'current-source':
-        addCurrentInjection(system, model, device.p, device.n, device.dcCurrent)
+        addCurrentInjection(system, model, device.p, device.n, swept ?? device.dcCurrent)
         break
       case 'diode':
         // Contributes through the Newton iteration, not here.

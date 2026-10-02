@@ -68,7 +68,20 @@ interface GoldenSample {
 }
 
 /** Which analysis the reference deck asks LTspice for. */
-type GoldenAnalysis = { kind: 'op' } | { kind: 'transient'; stopTime: number; stepTime: number }
+type GoldenAnalysis =
+  | { kind: 'op' }
+  | { kind: 'transient'; stopTime: number; stepTime: number }
+  | { kind: 'dc'; source: string; startValue: number; stopValue: number; stepValue: number }
+
+/** One point of a reference `.dc` sweep. */
+interface GoldenSweepSample {
+  /** Node name as it appears in Folio's waveforms (`OUT` ⇒ `V(OUT)`). */
+  node: string
+  /** Swept value at which the node was measured. */
+  sweepValue: number
+  /** Node voltage from LTspice at that point, V. */
+  value: number
+}
 
 interface GoldenVector {
   /** File stem: `<stem>.cir` is the deck and `<stem>.raw` the LTspice output. */
@@ -80,10 +93,12 @@ interface GoldenVector {
   expected?: Record<string, number>
   /** Transient instants compared against the deck (`kind: 'transient'`). */
   samples?: GoldenSample[]
+  /** Swept points compared against the deck (`kind: 'dc'`). */
+  sweepSamples?: GoldenSweepSample[]
   /** LTspice element lines for the same circuit (`Q1 OUT B 0 0 2N3904`, …). */
   deckLines: string[]
   /** Model card text pasted into the deck (LTspice `standard.bjt` excerpt). */
-  modelCard: string
+  modelCard?: string
 }
 
 /**
@@ -149,6 +164,33 @@ const VECTORS: GoldenVector[] = [
     ],
     modelCard: '.model 2N3904 NPN(IS=1E-14 VAF=100 BF=300 IKF=0.4 XTB=1.5 BR=4\n+ CJC=4E-12 CJE=8E-12 RB=20 RC=0.1 RE=0.1)',
   },
+  {
+    /*
+     * The one analysis a curve needs: a resistive divider swept over its supply.
+     *
+     * The reference values are the closed form V(OUT) = V1·R2/(R1+R2), written
+     * out rather than copied from a run, because for a linear network that
+     * expression IS the answer LTspice produces — there is no model parameter or
+     * integrator to disagree about. `FOLIO_REGENERATE_GOLDEN=1` re-derives them
+     * from the reference simulator where one is installed, which is the check
+     * that this claim stays true; the differences then land inside the 1 %
+     * operating-point tolerance and are `gmin` alone (see the note on
+     * `stampGmin`). Nothing here is a number this project invented.
+     */
+    stem: 'divider_dc_sweep',
+    components: [
+      { type: 'voltage_source', name: 'V1', nodes: ['IN', '0'], parameters: { value: 0 } },
+      { type: 'resistor', name: 'R1', nodes: ['IN', 'OUT'], parameters: { value: '1k' } },
+      { type: 'resistor', name: 'R2', nodes: ['OUT', '0'], parameters: { value: '2k' } },
+    ],
+    analysis: { kind: 'dc', source: 'V1', startValue: 0, stopValue: 5, stepValue: 1 },
+    sweepSamples: [
+      { node: 'OUT', sweepValue: 1, value: 0.6666666666666666 },
+      { node: 'OUT', sweepValue: 3, value: 2 },
+      { node: 'OUT', sweepValue: 5, value: 3.3333333333333335 },
+    ],
+    deckLines: ['V1 IN 0 0', 'R1 IN OUT 1k', 'R2 OUT 0 2k'],
+  },
 ]
 
 /** Render the `.cir` deck for a vector (ASCII raw output either way). */
@@ -156,18 +198,30 @@ const renderDeck = (vector: GoldenVector): string => {
   const analysis =
     vector.analysis.kind === 'op'
       ? ['.op']
-      : [
-          /*
-           * `.tran Tstep Tstop Tstart Tmaxstep`: the maximum step is pinned to
-           * the step Folio will use, so LTspice's trace can be interpolated at
-           * the samples without its own adaptive stepping smearing the answer.
-           */
-          `.tran ${vector.analysis.stepTime} ${vector.analysis.stopTime} 0 ${vector.analysis.stepTime}`,
-        ]
+      : vector.analysis.kind === 'dc'
+        ? [
+            /*
+             * `.dc <source> <start> <stop> <step>`, exactly the card Folio's own
+             * exporter writes, so the deck a user exports is the deck that gets
+             * checked.
+             */
+            `.dc ${vector.analysis.source} ${vector.analysis.startValue} ` +
+              `${vector.analysis.stopValue} ${vector.analysis.stepValue}`,
+          ]
+        : [
+            /*
+             * `.tran Tstep Tstop Tstart Tmaxstep`: the maximum step is pinned to
+             * the step Folio will use, so LTspice's trace can be interpolated at
+             * the samples without its own adaptive stepping smearing the answer.
+             */
+            `.tran ${vector.analysis.stepTime} ${vector.analysis.stopTime} 0 ${vector.analysis.stepTime}`,
+          ]
   return [
     `* folio golden vector: ${vector.stem} (generated — do not hand-edit)`,
     ...vector.deckLines,
-    vector.modelCard,
+    // A purely linear deck has no model card, and an empty line is a legal
+    // comment in SPICE but noise in a file a human reads.
+    ...(vector.modelCard ? [vector.modelCard] : []),
     ...analysis,
     '.options plotwinsize=0 numdgt=15 measdgt=15',
     '.end',
@@ -322,6 +376,7 @@ const waveformAt = (
 describe('golden vectors (LTspice reference)', () => {
   const opVectors = VECTORS.filter((vector) => vector.analysis.kind === 'op')
   const transientVectors = VECTORS.filter((vector) => vector.analysis.kind === 'transient')
+  const dcVectors = VECTORS.filter((vector) => vector.analysis.kind === 'dc')
 
   /*
    * A vector whose `analysis.kind` no filter recognises would silently run no
@@ -329,7 +384,7 @@ describe('golden vectors (LTspice reference)', () => {
    */
   it('runs every declared vector in an analysis it supports', () => {
     expect(VECTORS.length).toBeGreaterThan(0)
-    expect(opVectors.length + transientVectors.length).toBe(VECTORS.length)
+    expect(opVectors.length + transientVectors.length + dcVectors.length).toBe(VECTORS.length)
   })
 
   it.each(opVectors)('$stem matches LTspice within 1 % / 1 mV', async (vector) => {
@@ -484,5 +539,66 @@ describe('golden vectors (LTspice reference)', () => {
     expect(tranTolerance(0)).toBe(5e-3)
     expect(tranTolerance(0.07)).toBe(5e-3)
     expect(tranTolerance(2.08)).toBeCloseTo(0.0416, 6)
+  })
+
+  it.each(dcVectors)('$stem sweep matches the reference within 1 % / 1 mV', async (vector) => {
+    const analysis = vector.analysis
+    const samples = vector.sweepSamples
+    if (analysis.kind !== 'dc' || !samples) {
+      throw new Error(`${vector.stem} declares a DC sweep but no sweep samples`)
+    }
+
+    mkdirSync(VECTOR_DIR, { recursive: true })
+    const deckPath = join(VECTOR_DIR, `${vector.stem}.cir`)
+    writeFileSync(deckPath, renderDeck(vector))
+
+    if (REGENERATE) {
+      await runLtspice(deckPath)
+      const rawPath = join(VECTOR_DIR, `${vector.stem}.raw`)
+      /*
+       * In an LTspice ASCII dump the first value column is the sweep's own axis
+       * — the same convention the transient reader relies on for time — and the
+       * node voltages follow it in declaration order.
+       */
+      const { variables, kinds, columns } = parseRawColumns(readFileSync(rawPath, 'utf8'))
+      const sweepAxis = columns[0] ?? []
+      const lines = samples.map((sample) => {
+        const index = variables.findIndex(
+          (variable, position) =>
+            kinds[position]?.toLowerCase() === 'voltage' && nodeNameOf(variable) === sample.node,
+        )
+        if (index < 0) throw new Error(`LTspice reported no V(${sample.node}) in ${vector.stem}`)
+        const trace = { times: sweepAxis, values: columns[index] ?? [] }
+        return (
+          `      { node: '${sample.node}', sweepValue: ${sample.sweepValue}, ` +
+          `value: ${interpolate(trace, sample.sweepValue)} },`
+        )
+      })
+      console.log(`\nREGENERATE ${vector.stem}:\n    sweepSamples: [\n${lines.join('\n')}\n    ],\n`)
+      throw new Error(`Regenerated ${vector.stem} — review, paste into sweepSamples, re-run.`)
+    }
+
+    const result = await spiceEngine.simulate({
+      title: vector.stem,
+      components: vector.components,
+      analyses: [
+        {
+          type: 'dc-sweep',
+          sweepSource: analysis.source,
+          sweepStart: analysis.startValue,
+          sweepStop: analysis.stopValue,
+          sweepStep: analysis.stepValue,
+        },
+      ],
+    })
+    expect(result.success).toBe(true)
+
+    for (const sample of samples) {
+      const actual = waveformAt(result, `V(${sample.node})`, sample.sweepValue)
+      expect(
+        Math.abs(actual - sample.value),
+        `${sample.node} at ${analysis.source} = ${sample.sweepValue}`,
+      ).toBeLessThanOrEqual(opTolerance(sample.value))
+    }
   })
 })

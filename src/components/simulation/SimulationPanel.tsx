@@ -15,11 +15,12 @@ interface SimulationPanelProps {
 }
 
 /** Analyses the solver actually implements, in menu order. */
-const ANALYSIS_TYPES = ['dc', 'transient', 'ac', 'noise', 'montecarlo'] as const
+const ANALYSIS_TYPES = ['dc', 'dc-sweep', 'transient', 'ac', 'noise', 'montecarlo'] as const
 type AnalysisType = (typeof ANALYSIS_TYPES)[number]
 
 const ANALYSIS_LABELS: Record<AnalysisType, string> = {
   dc: 'DC operating point',
+  'dc-sweep': 'DC sweep',
   transient: 'Transient',
   ac: 'AC sweep',
   noise: 'Noise',
@@ -28,11 +29,15 @@ const ANALYSIS_LABELS: Record<AnalysisType, string> = {
 
 const ANALYSIS_SUMMARY: Record<AnalysisType, string> = {
   dc: 'Solves the bias point by modified nodal analysis. Capacitors are open, inductors are shorts, and diodes are linearised by Newton iteration.',
+  'dc-sweep': 'Steps one source, resistor or the temperature and re-solves the bias at every value — a characteristic curve rather than a single number. Each point is a full Newton solve warm-started from the last, so a knee is traced, not interpolated.',
   transient: 'Integrates capacitors and inductors with backward-Euler companion models — unconditionally stable, and it will not ring on an ideal step.',
   ac: 'Sweeps the complex small-signal network, linearising diodes at the DC operating point so the response belongs to the bias you designed.',
   noise: 'Output-referred thermal and shot noise via the adjoint (transposed) network method, with an integrated RMS figure.',
   montecarlo: 'Re-solves the bias with R/C/L perturbed inside a tolerance band, reporting the mean and the ±3σ envelope. Seeded, so a sweep is reproducible.',
 }
+
+/** Component types whose value a DC sweep can step, by normalised symbol name. */
+const SWEEPABLE_TYPES = new Set(['voltage_source', 'current_source', 'resistor'])
 
 export default function SimulationPanel({ onClose }: SimulationPanelProps) {
   const [isSimulating, setIsSimulating] = useState(false)
@@ -45,6 +50,24 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
   const { components, wires, addSimulationRun } = useProjectStore()
   const { theme } = useTheme()
   const seriesColors = useMemo(() => chartSeriesColors(theme), [theme])
+
+  /**
+   * Reference designators on the schematic whose value a sweep can step.
+   *
+   * Derived from the drawn parts rather than typed in, so the picker cannot name
+   * a component that is not on the sheet — the same normalisation the netlist
+   * builder applies decides what is sweepable.
+   */
+  const sweepTargets = useMemo(
+    () =>
+      components
+        .filter((placed) =>
+          SWEEPABLE_TYPES.has(placed.component.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')),
+        )
+        .map((placed) => placed.reference)
+        .filter((reference, index, all) => all.indexOf(reference) === index),
+    [components],
+  )
 
   useEffect(() => {
     setParameters((previous) => ({ ...previous, type: selectedAnalysis }))
@@ -226,6 +249,69 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
                   onChange={(event) => handleParameterChange('useInitialConditions', event.target.checked)}
                 />
               </label>
+            </>
+          )}
+          {selectedAnalysis === 'dc-sweep' && (
+            <>
+              <div className="col-span-2">
+                <label htmlFor="sim-sweep-target" className="text-sm font-medium mb-1 block">
+                  Sweep
+                </label>
+                <select
+                  id="sim-sweep-target"
+                  value={parameters.sweepSource ?? 'TEMP'}
+                  onChange={(event) => handleParameterChange('sweepSource', event.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
+                >
+                  {/*
+                   * Only the symbols the solver can actually re-value are
+                   * offered: a picker that lists a capacitor would be offering a
+                   * sweep that cannot run.
+                   */}
+                  <option value="TEMP">Temperature (°C)</option>
+                  {sweepTargets.map((candidate) => (
+                    <option key={candidate} value={candidate}>
+                      {candidate}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="sim-sweep-start" className="text-sm font-medium mb-1 block">
+                  Start
+                </label>
+                <input
+                  id="sim-sweep-start"
+                  type="number"
+                  value={parameters.sweepStart ?? 0}
+                  onChange={(event) => handleParameterChange('sweepStart', Number(event.target.value))}
+                  className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
+                />
+              </div>
+              <div>
+                <label htmlFor="sim-sweep-stop" className="text-sm font-medium mb-1 block">
+                  Stop
+                </label>
+                <input
+                  id="sim-sweep-stop"
+                  type="number"
+                  value={parameters.sweepStop ?? 5}
+                  onChange={(event) => handleParameterChange('sweepStop', Number(event.target.value))}
+                  className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
+                />
+              </div>
+              <div>
+                <label htmlFor="sim-sweep-step" className="text-sm font-medium mb-1 block">
+                  Step
+                </label>
+                <input
+                  id="sim-sweep-step"
+                  type="number"
+                  value={parameters.sweepStep ?? 0.1}
+                  onChange={(event) => handleParameterChange('sweepStep', Number(event.target.value))}
+                  className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
+                />
+              </div>
             </>
           )}
         </div>
@@ -480,6 +566,9 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
                               if (selectedAnalysis === 'ac') {
                                 return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value.toFixed(0)
                               }
+                              // A sweep's x axis is a component value, not a time:
+                              // scientific notation on "2 volts" reads as noise.
+                              if (selectedAnalysis === 'dc-sweep') return value.toPrecision(4)
                               return value.toExponential(2)
                             }}
                           />
@@ -494,6 +583,9 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
                             labelFormatter={(value: number) => {
                               if (selectedAnalysis === 'ac') {
                                 return `Frequency: ${value >= 1000 ? `${(value / 1000).toFixed(1)}kHz` : `${value}Hz`}`
+                              }
+                              if (selectedAnalysis === 'dc-sweep') {
+                                return `${parameters.sweepSource ?? 'TEMP'} = ${value}`
                               }
                               return `Time: ${value}s`
                             }}
