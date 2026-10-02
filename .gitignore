@@ -11,6 +11,9 @@ dist
 dist-ssr
 *.local
 
+# Golden-vector harness decks and reference output (regeneration only).
+.golden/
+
 .vscode/*
 !.vscode/extensions.json
 .idea

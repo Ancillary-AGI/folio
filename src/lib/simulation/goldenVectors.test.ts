@@ -17,17 +17,45 @@ import { spiceEngine } from './spiceEngine'
  * make the harness fail on arithmetic noise instead of on physics.
  *
  * The expected files are checked in (`expected: {...}` / `samples: [...]`
- * below) so CI never needs LTspice. Regeneration is explicit: set
- * `FOLIO_REGENERATE_GOLDEN=1` and run this file once with LTspice installed —
- * it rewrites the deck, runs the reference, prints the fresh numbers in a form
- * meant to be pasted back, and fails the run so the new numbers cannot slip in
+ * below) so CI never needs LTspice. Regeneration is explicit and local: set
+ * `FOLIO_LTSPICE_EXE` to the reference executable and `FOLIO_REGENERATE_GOLDEN=1`
+ * and run this file once — it writes the deck to the git-ignored `.golden/` in
+ * this checkout, runs the reference, prints the fresh numbers in a form meant to
+ * be pasted back, and fails the run so the new numbers cannot slip in
  * unreviewed.
  */
 
-const LTSPICE_EXE = 'C:\\Users\\digit\\AppData\\Local\\Programs\\ADI\\LTspice\\LTspice.exe'
-const VECTOR_DIR = 'C:\\Users\\digit\\AppData\\Local\\Temp\\folio_validate\\golden'
+/**
+ * Path to the LTspice executable, taken from the environment and never written
+ * into this file: a checked-in `C:\Users\...` path is a lie on every machine but
+ * one. Only the regeneration path below ever needs it.
+ */
+const LTSPICE_EXE = process.env.FOLIO_LTSPICE_EXE ?? ''
+
+/**
+ * Where a regeneration writes its deck and LTspice's `.raw` output: `.golden/`
+ * inside the project, git-ignored. No run of this suite may write anything
+ * outside the checkout — the deck lands there so a human can open it in LTspice
+ * by hand.
+ */
+const VECTOR_DIR = join(process.cwd(), '.golden')
 
 const REGENERATE = process.env.FOLIO_REGENERATE_GOLDEN === '1'
+
+/**
+ * Run the reference simulator over one deck.
+ *
+ * Reached only under `FOLIO_REGENERATE_GOLDEN=1`, so an unset
+ * `FOLIO_LTSPICE_EXE` is a setup mistake worth naming instead of a crash
+ * somewhere inside `child_process`.
+ */
+const runLtspice = async (deckPath: string): Promise<void> => {
+  if (!LTSPICE_EXE) {
+    throw new Error('Set FOLIO_LTSPICE_EXE to the LTspice executable to regenerate golden vectors.')
+  }
+  const { execFileSync } = await import('node:child_process')
+  execFileSync(LTSPICE_EXE, ['-b', '-ascii', deckPath], { timeout: 120_000 })
+}
 
 /** One instant of one node in a reference transient. */
 interface GoldenSample {
@@ -315,8 +343,7 @@ describe('golden vectors (LTspice reference)', () => {
     expect(existsSync(deckPath)).toBe(true)
 
     if (REGENERATE) {
-      const { execFileSync: run } = await import('node:child_process')
-      run(LTSPICE_EXE, ['-b', '-ascii', deckPath], { timeout: 120_000 })
+      await runLtspice(deckPath)
       const rawPath = join(VECTOR_DIR, `${vector.stem}.raw`)
       const voltages = parseOpRaw(readFileSync(rawPath, 'utf8'))
       const picked: Record<string, number> = {}
@@ -351,8 +378,7 @@ describe('golden vectors (LTspice reference)', () => {
     writeFileSync(deckPath, renderDeck(vector))
 
     if (REGENERATE) {
-      const { execFileSync: run } = await import('node:child_process')
-      run(LTSPICE_EXE, ['-b', '-ascii', deckPath], { timeout: 120_000 })
+      await runLtspice(deckPath)
       const rawPath = join(VECTOR_DIR, `${vector.stem}.raw`)
       const traces = parseTranRaw(readFileSync(rawPath, 'utf8'))
       const lines = samples.map((sample) => {
