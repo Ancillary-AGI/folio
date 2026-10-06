@@ -228,6 +228,62 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
     }
   },
   {
+    category: 'semiconductor',
+    name: 'N-Channel JFET',
+    is_standard: true,
+    symbol_data: {
+      width: 70,
+      height: 60,
+      paths: [
+        'M 0,30 L 25,30',
+        'M 25,10 L 25,50',
+        'M 30,15 L 30,45',
+        'M 30,20 L 50,20 L 50,5 L 70,5',
+        'M 30,37 L 50,37 L 50,55 L 70,55',
+        'M 50,37 L 50,20',
+        'M 22,27 L 30,30 L 22,33',
+      ],
+    },
+    pins: [
+      { id: 'drain', name: 'D', x: 70, y: 5, type: 'output' },
+      { id: 'gate', name: 'G', x: 0, y: 30, type: 'input' },
+      { id: 'source', name: 'S', x: 70, y: 55, type: 'output' },
+    ],
+    default_properties: {
+      type: '2N3819',
+      voltage: '25V',
+      current: '10mA',
+    },
+  },
+  {
+    category: 'semiconductor',
+    name: 'P-Channel JFET',
+    is_standard: true,
+    symbol_data: {
+      width: 70,
+      height: 60,
+      paths: [
+        'M 0,30 L 25,30',
+        'M 25,10 L 25,50',
+        'M 30,15 L 30,45',
+        'M 30,20 L 50,20 L 50,5 L 70,5',
+        'M 30,37 L 50,37 L 50,55 L 70,55',
+        'M 50,37 L 50,20',
+        'M 38,27 L 30,30 L 38,33',
+      ],
+    },
+    pins: [
+      { id: 'drain', name: 'D', x: 70, y: 55, type: 'output' },
+      { id: 'gate', name: 'G', x: 0, y: 30, type: 'input' },
+      { id: 'source', name: 'S', x: 70, y: 5, type: 'output' },
+    ],
+    default_properties: {
+      type: 'PJFET',
+      voltage: '25V',
+      current: '10mA',
+    },
+  },
+  {
     category: 'power',
     name: 'DC Voltage Source',
     is_standard: true,
@@ -310,6 +366,84 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
   },
   {
     category: 'power',
+    name: 'EXP Voltage Source',
+    is_standard: true,
+    symbol_data: {
+      width: 60,
+      height: 60,
+      paths: [
+        'M 30,0 L 30,15',
+        'M 30,30 A 15,15 0 1,1 30,30',
+        'M 30,45 L 30,60',
+        'M 18,38 Q 24,38 27,26 Q 30,18 36,22 L 42,22',
+      ],
+    },
+    pins: [
+      { id: 'positive', name: '+', x: 30, y: 0, type: 'power' },
+      { id: 'negative', name: '-', x: 30, y: 60, type: 'ground' },
+    ],
+    default_properties: {
+      type: 'EXP',
+      v1: '0V',
+      v2: '5V',
+      td1: '0',
+      tau1: '1us',
+      td2: '10us',
+      tau2: '1us',
+    },
+  },
+  {
+    category: 'power',
+    name: 'SFFM Voltage Source',
+    is_standard: true,
+    symbol_data: {
+      width: 60,
+      height: 60,
+      paths: [
+        'M 30,0 L 30,15',
+        'M 30,30 A 15,15 0 1,1 30,30',
+        'M 30,45 L 30,60',
+        'M 19,30 Q 22,20 26,30 T 34,30 T 41,30',
+      ],
+    },
+    pins: [
+      { id: 'positive', name: '+', x: 30, y: 0, type: 'power' },
+      { id: 'negative', name: '-', x: 30, y: 60, type: 'ground' },
+    ],
+    default_properties: {
+      type: 'SFFM',
+      vo: '0V',
+      va: '1V',
+      fc: '10kHz',
+      mdi: '5',
+      fs: '1kHz',
+    },
+  },
+  {
+    category: 'power',
+    name: 'PWL Voltage Source',
+    is_standard: true,
+    symbol_data: {
+      width: 60,
+      height: 60,
+      paths: [
+        'M 30,0 L 30,15',
+        'M 30,30 A 15,15 0 1,1 30,30',
+        'M 30,45 L 30,60',
+        'M 18,38 L 24,38 L 30,22 L 36,30 L 42,30',
+      ],
+    },
+    pins: [
+      { id: 'positive', name: '+', x: 30, y: 0, type: 'power' },
+      { id: 'negative', name: '-', x: 30, y: 60, type: 'ground' },
+    ],
+    default_properties: {
+      type: 'PWL',
+      points: '0,0 1u,5 2u,0',
+    },
+  },
+  {
+    category: 'power',
     name: 'Ground',
     is_standard: true,
     symbol_data: {
@@ -328,6 +462,86 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
     default_properties: {
       type: 'earth'
     }
+  },
+  {
+    category: 'ic',
+    name: 'Voltage-Controlled Switch',
+    is_standard: true,
+    symbol_data: {
+      width: 70,
+      height: 50,
+      paths: [
+        'M 0,15 L 20,15 L 45,30',
+        'M 20,15 A 4,4 0 1,1 20,15.1',
+        'M 45,30 L 70,30',
+        'M 25,50 L 25,35',
+        'M 45,50 L 45,35',
+        'M 25,35 L 45,35',
+      ],
+    },
+    pins: [
+      { id: 'positive', name: '1', x: 0, y: 15, type: 'passive' },
+      { id: 'negative', name: '2', x: 70, y: 30, type: 'passive' },
+      { id: 'control_pos', name: '+', x: 25, y: 50, type: 'input' },
+      { id: 'control_neg', name: '-', x: 45, y: 50, type: 'input' },
+    ],
+    default_properties: {
+      type: 'SW',
+      ron: '1',
+      roff: '1MEG',
+      vt: '0.5V',
+      vh: '0V',
+    },
+  },
+  {
+    category: 'ic',
+    name: 'Current-Controlled Switch',
+    is_standard: true,
+    symbol_data: {
+      width: 70,
+      height: 50,
+      paths: [
+        'M 0,15 L 20,15 L 45,30',
+        'M 20,15 A 4,4 0 1,1 20,15.1',
+        'M 45,30 L 70,30',
+        'M 30,50 L 30,40 L 40,40 L 40,50',
+      ],
+    },
+    pins: [
+      { id: 'positive', name: '1', x: 0, y: 15, type: 'passive' },
+      { id: 'negative', name: '2', x: 70, y: 30, type: 'passive' },
+    ],
+    default_properties: {
+      type: 'CSW',
+      control: 'VSENSE',
+      ron: '1',
+      roff: '1MEG',
+      it: '1mA',
+      ih: '0A',
+    },
+  },
+  {
+    category: 'ic',
+    name: 'Behavioral Source',
+    is_standard: true,
+    symbol_data: {
+      width: 70,
+      height: 60,
+      paths: [
+        'M 35,0 L 35,15',
+        'M 35,30 A 15,15 0 1,1 35,30',
+        'M 35,45 L 35,60',
+        'M 24,26 L 28,34 L 32,26 L 36,34 L 40,26 L 44,34',
+      ],
+    },
+    pins: [
+      { id: 'positive', name: '+', x: 35, y: 0, type: 'power' },
+      { id: 'negative', name: '-', x: 35, y: 60, type: 'ground' },
+    ],
+    default_properties: {
+      type: 'B',
+      v: 'V(IN)',
+    },
   },
   {
     category: 'ic',

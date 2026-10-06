@@ -23,8 +23,10 @@ import {
   isGroundNode,
   pickParameter,
   deviceNodes,
+  type BehavioralSourceDevice,
   type BjtModelParams,
   type Device,
+  type JfetModelParams,
   type MosfetModelParams,
   type SourceWaveform,
 } from './devices'
@@ -76,17 +78,34 @@ const CLASSIFIERS: ReadonlyArray<{ kind: DeviceKind | 'ground'; matches: (type: 
   { kind: 'ground', matches: (type, name) => type.includes('ground') || /^gnd$|^g\d/i.test(name) },
   {
     kind: 'voltage-source',
-    matches: (type, name) => (type.includes('voltage') && type.includes('source')) || /^v\d/i.test(name),
+    matches: (type, name) =>
+      (type.includes('voltage') && type.includes('source') && !type.includes('controlled') && !type.includes('behavioral') && !type.includes('arbitrary')) ||
+      (/^v\d/i.test(name) && !/^vsense/i.test(name)),
   },
   {
     kind: 'current-source',
-    matches: (type, name) => (type.includes('current') && type.includes('source')) || /^i\d/i.test(name),
+    matches: (type, name) =>
+      (type.includes('current') && type.includes('source') && !type.includes('controlled') && !type.includes('behavioral') && !type.includes('arbitrary')) ||
+      /^i\d/i.test(name),
   },
   {
     kind: 'op-amp',
     matches: (type) => type.includes('opamp') || type.includes('op_amp') || (type.includes('operational') && type.includes('amplifier')),
   },
   { kind: 'mosfet', matches: (type, name) => type.includes('mosfet') || /^m\d/i.test(name) },
+  { kind: 'jfet', matches: (type, name) => type.includes('jfet') || /^j\d/i.test(name) },
+  {
+    kind: 'voltage-switch',
+    matches: (type, name) => type.includes('voltageswitch') || type.includes('voltagecontrolledswitch') || /^s\d/i.test(name),
+  },
+  {
+    kind: 'current-switch',
+    matches: (type, name) => type.includes('currentswitch') || type.includes('currentcontrolledswitch') || /^w\d/i.test(name),
+  },
+  {
+    kind: 'behavioral-source',
+    matches: (type, name) => type.includes('behavioral') || type.includes('arbitrary') || /^b\d/i.test(name),
+  },
   {
     kind: 'bjt',
     matches: (type, name) =>
@@ -138,7 +157,7 @@ function parseGain(component: Component, fallback: number, label: string, ...key
   return parseSpiceValue(raw, `${component.name} ${label}`)
 }
 /**
- * Build the transient waveform of a PULSE or SINE source.
+ * Build the transient waveform of a source: PULSE, SIN, EXP, SFFM or PWL.
  *
  * Returns `undefined` for ordinary DC parts. `v2`/`per` (pulse) and
  * `va`/`freq` (sine) are required because guessing an amplitude or a period
@@ -167,7 +186,7 @@ function parseWaveform(component: Component): SourceWaveform | undefined {
       per,
     }
   }
-  if (shape.includes('sine')) {
+  if (shape.includes('sine') || shape.includes('sin(')) {
     const va = parseSpiceValue(pickParameter(component.parameters, 'va'), `${component.name} sine amplitude (va)`)
     const freq = parseSpiceValue(pickParameter(component.parameters, 'freq'), `${component.name} sine frequency (freq)`)
     if (!(freq > 0)) throw new Error(`${component.name} sine frequency (freq) must be > 0.`)
@@ -181,7 +200,87 @@ function parseWaveform(component: Component): SourceWaveform | undefined {
       td: optionalValue(component, 0, 'sine delay (td)', 'td'),
     }
   }
+  if (shape.includes('exp')) {
+    return {
+      kind: 'exp',
+      v1: optionalValue(component, 0, 'exp initial value (v1)', 'v1'),
+      v2: optionalValue(component, 1, 'exp pulsed value (v2)', 'v2'),
+      td1: optionalValue(component, 0, 'exp rise delay (td1)', 'td1'),
+      tau1: optionalValue(component, 1e-6, 'exp rise time constant (tau1)', 'tau1'),
+      td2: optionalValue(component, 0, 'exp fall delay (td2)', 'td2'),
+      tau2: optionalValue(component, 1e-6, 'exp fall time constant (tau2)', 'tau2'),
+    }
+  }
+  if (shape.includes('sffm')) {
+    const va = parseSpiceValue(pickParameter(component.parameters, 'va'), `${component.name} sffm amplitude (va)`)
+    const fc = parseSpiceValue(pickParameter(component.parameters, 'fc'), `${component.name} sffm carrier (fc)`)
+    const fs = parseSpiceValue(pickParameter(component.parameters, 'fs'), `${component.name} sffm signal (fs)`)
+    if (!(fc > 0)) throw new Error(`${component.name} sffm carrier (fc) must be > 0.`)
+    if (!(fs > 0)) throw new Error(`${component.name} sffm signal (fs) must be > 0.`)
+    return {
+      kind: 'sffm',
+      vo: optionalValue(component, 0, 'sffm offset (vo)', 'vo'),
+      va,
+      fc,
+      mdi: optionalValue(component, 0, 'sffm modulation index (mdi)', 'mdi'),
+      fs,
+    }
+  }
+  if (shape.includes('pwl') || pickParameter(component.parameters, 'points', 'pwl') !== undefined) {
+    const points = parsePwlPoints(component)
+    if (points.length === 0) throw new Error(`${component.name} pwl needs at least one (time, value) corner.`)
+    return { kind: 'pwl', points }
+  }
   return undefined
+}
+
+/**
+ * Parse PWL corners from `points: "0,0 1u,5 2u,0"` or paired t0/v0/t1/v1 keys.
+ * Times must be strictly increasing — a repeated time is an ambiguous edge, not
+ * a zero-time ramp, and guessing would silently shift the waveform.
+ */
+function parsePwlPoints(component: Component): Array<{ time: number; value: number }> {
+  const raw = pickParameter(component.parameters, 'points', 'pwl')
+  if (typeof raw === 'string') {
+    const corners = raw
+      .split(/[\s;]+/)
+      .filter((token) => token.length > 0)
+      .map((token) => {
+        const parts = token.split(',')
+        if (parts.length !== 2) {
+          throw new Error(`${component.name} pwl corner "${token}" must be "time,value".`)
+        }
+        return {
+          time: parseSpiceValue(parts[0], `${component.name} pwl time`),
+          value: parseSpiceValue(parts[1], `${component.name} pwl value`),
+        }
+      })
+    assertIncreasing(corners, component.name)
+    return corners
+  }
+  const corners: Array<{ time: number; value: number }> = []
+  for (let index = 0; ; index += 1) {
+    const time = pickParameter(component.parameters, `t${index}`, `time${index}`)
+    const value = pickParameter(component.parameters, `v${index}`, `value${index}`)
+    if (time === undefined && value === undefined) break
+    if (time === undefined || value === undefined) {
+      throw new Error(`${component.name} pwl corner ${index} needs both a time and a value.`)
+    }
+    corners.push({
+      time: parseSpiceValue(time, `${component.name} pwl time ${index}`),
+      value: parseSpiceValue(value, `${component.name} pwl value ${index}`),
+    })
+  }
+  assertIncreasing(corners, component.name)
+  return corners
+}
+
+function assertIncreasing(corners: Array<{ time: number; value: number }>, name: string): void {
+  for (let index = 1; index < corners.length; index += 1) {
+    if (!(corners[index].time > corners[index - 1].time)) {
+      throw new Error(`${name} pwl times must be strictly increasing.`)
+    }
+  }
 }
 
 /**
@@ -194,13 +293,13 @@ function parseWaveform(component: Component): SourceWaveform | undefined {
  * `VAF`/`VAR`/`IKF`/`IKR` default to Infinity, meaning "not in effect".
  */
 /**
- * Stock model cards keyed by part number, taken from LTspice's own
+ * Stock model cards keyed by part number, taken from a reference SPICE's own
  * `standard.bjt` library. The keys are bare part numbers; the lookup strips
  * manufacturer suffixes (`2N2222A` matches `2N2222`), so a suffixed symbol
  * still finds its card. Only parameters this solver models are carried over —
  * `XTB` (temperature exponent) and rating fields like `VCEO`/`ICRATING` have
  * no level-1 counterpart and are ignored. `VAR` (reverse Early) is absent on
- * purpose: LTspice's `standard.bjt` cards do not ship one, and the SPICE
+ * purpose: reference SPICE's `standard.bjt` cards do not ship one, and the SPICE
  * default is infinity — a hand check of the library confirms this.
  *
  * Card keys are the exact SPICE names (`is`, `vaf`, `bf`, …): `modelParameter`
@@ -215,13 +314,23 @@ const BJT_MODEL_DEFAULTS: Readonly<Record<string, Readonly<Record<string, string
   '2N3906': { is: '1E-14', vaf: '100', bf: '200', br: '4', ikf: '0.4', cjc: '4.5E-12', cje: '10E-12', rb: '20', rc: '0.1', re: '0.1' },
 }
 
-/** Part number behind the symbol's `type` property (`2N2222A` → `2N2222`). */
+/** Part number behind the symbol's `type` property (`2N2222A` → `2N2222`).
+ *
+ * `type` doubles as the classification (`npn_transistor`) and as the shadow
+ * carrier in hand-written netlists (`type: '2N3904'`): the classifiers consume
+ * the lowercase form, the lookup consumes the stripped part number, and an
+ * explicit `part`/`model`/`mpn` still wins when present.
+ */
 const partNumber = (component: Component): string | undefined => {
-  const raw = pickParameter(component.parameters, 'part', 'model', 'type', 'mpn')
+  const raw = pickParameter(component.parameters, 'part', 'model', 'mpn', 'type')
   if (typeof raw !== 'string') return undefined
   // A single trailing letter is the usual gain-bin suffix (`2N2222A`,
   // `BC547C`); anything longer is the name itself (`TL071`, `IRF540`).
-  return raw.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/([0-9])[A-Z]$/, '$1')
+  const cleaned = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/([0-9])[A-Z]$/, '$1')
+  // The classification shadows (`NPN_TRANSISTOR`, `VOLTAGE_SOURCE`) are not
+  // part numbers: only a token with a digit can be one.
+  if (!/\d/.test(cleaned)) return undefined
+  return cleaned
 }
 
 /**
@@ -294,7 +403,7 @@ function parseBjtModel(component: Component): { polarity: 'npn' | 'pnp'; model: 
 
 /**
  * Stock level-1 cards keyed by part number. Discrete power MOSFETs ship as
- * VDMOS subcircuits in LTspice's `standard.mos`, whose dozens of parameters
+ * VDMOS subcircuits in reference SPICE's `standard.mos`, whose dozens of parameters
  * have no level-1 counterpart; what a level-1 card needs is the threshold and
  * the transconductance, and those come from the datasheet instead:
  *
@@ -309,6 +418,47 @@ function parseBjtModel(component: Component): { polarity: 'npn' | 'pnp'; model: 
 const MOSFET_MODEL_DEFAULTS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   IRF540: { vto: '2.8', kp: '1.1', lambda: '0.005' },
   IRF9540: { vto: '-2.8', kp: '1.7', lambda: '0.005' },
+}
+
+/**
+ * Stock JFET cards keyed by part number, from datasheet numbers:
+ *
+ *   2N3819: IDSS 2–20 mA (typ 10 mA), VGS(off) −8 V max (typ −3 V);
+ *     beta = IDSS / VTO² ≈ 10 mA / 9 ≈ 1.1 mA/V².
+ *   J201: small-signal JFET, IDSS 0.2–1 mA (typ 0.6 mA), VGS(off) −0.3…−1.5 V
+ *     (typ −0.7 V); beta ≈ 0.6 mA / 0.49 ≈ 1.2 mA/V².
+ */
+const JFET_MODEL_DEFAULTS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  '2N3819': { beta: '1.1e-3', vto: '-3', lambda: '0.005' },
+  J201: { beta: '1.2e-3', vto: '-0.7', lambda: '0.01' },
+}
+
+/** Parse SPICE JFET model parameters, with SPICE's own defaults. */
+function parseJfetModel(component: Component): { polarity: 'n' | 'p'; model: JfetModelParams } {
+  const declared = `${component.type} ${component.name}`.toLowerCase().replace(/[^a-z]/g, '')
+  const requested = pickParameter(component.parameters, 'polarity')
+  const polarity: 'n' | 'p' =
+    typeof requested === 'string' && requested.toLowerCase().startsWith('p')
+      ? 'p'
+      : declared.includes('pchannel') || declared.includes('pjfet')
+        ? 'p'
+        : 'n'
+  const part = partNumber(component)
+  const card = part === undefined ? undefined : JFET_MODEL_DEFAULTS[part]
+  return {
+    polarity,
+    model: {
+      beta: modelParameter(component, card, 1e-4, 'transconductance (beta)', 'beta', 'kp', 'k'),
+      // N-channel pinch-off is negative; a positive VTO on an N part is a sign
+      // error the user will never spot from a flat IV curve, so normalise it.
+      vto: modelParameter(component, card, polarity === 'n' ? -2 : 2, 'threshold (vto)', 'vto', 'vth'),
+      lambda: modelParameter(component, card, 0, 'channel-length modulation (lambda)', 'lambda'),
+      is: modelParameter(component, card, 1e-14, 'gate saturation current (is)', 'is'),
+      n: modelParameter(component, card, 1, 'gate emission coefficient (n)', 'n'),
+      cgs: modelParameter(component, card, 0, 'gate–source capacitance (cgs)', 'cgs'),
+      cgd: modelParameter(component, card, 0, 'gate–drain capacitance (cgd)', 'cgd'),
+    },
+  }
 }
 
 /** Parse Level-1 MOSFET model parameters, with SPICE's own defaults. */
@@ -382,12 +532,14 @@ const opAmpParameter = (
 /**
  * Convert one classified component into a `Device`.
  * Returns an error message instead of throwing so a single bad part does not
- * hide every other problem in the schematic.
+ * hide every other problem in the schematic. `netlist` is the full component
+ * list, for cross-references (current-controlled switches name their sensor).
  */
 function toDevice(
   component: Component,
   kind: DeviceKind,
   nodes: readonly string[],
+  netlist: CircuitNetlist,
 ): { device: Device } | { error: string } {
   /* Two-terminal devices share one code path; wider devices index explicitly. */
   const p = nodes[0]
@@ -456,9 +608,13 @@ function toDevice(
         )
         const dcValue =
           explicitDc === undefined && waveform
-            ? waveform.kind === 'pulse'
+            ? waveform.kind === 'pulse' || waveform.kind === 'exp'
               ? waveform.v1
-              : waveform.vo
+              : waveform.kind === 'sine' || waveform.kind === 'sffm'
+                ? waveform.vo
+                : waveform.points.length > 0
+                  ? waveform.points[0].value
+                  : 0
             : parseSpiceValue(
                 explicitDc,
                 `${component.name} ${kind === 'voltage-source' ? 'voltage' : 'current'}`,
@@ -475,9 +631,15 @@ function toDevice(
           component.parameters.acMagnitude !== undefined
             ? parseSpiceValue(component.parameters.acMagnitude, `${component.name} AC magnitude`)
             : waveform
-              ? waveform.kind === 'sine'
+              ? waveform.kind === 'sine' || waveform.kind === 'sffm'
                 ? waveform.va
-                : Math.abs(waveform.v2 - waveform.v1) / 2
+                : waveform.kind === 'pulse' || waveform.kind === 'exp'
+                  ? Math.abs(waveform.v2 - waveform.v1) / 2
+                  : waveform.kind === 'pwl' && waveform.points.length > 1
+                    ? (Math.max(...waveform.points.map((point) => point.value)) -
+                        Math.min(...waveform.points.map((point) => point.value))) /
+                      2
+                    : Math.abs(dcValue)
               : Math.abs(dcValue)
         const acPhaseDegrees =
           component.parameters.acPhase !== undefined
@@ -593,6 +755,73 @@ function toDevice(
           },
         }
       }
+      case 'jfet': {
+        const { polarity, model } = parseJfetModel(component)
+        return {
+          device: { kind, name: component.name, p: nodes[0], n: nodes[2], polarity, d: nodes[0], g: nodes[1], s: nodes[2], model },
+        }
+      }
+      case 'voltage-switch': {
+        /* SPICE S order: out+, out−, control+, control−. */
+        const ron = optionalValue(component, 1, 'on resistance (ron)', 'ron', 'ronpos', 'r_on')
+        const roff = optionalValue(component, 1e6, 'off resistance (roff)', 'roff', 'roffpos', 'r_off')
+        const vt = optionalValue(component, 0.5, 'threshold voltage (vt)', 'vt', 'threshold')
+        const vh = optionalValue(component, 0, 'hysteresis (vh)', 'vh', 'hysteresis')
+        if (!(ron > 0)) return { error: `${component.name} on resistance (ron) must be > 0 Ω.` }
+        if (!(roff > 0)) return { error: `${component.name} off resistance (roff) must be > 0 Ω.` }
+        if (!(vh >= 0)) return { error: `${component.name} hysteresis (vh) must be >= 0 V.` }
+        return {
+          device: { kind, name: component.name, p: nodes[0], n: nodes[1], ip: nodes[2], inn: nodes[3], ron, roff, vt, vh },
+        }
+      }
+      case 'current-switch': {
+        /* SPICE W order: out+, out−, controlling source name. */
+        const controlSource = pickParameter(component.parameters, 'control', 'controlSource', 'vsense')
+        if (typeof controlSource !== 'string' || controlSource.trim() === '') {
+          return { error: `${component.name} needs a controlling source name (control).` }
+        }
+        const sensor = controlSource.trim()
+        const known = netlist.components.some(
+          (candidate) => candidate.name === sensor || candidate.name.toUpperCase() === sensor.toUpperCase(),
+        )
+        if (!known) {
+          return { error: `${component.name} senses unknown source "${sensor}".` }
+        }
+        const ron = optionalValue(component, 1, 'on resistance (ron)', 'ron', 'ronneg', 'r_on')
+        const roff = optionalValue(component, 1e6, 'off resistance (roff)', 'roff', 'roffneg', 'r_off')
+        const it = optionalValue(component, 1e-3, 'threshold current (it)', 'it', 'threshold')
+        const ih = optionalValue(component, 0, 'hysteresis (ih)', 'ih', 'hysteresis')
+        if (!(ron > 0)) return { error: `${component.name} on resistance (ron) must be > 0 Ω.` }
+        if (!(roff > 0)) return { error: `${component.name} off resistance (roff) must be > 0 Ω.` }
+        if (!(ih >= 0)) return { error: `${component.name} hysteresis (ih) must be >= 0 A.` }
+        return {
+          device: { kind, name: component.name, p: nodes[0], n: nodes[1], controlSource: controlSource.trim(), ron, roff, it, ih },
+        }
+      }
+      case 'behavioral-source': {
+        /* SPICE B: `V = expr` or `I = expr` selected by the output key. */
+        const voltage = pickParameter(component.parameters, 'v', 'voltage', 'expression', 'expr')
+        const current = pickParameter(component.parameters, 'i', 'current')
+        if (voltage !== undefined && current !== undefined) {
+          return { error: `${component.name} must define either a voltage (v) or a current (i), not both.` }
+        }
+        const expression = voltage ?? current
+        if (typeof expression !== 'string' || expression.trim() === '') {
+          return { error: `${component.name} needs an expression in V(node) / I(source) form (v or i).` }
+        }
+        const parsed = parseBehavioralExpression(expression, component.name)
+        if ('error' in parsed) return parsed
+        return {
+          device: {
+            kind,
+            name: component.name,
+            p: nodes[0],
+            n: nodes[1],
+            output: voltage !== undefined ? 'v' : 'i',
+            expression: expression.trim(),
+          },
+        }
+      }
       case 'vcvs': {
         /* SPICE order for an E element: out+, out-, in+, in-. */
         const gain = parseGain(component, 1, 'voltage gain', 'gain', 'k', 'e')
@@ -638,6 +867,392 @@ function toDevice(
     return { error: error instanceof Error ? error.message : `${component.name} could not be modelled.` }
   }
 }
+/**
+ * Supported behavioural-source functions (all SPICE built-ins that are pure and
+ * total; `table` would need a parser).
+ */
+export const BEHAVIORAL_FUNCTIONS: Readonly<Record<string, (...args: number[]) => number>> = {
+  abs: (x) => Math.abs(x),
+  sqrt: (x) => Math.sqrt(Math.max(x, 0)),
+  exp: (x) => Math.exp(Math.min(x, 40)),
+  // SPICE `log` is base-10, `ln` is natural.
+  log: (x) => Math.log10(Math.max(x, Number.MIN_VALUE)),
+  ln: (x) => Math.log(Math.max(x, Number.MIN_VALUE)),
+  sin: (x) => Math.sin(x),
+  cos: (x) => Math.cos(x),
+  tan: (x) => Math.tan(x),
+  asin: (x) => Math.asin(Math.max(-1, Math.min(1, x))),
+  acos: (x) => Math.acos(Math.max(-1, Math.min(1, x))),
+  atan: (x) => Math.atan(x),
+  atan2: (y, x) => Math.atan2(y, x),
+  sinh: (x) => Math.sinh(Math.max(-40, Math.min(40, x))),
+  cosh: (x) => Math.cosh(Math.max(-40, Math.min(40, x))),
+  tanh: (x) => Math.tanh(x),
+  min: (...args) => Math.min(...args),
+  max: (...args) => Math.max(...args),
+  pow: (x, y) => Math.pow(x, y),
+  pwr: (x, y) => Math.pow(Math.abs(x), y),
+  'if': (condition, thenValue, elseValue) => ((condition as number) !== 0 ? thenValue : elseValue),
+  u: (x) => (x > 0 ? 1 : 0),
+  uramp: (x) => Math.max(x ?? 0, 0),
+  sgn: (x) => (x > 0 ? 1 : x < 0 ? -1 : 0),
+  limit: (x, lo, hi) => Math.min(Math.max(x ?? 0, lo ?? -Infinity), hi ?? Infinity),
+}
+
+export type BehavioralNode =
+  | { kind: 'voltage'; node: string }
+  | { kind: 'vdiff'; a: string; b: string }
+  | { kind: 'current'; source: string }
+
+export interface BehavioralExpression {
+  rpn: ReadonlyArray<string | number>
+  probes: BehavioralNode[]
+}
+
+/**
+ * Validate every probe of a compiled expression against the built model.
+ *
+ * A V() probe over a net that exists nowhere is a typo the solver must report
+ * as a model error (not a silent zero), and an I() probe over a source with no
+ * branch row reads a current that does not exist. Both are caught here, once,
+ * rather than per Newton iteration.
+ */
+export function validateBehavioralProbes(
+  model: CircuitModel,
+  deviceName: string,
+  compiled: BehavioralExpression,
+): string | null {
+  for (const probe of compiled.probes) {
+    if (probe.kind === 'voltage') {
+      if (model.nodeIndex.get(probe.node) === undefined && !isGroundNode(probe.node)) {
+        return `${deviceName} probes unknown node "${probe.node}".`
+      }
+    } else if (probe.kind === 'vdiff') {
+      for (const node of [probe.a, probe.b]) {
+        if (model.nodeIndex.get(node) === undefined && !isGroundNode(node)) {
+          return `${deviceName} probes unknown node "${node}".`
+        }
+      }
+    } else if (model.branchRows.get(probe.source) === undefined) {
+      return `${deviceName} probes unknown source "${probe.source}".`
+    }
+  }
+  return null
+}
+
+const BEHAVIORAL_CONSTANTS: Readonly<Record<string, number>> = {
+  pi: Math.PI,
+  e: Math.E,
+}
+
+type BehavioralToken =
+  | { kind: 'number'; value: number }
+  | { kind: 'probe'; index: number }
+  | { kind: 'time' }
+  | { kind: 'op'; op: string }
+  | { kind: 'func'; name: string }
+  | { kind: 'lparen' }
+  | { kind: 'rparen' }
+  | { kind: 'comma' }
+
+/**
+ * Compile a B-source expression to reverse-Polish tokens.
+ *
+ * Grammar: numbers (SPICE values), `V(node)` / `V(a,b)` / `I(source)` probes,
+ * `TIME`, constants, `+ - * / ^` (unary minus supported), comparisons
+ * (`> < >= <= == !=` returning 1/0), and the functions above. Anything else —
+ * identifiers, assignment, property access, calls to unknown functions — is a
+ * parse error, so there is no string left that could reach `eval`/`Function`.
+ */
+function parseBehavioralExpression(expression: string, name: string): { expression: BehavioralExpression } | { error: string } {
+  const fail = (reason: string): { error: string } => ({ error: `${name} expression: ${reason}` })
+  const probes: BehavioralNode[] = []
+  const probeIndex = (probe: BehavioralNode): number => {
+    const found = probes.findIndex((candidate) => JSON.stringify(candidate) === JSON.stringify(probe))
+    if (found >= 0) return found
+    probes.push(probe)
+    return probes.length - 1
+  }
+  const tokens: BehavioralToken[] = []
+  const text = expression.trim()
+  if (text === '') return fail('is empty.')
+  let i = 0
+  const isDigit = (ch: string): boolean => ch >= '0' && ch <= '9'
+  let expectOperand = true
+  while (i < text.length) {
+    const ch = text[i]
+    if (ch === ' ' || ch === '\t' || ch === '\n') {
+      i += 1
+      continue
+    }
+    if (expectOperand && (ch === '+' || ch === '-')) {
+      const rest = text.slice(i + 1)
+      const num = /^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?\s*[a-zµμ]*/i.exec(rest)
+      const next = text[i + 1] ?? ''
+      if (ch === '+' && (isDigit(next) || next === '.')) {
+        const value = num?.[0] ?? ''
+        tokens.push({ kind: 'number', value: parseSpiceValue(`+${value}`, `${name} number`) })
+        i += 1 + value.length
+        expectOperand = false
+        continue
+      }
+      if (ch === '-') {
+        if (isDigit(next) || next === '.') {
+          const value = num?.[0] ?? ''
+          tokens.push({ kind: 'number', value: parseSpiceValue(`-${value}`, `${name} number`) })
+          i += 1 + value.length
+          expectOperand = false
+          continue
+        }
+        tokens.push({ kind: 'number', value: 0 })
+        tokens.push({ kind: 'op', op: '-' })
+        i += 1
+        continue
+      }
+      return fail(`unexpected "${ch}".`)
+    }
+    if (isDigit(ch) || ch === '.') {
+      const num = /^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?\s*[a-zµμ]*/i.exec(text.slice(i))
+      if (!num) return fail(`bad number at "${text.slice(i, i + 8)}".`)
+      try {
+        tokens.push({ kind: 'number', value: parseSpiceValue(num[0], `${name} number`) })
+      } catch {
+        return fail(`bad number "${num[0]}".`)
+      }
+      i += num[0].length
+      expectOperand = false
+      continue
+    }
+    if (ch === '(') {
+      tokens.push({ kind: 'lparen' })
+      i += 1
+      expectOperand = true
+      continue
+    }
+    if (ch === ')') {
+      tokens.push({ kind: 'rparen' })
+      i += 1
+      expectOperand = false
+      continue
+    }
+    if (ch === ',') {
+      tokens.push({ kind: 'comma' })
+      i += 1
+      expectOperand = true
+      continue
+    }
+    const two = text.slice(i, i + 2)
+    if (!expectOperand && (two === '>=' || two === '<=' || two === '==' || two === '!=')) {
+      tokens.push({ kind: 'op', op: two })
+      i += 2
+      expectOperand = true
+      continue
+    }
+    if (!expectOperand && (ch === '+' || ch === '-' || ch === '*' || ch === '/' || ch === '^' || ch === '>' || ch === '<')) {
+      tokens.push({ kind: 'op', op: ch })
+      i += 1
+      expectOperand = true
+      continue
+    }
+    if (expectOperand && ch === '*') return fail('unexpected "*".')
+    const word = /^[a-zA-Z_][a-zA-Z0-9_]*/.exec(text.slice(i))
+    if (!word) return fail(`unexpected "${ch}".`)
+    const ident = word[0]
+    const lower = ident.toLowerCase()
+    let j = i + ident.length
+    while (text[j] === ' ' || text[j] === '\t') j += 1
+    if (text[j] === '(') {
+      if (lower === 'v' || lower === 'i') {
+        let depth = 0
+        let k = j
+        while (k < text.length) {
+          if (text[k] === '(') depth += 1
+          if (text[k] === ')') {
+            depth -= 1
+            if (depth === 0) break
+          }
+          k += 1
+        }
+        if (depth !== 0) return fail(`unclosed "${ident}(" probe.`)
+        const args = text
+          .slice(j + 1, k)
+          .split(',')
+          .map((part) => part.trim())
+          .filter((part) => part.length > 0)
+        if (lower === 'v') {
+          if (args.length === 1) {
+            tokens.push({ kind: 'probe', index: probeIndex({ kind: 'voltage', node: normalizeNodeName(args[0]) }) })
+          } else if (args.length === 2) {
+            tokens.push({
+              kind: 'probe',
+              index: probeIndex({ kind: 'vdiff', a: normalizeNodeName(args[0]), b: normalizeNodeName(args[1]) }),
+            })
+          } else {
+            return fail('V() takes one node or two nodes.')
+          }
+        } else {
+          if (args.length !== 1) return fail('I() takes one source name.')
+          tokens.push({ kind: 'probe', index: probeIndex({ kind: 'current', source: args[0].trim().toUpperCase() }) })
+        }
+        i = k + 1
+        expectOperand = false
+        continue
+      }
+      if (lower === 'time') return fail('TIME takes no arguments — write TIME, not TIME().')
+      if (!(lower in BEHAVIORAL_FUNCTIONS)) return fail(`unknown function "${ident}".`)
+      tokens.push({ kind: 'func', name: lower })
+      i += ident.length
+      continue
+    }
+    if (lower === 'time') {
+      tokens.push({ kind: 'time' })
+    } else if (lower in BEHAVIORAL_CONSTANTS) {
+      tokens.push({ kind: 'number', value: BEHAVIORAL_CONSTANTS[lower] })
+    } else {
+      return fail(`unknown name "${ident}" — use V(node), I(source), TIME, or a function.`)
+    }
+    i += ident.length
+    expectOperand = false
+  }
+  if (expectOperand) return fail('ends with an operator.')
+  // Shunting-yard to RPN: precedence climbs ^ → unary → * / → + − → compare.
+  const output: Array<string | number> = []
+  const stack: BehavioralToken[] = []
+  const precedence = (op: string): number => {
+    if (op === '^') return 4
+    if (op === '*' || op === '/') return 3
+    if (op === '+' || op === '-') return 2
+    return 1
+  }
+  const FUNCTION_ARITY: Readonly<Record<string, number>> = {
+    abs: 1,
+    sqrt: 1,
+    exp: 1,
+    log: 1,
+    ln: 1,
+    sin: 1,
+    cos: 1,
+    tan: 1,
+    asin: 1,
+    acos: 1,
+    atan: 1,
+    atan2: 2,
+    sinh: 1,
+    cosh: 1,
+    tanh: 1,
+    min: -1,
+    max: -1,
+    pow: 2,
+    pwr: 2,
+    if: 3,
+    u: 1,
+    uramp: 1,
+    sgn: 1,
+    limit: 3,
+  }
+  const argCounts: number[] = []
+  for (const token of tokens) {
+    if (token.kind === 'number') output.push(token.value)
+    else if (token.kind === 'probe') output.push(`P${token.index}`)
+    else if (token.kind === 'time') output.push('T')
+    else if (token.kind === 'func') {
+      stack.push(token)
+      argCounts.push(1)
+    } else if (token.kind === 'comma') {
+      if (argCounts.length === 0) return fail('misplaced comma.')
+      let found = false
+      while (stack.length > 0) {
+        const top = stack[stack.length - 1]
+        if (top.kind === 'lparen') {
+          found = true
+          break
+        }
+        const popped = stack.pop()
+        if (popped?.kind === 'op') output.push(popped.op)
+      }
+      if (!found) return fail('misplaced comma.')
+      argCounts[argCounts.length - 1] += 1
+    } else if (token.kind === 'op') {
+      while (stack.length > 0) {
+        const top = stack[stack.length - 1]
+        if (top.kind !== 'op') break
+        if (precedence(top.op) < precedence(token.op)) break
+        if (token.op === '^' && precedence(top.op) === precedence(token.op)) break
+        output.push((stack.pop() as { kind: 'op'; op: string }).op)
+      }
+      stack.push(token)
+    } else if (token.kind === 'lparen') {
+      stack.push(token)
+    } else if (token.kind === 'rparen') {
+      let found = false
+      while (stack.length > 0) {
+        const top = stack.pop()
+        if (!top) break
+        if (top.kind === 'lparen') {
+          found = true
+          break
+        }
+        if (top.kind === 'op') output.push(top.op)
+      }
+      if (!found) return fail('mismatched ")".')
+      const top = stack[stack.length - 1]
+      if (top?.kind === 'func') {
+        const func = (stack.pop() as { kind: 'func'; name: string }).name
+        const count = argCounts.pop() ?? 1
+        const arity = FUNCTION_ARITY[func] ?? 1
+        if (arity >= 0 && count !== arity) return fail(`"${func}" takes ${arity} argument(s).`)
+        if (arity < 0 && count < 1) return fail(`"${func}" takes at least one argument.`)
+        output.push(`F:${func}:${count}`)
+      } else if (argCounts.length > 0 && stack.some((entry) => entry.kind === 'lparen')) {
+        void 0
+      }
+    }
+  }
+  while (stack.length > 0) {
+    const top = stack.pop()
+    if (!top) break
+    if (top.kind === 'lparen' || top.kind === 'rparen') return fail('mismatched parenthesis.')
+    if (top.kind === 'func') return fail(`unclosed function "${top.name}".`)
+    if (top.kind === 'comma') return fail('misplaced comma.')
+    if (top.kind === 'op') output.push(top.op)
+  }
+  // Arity check on the RPN itself: catches `2 +` and `sin()` structurally.
+  let depth = 0
+  for (const entry of output) {
+    if (typeof entry === 'number' || entry === 'T' || entry.startsWith('P')) {
+      depth += 1
+      continue
+    }
+    if (entry.startsWith('F:')) {
+      const count = Number(entry.split(':')[2])
+      if (depth < count) return fail('a function is missing arguments.')
+      depth -= count - 1
+      continue
+    }
+    if (depth < 2) return fail(`operator "${entry}" is missing an operand.`)
+    depth -= 1
+  }
+  if (depth !== 1) return fail('does not reduce to a single value.')
+  return { expression: { rpn: output, probes } }
+}
+
+export function behavioralProbes(device: BehavioralSourceDevice): BehavioralNode[] {
+  const parsed = behavioralCompiled(device)
+  if ('error' in parsed) return []
+  return [...parsed.expression.probes]
+}
+
+const behavioralCache = new WeakMap<BehavioralSourceDevice, { expression: BehavioralExpression } | { error: string }>()
+
+/** Parse once per device; the expression text is fixed for the whole analysis. */
+export function behavioralCompiled(device: BehavioralSourceDevice): { expression: BehavioralExpression } | { error: string } {
+  const cached = behavioralCache.get(device)
+  if (cached) return cached
+  const parsed = parseBehavioralExpression(device.expression, device.name)
+  behavioralCache.set(device, parsed)
+  return parsed
+}
+
 /** Terminals each device kind consumes, in SPICE's own order. */
 const MIN_TERMINALS: Record<DeviceKind | 'ground', number> = {
   resistor: 2,
@@ -648,7 +1263,11 @@ const MIN_TERMINALS: Record<DeviceKind | 'ground', number> = {
   diode: 2,
   bjt: 3,
   mosfet: 3,
+  jfet: 3,
   'op-amp': 3,
+  'voltage-switch': 4,
+  'current-switch': 2,
+  'behavioral-source': 2,
   vcvs: 4,
   vccs: 4,
   ground: 0,
@@ -664,7 +1283,11 @@ const TERMINAL_LABELS: Record<DeviceKind | 'ground', string> = {
   diode: 'anode and cathode',
   bjt: 'collector, base and emitter',
   mosfet: 'drain, gate and source',
+  jfet: 'drain, gate and source',
   'op-amp': 'inputs and output',
+  'voltage-switch': 'output and control terminals',
+  'current-switch': 'output terminals plus a control source',
+  'behavioral-source': 'output terminals',
   vcvs: 'output and control terminals',
   vccs: 'output and control terminals',
   ground: 'a net',
@@ -741,8 +1364,8 @@ export function buildCircuitModel(netlist: CircuitNetlist): BuildModelResult {
     if (kind === null) {
       errors.push(
         `${component.name} (${component.type}) has no model in this solver. Supported: resistor, capacitor, ` +
-          'inductor, voltage source (including PULSE/SINE), current source, diode, BJT, MOSFET, op-amp, ' +
-          'controlled sources, ground.',
+          'inductor, voltage source (including PULSE/SIN/EXP/SFFM/PWL), current source, diode, BJT, MOSFET, JFET, ' +
+          'op-amp, voltage/current switch (S/W), behavioral source (B), controlled sources, ground.',
       )
       continue
     }
@@ -750,7 +1373,7 @@ export function buildCircuitModel(netlist: CircuitNetlist): BuildModelResult {
     const terminals = terminalsFor(component, kind)
     if (!terminals) continue
 
-    const resolved = toDevice(component, kind, terminals)
+    const resolved = toDevice(component, kind, terminals, netlist)
     if ('error' in resolved) errors.push(resolved.error)
     else devices.push(resolved.device)
   }
@@ -788,20 +1411,31 @@ export function buildCircuitModel(netlist: CircuitNetlist): BuildModelResult {
   /*
    * One branch unknown per voltage constraint: independent voltage sources,
    * inductors, voltage-controlled voltage sources (whose output is defined as a
-   * voltage) and op-amps (whose output stage is a voltage constraint referenced
-   * to its internal first stage).
+   * voltage), op-amps (whose output stage is a voltage constraint referenced
+   * to its internal first stage) and voltage-output B sources (same form).
+   *
+   * The map is keyed BOTH by the given name and its uppercase form: netlists
+   * use lowercase designators (`vsense`) while probes normalise to uppercase,
+   * and a current-controlled switch that cannot find its sensor must fail
+   * loudly at model time rather than read a silent zero.
    */
   const branchRows = new Map<string, number>()
+  let branchCount = 0
   for (const device of devices) {
     if (
       device.kind === 'voltage-source' ||
       device.kind === 'inductor' ||
       device.kind === 'vcvs' ||
-      device.kind === 'op-amp'
+      device.kind === 'op-amp' ||
+      (device.kind === 'behavioral-source' && device.output === 'v')
     ) {
-      branchRows.set(device.name, sortedNodes.length + branchRows.size)
+      const row = sortedNodes.length + branchCount
+      branchCount += 1
+      branchRows.set(device.name, row)
+      branchRows.set(device.name.toUpperCase(), row)
     }
   }
+  const size = sortedNodes.length + branchCount
 
   if (sortedNodes.length === 0 && devices.length > 0 && errors.length === 0) {
     errors.push('Every net is ground — there is nothing to solve.')
@@ -813,7 +1447,7 @@ export function buildCircuitModel(netlist: CircuitNetlist): BuildModelResult {
       nodeNames: sortedNodes,
       nodeIndex,
       branchRows,
-      size: sortedNodes.length + branchRows.size,
+      size,
       groundNodes,
       notes,
     },

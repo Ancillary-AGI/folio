@@ -52,6 +52,16 @@ export interface MosfetTerminalState {
   cgd: number
 }
 
+/** JFET terminal bias and gate capacitances at one time step. */
+export interface JfetTerminalState {
+  /** Forward-positive voltages (mirror-corrected for a P-channel part). */
+  vgs: number
+  vds: number
+  /** Gate–source and gate–drain capacitances at that bias, F. */
+  cgs: number
+  cgd: number
+}
+
 /** State carried between transient time steps. Keyed by device name. */
 export interface TransientState {
   capacitorVoltages: Map<string, number>
@@ -60,6 +70,8 @@ export interface TransientState {
   bjtJunctions: Map<string, BjtJunctionState>
   /** MOSFET terminal bias from the previous time step. */
   mosfetBias: Map<string, MosfetTerminalState>
+  /** JFET terminal bias from the previous time step. */
+  jfetBias: Map<string, JfetTerminalState>
   /** Op-amp first-stage voltage from the previous time step. */
   opAmpStages: Map<string, number>
 }
@@ -69,6 +81,7 @@ export const createTransientState = (): TransientState => ({
   inductorCurrents: new Map(),
   bjtJunctions: new Map(),
   mosfetBias: new Map(),
+  jfetBias: new Map(),
   opAmpStages: new Map(),
 })
 
@@ -93,7 +106,7 @@ export const createComplexSystem = (model: CircuitModel): ComplexSystem => ({
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** Add a conductance between two nodes (ground-safe). */
-function addConductance(system: RealSystem, model: CircuitModel, p: string, n: string, g: number): void {
+export function addConductance(system: RealSystem, model: CircuitModel, p: string, n: string, g: number): void {
   const a = model.nodeIndex.get(p)
   const b = model.nodeIndex.get(n)
   if (a !== undefined) system.matrix[a][a] += g
@@ -105,7 +118,7 @@ function addConductance(system: RealSystem, model: CircuitModel, p: string, n: s
 }
 
 /** Inject `value` amperes flowing from `p` through the source to `n`. */
-function addCurrentInjection(system: RealSystem, model: CircuitModel, p: string, n: string, value: number): void {
+export function addCurrentInjection(system: RealSystem, model: CircuitModel, p: string, n: string, value: number): void {
   const a = model.nodeIndex.get(p)
   const b = model.nodeIndex.get(n)
   // KCL: current leaving a node is positive, so an injected current is negative.
@@ -158,7 +171,7 @@ function addControlledCurrent(
  * Stamp a voltage constraint `v(p) - v(n) = value` using the device's branch
  * row. Used for voltage sources (their DC value) and inductors (0 V in DC).
  */
-function addVoltageConstraint(
+export function addVoltageConstraint(
   system: RealSystem,
   model: CircuitModel,
   branch: number,
@@ -242,7 +255,11 @@ export function stampDc(system: RealSystem, model: CircuitModel, override?: Swee
         break
       case 'bjt':
       case 'mosfet':
+      case 'jfet':
       case 'op-amp':
+      case 'voltage-switch':
+      case 'current-switch':
+      case 'behavioral-source':
         /*
          * Nonlinear, or split across a linear and a bias-dependent part:
          * `semiconductors.ts` owns all of them. The solver adds their
@@ -341,7 +358,11 @@ export function stampTransient(
         break
       case 'bjt':
       case 'mosfet':
+      case 'jfet':
       case 'op-amp':
+      case 'voltage-switch':
+      case 'current-switch':
+      case 'behavioral-source':
         // Companion models live in `semiconductors.ts` (stamped per iteration),
         // because their junction and gate charges are bias dependent.
         break
@@ -521,7 +542,11 @@ export function stampAc(
       }
       case 'bjt':
       case 'mosfet':
+      case 'jfet':
       case 'op-amp':
+      case 'voltage-switch':
+      case 'current-switch':
+      case 'behavioral-source':
         /*
          * Linearised at the DC operating point by
          * `stampSemiconductorSmallSignal`, which the solver calls immediately

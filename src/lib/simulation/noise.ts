@@ -28,7 +28,8 @@ import { cAbs, cSub, complex, solveComplexSystem, type Complex } from './numeric
 import { BOLTZMANN, ELEMENTARY_CHARGE, thermalVoltage } from './devices'
 import type { CircuitModel } from './circuitModel'
 import { createComplexSystem, stampAc } from './stamping'
-import { runOperatingPoint, type AnalysisOutcome, type Waveform } from './solver'
+import { runOperatingPoint, readBranchCurrents, readNodeVoltages, type AnalysisOutcome, type Waveform } from './solver'
+import { stampSemiconductorSmallSignal } from './semiconductors'
 
 export interface NoiseOptions {
   temperatureCelsius: number
@@ -114,7 +115,7 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
     return { ...empty, notes: [`"${outputNode}" is ground; output noise cannot be measured there.`] }
   }
 
-  const operatingPoint = runOperatingPoint(model, { temperatureCelsius, gmin })
+  const operatingPoint = runOperatingPoint(model, { temperatureCelsius, gmin, time: 0 })
   const notes = [...operatingPoint.outcome.notes]
   const fourKT = 4 * BOLTZMANN * (temperatureCelsius + 273.15)
 
@@ -131,8 +132,18 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
 
   for (let index = 0; index < frequencies.length; index += 1) {
     const frequency = frequencies[index]
+    const omega = 2 * Math.PI * frequency
     const system = createComplexSystem(model)
-    stampAc(system, model, 2 * Math.PI * frequency, operatingPoint.diodeConductances, gmin ?? 1e-12)
+    stampAc(system, model, omega, operatingPoint.diodeConductances, gmin ?? 1e-12)
+    stampSemiconductorSmallSignal(
+      system,
+      model,
+      operatingPoint.semiconductor,
+      thermalVoltage(temperatureCelsius),
+      omega,
+      readNodeVoltages(model, operatingPoint.solution),
+      { currents: readBranchCurrents(model, operatingPoint.solution), time: 0 },
+    )
 
     // Adjoint solve: Aᵀ·x = e_out, i.e. a unit current injected at the output.
     const adjointRhs = Array.from({ length: model.size }, () => complex(0))

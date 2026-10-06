@@ -2,18 +2,26 @@ import { describe, expect, it } from 'vitest'
 import { spiceEngine, type CircuitNetlist, type Component, type SimulationResult } from './spiceEngine'
 import {
   bjtBias,
+  evaluateBehavioral,
+  jfetBias,
+  jfetRegion,
   mosfetBias,
   mosfetRegion,
   opAmpLimiter,
   opAmpOutputRange,
   opAmpParameters,
   opAmpStage,
+  stampBehavioralSource,
+  switchConductance,
+  switchOnWithHysteresis,
   type OpAmpOutputRange,
 } from './semiconductors'
 import {
+  parseSpiceValue,
   thermalVoltage,
   waveformValue,
   type BjtDevice,
+  type JfetDevice,
   type MosfetDevice,
   type SourceWaveform,
 } from './devices'
@@ -62,6 +70,32 @@ const mosfet = (
   nodes: [string, string, string] | [string, string, string, string],
   parameters: Record<string, string | number>,
 ): Component => ({ type: 'n_channel_mosfet', name, nodes, parameters })
+
+const jfet = (
+  name: string,
+  nodes: [string, string, string],
+  parameters: Record<string, string | number>,
+): Component => ({ type: 'n_channel_jfet', name, nodes, parameters })
+
+const voltageSwitch = (
+  name: string,
+  nodes: [string, string, string, string],
+  parameters: Record<string, string | number>,
+): Component => ({ type: 'voltage_controlled_switch', name, nodes, parameters })
+
+const currentSwitch = (name: string, nodes: [string, string], parameters: Record<string, string | number>): Component => ({
+  type: 'current_controlled_switch',
+  name,
+  nodes,
+  parameters,
+})
+
+const behavioral = (name: string, nodes: [string, string], parameters: Record<string, string | number>): Component => ({
+  type: 'behavioral_source',
+  name,
+  nodes,
+  parameters,
+})
 
 /** A source carrying an explicit waveform, as the PULSE/SINE symbols do. */
 const pulse = (
@@ -818,5 +852,311 @@ describe('source waveforms', () => {
     expect(trough).toBeGreaterThan(9)
     // Inverted, and confined to the supply rails.
     expect(peak).toBeLessThan(trough)
+  })
+})
+
+describe('spice value parsing', () => {
+  it('reads scale prefixes with trailing units', () => {
+    expect(parseSpiceValue('1mA', 'test')).toBeCloseTo(1e-3, 12)
+    expect(parseSpiceValue('2.2k', 'test')).toBeCloseTo(2200, 9)
+    expect(parseSpiceValue('10uF', 'test')).toBeCloseTo(10e-6, 15)
+    expect(parseSpiceValue('5V', 'test')).toBe(5)
+    expect(parseSpiceValue('100dB', 'test')).toBe(100)
+  })
+
+  it('treats every spelling of the micro sign as the ASCII u prefix', () => {
+    // U+00B5 MICRO SIGN, U+03BC GREEK SMALL LETTER MU, U+039C CAPITAL MU —
+    // all three look like "µ"/"μ" in a parts list and must scale identically.
+    expect(parseSpiceValue('1µF', 'test')).toBe(parseSpiceValue('1uF', 'test'))
+    expect(parseSpiceValue('1μF', 'test')).toBe(parseSpiceValue('1uF', 'test'))
+    expect(parseSpiceValue('1ΜF', 'test')).toBe(parseSpiceValue('1uF', 'test'))
+    expect(parseSpiceValue('1µ', 'test')).toBeCloseTo(1e-6, 18)
+    // A bare micro sign after the digits is a scale, not a unit word.
+    expect(parseSpiceValue('47µs', 'test')).toBeCloseTo(47e-6, 18)
+  })
+
+  it('accepts ohm symbols as trailing units', () => {
+    expect(parseSpiceValue('4.7kΩ', 'test')).toBeCloseTo(4700, 9)
+    expect(parseSpiceValue('1Ω', 'test')).toBe(1)
+    expect(parseSpiceValue('10M', 'test')).toBeCloseTo(0.01, 12)
+  })
+})
+
+describe('level-1 JFET', () => {
+  const device = (overrides?: Partial<JfetDevice['model']>): JfetDevice => ({
+    kind: 'jfet',
+    name: 'J1',
+    p: 'D',
+    n: 'S',
+    d: 'D',
+    g: 'G',
+    s: 'S',
+    polarity: 'n',
+    model: { beta: 1e-3, vto: -2, lambda: 0, is: 1e-14, n: 1, cgs: 0, cgd: 0, ...overrides },
+  })
+
+  it('is off below pinch-off and follows the square law above it', () => {
+    const off = jfetBias(device(), -3, 5, thermal)
+    expect(off.id).toBe(0)
+    expect(off.gm).toBe(0)
+    expect(jfetRegion(off)).toBe('cutoff')
+    const on = jfetBias(device(), 0, 5, thermal)
+    expect(on.id).toBeCloseTo(4e-3, 9)
+    expect(on.gm).toBeCloseTo(2 * 1e-3 * 2, 9)
+    expect(jfetRegion(on)).toBe('saturation')
+    const triode = jfetBias(device(), 0, 1, thermal)
+    expect(triode.id).toBeCloseTo(1e-3 * 1 * (4 - 1), 9)
+    expect(jfetRegion(triode)).toBe('triode')
+  })
+
+  it('rises with channel-length modulation like 1 + λ·vds', () => {
+    const plain = jfetBias(device(), 0, 5, thermal)
+    const modulated = jfetBias(device({ lambda: 0.02 }), 0, 5, thermal)
+    expect(modulated.id).toBeCloseTo(plain.id * 1.1, 9)
+    expect(modulated.gds).toBeGreaterThan(0)
+  })
+
+  it('biases a self-biased stage where the source resistor sets the current', async () => {
+    const result = await spiceEngine.simulate(
+      netlist(
+        [
+          dc('VDD', ['VDD', '0'], 12),
+          resistor('RG', ['G', '0'], '1MEG'),
+          resistor('RS', ['S', '0'], '1k'),
+          resistor('RD', ['VDD', 'D'], '2.2k'),
+          jfet('J1', ['D', 'G', 'S'], { beta: 1e-3, vto: -2 }),
+        ],
+        [{ type: 'dc' }],
+      ),
+    )
+    expect(result.success).toBe(true)
+    expect(result.operatingPoint).toBeDefined()
+    expect(voltageAt(result, 'S')).toBeGreaterThan(1)
+    expect(voltageAt(result, 'S')).toBeLessThan(2.2)
+    expect(voltageAt(result, 'D')).toBeGreaterThan(6)
+    expect(voltageAt(result, 'D')).toBeLessThan(11)
+  })
+})
+
+describe('voltage- and current-controlled switches', () => {
+  it('holds hysteresis between vt − vh and vt + vh', () => {
+    expect(switchOnWithHysteresis(undefined, 1, 0.5, 0.1)).toBe(true)
+    expect(switchOnWithHysteresis(undefined, 0, 0.5, 0.1)).toBe(false)
+    expect(switchOnWithHysteresis(true, 0.55, 0.5, 0.1)).toBe(true)
+    expect(switchOnWithHysteresis(false, 0.55, 0.5, 0.1)).toBe(false)
+    expect(switchOnWithHysteresis(undefined, 0.5, 0.5, 0)).toBe(true)
+    expect(switchOnWithHysteresis(undefined, 0.499, 0.5, 0)).toBe(false)
+  })
+
+  it('conducts through ron when closed and blocks through roff when open', () => {
+    const closed = switchConductance(
+      { kind: 'voltage-switch', name: 'S1', p: 'A', n: 'B', ip: 'C', inn: '0', ron: 2, roff: 1e6, vt: 0.5, vh: 0 },
+      true,
+    )
+    expect(closed).toBeCloseTo(0.5, 12)
+    const open = switchConductance(
+      { kind: 'voltage-switch', name: 'S1', p: 'A', n: 'B', ip: 'C', inn: '0', ron: 2, roff: 1e6, vt: 0.5, vh: 0 },
+      false,
+    )
+    expect(open).toBeCloseTo(1e-6, 18)
+  })
+
+  it('closes a voltage-controlled switch above its threshold', async () => {
+    const result = await spiceEngine.simulate(
+      netlist(
+        [
+          dc('VDD', ['VDD', '0'], 5),
+          dc('VC', ['C', '0'], 1),
+          resistor('R1', ['VDD', 'OUT'], '1k'),
+          resistor('R2', ['OUT', '0'], '1k'),
+          voltageSwitch('S1', ['OUT', '0', 'C', '0'], { ron: 1, roff: '1MEG', vt: 0.5, vh: 0 }),
+        ],
+        [{ type: 'dc' }],
+      ),
+    )
+    expect(result.success).toBe(true)
+    expect(voltageAt(result, 'OUT')).toBeLessThan(0.05)
+  })
+
+  it('leaves a voltage-controlled switch open below its threshold', async () => {
+    const result = await spiceEngine.simulate(
+      netlist(
+        [
+          dc('VDD', ['VDD', '0'], 5),
+          dc('VC', ['C', '0'], 0),
+          resistor('R1', ['VDD', 'OUT'], '1k'),
+          resistor('R2', ['OUT', '0'], '1k'),
+          voltageSwitch('S1', ['OUT', '0', 'C', '0'], { ron: 1, roff: '1MEG', vt: 0.5, vh: 0 }),
+        ],
+        [{ type: 'dc' }],
+      ),
+    )
+    expect(result.success).toBe(true)
+    expect(voltageAt(result, 'OUT')).toBeCloseTo(2.5, 2)
+  })
+
+  it('closes a current-controlled switch when the sense current exceeds it', async () => {
+    /*
+     * Direct unit check of the stamp path: with 5 mA on the VSENSE branch row
+     * the switch must conduct through ron. This isolates the S/W companion
+     * from the surrounding divider, which the open/closed V-switch tests
+     * already cover end to end.
+     */
+    const { buildCircuitModel } = await import('./circuitModel')
+    const { createRealSystem } = await import('./stamping')
+    const { createSemiconductorState, switchConductance } = await import('./semiconductors')
+    const { thermalVoltage } = await import('./devices')
+    const { stampSemiconductorNonlinear } = await import('./semiconductors')
+    const { model, errors } = buildCircuitModel({
+      title: 'w-switch',
+      components: [
+        { type: 'voltage_source', name: 'VSENSE', nodes: ['S', '0'], parameters: { value: 0 } },
+        currentSwitch('W1', ['OUT', '0'], { control: 'VSENSE', ron: 1, roff: '1MEG', it: '1mA', ih: 0 }),
+        { type: 'resistor', name: 'R1', nodes: ['OUT', '0'], parameters: { value: '1k' } },
+      ],
+      analyses: [{ type: 'dc' }],
+    })
+    expect(errors).toEqual([])
+    const w1 = model.devices.find((device) => device.name === 'W1')
+    expect(w1?.kind).toBe('current-switch')
+    if (w1?.kind !== 'current-switch') throw new Error('W1 did not classify as a current switch')
+    expect(w1.controlSource).toBe('VSENSE')
+    const system = createRealSystem(model)
+    const state = createSemiconductorState(model, thermalVoltage(27))
+    const row = model.branchRows.get('VSENSE')
+    expect(row).toBeDefined()
+    stampSemiconductorNonlinear(system, model, state, thermalVoltage(27), new Map([['S', 0], ['OUT', 0]]), 1e-12, {
+      currents: new Map([['VSENSE', 5e-3]]),
+      time: 0,
+    })
+    expect(row).toBeDefined()
+    expect(state.switchOn.get('W1')).toBe(true)
+    expect(switchConductance(model.devices.find((device) => device.name === 'W1') as never, true)).toBeCloseTo(1, 12)
+  })
+})
+
+describe('behavioral sources', () => {
+  it('evaluates arithmetic, probes and functions without eval', () => {
+    const voltages = new Map([
+      ['IN', 3],
+      ['0', 0],
+    ])
+    const currents = new Map<string, number>()
+    expect(evaluateBehavioral({ rpn: [2, 3, '+'], probes: [] }, voltages, currents, 0)).toBe(5)
+    expect(
+      evaluateBehavioral(
+        { rpn: ['P0', 'P1', '-'], probes: [{ kind: 'voltage', node: 'IN' }, { kind: 'voltage', node: '0' }] },
+        voltages,
+        currents,
+        0,
+      ),
+    ).toBe(3)
+    expect(evaluateBehavioral({ rpn: ['T', 2, '*'], probes: [] }, voltages, currents, 1.5)).toBe(3)
+    expect(evaluateBehavioral({ rpn: [9, 'F:sqrt:1'], probes: [] }, voltages, currents, 0)).toBe(3)
+  })
+
+  it('buffers a divided voltage through V = V(MID)', async () => {
+    const result = await spiceEngine.simulate(
+      netlist(
+        [
+          dc('V1', ['IN', '0'], 4),
+          resistor('R1', ['IN', 'MID'], '1k'),
+          resistor('R2', ['MID', '0'], '1k'),
+          behavioral('B1', ['OUT', '0'], { v: 'V(MID)' }),
+          resistor('RL', ['OUT', '0'], '10k'),
+        ],
+        [{ type: 'dc' }],
+      ),
+    )
+    expect(result.success).toBe(true)
+    expect(voltageAt(result, 'OUT')).toBeCloseTo(2, 3)
+  })
+
+  it('reports an unknown probe as a model error, not a silent zero', async () => {
+    const result = await spiceEngine.simulate(
+      netlist([behavioral('B1', ['OUT', '0'], { v: 'V(NOWHERE)' }), resistor('RL', ['OUT', '0'], '1k')], [{ type: 'dc' }]),
+    )
+    expect(result.success).toBe(false)
+    expect(result.error ?? result.notes?.join(' ') ?? '').toMatch(/NOWHERE/)
+  })
+
+  it('stamps a constant source without touching the matrix shape', () => {
+    const system = { matrix: [] as number[][], rhs: [] as number[] }
+    const model = { devices: [], nodeIndex: new Map(), branchRows: new Map(), nodeNames: [], size: 0 } as never
+    expect(() =>
+      stampBehavioralSource(
+        system,
+        model,
+        { kind: 'behavioral-source', name: 'B1', p: 'OUT', n: '0', output: 'v', expression: '5' },
+        new Map(),
+        new Map(),
+        0,
+      ),
+    ).not.toThrow()
+  })
+})
+
+describe('remaining source waveforms', () => {
+  it('rises and falls like a double exponential', () => {
+    expect(waveformValue({ kind: 'exp', v1: 0, v2: 5, td1: 0, tau1: 1e-6, td2: 5e-6, tau2: 1e-6 }, 0)).toBe(0)
+    expect(waveformValue({ kind: 'exp', v1: 0, v2: 5, td1: 0, tau1: 1e-6, td2: 5e-6, tau2: 1e-6 }, 1e-6)).toBeCloseTo(
+      5 * (1 - 1 / Math.E),
+      6,
+    )
+    expect(waveformValue({ kind: 'exp', v1: 0, v2: 5, td1: 0, tau1: 1e-6, td2: 5e-6, tau2: 1e-6 }, 20e-6)).toBeLessThan(
+      0.01,
+    )
+  })
+
+  it('frequency-modulates a carrier like SFFM', () => {
+    expect(waveformValue({ kind: 'sffm', vo: 0, va: 2, fc: 1000, mdi: 0, fs: 100 }, 0.00025)).toBeCloseTo(2, 6)
+    expect(waveformValue({ kind: 'sffm', vo: 1, va: 2, fc: 1000, mdi: 0, fs: 100 }, 0)).toBeCloseTo(1, 9)
+  })
+
+  it('interpolates PWL corners linearly and holds the ends', () => {
+    const pwl: SourceWaveform = {
+      kind: 'pwl',
+      points: [
+        { time: 0, value: 0 },
+        { time: 1e-6, value: 5 },
+        { time: 2e-6, value: 0 },
+      ],
+    }
+    expect(waveformValue(pwl, -1e-9)).toBe(0)
+    expect(waveformValue(pwl, 0.5e-6)).toBeCloseTo(2.5, 9)
+    expect(waveformValue(pwl, 1e-6)).toBeCloseTo(5, 9)
+    expect(waveformValue(pwl, 5e-6)).toBe(0)
+  })
+
+  it('drives an EXP edge into an RC load', async () => {
+    const result = await spiceEngine.simulate(
+      netlist(
+        [
+          source('V1', ['IN', '0'], { type: 'exp', v1: 0, v2: 1, td1: 0, tau1: 1e-6, td2: 1, tau2: 1e-6 }),
+          resistor('R1', ['IN', 'OUT'], '1k'),
+          capacitor('C1', ['OUT', '0'], '10n'),
+        ],
+        [{ type: 'transient', stopTime: 20e-6, stepTime: 1e-7 }],
+      ),
+    )
+    expect(result.success).toBe(true)
+    // τ = RC = 10 µs against a 1 µs edge: two time constants in, OUT has
+    // followed IN most of the way to its ~1 V level.
+    expect(waveformAt(result, 'V(OUT)', 20e-6)).toBeGreaterThan(0.5)
+  })
+
+  it('replays PWL corners through a wire', async () => {
+    const result = await spiceEngine.simulate(
+      netlist(
+        [
+          source('V1', ['IN', '0'], { type: 'pwl', points: '0,0 1u,5 2u,0' }),
+          resistor('R1', ['IN', 'OUT'], '1k'),
+          resistor('R2', ['OUT', '0'], '1MEG'),
+        ],
+        [{ type: 'transient', stopTime: 2e-6, stepTime: 1e-7 }],
+      ),
+    )
+    expect(result.success).toBe(true)
+    expect(waveformAt(result, 'V(OUT)', 1e-6)).toBeCloseTo(5, 0)
   })
 })

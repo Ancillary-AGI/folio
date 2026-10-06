@@ -17,14 +17,20 @@ const SUFFIX_SCALES: Readonly<Record<string, number>> = {
   m: 1e-3,
   mil: 25.4e-6,
   u: 1e-6,
-  'µ': 1e-6,
-  'μ': 1e-6,
   n: 1e-9,
   p: 1e-12,
   f: 1e-15,
 }
 
-const VALUE_PATTERN = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)\s*([a-zµμ]*)$/i
+const VALUE_PATTERN = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)\s*([a-zΩω℧]*)$/i
+
+/**
+ * The micro sign (`µ`, U+00B5) and Greek mu (`μ`, U+03BC) look identical and
+ * users paste either one — plus capital Mu from a formula sheet. They are all
+ * folded to SPICE's ASCII `u` before anything else looks at the text, so the
+ * scale table keeps one spelling instead of twin keys that read as a duplicate.
+ */
+const normalizeMicroSigns = (text: string): string => text.replace(/[µμ]/gi, 'u')
 
 /**
  * Parse a SPICE-style engineering value: `4.7k`, `10u`, `2.2MEG`, `100n`, `1e-3`.
@@ -43,14 +49,40 @@ export function parseSpiceValue(
   }
   if (rawValue === undefined) throw new Error(`${label} is missing`)
 
-  const match = VALUE_PATTERN.exec(rawValue.trim())
+  const match = VALUE_PATTERN.exec(normalizeMicroSigns(rawValue.trim()))
   if (!match) throw new Error(`${label} is not a valid SPICE value: "${rawValue}"`)
 
   const magnitude = Number(match[1])
-  // Trailing unit words ("10kohm", "1uF") resolve to the same prefix.
-  const suffix = match[2].toLowerCase().replace(/^(ohms?|farads?|henrys?|volts?|amps?|secs?)$/i, '')
-  const prefix = /^(meg|mil|.)$/.exec(suffix)?.[1] ?? ''
-  const scale = SUFFIX_SCALES[prefix] ?? 1
+  /*
+   * Trailing units ("10kohm", "1uF", "1mA", "5V", "4.7kΩ"): strip a
+   * leading SI word or symbol, then read the longest known scale prefix.
+   * `m` before `a` is milli (1mA = 1e-3), while a bare `m` alone is also
+   * milli and a bare `a`/`v`/… alone is a unit with scale 1 — so "1m" is
+   * 1e-3 but "5V" is 5, never 5e15.
+   */
+  const suffix = match[2].toLowerCase()
+  const unitStripped = suffix.replace(
+    /^(ohms?|ohms|farads?|henrys?|henries|volts?|amps?|amperes?|seconds?|secs?|hertz|hz|siemens|watts?|joules?|coulombs?|teslas?|webers?|Ω|ω|℧)$/,
+    '',
+  )
+  const scaleKeys = Object.keys(SUFFIX_SCALES).sort((a, b) => b.length - a.length)
+  let prefix = ''
+  for (const key of scaleKeys) {
+    if (unitStripped === key || (key.length === 3 && unitStripped.startsWith(key))) {
+      prefix = key
+      break
+    }
+  }
+  if (prefix === '' && unitStripped.length > 0) {
+    const first = unitStripped[0]
+    // A lone unit letter ("5V", "1A", "2s") is scale 1, not a prefix: only
+    // the known scale letters (t g k m u n p f) count, and `m` alone IS milli.
+    // (Micro signs were already folded to `u` above.)
+    if (first === 't' || first === 'g' || first === 'k' || first === 'm' || first === 'u' || first === 'n' || first === 'p' || first === 'f') {
+      prefix = first
+    }
+  }
+  const scale = prefix === '' ? 1 : (SUFFIX_SCALES[prefix] ?? 1)
   const value = magnitude * scale
 
   if (!Number.isFinite(value)) throw new Error(`${label} is outside the supported numeric range`)
@@ -99,6 +131,10 @@ export type DeviceKind =
   | 'diode'
   | 'bjt'
   | 'mosfet'
+  | 'jfet'
+  | 'voltage-switch'
+  | 'current-switch'
+  | 'behavioral-source'
   | 'op-amp'
   | 'vcvs'
   | 'vccs'
@@ -153,7 +189,7 @@ export interface DiodeDevice extends DeviceBase {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Transient source waveforms (SPICE PULSE and SINE semantics)
+ * Transient source waveforms (SPICE PULSE, SINE, EXP, SFFM and PWL semantics)
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export interface PulseWaveform {
@@ -190,7 +226,48 @@ export interface SineWaveform {
   td: number
 }
 
-export type SourceWaveform = PulseWaveform | SineWaveform
+export type SourceWaveform =
+  | PulseWaveform
+  | SineWaveform
+  | ExpWaveform
+  | SffmWaveform
+  | PwlWaveform
+
+export interface ExpWaveform {
+  kind: 'exp'
+  /** Initial value. */
+  v1: number
+  /** Pulsed value. */
+  v2: number
+  /** Rise delay time, seconds. */
+  td1: number
+  /** Rise time constant, seconds. */
+  tau1: number
+  /** Fall delay time, seconds. */
+  td2: number
+  /** Fall time constant, seconds. */
+  tau2: number
+}
+
+export interface SffmWaveform {
+  kind: 'sffm'
+  /** Offset voltage. */
+  vo: number
+  /** Amplitude. */
+  va: number
+  /** Carrier frequency, Hz. */
+  fc: number
+  /** Modulation index. */
+  mdi: number
+  /** Signal frequency, Hz. */
+  fs: number
+}
+
+export interface PwlWaveform {
+  kind: 'pwl'
+  /** Time/value corners, strictly increasing in time. */
+  points: Array<{ time: number; value: number }>
+}
 
 /**
  * Evaluate a source waveform at `time`.
@@ -209,11 +286,46 @@ export function waveformValue(waveform: SourceWaveform, time: number): number {
     if (phase < tr + pw + tf) return v2 + ((v1 - v2) * (phase - tr - pw)) / tf
     return v1
   }
-  const { vo, va, freq, theta, phase, td } = waveform
-  if (time < td) return vo
-  const elapsed = time - td
-  const angle = 2 * Math.PI * freq * elapsed + (phase * Math.PI) / 180
-  return vo + va * Math.exp(-theta * elapsed) * Math.sin(angle)
+  if (waveform.kind === 'sine') {
+    if (time < waveform.td) return waveform.vo
+    const elapsed = time - waveform.td
+    const angle = 2 * Math.PI * waveform.freq * elapsed + (waveform.phase * Math.PI) / 180
+    return waveform.vo + waveform.va * Math.exp(-waveform.theta * elapsed) * Math.sin(angle)
+  }
+  if (waveform.kind === 'exp') return expWaveformValue(waveform, time)
+  if (waveform.kind === 'sffm') {
+    const radians = 2 * Math.PI * waveform.fc * time + waveform.mdi * Math.sin(2 * Math.PI * waveform.fs * time)
+    return waveform.vo + waveform.va * Math.sin(radians)
+  }
+  const points = waveform.points
+  if (points.length === 0) return 0
+  if (time <= points[0].time) return points[0].value
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1]
+    const current = points[index]
+    if (time <= current.time) {
+      const span = current.time - previous.time
+      if (!(span > 0)) return current.value
+      const fraction = (time - previous.time) / span
+      return previous.value + fraction * (current.value - previous.value)
+    }
+  }
+  return points[points.length - 1].value
+}
+
+/**
+ * Double-exponential pulse, SPICE `EXP(v1 v2 td1 tau1 td2 tau2)`: exponential
+ * rise toward `v2` from `td1`, then exponential decay back toward `v1` from
+ * `td2`.
+ */
+export function expWaveformValue(waveform: ExpWaveform, time: number): number {
+  if (time < waveform.td1) return waveform.v1
+  const tau1 = waveform.tau1 > 0 ? waveform.tau1 : Number.EPSILON
+  const rise = 1 - Math.exp(-(Math.min(time, waveform.td2) - waveform.td1) / tau1)
+  const level = waveform.v1 + (waveform.v2 - waveform.v1) * rise
+  if (time < waveform.td2) return level
+  const tau2 = waveform.tau2 > 0 ? waveform.tau2 : Number.EPSILON
+  return waveform.v1 + (level - waveform.v1) * Math.exp(-(time - waveform.td2) / tau2)
 }
 
 /**
@@ -224,7 +336,16 @@ export function waveformValue(waveform: SourceWaveform, time: number): number {
  */
 export function sourceDcValue(dcValue: number, waveform: SourceWaveform | undefined): number {
   if (!waveform) return dcValue
-  return waveform.kind === 'pulse' ? waveform.v1 : waveform.vo
+  switch (waveform.kind) {
+    case 'pulse':
+    case 'exp':
+      return waveform.v1
+    case 'sine':
+    case 'sffm':
+      return waveform.vo
+    case 'pwl':
+      return waveform.points.length > 0 ? waveform.points[0].value : dcValue
+  }
 }
 
 /** Transient value of a source at `time`. */
@@ -378,6 +499,80 @@ export interface OpAmpDevice extends DeviceBase {
   dropout: number
 }
 
+export interface JfetModelParams {
+  /** Transconductance coefficient, A/V². */
+  beta: number
+  /** Threshold (pinch-off) voltage, V (negative for N-channel). */
+  vto: number
+  /** Channel-length modulation, 1/V. */
+  lambda: number
+  /** Gate junction saturation current, A. */
+  is: number
+  /** Gate emission coefficient. */
+  n: number
+  /** Gate–source capacitance, F. */
+  cgs: number
+  /** Gate–drain capacitance, F. */
+  cgd: number
+}
+
+export interface JfetDevice extends DeviceBase {
+  kind: 'jfet'
+  /** Drain, gate and source nodes (SPICE J order: drain, gate, source). */
+  d: string
+  g: string
+  s: string
+  /** N-channel or P-channel. */
+  polarity: 'n' | 'p'
+  model: JfetModelParams
+}
+
+export interface VoltageSwitchDevice extends DeviceBase {
+  kind: 'voltage-switch'
+  /** Switched terminals. */
+  p: string
+  n: string
+  /** Controlling nodes (in+, in−). */
+  ip: string
+  inn: string
+  /** On resistance, Ω. */
+  ron: number
+  /** Off resistance, Ω. */
+  roff: number
+  /** Threshold voltage, V. */
+  vt: number
+  /** Hysteresis voltage, V. */
+  vh: number
+}
+
+export interface CurrentSwitchDevice extends DeviceBase {
+  kind: 'current-switch'
+  /** Switched terminals. */
+  p: string
+  n: string
+  /** Name of the controlling voltage source (SPICE W ordering). */
+  controlSource: string
+  /** On resistance, Ω. */
+  ron: number
+  /** Off resistance, Ω. */
+  roff: number
+  /** Threshold current, A. */
+  it: number
+  /** Hysteresis current, A. */
+  ih: number
+}
+
+export interface BehavioralSourceDevice extends DeviceBase {
+  kind: 'behavioral-source'
+  /** Output terminals. */
+  p: string
+  n: string
+  /** Output is a voltage (`v`) or a current (`i`). */
+  output: 'v' | 'i'
+  /** Expression in `V(node)` / `I(source)` / numbers / +-*\/^ / functions. */
+  expression: string
+}
+
 export interface VcvsDevice extends DeviceBase {
   kind: 'vcvs'
   /** Controlling input nodes (in+, in−). Floated first, constrained by the branch row. */
@@ -405,6 +600,10 @@ export type Device =
   | BjtDevice
   | MosfetDevice
   | OpAmpDevice
+  | JfetDevice
+  | VoltageSwitchDevice
+  | CurrentSwitchDevice
+  | BehavioralSourceDevice
   | VcvsDevice
   | VccsDevice
 
@@ -441,6 +640,18 @@ export function deviceNodes(device: Device): string[] {
       push(device.internal)
       if (device.vPlusNode !== undefined) push(device.vPlusNode)
       if (device.vMinusNode !== undefined) push(device.vMinusNode)
+      break
+    case 'jfet':
+      push(device.d)
+      push(device.g)
+      push(device.s)
+      break
+    case 'voltage-switch':
+    case 'current-switch':
+    case 'behavioral-source':
+      push(device.p)
+      push(device.n)
+      // Control draws no current; discovered only when wired elsewhere.
       break
     case 'vcvs':
       push(device.p)

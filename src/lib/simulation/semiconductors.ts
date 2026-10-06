@@ -5,7 +5,7 @@
  * The equations here are the ones SPICE itself uses, transcribed from the
  * reference implementation (ngspice `bjtload.c` / `bjttemp.c` and
  * `mos1load.c`), so a model card that came from a manufacturer library behaves
- * the same way in Folio as it does in LTspice or ngspice:
+ * the same way in Folio as it does in reference SPICE:
  *
  *  • BJT — full Gummel–Poon: base charge `qb` from the Early voltages and the
  *    high-current rolloff corners, leakage diodes (ISE/ISC), ideal and
@@ -24,10 +24,26 @@
  * on a stiff bias point.
  */
 
-import { type BjtDevice, type MosfetDevice, type OpAmpDevice } from './devices'
-import type { CircuitModel } from './circuitModel'
+import {
+  type BehavioralSourceDevice,
+  type BjtDevice,
+  type CurrentSwitchDevice,
+  type JfetDevice,
+  type MosfetDevice,
+  type OpAmpDevice,
+  type VoltageSwitchDevice,
+} from './devices'
+import type { BehavioralExpression, CircuitModel } from './circuitModel'
+import { behavioralCompiled, BEHAVIORAL_FUNCTIONS, type BehavioralNode } from './circuitModel'
 import { cAdd, cSub, complex, type Complex } from './numeric'
-import type { ComplexSystem, RealSystem, TransientState } from './stamping'
+import {
+  addConductance,
+  addCurrentInjection,
+  addVoltageConstraint,
+  type ComplexSystem,
+  type RealSystem,
+  type TransientState,
+} from './stamping'
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Numeric helpers
@@ -71,19 +87,6 @@ function addEntry(system: RealSystem, model: CircuitModel, row: string, column: 
 function addSource(system: RealSystem, model: CircuitModel, node: string, value: number): void {
   const i = model.nodeIndex.get(node)
   if (i !== undefined) system.rhs[i] += value
-}
-
-export function addConductance(
-  system: RealSystem,
-  model: CircuitModel,
-  p: string,
-  n: string,
-  g: number,
-): void {
-  addEntry(system, model, p, p, g)
-  addEntry(system, model, n, n, g)
-  addEntry(system, model, p, n, -g)
-  addEntry(system, model, n, p, -g)
 }
 
 /**
@@ -400,6 +403,80 @@ export function stampBjtSmallSignal(
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
+ * JFET: SPICE level-1 (Shichman–Hodges for depletion devices)
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export interface JfetBias {
+  /** Forward-positive biases (mirror-corrected for a P-channel part). */
+  vgs: number
+  vds: number
+  /** Drain current in the N-channel sense, A. */
+  id: number
+  /** Channel Jacobian, S: ∂id/∂vgs, ∂id/∂vds. */
+  gm: number
+  gds: number
+  /** Effective pinch-off including nothing (no body effect on a JFET), V. */
+  von: number
+  /** Gate diode current into the gate, A, and its conductance, S. */
+  ig: number
+  gg: number
+}
+
+/** Region of operation, used in notes and tests. */
+export type JfetRegion = 'cutoff' | 'triode' | 'saturation'
+
+/**
+ * Level-1 JFET bias point (the SPICE `jfet` model).
+ *
+ * Square law with threshold `VTO` (negative for N-channel): for
+ * `vgs > vto`, `id = beta·(vgs−vto)²·(1+λ·vds)` in saturation and
+ * `id = beta·vds·(2·(vgs−vto)−vds)·(1+λ·vds)` in triode. Below threshold the
+ * channel is off. The gate junction is a diode that clamps a forward-biased
+ * gate; the reverse gate current is the saturation current.
+ */
+export function jfetBias(device: JfetDevice, vgs: number, vds: number, thermal: number): JfetBias {
+  const m = device.model
+  const vto = device.polarity === 'n' ? -Math.abs(m.vto) : Math.abs(m.vto)
+  const vgst = vgs - vto
+  let id = 0
+  let gm = 0
+  let gds = 0
+  if (vgst > 0) {
+    if (vds < 0) {
+      // Reverse Vds: source and drain swap roles, exactly as the MOSFET does
+      // with its symmetric channel. Without this a self-biased stage whose
+      // first iterate lands Vds < 0 reads Id = 0 and latches there.
+      const vsd = -vds
+      const factor = 1 + m.lambda * vsd
+      if (vsd < vgst) {
+        id = -m.beta * (2 * vgst * vsd - vsd * vsd) * factor
+        gm = -2 * m.beta * vsd * factor
+        gds = m.beta * (2 * (vgst - vsd) * factor + m.lambda * (2 * vgst * vsd - vsd * vsd))
+      } else {
+        id = -m.beta * vgst * vgst * factor
+        gm = -2 * m.beta * vgst * factor
+        gds = m.beta * vgst * vgst * m.lambda
+      }
+    } else {
+      const factor = 1 + m.lambda * vds
+      if (vds < vgst) {
+        id = m.beta * (2 * vgst * vds - vds * vds) * factor
+        gm = 2 * m.beta * vds * factor
+        gds = m.beta * (2 * (vgst - vds) * factor + m.lambda * (2 * vgst * vds - vds * vds))
+      } else {
+        id = m.beta * vgst * vgst * factor
+        gm = 2 * m.beta * vgst * factor
+        gds = m.beta * vgst * vgst * m.lambda
+      }
+    }
+  }
+  const gateExp = safeExp(vgs / (m.n * thermal))
+  const ig = m.is * (gateExp - 1)
+  const gg = (m.is * gateExp) / (m.n * thermal)
+  return { vgs, vds, id, gm, gds, von: vto, ig, gg }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
  * MOSFET: level-1 Shichman–Hodges
  * ──────────────────────────────────────────────────────────────────────────── */
 
@@ -481,6 +558,92 @@ export function mosfetBias(
   const gbs = (m.is * bodyExp) / (m.n * thermal)
 
   return { vgs, vds, vbs, id, gm, gds, gmb, von, ibs, gbs, cgs: m.cgs, cgd: m.cgd }
+}
+
+/** Region of operation at a bias point (for notes, tests and reports). */
+export function jfetRegion(bias: JfetBias): JfetRegion {
+  const vgst = bias.vgs - bias.von
+  if (vgst <= 0) return 'cutoff'
+  return bias.vds < vgst ? 'triode' : 'saturation'
+}
+
+/** Forward-positive gate/source voltages of a JFET at a set of node voltages. */
+export function jfetBiasAt(device: JfetDevice, voltages: ReadonlyMap<string, number>, thermal: number): JfetBias {
+  const s = device.polarity === 'n' ? 1 : -1
+  const source = voltages.get(device.s) ?? 0
+  return jfetBias(device, s * ((voltages.get(device.g) ?? 0) - source), s * ((voltages.get(device.d) ?? 0) - source), thermal)
+}
+
+/**
+ * Newton companion stamp for one JFET — the same Norton form as the MOSFET
+ * (channel current plus gate diode), minus the bulk terminal.
+ */
+export function stampJfet(
+  system: RealSystem,
+  model: CircuitModel,
+  device: JfetDevice,
+  bias: JfetBias,
+  gmin: number,
+): void {
+  const s = device.polarity === 'n' ? 1 : -1
+  const constant = s * (bias.id - bias.gm * bias.vgs - bias.gds * bias.vds)
+  const coefficients: Array<[string, number]> = [
+    [device.g, bias.gm],
+    [device.d, bias.gds],
+    [device.s, -(bias.gm + bias.gds)],
+  ]
+  for (const [node, value] of coefficients) {
+    addEntry(system, model, device.d, node, value)
+    addEntry(system, model, device.s, node, -value)
+  }
+  addSource(system, model, device.d, -constant)
+  addSource(system, model, device.s, constant)
+
+  // Gate junction (forward diode; reverse leakage is the saturation current).
+  const gateConstant = s * (bias.ig - bias.gg * bias.vgs)
+  addEntry(system, model, device.g, device.g, bias.gg)
+  addEntry(system, model, device.g, device.s, -bias.gg)
+  addEntry(system, model, device.s, device.g, -bias.gg)
+  addEntry(system, model, device.s, device.s, bias.gg)
+  addSource(system, model, device.g, -gateConstant)
+  addSource(system, model, device.s, gateConstant)
+
+  addConductance(system, model, device.d, device.s, gmin)
+}
+
+/** Transient companions for the fixed gate capacitances. */
+export function stampJfetCharges(
+  system: RealSystem,
+  model: CircuitModel,
+  device: JfetDevice,
+  state: TransientState,
+  dt: number,
+): void {
+  const previous = state.jfetBias.get(device.name) ?? { vgs: 0, vds: 0, cgs: device.model.cgs, cgd: device.model.cgd }
+  const s = device.polarity === 'n' ? 1 : -1
+  addCapacitorCompanion(system, model, device.g, device.s, previous.cgs, dt, s * previous.vgs)
+  addCapacitorCompanion(system, model, device.g, device.d, previous.cgd, dt, s * (previous.vgs - previous.vds))
+}
+
+/** Small-signal JFET at the DC bias point. */
+export function stampJfetSmallSignal(
+  system: ComplexSystem,
+  model: CircuitModel,
+  device: JfetDevice,
+  bias: JfetBias,
+  omega: number,
+): void {
+  const coefficients: Array<[string, number]> = [
+    [device.g, bias.gm],
+    [device.d, bias.gds],
+    [device.s, -(bias.gm + bias.gds)],
+  ]
+  for (const [node, value] of coefficients) {
+    addComplexEntry(system, model, device.d, node, complex(value))
+    addComplexEntry(system, model, device.s, node, complex(-value))
+  }
+  addComplexAdmittance(system, model, device.g, device.s, complex(bias.gg, omega * device.model.cgs))
+  addComplexAdmittance(system, model, device.g, device.d, complex(0, omega * device.model.cgd))
 }
 
 /** Region of operation at a bias point (for notes, tests and reports). */
@@ -824,7 +987,10 @@ export function stampOpAmpSmallSignal(
 export interface SemiconductorState {
   bjt: Map<string, BjtBias>
   mosfet: Map<string, MosfetBias>
+  jfet: Map<string, JfetBias>
   opAmp: Map<string, OpAmpBiasPoint>
+  /** Switch on/off state from the previous Newton iteration (hysteresis). */
+  switchOn: Map<string, boolean>
 }
 
 const EMPTY_VOLTAGES: ReadonlyMap<string, number> = new Map()
@@ -881,12 +1047,16 @@ function mosfetBiasAt(
 export function createSemiconductorState(model: CircuitModel, thermal: number): SemiconductorState {
   const bjt = new Map<string, BjtBias>()
   const mosfet = new Map<string, MosfetBias>()
+  const jfet = new Map<string, JfetBias>()
   const opAmp = new Map<string, OpAmpBiasPoint>()
+  const switchOn = new Map<string, boolean>()
   for (const device of model.devices) {
     if (device.kind === 'bjt') {
       bjt.set(device.name, bjtBias(device, 0.6, -0.6, thermal))
     } else if (device.kind === 'mosfet') {
       mosfet.set(device.name, mosfetBias(device, Math.abs(device.model.vto) + 0.5, 1, 0, thermal))
+    } else if (device.kind === 'jfet') {
+      jfet.set(device.name, jfetBias(device, 0, 1, thermal))
     } else if (device.kind === 'op-amp') {
       opAmp.set(device.name, {
         vid: 0,
@@ -894,7 +1064,7 @@ export function createSemiconductorState(model: CircuitModel, thermal: number): 
       })
     }
   }
-  return { bjt, mosfet, opAmp }
+  return { bjt, mosfet, jfet, opAmp, switchOn }
 }
 
 /** Bias points implied by a solved (or in-progress) solution vector. */
@@ -902,14 +1072,23 @@ export function readSemiconductorState(
   model: CircuitModel,
   voltages: ReadonlyMap<string, number>,
   thermal: number,
+  previous?: SemiconductorState,
 ): SemiconductorState {
-  const state: SemiconductorState = { bjt: new Map(), mosfet: new Map(), opAmp: new Map() }
+  const state: SemiconductorState = {
+    bjt: new Map(),
+    mosfet: new Map(),
+    jfet: new Map(),
+    opAmp: new Map(),
+    switchOn: previous ? new Map(previous.switchOn) : new Map(),
+  }
   for (const device of model.devices) {
     if (device.kind === 'bjt') {
       const { vbe, vbc } = bjtJunctionsAt(device, voltages)
       state.bjt.set(device.name, bjtBias(device, vbe, vbc, thermal))
     } else if (device.kind === 'mosfet') {
       state.mosfet.set(device.name, mosfetBiasAt(device, voltages, thermal))
+    } else if (device.kind === 'jfet') {
+      state.jfet.set(device.name, jfetBiasAt(device, voltages, thermal))
     } else if (device.kind === 'op-amp') {
       state.opAmp.set(device.name, {
         vid: voltageAt(voltages, device.inP) - voltageAt(voltages, device.inN),
@@ -954,6 +1133,7 @@ export function stampSemiconductorLinear(
   for (const device of model.devices) {
     if (device.kind === 'bjt') stampBjtCharges(system, model, device, companion.state, companion.dt)
     if (device.kind === 'mosfet') stampMosfetCharges(system, model, device, companion.state, companion.dt)
+    if (device.kind === 'jfet') stampJfetCharges(system, model, device, companion.state, companion.dt)
   }
 }
 
@@ -989,6 +1169,9 @@ export function updateTransientState(
         cgs: bias.cgs,
         cgd: bias.cgd,
       })
+    } else if (device.kind === 'jfet') {
+      const bias = jfetBiasAt(device, voltages, thermal)
+      state.jfetBias.set(device.name, { vgs: bias.vgs, vds: bias.vds, cgs: device.model.cgs, cgd: device.model.cgd })
     } else if (device.kind === 'op-amp') {
       state.opAmpStages.set(device.name, voltageAt(voltages, device.internal))
     }
@@ -996,12 +1179,371 @@ export function updateTransientState(
 }
 
 /**
- * Per-iteration Newton companions for BJTs, MOSFETs and op-amps.
+ * Switch on/off state with hysteresis, SPICE S/W semantics.
  *
- * `voltages` are the current iterate's node voltages: they supply the supply
- * rails for an op-amp's output clamp and act as the fallback bias before the
- * first iteration has produced one.
+ * Above `vt + vh` the switch is on, below `vt − vh` it is off, and between the
+ * two it keeps its previous state — which is why the previous state travels in
+ * `SemiconductorState` rather than being recomputed from the control value.
+ * With zero hysteresis the band collapses to a plain threshold.
  */
+export function switchOnWithHysteresis(previous: boolean | undefined, control: number, vt: number, vh: number): boolean {
+  if (control >= vt + vh) return true
+  if (control <= vt - vh) return false
+  return previous ?? control >= vt
+}
+
+/** Control value a switch decides on: a voltage difference or a source current. */
+export function switchControlValue(
+  device: VoltageSwitchDevice | CurrentSwitchDevice,
+  voltages: ReadonlyMap<string, number>,
+  currents: ReadonlyMap<string, number>,
+): number {
+  if (device.kind === 'voltage-switch') {
+    return (voltages.get(device.ip) ?? 0) - (voltages.get(device.inn) ?? 0)
+  }
+  const wanted = device.controlSource.toUpperCase()
+  for (const [name, current] of currents) {
+    if (name.toUpperCase() === wanted) return current
+  }
+  return 0
+}
+
+/** Conductance of an open/closed switch: exactly ron or roff, never an ideal. */
+export function switchConductance(device: VoltageSwitchDevice | CurrentSwitchDevice, on: boolean): number {
+  return 1 / (on ? device.ron : device.roff)
+}
+
+/**
+ * Newton stamp for a B source: evaluate at the iterate, linearise by finite
+ * differences over the probed unknowns only.
+ *
+ * A closed-form Jacobian would need symbolic differentiation of the RPN; finite
+ * differences over the handful of probed nodes give the same Newton step to
+ * first order with a fraction of the code. The step is relative (1e-6 of the
+ * probe magnitude, floored at 1e-9) so it scales from millivolts to kilovolts.
+ * A voltage-output source becomes a branch constraint `v(p) − v(n) = value`;
+ * a current-output source becomes a Norton injection with the same
+ * linearisation. `gmin` across the output keeps an expression that momentarily
+ * ignores its own terminals (e.g. `V = 5`) from isolating the nodes.
+ */
+export function stampBehavioralSource(
+  system: RealSystem,
+  model: CircuitModel,
+  device: BehavioralSourceDevice,
+  voltages: ReadonlyMap<string, number>,
+  currents: ReadonlyMap<string, number>,
+  time: number,
+): void {
+  const parsed = behavioralCompiled(device)
+  if ('error' in parsed) return
+  const compiled = parsed.expression
+  const value = evaluateBehavioral(compiled, voltages, currents, time)
+  // Finite-difference Jacobian over the probed unknowns.
+  const derivatives = new Map<number, number>()
+  for (const unknown of behavioralUnknowns(model, compiled)) {
+    const probeValues = behavioralProbeMagnitudes(compiled, voltages, currents)
+    const step = Math.max(1e-9, Math.abs(probeValues) * 1e-6)
+    const perturbed = perturbBehavioralProbe(voltages, currents, compiled, unknown, model, step)
+    if (!perturbed.changed) continue
+    const moved = evaluateBehavioral(compiled, perturbed.voltages, perturbed.currents, time)
+    derivatives.set(unknown.index, ((moved - value) / step) * unknown.sign)
+  }
+  if (device.output === 'v') {
+    const branch = model.branchRows.get(device.name)
+    if (branch === undefined) return
+    addVoltageConstraint(system, model, branch, device.p, device.n, 0)
+    let constant = value
+    for (const [index, derivative] of derivatives) {
+      system.matrix[branch][index] -= derivative
+      constant -= derivative * solutionValueAt(model, voltages, currents, index)
+    }
+    system.rhs[branch] = constant
+    addConductance(system, model, device.p, device.n, 1e-12)
+    return
+  }
+  let constant = value
+  for (const [index, derivative] of derivatives) {
+    addBehavioralCurrentDerivative(system, model, device, index, derivative)
+    constant -= derivative * solutionValueAt(model, voltages, currents, index)
+  }
+  addCurrentInjection(system, model, device.p, device.n, constant)
+  addConductance(system, model, device.p, device.n, 1e-12)
+}
+
+/**
+ * Evaluate a compiled B-source expression at node voltages / branch currents.
+ *
+ * Probes read the current Newton iterate, exactly like every other companion:
+ * that is what makes the iteration a Newton step on the expression rather than
+ * a fixed source. Non-finite results (division by zero, overflow) clamp to
+ * ±1e12 — an unbounded source would otherwise poison the whole matrix.
+ */
+export function evaluateBehavioral(
+  compiled: BehavioralExpression,
+  voltages: ReadonlyMap<string, number>,
+  currents: ReadonlyMap<string, number>,
+  time: number,
+): number {
+  const stack: number[] = []
+  const probeValue = (probe: BehavioralNode): number => {
+    if (probe.kind === 'current') return currents.get(probe.source) ?? 0
+    if (probe.kind === 'vdiff') return (voltages.get(probe.a) ?? 0) - (voltages.get(probe.b) ?? 0)
+    return voltages.get(probe.node) ?? 0
+  }
+  for (const entry of compiled.rpn) {
+    if (typeof entry === 'number') {
+      stack.push(entry)
+      continue
+    }
+    if (entry === 'T') {
+      stack.push(time)
+      continue
+    }
+    if (entry.startsWith('P')) {
+      const probe = compiled.probes[Number(entry.slice(1))]
+      stack.push(probe ? probeValue(probe) : 0)
+      continue
+    }
+    if (entry.startsWith('F:')) {
+      const [, name, countText] = entry.split(':')
+      const count = Number(countText)
+      const args: number[] = []
+      for (let i = 0; i < count; i += 1) args.unshift(stack.pop() ?? 0)
+      const fn = BEHAVIORAL_FUNCTIONS[name]
+      stack.push(fn ? fn(...args) : NaN)
+      continue
+    }
+    const b = stack.pop() ?? 0
+    const a = stack.pop() ?? 0
+    switch (entry) {
+      case '+':
+        stack.push(a + b)
+        break
+      case '-':
+        stack.push(a - b)
+        break
+      case '*':
+        stack.push(a * b)
+        break
+      case '/':
+        stack.push(b !== 0 ? a / b : a >= 0 ? 1e12 : -1e12)
+        break
+      case '^':
+        stack.push(Math.pow(a, b))
+        break
+      case '>':
+        stack.push(a > b ? 1 : 0)
+        break
+      case '<':
+        stack.push(a < b ? 1 : 0)
+        break
+      case '>=':
+        stack.push(a >= b ? 1 : 0)
+        break
+      case '<=':
+        stack.push(a <= b ? 1 : 0)
+        break
+      case '==':
+        stack.push(a === b ? 1 : 0)
+        break
+      case '!=':
+        stack.push(a !== b ? 1 : 0)
+        break
+      default:
+        stack.push(NaN)
+        break
+    }
+  }
+  const value = stack.pop() ?? 0
+  if (!Number.isFinite(value)) return value > 0 ? 1e12 : -1e12
+  return Math.max(-1e12, Math.min(1e12, value))
+}
+
+/** A probed unknown the linearisation differentiates with respect to. */
+interface BehavioralUnknown {
+  /** Node index (voltage probe) or branch row (current probe). */
+  index: number
+  /** Sign of the probe in the expression (differential probes split in two). */
+  sign: number
+  /** True when the probe is a branch current rather than a node voltage. */
+  isCurrent: boolean
+}
+
+/**
+ * Map an expression's probes onto MNA unknowns.
+ *
+ * A voltage probe differentiates with respect to its node (ground probes drop
+ * out — ground is not an unknown). A differential probe differentiates with
+ * respect to both nodes with opposite signs. A current probe differentiates
+ * with respect to the controlling source's branch row.
+ */
+function behavioralUnknowns(model: CircuitModel, compiled: BehavioralExpression): BehavioralUnknown[] {
+  const unknowns: BehavioralUnknown[] = []
+  for (const probe of compiled.probes) {
+    if (probe.kind === 'voltage') {
+      const index = model.nodeIndex.get(probe.node)
+      if (index !== undefined) unknowns.push({ index, sign: 1, isCurrent: false })
+    } else if (probe.kind === 'vdiff') {
+      const a = model.nodeIndex.get(probe.a)
+      const b = model.nodeIndex.get(probe.b)
+      if (a !== undefined) unknowns.push({ index: a, sign: 1, isCurrent: false })
+      if (b !== undefined) unknowns.push({ index: b, sign: -1, isCurrent: false })
+    } else {
+      const row = model.branchRows.get(probe.source)
+      if (row !== undefined) unknowns.push({ index: row, sign: 1, isCurrent: true })
+    }
+  }
+  return unknowns
+}
+
+/**
+ * Perturb one probed unknown of the Newton iterate for a finite difference.
+ *
+ * Voltage probes shift a node voltage; current probes shift a branch current.
+ * Ground has no row, so a grounded probe contributes nothing to perturb — the
+ * caller skips it by the `changed` flag.
+ */
+function perturbBehavioralProbe(
+  voltages: ReadonlyMap<string, number>,
+  currents: ReadonlyMap<string, number>,
+  compiled: BehavioralExpression,
+  unknown: BehavioralUnknown,
+  model: CircuitModel,
+  step: number,
+): { voltages: Map<string, number>; currents: Map<string, number>; changed: boolean } {
+  const namesByIndex = new Map<number, string>()
+  for (const [name, index] of model.nodeIndex) namesByIndex.set(index, name)
+  if (!unknown.isCurrent) {
+    const name = namesByIndex.get(unknown.index)
+    if (name === undefined) return { voltages: new Map(voltages), currents: new Map(currents), changed: false }
+    const next = new Map(voltages)
+    next.set(name, (next.get(name) ?? 0) + unknown.sign * step)
+    void compiled
+    return { voltages: next, currents: new Map(currents), changed: true }
+  }
+  for (const [name, row] of model.branchRows) {
+    if (row === unknown.index) {
+      const next = new Map(currents)
+      next.set(name.toUpperCase(), (next.get(name.toUpperCase()) ?? 0) + step)
+      next.set(name, (next.get(name) ?? 0) + step)
+      void compiled
+      return { voltages: new Map(voltages), currents: next, changed: true }
+    }
+  }
+  return { voltages: new Map(voltages), currents: new Map(currents), changed: false }
+}
+
+/**
+ * Magnitude of the largest probed value: sets the finite-difference step.
+ *
+ * One shared step for the whole expression keeps the Jacobian consistent —
+ * per-probe steps would mix scales when two probes of wildly different size
+ * feed the same sum.
+ */
+function behavioralProbeMagnitudes(
+  compiled: BehavioralExpression,
+  voltages: ReadonlyMap<string, number>,
+  currents: ReadonlyMap<string, number>,
+): number {
+  let peak = 0
+  for (const probe of compiled.probes) {
+    const value =
+      probe.kind === 'current'
+        ? (currents.get(probe.source) ?? 0)
+        : probe.kind === 'vdiff'
+          ? (voltages.get(probe.a) ?? 0) - (voltages.get(probe.b) ?? 0)
+          : (voltages.get(probe.node) ?? 0)
+    peak = Math.max(peak, Math.abs(value))
+  }
+  return peak
+}
+
+/** Value of unknown `index` in the current iterate (node voltage or branch current). */
+function solutionValueAt(
+  model: CircuitModel,
+  voltages: ReadonlyMap<string, number>,
+  currents: ReadonlyMap<string, number>,
+  index: number,
+): number {
+  for (const [name, row] of model.branchRows) {
+    if (row === index) return currents.get(name) ?? currents.get(name.toUpperCase()) ?? 0
+  }
+  for (const [name, node] of model.nodeIndex) {
+    if (node === index) return voltages.get(name) ?? 0
+  }
+  return 0
+}
+
+/** Stamp one Jacobian entry of a current-output B source (leaving-positive). */
+function addBehavioralCurrentDerivative(
+  system: RealSystem,
+  model: CircuitModel,
+  device: BehavioralSourceDevice,
+  index: number,
+  derivative: number,
+): void {
+  const a = model.nodeIndex.get(device.p)
+  const b = model.nodeIndex.get(device.n)
+  if (a !== undefined) system.matrix[a][index] += derivative
+  if (b !== undefined) system.matrix[b][index] -= derivative
+}
+
+/**
+ * Small-signal B source: the expression linearised at the DC bias point.
+ *
+ * Only voltage probes contribute (a current probe needs the branch row, which
+ * the complex stamp tracks separately); TIME freezes at 0, matching the DC
+ * point the linearisation is taken at.
+ */
+export function stampBehavioralSmallSignal(
+  system: ComplexSystem,
+  model: CircuitModel,
+  device: BehavioralSourceDevice,
+  voltages: ReadonlyMap<string, number>,
+  currents: ReadonlyMap<string, number>,
+  omega: number,
+  time: number,
+): void {
+  void omega
+  const parsed = behavioralCompiled(device)
+  if ('error' in parsed) return
+  const compiled = parsed.expression
+  const value = evaluateBehavioral(compiled, voltages, currents, time)
+  const derivatives = new Map<number, number>()
+  for (const unknown of behavioralUnknowns(model, compiled)) {
+    if (unknown.isCurrent) continue
+    const step = Math.max(1e-9, Math.abs(solutionValueAt(model, voltages, currents, unknown.index)) * 1e-6)
+    const perturbed = perturbBehavioralProbe(voltages, currents, compiled, unknown, model, step)
+    if (!perturbed.changed) continue
+    const moved = evaluateBehavioral(compiled, perturbed.voltages, perturbed.currents, time)
+    derivatives.set(unknown.index, ((moved - value) / step) * unknown.sign)
+  }
+  if (device.output === 'v') {
+    const branch = model.branchRows.get(device.name)
+    if (branch === undefined) return
+    const a = model.nodeIndex.get(device.p)
+    const b = model.nodeIndex.get(device.n)
+    if (a !== undefined) {
+      system.matrix[a][branch] = cAdd(system.matrix[a][branch], complex(1))
+      system.matrix[branch][a] = cAdd(system.matrix[branch][a], complex(1))
+    }
+    if (b !== undefined) {
+      system.matrix[b][branch] = cSub(system.matrix[b][branch], complex(1))
+      system.matrix[branch][b] = cSub(system.matrix[branch][b], complex(1))
+    }
+    for (const [index, derivative] of derivatives) {
+      system.matrix[branch][index] = cSub(system.matrix[branch][index], complex(derivative))
+    }
+    return
+  }
+  for (const [index, derivative] of derivatives) {
+    const a = model.nodeIndex.get(device.p)
+    const b = model.nodeIndex.get(device.n)
+    if (a !== undefined) system.matrix[a][index] = cAdd(system.matrix[a][index], complex(derivative))
+    if (b !== undefined) system.matrix[b][index] = cSub(system.matrix[b][index], complex(derivative))
+  }
+}
+
 export function stampSemiconductorNonlinear(
   system: RealSystem,
   model: CircuitModel,
@@ -1009,7 +1551,10 @@ export function stampSemiconductorNonlinear(
   thermal: number,
   voltages: ReadonlyMap<string, number>,
   gmin: number,
+  context?: { currents?: ReadonlyMap<string, number>; time?: number },
 ): void {
+  const branchCurrents = context?.currents ?? new Map<string, number>()
+  const time = context?.time ?? 0
   for (const device of model.devices) {
     switch (device.kind) {
       case 'bjt': {
@@ -1023,12 +1568,31 @@ export function stampSemiconductorNonlinear(
         stampMosfet(system, model, device, bias, gmin)
         break
       }
+      case 'jfet': {
+        const bias = state.jfet.get(device.name) ?? jfetBiasAt(device, voltages, thermal)
+        stampJfet(system, model, device, bias, gmin)
+        break
+      }
       case 'op-amp': {
         const bias = state.opAmp.get(device.name) ?? {
           vid: voltageAt(voltages, device.inP) - voltageAt(voltages, device.inN),
           internal: voltageAt(voltages, device.internal),
         }
         stampOpAmp(system, model, device, bias, opAmpOutputRange(device, voltages))
+        break
+      }
+      case 'voltage-switch':
+      case 'current-switch': {
+        const control = switchControlValue(device, voltages, branchCurrents)
+        const threshold = device.kind === 'voltage-switch' ? device.vt : device.it
+        const hysteresis = device.kind === 'voltage-switch' ? device.vh : device.ih
+        const on = switchOnWithHysteresis(state.switchOn.get(device.name), control, threshold, hysteresis)
+        state.switchOn.set(device.name, on)
+        addConductance(system, model, device.p, device.n, switchConductance(device, on))
+        break
+      }
+      case 'behavioral-source': {
+        stampBehavioralSource(system, model, device, voltages, branchCurrents, time)
         break
       }
       default:
@@ -1045,7 +1609,10 @@ export function stampSemiconductorSmallSignal(
   thermal: number,
   omega: number,
   voltages: ReadonlyMap<string, number>,
+  context?: { currents?: ReadonlyMap<string, number>; time?: number },
 ): void {
+  const branchCurrents = context?.currents ?? new Map<string, number>()
+  const time = context?.time ?? 0
   for (const device of model.devices) {
     switch (device.kind) {
       case 'bjt': {
@@ -1057,6 +1624,21 @@ export function stampSemiconductorSmallSignal(
       case 'mosfet': {
         const bias = state.mosfet.get(device.name) ?? mosfetBiasAt(device, voltages, thermal)
         stampMosfetSmallSignal(system, model, device, bias, omega)
+        break
+      }
+      case 'jfet': {
+        const bias = state.jfet.get(device.name) ?? jfetBiasAt(device, voltages, thermal)
+        stampJfetSmallSignal(system, model, device, bias, omega)
+        break
+      }
+      case 'voltage-switch':
+      case 'current-switch': {
+        const on = state.switchOn.get(device.name) ?? true
+        addComplexAdmittance(system, model, device.p, device.n, complex(switchConductance(device, on)))
+        break
+      }
+      case 'behavioral-source': {
+        stampBehavioralSmallSignal(system, model, device, voltages, branchCurrents, omega, time)
         break
       }
       case 'op-amp': {

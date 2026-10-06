@@ -9,7 +9,7 @@
 
 import { solveRealSystem, solveComplexSystem, cAbs } from './numeric'
 import { isInternalNode, thermalVoltage } from './devices'
-import type { CircuitModel } from './circuitModel'
+import { behavioralCompiled, validateBehavioralProbes, type CircuitModel } from './circuitModel'
 import {
   createComplexSystem,
   createRealSystem,
@@ -80,6 +80,8 @@ export interface NewtonOptions {
   absoluteTolerance?: number
   /** Warm start; pass the previous time step's solution for fast convergence. */
   initial?: readonly number[]
+  /** Transient clock carried into B-source TIME probes. */
+  time?: number
 }
 
 export interface NewtonResult {
@@ -135,14 +137,10 @@ export function solveNewton(
     stampLinear(system)
     stampGmin(system, model, gmin)
     stampNonlinearDiodes(system, model, diodeOperatingPoints, thermal, gmin)
-    stampSemiconductorNonlinear(
-      system,
-      model,
-      semiconductor,
-      thermal,
-      readNodeVoltages(model, solution),
-      gmin,
-    )
+    stampSemiconductorNonlinear(system, model, semiconductor, thermal, readNodeVoltages(model, solution), gmin, {
+      currents: readBranchCurrents(model, solution),
+      time: options.time ?? 0,
+    })
 
     const next = solveRealSystem(system.matrix, system.rhs)
     if (!next) return null
@@ -167,7 +165,11 @@ export function solveNewton(
 
     solution = next
     diodeOperatingPoints = updatedPoints
-    semiconductor = readSemiconductorState(model, readNodeVoltages(model, next), thermal)
+    // Switch hysteresis lives in the previous iterate's state, but every other
+    // bias point is rebuilt from the new solution: carry the switch states over.
+    // Without this an S/W device forgets which side of its band it is on and
+    // the state written during stamping is discarded every iteration.
+    semiconductor = readSemiconductorState(model, readNodeVoltages(model, next), thermal, semiconductor)
     if (converged) {
       return { solution, diodeOperatingPoints, semiconductor, iterations: iteration, converged: true }
     }
@@ -219,6 +221,8 @@ export interface OperatingPointOptions {
    * most of a sweep's speed comes from.
    */
   initial?: readonly number[]
+  /** Transient clock carried into B-source TIME probes (transient analysis). */
+  time?: number
 }
 
 export interface OperatingPointResult {
@@ -230,6 +234,17 @@ export interface OperatingPointResult {
   /** BJT, MOSFET and op-amp bias points at the operating point. */
   semiconductor: SemiconductorState
   solution: number[]
+}
+
+/** A model-level failure before Newton starts: no solution, but a usable state. */
+function failedOperatingPoint(model: CircuitModel, thermal: number, note: string): OperatingPointResult {
+  return {
+    outcome: { nodes: [], waveforms: [], iterations: 0, converged: false, notes: [note] },
+    diodeConductances: new Map(),
+    diodeOperatingPoints: new Map(),
+    semiconductor: createSemiconductorState(model, thermal),
+    solution: [],
+  }
 }
 
 /**
@@ -249,6 +264,18 @@ export function runOperatingPoint(model: CircuitModel, options: OperatingPointOp
   const temperatureCelsius =
     options.override?.kind === 'temperature' ? options.override.value : options.temperatureCelsius
   const thermal = thermalVoltage(temperatureCelsius)
+
+  // A B source probing a net or source that does not exist is a model error,
+  // reported once before Newton starts rather than as a silent zero per step.
+  for (const device of model.devices) {
+    if (device.kind !== 'behavioral-source') continue
+    const parsed = behavioralCompiled(device)
+    if ('error' in parsed) {
+      return failedOperatingPoint(model, thermal, parsed.error)
+    }
+    const invalid = validateBehavioralProbes(model, device.name, parsed.expression)
+    if (invalid) return failedOperatingPoint(model, thermal, invalid)
+  }
 
   const newton = solveNewton(
     model,
@@ -270,26 +297,15 @@ export function runOperatingPoint(model: CircuitModel, options: OperatingPointOp
       temperatureCelsius,
       gmin: options.gmin,
       initial: options.initial,
+      time: options.time,
     },
   )
 
   if (!newton) {
-    return {
-      outcome: {
-        nodes: [],
-        waveforms: [],
-        iterations: 0,
-        converged: false,
-        notes: [
-          'The circuit has no unique operating point. Check for two ideal voltage sources of different ' +
-            'values in parallel, or a voltage source short-circuited by a wire.',
-        ],
-      },
-      diodeConductances: new Map(),
-      diodeOperatingPoints: new Map(),
-      semiconductor: createSemiconductorState(model, thermal),
-      solution: [],
-    }
+    return failedOperatingPoint(model, thermal,
+      'The circuit has no unique operating point. Check for two ideal voltage sources of different ' +
+        'values in parallel, or a voltage source short-circuited by a wire.',
+    )
   }
 
   const voltages = readNodeVoltages(model, newton.solution)
@@ -307,7 +323,7 @@ export function runOperatingPoint(model: CircuitModel, options: OperatingPointOp
    * probe them. They stay in `voltages`, which the callers use for
    * linearisation.
    */
-  const visible = new Map([...voltages].filter(([name]) => !isInternalNode(name)))
+  const visible = new Map([...voltages].filter(([name]) => !isInternalNode(name) && name !== '0'))
   const notes = collectImplausibleNodes(visible)
   if (!newton.converged) {
     notes.push(
@@ -656,6 +672,7 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
         temperatureCelsius,
         gmin: options.gmin,
         initial: warmStart,
+        time,
       },
     )
 
@@ -772,10 +789,11 @@ export function runAcSweep(model: CircuitModel, options: AcSweepOptions): Analys
   }
 
   // Bias-dependent linearisation: the operating point is the physics here.
-  const operatingPoint = runOperatingPoint(model, { temperatureCelsius, gmin })
+  const operatingPoint = runOperatingPoint(model, { temperatureCelsius, gmin: options.gmin, time: 0 })
   const notes = [...operatingPoint.outcome.notes]
   const thermal = thermalVoltage(temperatureCelsius)
   const operatingVoltages = readNodeVoltages(model, operatingPoint.solution)
+  const operatingCurrents = readBranchCurrents(model, operatingPoint.solution)
 
   const frequencies = buildFrequencyGrid(options)
   const magnitude = new Map<string, Array<{ x: number; y: number }>>()
@@ -791,7 +809,10 @@ export function runAcSweep(model: CircuitModel, options: AcSweepOptions): Analys
     const omega = 2 * Math.PI * frequency
     const system = createComplexSystem(model)
     stampAc(system, model, omega, operatingPoint.diodeConductances, gmin)
-    stampSemiconductorSmallSignal(system, model, operatingPoint.semiconductor, thermal, omega, operatingVoltages)
+    stampSemiconductorSmallSignal(system, model, operatingPoint.semiconductor, thermal, omega, operatingVoltages, {
+      currents: operatingCurrents,
+      time: 0,
+    })
 
     const solution = solveComplexSystem(system.matrix, system.rhs)
     if (!solution) {
