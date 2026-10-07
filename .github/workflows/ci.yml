@@ -29,6 +29,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Button label audit
+        run: npm run a11y:buttons
+
       - name: Typecheck (app)
         run: npm run typecheck
 

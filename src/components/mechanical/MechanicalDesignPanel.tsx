@@ -364,7 +364,7 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
         <div className="w-96 bg-card border-l border-border flex flex-col">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold text-foreground">Mechanical Design</h3>
-            <Button variant="ghost" size="icon" onClick={onClose}>
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close mechanical design panel">
               <X className="w-4 h-4" />
             </Button>
           </div>
@@ -556,7 +556,7 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
                     variant="ghost"
                     size="icon"
                     className="h-6 w-6"
-                  >
+                   aria-label="Show loads">
                     <Eye className="w-3 h-3" />
                   </Button>
                 </div>
@@ -567,7 +567,7 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
                     variant="ghost"
                     size="icon"
                     className="h-6 w-6"
-                  >
+                   aria-label="Show constraints">
                     <Eye className="w-3 h-3" />
                   </Button>
                 </div>
@@ -578,7 +578,7 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
                     variant="ghost"
                     size="icon"
                     className="h-6 w-6"
-                  >
+                   aria-label="Show stress">
                     <EyeOff className="w-3 h-3" />
                   </Button>
                 </div>

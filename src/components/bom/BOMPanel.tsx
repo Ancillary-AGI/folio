@@ -233,7 +233,7 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={exportCSV} className="text-xs"><Download className="w-3 h-3 mr-1" />CSV</Button>
           <Button variant="outline" size="sm" onClick={exportJSON} className="text-xs"><Download className="w-3 h-3 mr-1" />JSON</Button>
-          {onClose && <Button variant="ghost" size="icon" onClick={onClose}><X className="w-4 h-4" /></Button>}
+          {onClose && <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close BOM panel"><X className="w-4 h-4" /></Button>}
         </div>
       </div>
 
@@ -325,14 +325,14 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
                     {editingKey === item.key ? (
                       <div className="flex gap-1">
                         <Input value={editNotes} onChange={e => setEditNotes(e.target.value)} className="h-6 text-xs py-0" autoFocus />
-                        <Button size="icon" className="h-6 w-6" onClick={() => setEditingKey(null)}><Save className="w-3 h-3" /></Button>
+                        <Button size="icon" className="h-6 w-6" onClick={() => setEditingKey(null)} aria-label={`Save notes for ${item.key}`}><Save className="w-3 h-3" /></Button>
                       </div>
                     ) : (
                       <span className="text-muted-foreground truncate block max-w-[90px]">{item.notes || '—'}</span>
                     )}
                   </td>
                   <td className="p-2">
-                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setEditingKey(item.key); setEditNotes(item.notes) }}>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setEditingKey(item.key); setEditNotes(item.notes) }} aria-label={`Edit notes for ${item.key}`}>
                       <Edit3 className="w-3 h-3" />
                     </Button>
                   </td>

@@ -105,7 +105,7 @@ export default function Toolbar({ onToolChange, onAction, canUndo, canRedo, isSi
             variant="ghost"
             size="icon"
             onClick={() => onAction('save')}
-            title="Save (Ctrl+S)"
+            title="Save (Ctrl+S)" aria-label="Save (Ctrl+S)"
             className="h-8 w-8"
           >
             <Save className="w-4 h-4" />
@@ -119,7 +119,7 @@ export default function Toolbar({ onToolChange, onAction, canUndo, canRedo, isSi
             size="icon"
             onClick={() => onAction('undo')}
             disabled={!canUndo}
-            title="Undo (Ctrl+Z)"
+            title="Undo (Ctrl+Z)" aria-label="Undo (Ctrl+Z)"
             className="h-8 w-8"
           >
             <Undo className="w-4 h-4" />
@@ -129,7 +129,7 @@ export default function Toolbar({ onToolChange, onAction, canUndo, canRedo, isSi
             size="icon"
             onClick={() => onAction('redo')}
             disabled={!canRedo}
-            title="Redo (Ctrl+Y)"
+            title="Redo (Ctrl+Y)" aria-label="Redo (Ctrl+Y)"
             className="h-8 w-8"
           >
             <Redo className="w-4 h-4" />
@@ -144,7 +144,7 @@ export default function Toolbar({ onToolChange, onAction, canUndo, canRedo, isSi
               variant={activeTool === tool.id ? 'default' : 'ghost'}
               size="icon"
               onClick={() => handleToolSelect(tool.id)}
-              title={`${tool.name} (${tool.shortcut})`}
+              title={`${tool.name} (${tool.shortcut})`} aria-label={`${tool.name} (${tool.shortcut})`}
               className="h-8 w-8"
             >
               {tool.icon}
@@ -158,7 +158,7 @@ export default function Toolbar({ onToolChange, onAction, canUndo, canRedo, isSi
               size="icon"
               onClick={() => setShowToolGroups(!showToolGroups)}
               className="h-8 w-8"
-            >
+             aria-label={showToolGroups ? 'Hide tool groups' : 'Show tool groups'}>
               <ChevronDown className="w-4 h-4" />
             </Button>
             
@@ -202,7 +202,7 @@ export default function Toolbar({ onToolChange, onAction, canUndo, canRedo, isSi
             variant="ghost"
             size="icon"
             onClick={() => onAction('copy')}
-            title="Copy (Ctrl+C)"
+            title="Copy (Ctrl+C)" aria-label="Copy (Ctrl+C)"
             className="h-8 w-8"
           >
             <Copy className="w-4 h-4" />
@@ -211,7 +211,7 @@ export default function Toolbar({ onToolChange, onAction, canUndo, canRedo, isSi
             variant="ghost"
             size="icon"
             onClick={() => onAction('delete')}
-            title="Delete (Del)"
+            title="Delete (Del)" aria-label="Delete (Del)"
             className="h-8 w-8"
           >
             <Trash2 className="w-4 h-4" />
@@ -224,7 +224,7 @@ export default function Toolbar({ onToolChange, onAction, canUndo, canRedo, isSi
             variant="ghost"
             size="icon"
             onClick={() => handleZoom('in')}
-            title="Zoom In (+)"
+            title="Zoom In (+)" aria-label="Zoom In (+)"
             className="h-8 w-8"
           >
             <ZoomIn className="w-4 h-4" />
@@ -233,7 +233,7 @@ export default function Toolbar({ onToolChange, onAction, canUndo, canRedo, isSi
             variant="ghost"
             size="icon"
             onClick={() => handleZoom('out')}
-            title="Zoom Out (-)"
+            title="Zoom Out (-)" aria-label="Zoom Out (-)"
             className="h-8 w-8"
           >
             <ZoomOut className="w-4 h-4" />
@@ -242,7 +242,7 @@ export default function Toolbar({ onToolChange, onAction, canUndo, canRedo, isSi
             variant="ghost"
             size="icon"
             onClick={() => handleZoom('fit')}
-            title="Fit to Screen (F)"
+            title="Fit to Screen (F)" aria-label="Fit to Screen (F)"
             className="h-8 w-8"
           >
             <Maximize className="w-4 h-4" />
@@ -260,7 +260,7 @@ export default function Toolbar({ onToolChange, onAction, canUndo, canRedo, isSi
             variant="ghost"
             size="icon"
             onClick={() => onAction('toggle-grid')}
-            title="Toggle Grid (G)"
+            title="Toggle Grid (G)" aria-label="Toggle Grid (G)"
             className="h-8 w-8"
           >
             <Grid3X3 className="w-4 h-4" />
@@ -269,7 +269,7 @@ export default function Toolbar({ onToolChange, onAction, canUndo, canRedo, isSi
             variant="ghost"
             size="icon"
             onClick={() => onAction('toggle-rulers')}
-            title="Toggle Rulers"
+            title="Toggle Rulers" aria-label="Toggle Rulers"
             className="h-8 w-8"
           >
             <Ruler className="w-4 h-4" />
@@ -282,7 +282,7 @@ export default function Toolbar({ onToolChange, onAction, canUndo, canRedo, isSi
             variant={isSimulating ? 'destructive' : 'default'}
             size="icon"
             onClick={() => onAction(isSimulating ? 'stop-simulation' : 'start-simulation')}
-            title={isSimulating ? 'Stop Simulation' : 'Start Simulation'}
+            title={isSimulating ? 'Stop Simulation' : 'Start Simulation'} aria-label={isSimulating ? 'Stop Simulation' : 'Start Simulation'}
             className="h-8 w-8"
           >
             {isSimulating ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
@@ -295,7 +295,7 @@ export default function Toolbar({ onToolChange, onAction, canUndo, canRedo, isSi
             variant="ghost"
             size="icon"
             onClick={() => onAction('open-settings')}
-            title="Settings"
+            title="Settings" aria-label="Settings"
             className="h-8 w-8"
           >
             <Settings className="w-4 h-4" />

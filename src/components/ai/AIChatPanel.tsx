@@ -205,10 +205,10 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
           <Badge variant="secondary" className="text-xs">{workspaceMode}</Badge>
         </div>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={clearChat} title="Clear chat">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={clearChat} title="Clear chat" aria-label="Clear chat">
             <Trash2 className="w-3.5 h-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} aria-label="Close AI chat">
             <X className="w-3.5 h-3.5" />
           </Button>
         </div>
@@ -291,7 +291,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
           size="icon"
           className="h-9 w-9 flex-shrink-0"
           onClick={handleVoice}
-          title={isVoice ? 'Stop voice' : 'Start voice input'}
+          title={isVoice ? 'Stop voice' : 'Start voice input'} aria-label={isVoice ? 'Stop voice' : 'Start voice input'}
         >
           {isVoice ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
         </Button>
@@ -309,7 +309,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
           disabled={!input.trim() || isLoading}
           size="icon"
           className="h-9 w-9 flex-shrink-0"
-        >
+         aria-label="Send message">
           <Send className="w-4 h-4" />
         </Button>
       </div>

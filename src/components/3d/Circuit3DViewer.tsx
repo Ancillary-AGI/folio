@@ -423,7 +423,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                 variant="outline"
                 size="icon"
                 onClick={() => { setCurrentView('iso'); setZoom(1); }}
-                title="Reset View"
+                title="Reset View" aria-label="Reset View"
               >
                 <Home className="w-4 h-4" />
               </Button>
@@ -431,7 +431,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                 variant="outline"
                 size="icon"
                 onClick={() => setZoom(z => Math.min(4, z * 1.25))}
-                title="Zoom In"
+                title="Zoom In" aria-label="Zoom In"
               >
                 <ZoomIn className="w-4 h-4" />
               </Button>
@@ -439,7 +439,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                 variant="outline"
                 size="icon"
                 onClick={() => setZoom(z => Math.max(0.25, z / 1.25))}
-                title="Zoom Out"
+                title="Zoom Out" aria-label="Zoom Out"
               >
                 <ZoomOut className="w-4 h-4" />
               </Button>
@@ -447,7 +447,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                 variant="outline"
                 size="icon"
                 onClick={() => setReframe(n => n + 1)}
-                title="Reset Rotation"
+                title="Reset Rotation" aria-label="Reset Rotation"
               >
                 <RotateCcw className="w-4 h-4" />
               </Button>
@@ -468,7 +468,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
         <div className="w-80 bg-card border-l border-border flex flex-col">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold text-foreground">3D Viewer</h3>
-            <Button variant="ghost" size="icon" onClick={onClose}>
+            <Button variant="ghost" size="icon" aria-label="Close 3D viewer" onClick={onClose}>
               <X className="w-4 h-4" />
             </Button>
           </div>
@@ -486,6 +486,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                     variant="ghost"
                     size="icon"
                     onClick={() => setShowGrid(!showGrid)}
+                    aria-label={showGrid ? 'Hide grid' : 'Show grid'}
                     className="h-6 w-6"
                   >
                     {showGrid ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
@@ -497,6 +498,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                     variant="ghost"
                     size="icon"
                     onClick={() => setShowComponents(!showComponents)}
+                    aria-label={showComponents ? 'Hide components' : 'Show components'}
                     className="h-6 w-6"
                   >
                     {showComponents ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
@@ -508,6 +510,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                     variant="ghost"
                     size="icon"
                     onClick={() => setShowTraces(!showTraces)}
+                    aria-label={showTraces ? 'Hide traces' : 'Show traces'}
                     className="h-6 w-6"
                   >
                     {showTraces ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
@@ -519,6 +522,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                     variant="ghost"
                     size="icon"
                     onClick={() => setShowPCB(!showPCB)}
+                    aria-label={showPCB ? 'Hide PCB' : 'Show PCB'}
                     className="h-6 w-6"
                   >
                     {showPCB ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
@@ -558,6 +562,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                         e.stopPropagation();
                         handleToggleLayer(layer.name);
                       }}
+                      aria-label={layer.visible ? `Hide ${layer.name} layer` : `Show ${layer.name} layer`}
                       className="h-5 w-5"
                     >
                       {layer.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
@@ -589,6 +594,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                       variant="ghost"
                       size="icon"
                       className="h-5 w-5"
+                      aria-label={comp.visible ? `Hide ${comp.type}` : `Show ${comp.type}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         handleToggleComponent(comp.id);

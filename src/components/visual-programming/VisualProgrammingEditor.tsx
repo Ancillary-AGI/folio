@@ -451,7 +451,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
         <div className="w-80 bg-card border-r border-border flex flex-col">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold text-foreground">Block Palette</h3>
-            <Button variant="ghost" size="icon" onClick={onClose}>
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close visual programming editor">
               <X className="w-4 h-4" />
             </Button>
           </div>
@@ -583,7 +583,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
           <div className="w-96 bg-card border-l border-border flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-border">
               <h3 className="font-semibold text-foreground">Generated Code</h3>
-              <Button variant="ghost" size="icon" onClick={() => setShowCode(false)}>
+              <Button variant="ghost" size="icon" onClick={() => setShowCode(false)} aria-label="Close code view">
                 <X className="w-4 h-4" />
               </Button>
             </div>

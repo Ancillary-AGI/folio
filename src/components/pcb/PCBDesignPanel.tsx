@@ -355,7 +355,7 @@ export default function PCBDesignPanel({ onClose, components = [], wires = [] }:
                 {drcErrors === 0 && drcWarnings === 0 && <Badge className="bg-success text-success-foreground">DRC passed ✓</Badge>}
               </div>
             )}
-            <Button variant="ghost" size="icon" onClick={onClose}><X className="w-4 h-4" /></Button>
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close PCB panel"><X className="w-4 h-4" /></Button>
           </div>
         </div>
 
@@ -368,7 +368,7 @@ export default function PCBDesignPanel({ onClose, components = [], wires = [] }:
               { tool: 'via' as const, icon: Zap },
               { tool: 'move' as const, icon: Move },
             ].map(({ tool, icon: Icon }) => (
-              <Button key={tool} variant={activeTool === tool ? 'default' : 'outline'} size="icon" className="h-8 w-8" onClick={() => setActiveTool(tool)} title={tool}>
+              <Button key={tool} variant={activeTool === tool ? 'default' : 'outline'} size="icon" className="h-8 w-8" onClick={() => setActiveTool(tool)} title={tool} aria-label={tool}>
                 <Icon className="w-3.5 h-3.5" />
               </Button>
             ))}
@@ -507,7 +507,7 @@ export default function PCBDesignPanel({ onClose, components = [], wires = [] }:
                         <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: layer.color }} />
                         <span>{layer.name}</span>
                       </div>
-                      <Button variant="ghost" size="icon" className="h-5 w-5" onClick={e => { e.stopPropagation(); toggleLayerVisibility(layer.id) }}>
+                      <Button variant="ghost" size="icon" className="h-5 w-5" onClick={e => { e.stopPropagation(); toggleLayerVisibility(layer.id) }} aria-label={layer.visible ? `Hide ${layer.name}` : `Show ${layer.name}`}>
                         {layer.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3 opacity-40" />}
                       </Button>
                     </div>

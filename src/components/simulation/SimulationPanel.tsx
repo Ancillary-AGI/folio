@@ -162,7 +162,7 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
           <BarChart3 className="w-5 h-5 text-success" />
           Circuit Simulation
         </CardTitle>
-        <Button variant="ghost" size="icon" onClick={onClose}>
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close simulation panel">
           <X className="w-4 h-4" />
         </Button>
       </CardHeader>

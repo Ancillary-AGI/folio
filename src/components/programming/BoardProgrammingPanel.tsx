@@ -272,7 +272,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                   Arduino IDE
                 </Button>
               )}
-              <Button variant="ghost" size="icon" onClick={onClose}>
+              <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close board programming panel">
                 <X className="w-4 h-4" />
               </Button>
             </div>
@@ -460,7 +460,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                     size="icon"
                     onClick={loadAvailablePorts}
                     className="h-8 w-8"
-                  >
+                   aria-label="Refresh serial ports">
                     <RefreshCw className="w-3 h-3" />
                   </Button>
                 </div>
@@ -645,7 +645,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
           <div className="w-96 bg-card border-l border-border flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-border">
               <h4 className="font-semibold text-foreground">Output</h4>
-              <Button variant="ghost" size="icon" onClick={() => setShowOutput(false)}>
+              <Button variant="ghost" size="icon" onClick={() => setShowOutput(false)} aria-label="Close output panel">
                 <X className="w-4 h-4" />
               </Button>
             </div>

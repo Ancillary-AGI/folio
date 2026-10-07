@@ -684,14 +684,14 @@ function App() {
       {/* ── Header ── */}
       <header className="app-chrome app-chrome-divider flex flex-shrink-0 items-center justify-between px-4 py-2">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => setShowProjectManager(true)} title="Projects">
+          <Button variant="ghost" size="icon" onClick={() => setShowProjectManager(true)} title="Projects" aria-label="Projects">
             <FolderOpen className="w-4 h-4" />
           </Button>
           <Button
             variant={sidebarOpen ? 'default' : 'ghost'}
             size="icon"
             onClick={toggleSidebar}
-            title="Toggle Library"
+            title="Toggle Library" aria-label="Toggle Library"
             aria-pressed={sidebarOpen}
           >
             <Menu className="w-4 h-4" />
@@ -720,7 +720,7 @@ function App() {
             variant={isVoiceActive ? 'default' : 'ghost'}
             size="icon"
             onClick={toggleVoice}
-            title={isVoiceActive ? 'Stop voice control' : 'Start voice control'}
+            title={isVoiceActive ? 'Stop voice control' : 'Start voice control'} aria-label={isVoiceActive ? 'Stop voice control' : 'Start voice control'}
           >
             {isVoiceActive ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
           </Button>
@@ -730,22 +730,22 @@ function App() {
             variant="ghost"
             size="icon"
             onClick={() => useAppStore.getState().setWorkspaceMode('siem')}
-            title={activeAlertCount > 0 ? `${activeAlertCount} active security alert${activeAlertCount === 1 ? '' : 's'}` : 'Security alerts'}
+            title={activeAlertCount > 0 ? `${activeAlertCount} active security alert${activeAlertCount === 1 ? '' : 's'}` : 'Security alerts'} aria-label={activeAlertCount > 0 ? `${activeAlertCount} active security alert${activeAlertCount === 1 ? '' : 's'}` : 'Security alerts'}
           >
             <Shield className={activeAlertCount > 0 ? 'w-4 h-4 text-destructive' : 'w-4 h-4'} />
           </Button>
 
-          <Button variant="ghost" size="icon" onClick={toggleAiChat} title="AI Assistant">
+          <Button variant="ghost" size="icon" onClick={toggleAiChat} title="AI Assistant" aria-label="AI Assistant">
             <Bot className="w-4 h-4" />
           </Button>
           <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-          <Button variant="ghost" size="icon" onClick={toggleSimulationPanel} title="Simulation">
+          <Button variant="ghost" size="icon" onClick={toggleSimulationPanel} title="Simulation" aria-label="Simulation">
             <BarChart3 className="w-4 h-4" />
           </Button>
           <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} title="Settings" aria-label="Settings">
             <Settings className="w-4 h-4" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => setShowPluginPanel(true)} title="Plugins">
+          <Button variant="ghost" size="icon" onClick={() => setShowPluginPanel(true)} title="Plugins" aria-label="Plugins">
             <Package className="w-4 h-4" />
           </Button>
           <Button variant="ghost" size="icon" onClick={() => setShowOnboarding(true)} title="Guided onboarding" aria-label="Guided onboarding">
@@ -830,7 +830,7 @@ function App() {
               </div>
             )}
           </div>
-          <Button variant="ghost" size="icon" onClick={() => setShowCollaborativePanel(true)} title="Collaboration">
+          <Button variant="ghost" size="icon" onClick={() => setShowCollaborativePanel(true)} title="Collaboration" aria-label="Collaboration">
             <Users className="w-4 h-4" />
           </Button>
 
@@ -873,11 +873,11 @@ function App() {
           <Button variant="ghost" size="icon" onClick={() => {
             setCurrentProject(null)
             setCurrentSchematic(null)
-          }} title="Back to Projects">
+          }} title="Back to Projects" aria-label="Back to Projects">
             <RefreshCw className="w-4 h-4" />
           </Button>
           {!offlineMode && (
-            <Button variant="ghost" size="icon" onClick={handleSignOut} title="Sign Out">
+            <Button variant="ghost" size="icon" onClick={handleSignOut} title="Sign Out" aria-label="Sign Out">
               <LogOut className="w-4 h-4" />
             </Button>
           )}
