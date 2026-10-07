@@ -324,6 +324,11 @@ npm run preview
 - ✅ Encrypted data storage
 - ✅ Role-based access control (RBAC)
 
+### Dependency audits
+- ✅ Production dependencies (`npm audit --omit=dev`): **0 vulnerabilities**
+- 🟡 Full tree (`npm audit`): 12 vulnerabilities (2 critical, 6 high, 4 moderate), all in the dev toolchain — vitest/tinypool/vite-node, vite/esbuild, and tailwindcss with its transitive braces/chokidar/micromatch/fast-glob/postcss deps. None of these ship to production.
+- Every remaining fix requires a semver-major upgrade (vitest 4, vite 8, tailwindcss 4); those are tracked as deliberate migrations rather than blind lockfile bumps.
+
 ### Compliance
 - ✅ GDPR compliance ready
 - ✅ IEC 62443 support (industrial IoT)
