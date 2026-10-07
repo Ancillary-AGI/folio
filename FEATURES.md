@@ -1,206 +1,88 @@
 # Folio - Feature Documentation
 
-## 🎯 Core Features
+> **Honesty note:** every feature below exists in the codebase today. Markers:
+> ✅ = implemented and covered by automated tests · 🟡 = implemented at UI level
+> without a dedicated test. Earlier drafts of this file claimed features that do
+> not exist; those are listed explicitly under "Not implemented" so they do not
+> creep back. Counts come from `npm test`, which CI runs on every push.
 
-### Professional Schematic Editor
-- **Drag-and-Drop Interface**: Intuitive component placement with visual feedback
-- **Advanced Component Library**: Extensive library with parametric search and filtering
-- **Smart Wiring System**: Automatic connection detection and routing assistance
-- **Multi-Sheet Support**: Hierarchical design with cross-references
-- **Real-time Validation**: Live design rule checking with instant feedback
+## 🎯 Schematic Editor ✅
 
-### AI-Powered Design Assistant
-- **Intelligent Component Suggestions**: AI recommends optimal components based on specifications
-- **Circuit Analysis**: Automated analysis for performance, cost, and power optimization
-- **Design Generation**: Generate circuits from natural language descriptions
-- **Error Detection**: Real-time identification of design issues with suggested fixes
-- **Optimization Recommendations**: AI-driven suggestions for cost, power, and performance improvements
+- **Drag-and-drop placement**: click-to-arm in the parts browser, or drag onto the sheet
+- **Parts browser**: grouped, searchable list with symbol glyph badges, pin counts, and live shown/total counts
+- **Wiring**: click-to-click wire drawing with connection detection, junctions, and net labels on an infinite zoom/pan canvas
+- **Grid & snap**: configurable grid with snap-to-grid placement
+- **Properties inspector**: reference designator, type/category, electrical property rows, position/rotation transforms, read-only pin table, explicit Apply/Reset
+- **Design history**: simulation runs and edits persist into the saved design
 
-### Advanced Simulation Engine
-- **Multi-Domain Analysis**: DC, AC, Transient, Noise, and Monte Carlo simulations
-- **Interactive Waveform Viewer**: Real-time plotting with measurement tools
-- **SPICE Integration**: Industry-standard simulation with custom models
-- **Signal Integrity Analysis**: High-speed digital design verification
-- **Thermal Simulation**: Component and board-level thermal analysis
+## ⚡ Simulation Engine ✅
 
-### Professional UI/UX
-- **Adaptive Theming**: Multiple professional themes (Light, Dark, Professional, High-Contrast, Solarized)
-- **Responsive Design**: Seamless experience across desktop, web, and mobile
-- **Customizable Workspace**: Dockable panels and configurable layouts
-- **Accessibility Features**: Full keyboard navigation and screen reader support
-- **Multi-language Support**: Internationalization with 6+ languages
+- **Analysis types**: DC operating point, DC sweep, transient, AC, noise, and Monte Carlo (six analyses wired into the simulation panel)
+- **In-app SPICE-style solver**: MNA stamping with 51 validated semiconductor devices (µ-normalized part library) and behavioral sources
+- **SPICE netlist import/export**: `netlistBuilder` + `spiceEngine` deck export with correct device card forms
+- **Waveform viewer**: interactive line charts with tooltips, legends, and measurement readouts (recharts)
+- **Multiphysics**: coupled thermal/structural solvers with golden-vector regression tests
+- **Per-net design-rule feedback** in the PCB flow
 
-## 🛠 Technical Features
+## 🖥 PCB Design ✅
 
-### Component Management
-- **Parametric Components**: Configurable components with electrical properties
-- **Symbol Editor**: Custom component symbol creation and editing
-- **Library Management**: Personal and shared component libraries
-- **Version Control**: Component versioning with change tracking
-- **Import/Export**: Support for industry-standard formats (EAGLE, KiCad, Altium)
+- **Schematic → PCB conversion**: placement and auto-routing with design-rule constraints (converter is unit-tested)
+- **PCB canvas**: board outline, traces, vias, pads, layer visibility toggles with color-coded layer list
+- **DRC**: clearance, trace width, drill, and annular-ring checks (`src/lib/manufacturing/drc.ts`)
+- **Manufacturing output**: Gerber export with aperture definitions (incl. drill/flash data)
+- **Bill of Materials**: cost, quantity, lifecycle and availability badges, editable per-line notes
 
-### Advanced Canvas Features
-- **Infinite Canvas**: Unlimited design space with smooth zooming and panning
-- **Grid System**: Configurable grid with snap-to-grid functionality
-- **Measurement Tools**: Precision measurement with multiple units
-- **Annotation System**: Text labels, dimensions, and notes
-- **Layer Management**: Multiple drawing layers with visibility control
+## 🤖 Robotics, Mechanical & 3D ✅ / 🟡
 
-### Collaboration & Sharing
-- **Real-time Collaboration**: Multiple users working on the same design
-- **Version Control**: Git-like versioning with branching and merging
-- **Comment System**: Contextual comments and review workflows
-- **Export Options**: Multiple export formats (PDF, PNG, SVG, Gerber, etc.)
-- **Cloud Sync**: Automatic synchronization across devices
+- **3D circuit viewer**: three.js scene with grid/PCB/components/traces visibility toggles (✅ logic, 🟡 UI)
+- **Mechanical/FEA panel**: multiphysics thermal-structural analysis controls (✅ solver, 🟡 panel)
+- **Robotics toolbox & kinematics**: 3D robot preview, joint framing, advanced kinematics helpers (`advancedRobotics.ts`)
 
-### MCP Integration
-- **Agentic Design**: AI agents for autonomous circuit design and optimization
-- **Tool Integration**: Seamless connection with external EDA tools
-- **Data Pipeline**: Integration with component databases and suppliers
-- **Custom Workflows**: Programmable design automation
+## 🔌 Embedded & Hardware ✅ / 🟡
 
-## 🎨 User Interface Features
+- **Hardware interfaces**: simulated I²C, SPI, UART, and CAN with a manager API (fully unit-tested)
+- **Firmware artifacts**: Intel HEX parse/serialize with round-trip tests
+- **Board programming**: browser-side toolchain integration that fails closed outside Node (guarded, tested)
+- **Hardware-in-the-loop panel**: HIL scenario UI (🟡)
 
-### Professional Toolbar
-- **Tool Groups**: Organized tools for selection, drawing, measurement, and annotation
-- **Keyboard Shortcuts**: Comprehensive shortcut system for power users
-- **Context Menus**: Right-click menus with relevant actions
-- **Status Information**: Real-time feedback on tool states and operations
-- **Quick Actions**: One-click access to common operations
+## 🧠 AI Design Assistant ✅ service / 🟡 UX
 
-### Enhanced Properties Panel
-- **Component Information**: Reference, type, category, lock and visibility
-- **Electrical Properties**: Editable attribute rows with typed monospace fields
-- **Transform Controls**: Position and rotation edits applied straight to the sheet
-- **Pin Configuration**: Read-only pin table with electrical types
-- **Apply / Reset**: Explicit commit of inspector edits to the design
+- **aiService**: component recommendations, circuit analysis, and natural-language-to-design suggestions (unit-tested; requires a configured provider to answer live)
+- **AI chat panel**: conversational UI with quick actions, confidence metadata, and response feedback
 
-### Advanced Component Library
-- **Parts Browser**: Search over a grouped, alphabetical parts list with sticky category headers
-- **Symbol Glyphs**: Monospace glyph badges with pin counts on every row
-- **Arm & Drag**: Click a row to arm it for click-to-place, or drag it onto the sheet
-- **Live Counts**: Footer readout of shown vs total parts
+## 🗂 Projects, Versioning & Offline ✅
 
-### AI Chat Interface
-- **Natural Language**: Conversational interface for design assistance
-- **Quick Actions**: Pre-defined prompts for common tasks
-- **Rich Responses**: Formatted responses with metadata and confidence scores
-- **Context Awareness**: AI understands current circuit state
-- **Feedback System**: Rate AI responses for continuous improvement
+- **Offline-first projects**: local project store with create/open/save/delete (unit-tested) — the app boots fully offline into the IDE (smoke-tested)
+- **Cloud (optional)**: Supabase auth and project persistence when configured; local-only mode never contacts it
+- **Version history**: local commit-style history with restore (vcsService tests) plus snapshot checkpoints (backupService tests)
+- **Auto-save**: configurable interval, dirty-state indicator, canvas persistence
 
-## 🔧 Settings & Customization
+## ⚙️ Settings, Theming & Accessibility ✅
 
-### Appearance Settings
-- **Theme Selection**: 5 professional themes optimized for technical work
-- **Color Customization**: Circuit-specific color schemes
-- **Font Options**: Technical fonts for better readability
-- **Icon Styles**: Multiple icon sets for different preferences
+- **Themes**: light, dark, and high-contrast (WCAG 2.2 AAA) with system-preference following; retired theme names migrate cleanly (18 theme tests)
+- **Units & behavior**: metric/imperial units, animations toggle, auto-save interval, onboarding replay
+- **Language selector**: preference is stored, but only English strings ship today (no translations yet)
+- **Guided onboarding**: first-run tour (smoke-tested)
+- **Accessibility**: keyboard-operable toolbars and rails; every icon-only button must carry an accessible name — enforced by `npm run a11y:buttons` in CI
 
-### Canvas Configuration
-- **Grid Settings**: Customizable grid size and visibility
-- **Snap Options**: Configurable snap-to-grid and snap-to-objects
-- **Ruler Display**: Optional rulers with multiple units
-- **Zoom Behavior**: Configurable zoom sensitivity and limits
+## 🛠 Quality Infrastructure ✅
 
-### Performance Options
-- **Hardware Acceleration**: GPU-accelerated rendering
-- **Memory Management**: Configurable cache and history limits
-- **Auto-save**: Customizable auto-save intervals
-- **Rendering Quality**: Balance between performance and visual quality
+- **CI (GitHub Actions)**: lint (zero warnings), button-label audit, typecheck (app + build config), full test suite, production build
+- **Tests**: 311 tests across 22 files, including React render tests for the app shell and project manager
+- **Bundle**: 805 KB critical path (242 KB gzip) with lazy-loaded heavy panels (3D, robotics, simulation)
 
-### Localization
-- **Multi-language**: Support for English, Spanish, French, German, Chinese, Japanese
-- **Unit Systems**: Metric and Imperial unit support
-- **Regional Formats**: Date, time, and number formatting
-- **Currency Display**: Local currency for component pricing
+## ❌ Not implemented (previous drafts claimed these)
 
-## 🚀 Advanced Features
+- Multi-sheet / hierarchical schematics
+- EAGLE, KiCad, or Altium import/export
+- Real-time multi-user collaboration, comments/review workflows
+- Cloud sync beyond optional Supabase project persistence
+- Plugin system, JavaScript/Python scripting, REST API
+- UI translations (language selector exists; strings do not)
+- Context menus, symbol editor, font/icon-set options
+- GDPR/compliance certifications, end-to-end encryption claims
+- Classroom management, automated grading
 
-### Plugin System
-- **Extensible Architecture**: Plugin API for custom functionality
-- **Component Plugins**: Add specialized component libraries
-- **Analysis Plugins**: Custom simulation and analysis tools
-- **Export Plugins**: Support for additional file formats
-- **UI Plugins**: Custom panels and tools
-
-### Automation & Scripting
-- **Design Rules**: Automated design rule checking (DRC)
-- **Batch Operations**: Process multiple designs automatically
-- **Custom Scripts**: JavaScript/Python scripting support
-- **Workflow Automation**: Automated design flows and validation
-
-### Integration Features
-- **CAD Integration**: Import/export with major CAD tools
-- **Simulation Tools**: Integration with SPICE simulators
-- **Component Databases**: Live component data from distributors
-- **Version Control**: Git integration for design versioning
-- **Cloud Services**: Integration with cloud storage and collaboration platforms
-
-### Professional Tools
-- **Bill of Materials**: Automated BOM generation with pricing
-- **Design Documentation**: Automatic schematic documentation
-- **Compliance Checking**: Regulatory and standard compliance verification
-- **Manufacturing Output**: Gerber, drill, and assembly files
-- **Test Point Generation**: Automatic test point placement
-
-## 📊 Analytics & Reporting
-
-### Design Metrics
-- **Component Count**: Real-time component and connection statistics
-- **Cost Analysis**: Live cost estimation with supplier data
-- **Power Analysis**: Power consumption estimation and optimization
-- **Complexity Metrics**: Design complexity scoring and recommendations
-
-### Performance Monitoring
-- **Simulation Results**: Comprehensive simulation data analysis
-- **Design History**: Track design evolution and changes
-- **Usage Analytics**: Tool usage patterns and optimization suggestions
-- **Error Tracking**: Design error patterns and prevention
-
-### Export & Reporting
-- **Professional Reports**: Automated design documentation
-- **Custom Templates**: Configurable report templates
-- **Data Export**: CSV, JSON, and XML data export
-- **Integration APIs**: REST APIs for external tool integration
-
-## 🔒 Security & Privacy
-
-### Data Protection
-- **Local Storage**: Option for completely offline operation
-- **Encryption**: End-to-end encryption for cloud storage
-- **Access Control**: Role-based access for team projects
-- **Audit Trail**: Complete change history and user tracking
-
-### Compliance
-- **GDPR Compliance**: Full compliance with data protection regulations
-- **Industry Standards**: Adherence to EDA industry standards
-- **Security Audits**: Regular security assessments and updates
-- **Privacy Controls**: Granular privacy settings and data control
-
-## 🎯 Target Users
-
-### Professional Engineers
-- **Advanced Features**: Professional-grade tools and analysis
-- **Industry Integration**: Seamless workflow with existing tools
-- **Compliance Tools**: Regulatory and standard compliance features
-- **Team Collaboration**: Advanced collaboration and review features
-
-### Hobbyists & Makers
-- **Easy Learning Curve**: Intuitive interface with guided tutorials
-- **Community Features**: Sharing and collaboration with maker community
-- **Cost-Effective**: Affordable pricing with essential features
-- **Educational Resources**: Built-in tutorials and documentation
-
-### Educational Institutions
-- **Classroom Features**: Multi-user management and assignment tracking
-- **Learning Tools**: Interactive tutorials and guided exercises
-- **Assessment Integration**: Automated grading and progress tracking
-- **Curriculum Support**: Alignment with engineering curricula
-
-### Researchers & Academics
-- **Advanced Analysis**: Cutting-edge simulation and analysis tools
-- **Publication Tools**: High-quality figure generation for papers
-- **Data Export**: Comprehensive data export for further analysis
-- **Collaboration**: Research team collaboration features
-
-This comprehensive feature set makes Folio a professional, adaptive, and user-friendly solution for circuit design across all skill levels and use cases.
+This document tracks what Folio actually is: a browser-based, offline-first
+engineering workbench for circuits, PCB, mechanical, robotics, and embedded
+work, with tested simulation and manufacturing toolchains.

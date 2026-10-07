@@ -50,13 +50,16 @@ export interface AuditEntry {
 
 // ── Crypto helpers ────────────────────────────────────────────────────────────
 
-/** Convert an ArrayBuffer to a Base64 string */
-function bufToB64(buf: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+/** Convert an ArrayBuffer (or any ArrayBuffer view) to a Base64 string */
+function bufToB64(buf: ArrayBuffer | ArrayBufferView): string {
+  const bytes = buf instanceof ArrayBuffer
+    ? new Uint8Array(buf)
+    : new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
+  return btoa(String.fromCharCode(...bytes))
 }
 
 /** Convert a Base64 string back to a Uint8Array */
-function b64ToBuf(b64: string): Uint8Array {
+function b64ToBuf(b64: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(atob(b64), c => c.charCodeAt(0))
 }
 
@@ -66,8 +69,8 @@ function b64ToBuf(b64: string): Uint8Array {
  */
 async function deriveKey(
   passphrase: string,
-  salt?: Uint8Array,
-): Promise<{ key: CryptoKey; salt: Uint8Array }> {
+  salt?: Uint8Array<ArrayBuffer>,
+): Promise<{ key: CryptoKey; salt: Uint8Array<ArrayBuffer> }> {
   const usedSalt = salt ?? crypto.getRandomValues(new Uint8Array(16))
   const enc = new TextEncoder()
 
