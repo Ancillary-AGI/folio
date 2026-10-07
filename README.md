@@ -3,22 +3,19 @@
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com)
 [![Version](https://img.shields.io/badge/version-2.0.0-blue)](https://github.com)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Production Ready](https://img.shields.io/badge/production-ready-success)](https://github.com)
 
 A comprehensive, cross-platform engineering workbench that unifies CAD, mechanical simulation, circuit/PCB design, robotics and embedded systems development, digital twin simulation, and AI-driven optimization.
 
-**🚀 Status: 100% COMPLETE & PRODUCTION READY**
+**🚀 Status: active development — core workbench features operational**
 
 ---
 
 ## 📊 Quick Stats
 
-- ✅ **Implementation:** 100% Complete
-- ✅ **Build Status:** SUCCESS
-- ✅ **Production Code:** 100% Functional
-- ✅ **Test Coverage:** Comprehensive (85+ tests passing)
+- ✅ **CI:** lint, typecheck, unit tests & build enforced on every push (GitHub Actions)
+- ✅ **Tests:** 311 passing across 22 files
 - ✅ **Bundle Size:** 805 KB initial (242 KB gzipped), feature panels code-split
-- ✅ **Build Time:** ~30 seconds
+- ✅ **Build Time:** ~60–70 seconds (1 minute on warm cache)
 
 ---
 
@@ -251,7 +248,7 @@ npm run lint
 - Unit Tests: ✅ Passing
 - Integration Tests: ✅ Passing
 - Production Tests: ✅ Passing
-- Overall: 85+ tests passing
+- Overall: 311 tests passing across 22 files (CI runs them on every push)
 
 ---
 
@@ -269,8 +266,8 @@ npm run preview
 
 **Build Output:**
 - Bundle Size: 805 KB initial payload (242 KB gzipped); heavy panels (3D, robotics, simulation) load on demand
-- Build Time: ~30 seconds
-- Modules: 2,565 transformed
+- Build Time: ~60–70 seconds
+- Modules: 3,262 transformed
 - Optimization: Minified + tree-shaken
 
 ### Deployment Platforms
@@ -337,14 +334,14 @@ npm run preview
 
 ## ⚡ Performance
 
-### Runtime Performance
+### Runtime Performance (design targets)
 - Initial Load: < 3 seconds
 - Time to Interactive: < 5 seconds
 - Frame Rate: 60 FPS (3D rendering)
 - Memory Usage: < 200 MB (typical)
 - Simulation Speed: Real-time capable
 
-### Scalability
+### Scalability (design targets)
 - Max Components: 10,000+ per schematic
 - Max Concurrent Users: 50+ (collaboration)
 - Max Project Size: 100+ MB
@@ -397,23 +394,23 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🎉 Status
 
-**Folio is 100% COMPLETE and PRODUCTION READY!**
+**Folio is under active development; the core workbench is operational and covered by CI.**
 
-All requested capabilities have been implemented at their most advanced state:
+Domain features implemented and exercised by the test suite:
 - ✅ CAD & Mechanical Design with FEA
 - ✅ Circuit & PCB Design with advanced analysis
 - ✅ Robotics & Embedded Systems with digital twin
 - ✅ Agentic AI with autonomous optimization
 - ✅ IDE & Collaboration with real-time editing
 
-**🚀 APPROVED FOR PRODUCTION DEPLOYMENT**
+Every push runs lint, typechecks, 311 unit/integration tests, and a production build (see `.github/workflows/ci.yml`).
 
 ---
 
 **Version:** 2.0.0  
-**Status:** ✅ COMPLETE  
-**Build:** ✅ SUCCESS  
-**Deploy:** ✅ READY
+**Status:** 🚧 Active development  
+**Build:** ✅ Passing (local + CI)  
+**Deploy:** ⚙️ Static build ready for Vercel/Netlify/self-host
 
 ---
 
