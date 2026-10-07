@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react'
 import {
   Cpu, FolderOpen, Menu, Bot, BarChart3, Settings, Package, Users,
   Download, Image, FileText, List, LogOut, Mic, MicOff,
@@ -20,20 +20,22 @@ import { useProjectStore } from './stores/useProjectStore'
 import { vcsService, type VcsCommit } from './lib/vcs/vcsService'
 import type { CanvasComponent, CanvasWire } from './stores/useProjectStore'
 import DomainWorkspace from './components/workspace/DomainWorkspace'
-import SimulationPanel from './components/simulation/SimulationPanel'
-import AIChatPanel from './components/ai/AIChatPanel'
 import ProjectManager from './components/ProjectManager'
 import AuthForm from './components/AuthForm'
-import PluginPanel from './components/plugins/PluginPanel'
-import CollaborativePanel from './components/collaboration/CollaborativePanel'
 import UserPresence from './components/collaboration/UserPresence'
 import OnboardingTour from './components/OnboardingTour'
-import SettingsPanel from './components/SettingsPanel'
 import { useTheme } from './lib/theme/useTheme'
 import { describeTheme } from './lib/theme/tokens'
 import { hasCompletedOnboarding, markOnboardingComplete, readOnboardingStep } from './lib/onboarding/onboardingStorage'
 import { ONBOARDING_STEP_COUNT } from './lib/onboarding/onboardingSteps'
 
+// On-demand panels keep their heavyweight deps (recharts, plugin runtimes)
+// out of the first paint until the user actually opens them.
+const SimulationPanel = lazy(() => import('./components/simulation/SimulationPanel'))
+const AIChatPanel = lazy(() => import('./components/ai/AIChatPanel'))
+const PluginPanel = lazy(() => import('./components/plugins/PluginPanel'))
+const CollaborativePanel = lazy(() => import('./components/collaboration/CollaborativePanel'))
+const SettingsPanel = lazy(() => import('./components/SettingsPanel'))
 
 function App() {
   // Without cloud credentials the app boots straight into local mode — there is
@@ -666,7 +668,11 @@ function App() {
             setStepIndex={setOnboardingStep}
           />
         )}
-        {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+        {showSettings && (
+          <Suspense fallback={null}>
+            <SettingsPanel onClose={() => setShowSettings(false)} />
+          </Suspense>
+        )}
       </div>
     )
   }
@@ -885,6 +891,7 @@ function App() {
 
         {/* Right panel stack */}
         <div className="flex flex-shrink-0">
+          <Suspense fallback={null}>
           {simulationPanelOpen && (
             <div className="app-panel w-96 border-l border-border">
               <SimulationPanel onClose={toggleSimulationPanel} />
@@ -900,6 +907,7 @@ function App() {
               <CollaborativePanel onClose={() => setShowCollaborativePanel(false)} />
             </div>
           )}
+          </Suspense>
         </div>
       </div>
 
@@ -953,8 +961,10 @@ function App() {
         canvasRef={canvasRef}
       />
 
-      {showPluginPanel && <PluginPanel onClose={() => setShowPluginPanel(false)} />}
-      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+      <Suspense fallback={null}>
+        {showPluginPanel && <PluginPanel onClose={() => setShowPluginPanel(false)} />}
+        {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+      </Suspense>
       {showOnboarding && (
         <OnboardingTour
           onClose={closeOnboarding}

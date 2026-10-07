@@ -7,4 +7,19 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Split the eagerly-loaded framework vendors out of the entry chunk.
+        // Everything else stays auto-assigned: a catch-all would drag lazy
+        // graphs (three.js, recharts, …) back into the initial payload.
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return undefined;
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'vendor-react';
+          if (/[\\/]node_modules[\\/](konva|react-konva)[\\/]/.test(id)) return 'vendor-konva';
+          return undefined;
+        },
+      },
+    },
+  },
 });

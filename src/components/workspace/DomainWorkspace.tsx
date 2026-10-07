@@ -1,18 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import SchematicCanvas from '../SchematicCanvas'
-import MechanicalDesignPanel from '../mechanical/MechanicalDesignPanel'
-import PCBDesignPanel from '../pcb/PCBDesignPanel'
-import { SchematicToPcbPanel } from '../schematicToPcb/SchematicToPcbPanel'
-import Circuit3DViewer from '../3d/Circuit3DViewer'
-import { AdvancedRoboticsPanel } from '../robotics/AdvancedRoboticsPanel'
-import BoardProgrammingPanel from '../programming/BoardProgrammingPanel'
-import FPGADesignPanel from '../fpga/FPGADesignPanel'
-import HILTestingPanel from '../hil/HILTestingPanel'
-import DigitalTwinFleetPanel from '../digitalTwin/DigitalTwinFleetPanel'
-import SIEMDashboard from '../siem/SIEMDashboard'
-import MarketplacePanel from '../marketplace/MarketplacePanel'
-import SystemDashboard from '../SystemDashboard'
-import BOMPanel from '../bom/BOMPanel'
 import ComponentLibrary from '../ComponentLibrary'
 import PropertiesPanel from '../PropertiesPanel'
 import ToolRail from './ToolRail'
@@ -20,6 +7,28 @@ import { useAppStore, type WorkspaceMode } from '../../stores/useAppStore'
 import { useProjectStore } from '../../stores/useProjectStore'
 import type { Component } from '../../lib/supabase'
 import type { Schematic } from '../../types'
+
+/**
+ * Non-default workspace modes load on demand so their heavyweight graphs
+ * (three.js, reactflow, recharts) never reach the initial bundle.
+ */
+const MechanicalDesignPanel = lazy(() => import('../mechanical/MechanicalDesignPanel'))
+const PCBDesignPanel = lazy(() => import('../pcb/PCBDesignPanel'))
+const SchematicToPcbPanel = lazy(() =>
+  import('../schematicToPcb/SchematicToPcbPanel').then((m) => ({ default: m.SchematicToPcbPanel })),
+)
+const Circuit3DViewer = lazy(() => import('../3d/Circuit3DViewer'))
+const AdvancedRoboticsPanel = lazy(() =>
+  import('../robotics/AdvancedRoboticsPanel').then((m) => ({ default: m.AdvancedRoboticsPanel })),
+)
+const BoardProgrammingPanel = lazy(() => import('../programming/BoardProgrammingPanel'))
+const FPGADesignPanel = lazy(() => import('../fpga/FPGADesignPanel'))
+const HILTestingPanel = lazy(() => import('../hil/HILTestingPanel'))
+const DigitalTwinFleetPanel = lazy(() => import('../digitalTwin/DigitalTwinFleetPanel'))
+const SIEMDashboard = lazy(() => import('../siem/SIEMDashboard'))
+const MarketplacePanel = lazy(() => import('../marketplace/MarketplacePanel'))
+const SystemDashboard = lazy(() => import('../SystemDashboard'))
+const BOMPanel = lazy(() => import('../bom/BOMPanel'))
 
 interface DomainWorkspaceProps {
   libraryComponents: Component[]
@@ -230,6 +239,13 @@ export default function DomainWorkspace({ libraryComponents, onSave }: DomainWor
         )}
 
         <div className="relative min-h-0 min-w-0 flex-1">
+          <Suspense
+            fallback={
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground" role="status">
+                Loading workspace…
+              </div>
+            }
+          >
           {workspaceMode === 'schematic' && (
             <SchematicCanvas
               components={libraryComponents}
@@ -255,6 +271,7 @@ export default function DomainWorkspace({ libraryComponents, onSave }: DomainWor
           {workspaceMode === 'marketplace' && <MarketplacePanel />}
           {workspaceMode === 'dashboard' && <SystemDashboard />}
           {workspaceMode === 'bom' && <BOMPanel />}
+          </Suspense>
         </div>
 
         {isSchematic && inspector && selectedPart && (

@@ -17,7 +17,7 @@ A comprehensive, cross-platform engineering workbench that unifies CAD, mechanic
 - ✅ **Build Status:** SUCCESS
 - ✅ **Production Code:** 100% Functional
 - ✅ **Test Coverage:** Comprehensive (85+ tests passing)
-- ✅ **Bundle Size:** 1.08 MB (312 KB gzipped)
+- ✅ **Bundle Size:** 805 KB initial (242 KB gzipped), feature panels code-split
 - ✅ **Build Time:** ~30 seconds
 
 ---
@@ -268,7 +268,7 @@ npm run preview
 ```
 
 **Build Output:**
-- Bundle Size: 1.08 MB (312 KB gzipped)
+- Bundle Size: 805 KB initial payload (242 KB gzipped); heavy panels (3D, robotics, simulation) load on demand
 - Build Time: ~30 seconds
 - Modules: 2,565 transformed
 - Optimization: Minified + tree-shaken
