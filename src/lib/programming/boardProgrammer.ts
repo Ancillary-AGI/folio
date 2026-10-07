@@ -153,6 +153,14 @@ export const BOARD_DEFINITIONS: Record<string, BoardDefinition> = {
   }
 };
 
+/**
+ * True when Node facilities (`child_process`, `fs`, `os`, `process.*`) may be
+ * touched. Vite replaces those builtins in a browser bundle with a stub whose
+ * every property access throws, so *every* Node-only entry point checks this
+ * itself instead of trusting that its caller already did.
+ */
+const isNodeRuntime = (): boolean => typeof window === 'undefined';
+
 class BoardProgrammer {
   private selectedBoard: BoardDefinition | null = null;
   private compilerOptions: CompilerOptions = {
@@ -195,7 +203,7 @@ class BoardProgrammer {
 
     // Browser builds have no vendor toolchain: run the deterministic static
     // analysis and report the honest caveat instead of fake success output.
-    if (typeof window !== 'undefined') {
+    if (!isNodeRuntime()) {
       return this.analyseSketch(sketchCode, libraries, startTime);
     }
 
@@ -224,7 +232,7 @@ class BoardProgrammer {
     const startTime = Date.now();
 
     // Browser builds cannot touch serial ports or vendor uploaders.
-    if (typeof window !== 'undefined') {
+    if (!isNodeRuntime()) {
       return {
         success: false,
         output: `Upload of ${this.selectedBoard.name} on ${port} is unavailable in the browser. Use arduino-cli or the Arduino IDE with a connected board.`,
@@ -262,7 +270,7 @@ class BoardProgrammer {
   async getAvailablePorts(): Promise<string[]> {
     // Browser builds cannot enumerate serial ports; surfacing fake COM ports
     // caused users to attempt uploads that could never succeed.
-    if (typeof window !== 'undefined') {
+    if (!isNodeRuntime()) {
       return [];
     }
     try {
@@ -431,7 +439,7 @@ class BoardProgrammer {
   private async isArduinoCliAvailable(): Promise<boolean> {
     // In browser environment, Arduino CLI is not available
     // This would require Node.js environment or a backend service
-    if (typeof window !== 'undefined') {
+    if (!isNodeRuntime()) {
       return false;
     }
     try {
@@ -450,7 +458,7 @@ class BoardProgrammer {
   private async compileWithArduinoCli(sketchCode: string, libraries: string[], startTime: number): Promise<CompilationResult> {
     // Arduino CLI compilation requires Node.js environment
     // In browser, fall back to simulation
-    if (typeof window !== 'undefined') {
+    if (!isNodeRuntime()) {
       return this.simulateCompilation(sketchCode, libraries, startTime);
     }
 
@@ -553,7 +561,7 @@ class BoardProgrammer {
   private async uploadWithArduinoCli(port: string, compiledBinary: ArrayBuffer | undefined, startTime: number): Promise<UploadResult> {
     // Arduino CLI upload requires Node.js environment
     // In browser, fall back to simulation
-    if (typeof window !== 'undefined') {
+    if (!isNodeRuntime()) {
       return this.simulateUpload(port, startTime);
     }
 
@@ -783,7 +791,11 @@ export const boardProgrammer = new BoardProgrammer();
  * workbench open, and the promise settles on `spawn`/`error` instead of on
  * exit. `windowsHide` stops a console window flashing up behind a GUI launch.
  */
-async function launchDetached(command: string, args: readonly string[]): Promise<boolean> {
+export async function launchDetached(command: string, args: readonly string[]): Promise<boolean> {
+  // Fail closed *before* the import: Vite's browser build resolves
+  // `child_process` to a stub whose every property access throws, and a
+  // rejected dynamic import must never be mistaken for "spawn failed".
+  if (!isNodeRuntime()) return false
   const { spawn } = await import('child_process')
   return new Promise((resolve) => {
     let settled = false
@@ -814,7 +826,9 @@ async function launchDetached(command: string, args: readonly string[]): Promise
  * `start "C:\...\sketch.ino"` opens an empty console window and drops the
  * file. The empty title argument is what makes it open the document.
  */
-async function openWithDefaultApplication(filePath: string): Promise<boolean> {
+export async function openWithDefaultApplication(filePath: string): Promise<boolean> {
+  // `process` does not exist in the browser: guard before reading it.
+  if (!isNodeRuntime()) return false
   if (process.platform === 'win32') return launchDetached('cmd', ['/c', 'start', '', filePath])
   if (process.platform === 'darwin') return launchDetached('open', [filePath])
   return launchDetached('xdg-open', [filePath])
@@ -834,7 +848,10 @@ const ARDUINO_IDE_EXE_ENV = 'FOLIO_ARDUINO_IDE_EXE'
  * somewhere else entirely. macOS bundles sit at fixed *system* paths rather
  * than under a user profile, so those are written out.
  */
-function arduinoIdeCandidates(): string[] {
+export function arduinoIdeCandidates(): string[] {
+  // No environment, no install roots and no PATH probing in the browser —
+  // there is nothing here a launch loop could usefully try.
+  if (!isNodeRuntime()) return []
   const candidates: string[] = []
   const configured = process.env[ARDUINO_IDE_EXE_ENV]
   if (configured) candidates.push(configured)
@@ -862,7 +879,7 @@ function arduinoIdeCandidates(): string[] {
 export class ArduinoIDEIntegration {
   static async openInArduinoIDE(code: string): Promise<boolean> {
     // This feature requires Node.js environment
-    if (typeof window !== 'undefined') {
+    if (!isNodeRuntime()) {
       console.warn('Arduino IDE integration requires Node.js environment');
       return false;
     }
@@ -902,6 +919,9 @@ export class ArduinoIDEIntegration {
    * installed or does not answer.
    */
   private static async probeArduinoIdeVersion(command: string): Promise<string | null> {
+    // Reached only after the public guard, but a future caller must not be
+    // able to import `child_process` from a browser context by accident.
+    if (!isNodeRuntime()) return null;
     const { execFile } = await import('child_process');
 
     return new Promise((resolve) => {
@@ -924,7 +944,7 @@ export class ArduinoIDEIntegration {
    * Windows install, which the open path could happily start.
    */
   static async getArduinoIDEVersion(): Promise<string | null> {
-    if (typeof window !== 'undefined') {
+    if (!isNodeRuntime()) {
       return null;
     }
     try {
@@ -941,14 +961,14 @@ export class ArduinoIDEIntegration {
   }
 
   static async isArduinoIDEInstalled(): Promise<boolean> {
-    if (typeof window !== 'undefined') {
+    if (!isNodeRuntime()) {
       return false;
     }
     return (await ArduinoIDEIntegration.getArduinoIDEVersion()) !== null;
   }
 
   static async installBoard(boardId: string): Promise<boolean> {
-    if (typeof window !== 'undefined') {
+    if (!isNodeRuntime()) {
       return false;
     }
     try {
@@ -967,7 +987,7 @@ export class ArduinoIDEIntegration {
   }
 
   static async updateBoardIndex(): Promise<boolean> {
-    if (typeof window !== 'undefined') {
+    if (!isNodeRuntime()) {
       return false;
     }
     try {
@@ -992,7 +1012,7 @@ export class ArduinoIDEIntegration {
    * has to reach the tool verbatim.
    */
   static async programFPGA(bitstreamPath: string, device: string): Promise<boolean> {
-    if (typeof window !== 'undefined') {
+    if (!isNodeRuntime()) {
       return false;
     }
     try {
