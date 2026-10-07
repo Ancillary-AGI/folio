@@ -149,6 +149,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
                   <Button
                     variant="ghost"
                     size="icon"
+                    aria-label={`Delete ${project.name}`}
                     onClick={(e) => handleDeleteProject(project.id, e)}
                     className="text-destructive hover:text-destructive hover:bg-destructive/10"
                   >
