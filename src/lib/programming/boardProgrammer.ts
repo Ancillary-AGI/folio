@@ -163,6 +163,23 @@ const isNodeRuntime = (): boolean => typeof window === 'undefined';
 
 class BoardProgrammer {
   private selectedBoard: BoardDefinition | null = null;
+  /**
+   * Browser upload transport, registered by the UI after the user grants a
+   * WebSerial port. When set, `uploadSketch` runs the real STK500v1 session
+   * in the browser instead of refusing — this is what makes Giant 3 real.
+   */
+  private browserTransport: {
+    write: (data: Uint8Array) => Promise<void>
+    onData: (callback: (data: Uint8Array) => void) => void
+  } | null = null;
+
+  /** Register the browser-side serial transport (WebSerial bridge). */
+  setBrowserTransport(transport: {
+    write: (data: Uint8Array) => Promise<void>
+    onData: (callback: (data: Uint8Array) => void) => void
+  } | null): void {
+    this.browserTransport = transport;
+  }
   private compilerOptions: CompilerOptions = {
     board: 'arduino_uno',
     optimization: 'Os',
@@ -231,8 +248,25 @@ class BoardProgrammer {
 
     const startTime = Date.now();
 
-    // Browser builds cannot touch serial ports or vendor uploaders.
+    // Browser builds: with a registered WebSerial transport, run the real
+    // STK500v1 session (Giant 3) — without one, keep refusing honestly.
     if (!isNodeRuntime()) {
+      if (this.browserTransport && this.selectedBoard) {
+        const { uploadHexImage } = await import('./uploadSession');
+        const { bytesToIntelHex, textToBytes } = await import('../compilation/intelHex');
+        const image = compiledBinary
+          ? bytesToIntelHex(new Uint8Array(compiledBinary), { baseAddress: 0 })
+          : bytesToIntelHex(textToBytes('// empty sketch'), { baseAddress: 0 });
+        const session = await uploadHexImage(this.browserTransport, image, {
+          flashSize: this.selectedBoard.flash,
+        });
+        return {
+          success: session.success,
+          output: session.message,
+          error: session.success ? undefined : session.message,
+          uploadTime: Date.now() - startTime,
+        };
+      }
       return {
         success: false,
         output: `Upload of ${this.selectedBoard.name} on ${port} is unavailable in the browser. Use arduino-cli or the Arduino IDE with a connected board.`,
