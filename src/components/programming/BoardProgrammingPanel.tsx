@@ -130,6 +130,34 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
     }
   };
 
+  const [serialStatus, setSerialStatus] = useState<string>('No serial port connected.')
+
+  const handleConnectSerial = useCallback(async () => {
+    try {
+      const { WebSerialBridge } = await import('../../lib/hardware/hardwareInterfaces')
+      const bridge = new WebSerialBridge()
+      if (!bridge.isAvailable) {
+        setSerialStatus('WebSerial is not available in this browser — use Chrome or Edge over USB.')
+        return
+      }
+      const granted = await bridge.requestPort()
+      if (!granted) {
+        setSerialStatus('Serial port request was declined.')
+        return
+      }
+      const opened = await bridge.open({ baudRate: 115200 })
+      if (!opened) {
+        setSerialStatus('Could not open the serial port at 115200 baud.')
+        return
+      }
+      boardProgrammer.setBrowserTransport(bridge)
+      setSelectedPort('webserial')
+      setSerialStatus('Serial port connected at 115200 baud — upload is live.')
+    } catch (error) {
+      setSerialStatus(`Serial connect failed: ${describeError(error)}`)
+    }
+  }, [])
+
   const handleUpload = async () => {
     if (!selectedPort) {
       alert('Please select a port');
@@ -463,6 +491,12 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                    aria-label="Refresh serial ports">
                     <RefreshCw className="w-3 h-3" />
                   </Button>
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <Button variant="default" size="sm" onClick={handleConnectSerial}>
+                    Connect serial (WebSerial)
+                  </Button>
+                  <span className="text-xs text-muted-foreground">{serialStatus}</span>
                 </div>
               </CardContent>
             </Card>
