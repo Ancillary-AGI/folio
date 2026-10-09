@@ -24,6 +24,7 @@ import { emcSimulationEngine, type EMCTrace } from '../../lib/emc/emcSimulation'
 import { thermalAnalysisEngine, type ThermalNode, type ThermalBoundary } from '../../lib/pcb/thermalAnalysis'
 import { signalIntegrityAnalyzer } from '../../lib/pcb/signalIntegrity'
 import { exportToGerber, downloadFile } from '../../lib/exportUtils'
+import { buildFabPackage } from '../../lib/manufacturing/fabExport'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -328,6 +329,18 @@ export default function PCBDesignPanel({ onClose, components = [], wires = [] }:
     downloadFile(gerber, `pcb_top_copper_${Date.now()}.gbr`, 'text/plain')
   }, [components, wires])
 
+  const [fabVerdict, setFabVerdict] = useState<string | null>(null)
+
+  const handleExportFab = useCallback(() => {
+    const pkg = buildFabPackage(components, wires, { projectName: 'folio-pcb' })
+    if (!pkg.shippable) {
+      setFabVerdict(`${pkg.violations.length} fab violation(s): ${pkg.violations[0]?.message ?? 'blocked'}`)
+      return
+    }
+    setFabVerdict(`Fab package: ${pkg.files.size} files, ${pkg.centroid.length} placements — shippable.`)
+    for (const [name, content] of pkg.files) downloadFile(content, name, 'text/plain')
+  }, [components, wires])
+
   // ── Layer toggle ──────────────────────────────────────────────────────────────
 
   const toggleLayerVisibility = useCallback((layerId: string) => {
@@ -558,6 +571,10 @@ export default function PCBDesignPanel({ onClose, components = [], wires = [] }:
                   <Button className="w-full h-7 text-xs" variant="outline" onClick={handleExportGerber}>
                     <Download className="w-3 h-3 mr-1" /> Gerber (RS-274X)
                   </Button>
+                  <Button className="w-full h-7 text-xs" variant="default" onClick={handleExportFab}>
+                    <Download className="w-3 h-3 mr-1" /> Fab package (Gerber + drill + PnP)
+                  </Button>
+                  {fabVerdict ? <p className="text-[11px] leading-snug text-muted-foreground">{fabVerdict}</p> : null}
                   <Button className="w-full h-7 text-xs" variant="outline" onClick={() => {
                     const data = JSON.stringify({ traces, vias, layers, boardWidth, boardHeight }, null, 2)
                     downloadFile(data, `pcb_${Date.now()}.json`, 'application/json')

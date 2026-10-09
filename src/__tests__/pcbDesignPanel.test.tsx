@@ -271,6 +271,25 @@ describe('PCBDesignPanel', () => {
     )
   })
 
+  it('exports the fab package through buildFabPackage and gates violations', async () => {
+    const fab = await import('../lib/manufacturing/fabExport')
+    const spy = vi.spyOn(fab, 'buildFabPackage').mockReturnValue({
+      files: new Map([['folio-pcb-F_Cu.gtl', 'G04 ok*']]),
+      centroid: [],
+      bom: [],
+      violations: [],
+      shippable: true,
+    })
+    try {
+      render(<PCBDesignPanel onClose={vi.fn()} components={[part]} wires={[net('GND', 'w1')]} />)
+      fireEvent.click(screen.getByRole('button', { name: /Fab package/ }))
+      expect(spy).toHaveBeenCalled()
+      expect(screen.getByText(/shippable/)).toBeInTheDocument()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('disables the engine analyses while a run is in flight', () => {
     vi.spyOn(thermalAnalysisEngine, 'analyzeThermal').mockImplementation(
       () => new Promise<ThermalAnalysisResult>(() => {}),
