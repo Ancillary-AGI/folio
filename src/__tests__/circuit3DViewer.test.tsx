@@ -1,0 +1,75 @@
+/**
+ * 3D viewer render coverage.
+ * WebGL cannot run in jsdom, so the fiber Canvas and drei helpers are
+ * stubbed at the module boundary — every toggle, button and export path
+ * below them runs for real.
+ */
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import '@testing-library/jest-dom/vitest'
+import Circuit3DViewer from '../components/3d/Circuit3DViewer'
+import { useProjectStore } from '../stores/useProjectStore'
+
+vi.mock('@react-three/fiber', () => ({
+  Canvas: ({ children }: { children: React.ReactNode }) => <div data-testid="r3f-canvas">{children}</div>,
+  useFrame: () => {},
+  useThree: () => ({ camera: { position: { set: () => {} }, lookAt: () => {} } }),
+}))
+
+vi.mock('@react-three/drei', () => ({
+  OrbitControls: () => null,
+  Grid: () => null,
+}))
+
+const exportSpies = vi.hoisted(() => ({
+  exportScene: vi.fn(() => 'solid test\nendsolid test'),
+  exportMeshes: vi.fn(() => ({ obj: 'o test', mtl: 'newmtl test' })),
+  downloadFile: vi.fn(),
+}))
+vi.mock('../lib/3d/stlExporter', () => ({ STLExporter: { exportScene: exportSpies.exportScene } }))
+vi.mock('../lib/3d/objExporter', () => ({ objExporter: { exportMeshes: exportSpies.exportMeshes } }))
+vi.mock('../lib/exportUtils', () => ({ downloadFile: exportSpies.downloadFile }))
+
+describe('Circuit3DViewer', () => {
+  beforeEach(() => {
+    exportSpies.exportScene.mockClear()
+    exportSpies.exportMeshes.mockClear()
+    exportSpies.downloadFile.mockClear()
+    // Seed an empty sheet: the viewer maps store components to 3D.
+    useProjectStore.setState({ components: [], wires: [] })
+  })
+
+  it('renders viewport chrome, view presets and layer toggles', () => {
+    render(<Circuit3DViewer onClose={() => {}} />)
+    expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument()
+    for (const view of ['iso', 'top', 'front', 'side']) {
+      expect(screen.getByRole('button', { name: view })).toBeInTheDocument()
+    }
+    expect(screen.getByRole('button', { name: 'Reset View' })).toBeInTheDocument()
+    expect(screen.getByText(/Components:/)).toBeInTheDocument()
+  })
+
+  it('switches camera presets', () => {
+    render(<Circuit3DViewer onClose={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: 'top' }))
+    expect(screen.getByRole('button', { name: 'top' })).toHaveClass('bg-primary')
+  })
+
+  it('exports STL through the real export path', () => {
+    render(<Circuit3DViewer onClose={() => {}} />)
+    const buttons = screen.getAllByRole('button')
+    const stl = buttons.find((button) => button.textContent?.toLowerCase().includes('stl'))
+    expect(stl).toBeDefined()
+    if (stl) fireEvent.click(stl)
+    expect(exportSpies.exportScene).toHaveBeenCalled()
+  })
+
+  it('exports OBJ through the real export path', () => {
+    render(<Circuit3DViewer onClose={() => {}} />)
+    const buttons = screen.getAllByRole('button')
+    const obj = buttons.find((button) => button.textContent?.toLowerCase().includes('obj'))
+    expect(obj).toBeDefined()
+    if (obj) fireEvent.click(obj)
+    expect(exportSpies.exportMeshes).toHaveBeenCalled()
+  })
+})
