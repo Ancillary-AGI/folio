@@ -88,7 +88,10 @@ interface SampledSignal {
 /**
  * Normalise an analysis outcome into `name → samples`.
  * Operating-point results become single-sample series, so a DC sweep travels
- * through exactly the same machinery as transient and AC.
+ * through exactly the same machinery as transient and AC. Node-style
+ * operating points (voltages on `nodes`/`operatingPoint`) are folded in as
+ * single-point `V(name)` signals — otherwise a DC tolerance sweep would
+ * sample nothing and the envelope would be empty.
  */
 export function sampleOutcome(outcome: AnalysisOutcome): Map<string, SampledSignal> {
   const signals = new Map<string, SampledSignal>()
@@ -105,6 +108,17 @@ export function sampleOutcome(outcome: AnalysisOutcome): Map<string, SampledSign
     for (const node of outcome.nodes) {
       signals.set(`V(${node.name})`, { unit: 'V', points: [node.voltage ?? 0], x: [0] })
     }
+  }
+
+  const operatingPoint = (outcome.operatingPoint ?? {}) as Record<string, number>
+  for (const node of outcome.nodes ?? []) {
+    const voltage = node.voltage ?? operatingPoint[node.name]
+    if (typeof voltage !== 'number' || Number.isNaN(voltage)) continue
+    signals.set(`V(${node.name})`, { unit: 'V', points: [voltage], x: [0] })
+  }
+  for (const [name, voltage] of Object.entries(operatingPoint)) {
+    if (typeof voltage !== 'number' || Number.isNaN(voltage)) continue
+    if (!signals.has(`V(${name})`)) signals.set(`V(${name})`, { unit: 'V', points: [voltage], x: [0] })
   }
 
   return signals
