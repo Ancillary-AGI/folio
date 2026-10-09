@@ -155,11 +155,11 @@ export const BOARD_DEFINITIONS: Record<string, BoardDefinition> = {
 
 /**
  * True when Node facilities (`child_process`, `fs`, `os`, `process.*`) may be
- * touched. Vite replaces those builtins in a browser bundle with a stub whose
- * every property access throws, so *every* Node-only entry point checks this
- * itself instead of trusting that its caller already did.
+ * touched — imported from the Node bridge so the browser bundle never
+ * resolves a builtin. *Every* Node-only entry point checks it itself
+ * instead of trusting that its caller already did.
  */
-const isNodeRuntime = (): boolean => typeof window === 'undefined';
+import { isNodeRuntime, nodeExec, nodeExecFile, nodeFs, nodeOs, nodePath, nodeSpawnDetached } from './nodeBridge'
 
 class BoardProgrammer {
   private selectedBoard: BoardDefinition | null = null;
@@ -308,12 +308,8 @@ class BoardProgrammer {
       return [];
     }
     try {
-      const { exec } = await import('child_process');
-      const stdout = await new Promise<string>((resolve) => {
-        exec('arduino-cli board list', (error: Error | null, out: string) => {
-          resolve(error ? '' : out);
-        });
-      });
+      const stdout = await nodeExec('arduino-cli board list')
+      if (stdout === null) return []
       const ports = stdout
         .split('\n')
         .map((line) => line.trim())
@@ -477,13 +473,8 @@ class BoardProgrammer {
       return false;
     }
     try {
-      // Dynamic import for Node.js environment only
-      const { exec } = await import('child_process');
-      return new Promise((resolve) => {
-        exec('arduino-cli version', (error: Error | null, stdout: string) => {
-          resolve(!error && stdout.includes('arduino-cli'));
-        });
-      });
+      const stdout = await nodeExec('arduino-cli version')
+      return stdout !== null && stdout.includes('arduino-cli')
     } catch {
       return false;
     }
@@ -496,11 +487,11 @@ class BoardProgrammer {
       return this.simulateCompilation(sketchCode, libraries, startTime);
     }
 
-    // Dynamic imports for Node.js only
-    const fs = await import('fs');
-    const path = await import('path');
-    const { execFile } = await import('child_process');
-    const os = await import('os');
+    // Node bridge modules (null-guarded: a missed runtime check fails typed).
+    const fs = await nodeFs();
+    const path = await nodePath();
+    const os = await nodeOs();
+    if (!fs || !path || !os) throw new Error('Node runtime unavailable for compilation.');
 
     // Create temporary directory for sketch
     const tempDir = path.join(os.tmpdir(), 'arduino-sketch-' + Date.now());
@@ -521,17 +512,8 @@ class BoardProgrammer {
       // Install required libraries. A library name is user input, so it is
       // passed as an argument instead of interpolated into a command line.
       for (const lib of libraries) {
-        await new Promise<void>((resolve) => {
-          execFile(
-            'arduino-cli',
-            ['lib', 'install', lib],
-            { cwd: sketchDir, windowsHide: true },
-            (error: Error | null) => {
-              if (error) console.warn(`Failed to install library ${lib}:`, error.message);
-              resolve(); // Continue even if library install fails
-            }
-          );
-        });
+        const installed = await nodeExecFile('arduino-cli', ['lib', 'install', lib], sketchDir)
+        if (installed?.error) console.warn(`Failed to install library ${lib}:`, installed.error.message);
       }
 
       // Compile with Arduino CLI. The build directory is joined rather than
@@ -539,18 +521,28 @@ class BoardProgrammer {
       // the sketch path never reaches a shell.
       const outputDir = path.join(tempDir, 'build');
 
-      return new Promise((resolve) => {
-        execFile(
-          'arduino-cli',
-          ['compile', '--fqbn', fqbn, '--output-dir', outputDir, sketchDir],
-          { cwd: sketchDir, windowsHide: true },
-          (error: Error | null, stdout: string, stderr: string) => {
-          const compilationTime = Date.now() - startTime;
-
-          if (error) {
+      const compiled = await nodeExecFile('arduino-cli', ['compile', '--fqbn', fqbn, '--output-dir', outputDir, sketchDir], sketchDir)
+      const compilationTime = Date.now() - startTime
+      if (!compiled) {
+        return {
+          success: false,
+          output: 'arduino-cli could not be launched.',
+          errors: ['arduino-cli could not be launched.'],
+          warnings: [],
+          binarySize: 0,
+          memoryUsage: {
+            flash: { used: 0, total: this.selectedBoard?.flash || 0, percentage: 0 },
+            ram: { used: 0, total: this.selectedBoard?.ram || 0, percentage: 0 }
+          },
+          compilationTime
+        };
+      }
+      {
+        const { error, stdout, stderr } = compiled
+        if (error) {
             // Parse errors from stderr
             const errors = this.parseArduinoCliErrors(stderr);
-            resolve({
+            return {
               success: false,
               output: stderr,
               errors,
@@ -561,13 +553,13 @@ class BoardProgrammer {
                 ram: { used: 0, total: this.selectedBoard?.ram || 0, percentage: 0 }
               },
               compilationTime
-            });
+            };
           } else {
             // Parse successful compilation output
             const binarySize = this.extractBinarySize(stdout);
             const memoryUsage = this.extractMemoryUsage(stdout);
 
-            resolve({
+            return {
               success: true,
               output: stdout,
               errors: [],
@@ -575,10 +567,9 @@ class BoardProgrammer {
               binarySize,
               memoryUsage,
               compilationTime
-            });
+            };
           }
-        });
-      });
+        }
     } catch {
       // Fallback to simulation on any error
       return this.simulateCompilation(sketchCode, libraries, startTime);
@@ -599,11 +590,18 @@ class BoardProgrammer {
       return this.simulateUpload(port, startTime);
     }
 
-    // Dynamic imports for Node.js only
-    const fs = await import('fs');
-    const path = await import('path');
-    const { execFile } = await import('child_process');
-    const os = await import('os');
+    // Node bridge modules (null-guarded: a missed runtime check fails typed).
+    const fs = await nodeFs();
+    const path = await nodePath();
+    const os = await nodeOs();
+    if (!fs || !path || !os) {
+      return {
+        success: false,
+        output: 'Node runtime unavailable for upload.',
+        error: 'Node runtime unavailable for upload.',
+        uploadTime: Date.now() - startTime
+      };
+    }
 
     // Create temporary directory for binary if provided
     let binaryPath: string | undefined;
@@ -623,34 +621,30 @@ class BoardProgrammer {
     const uploadArgs = ['upload', '-p', port, '--fqbn', fqbn];
     if (binaryPath) uploadArgs.push('--input-file', binaryPath);
 
-    return new Promise((resolve) => {
-      execFile('arduino-cli', uploadArgs, { windowsHide: true }, (error: Error | null, stdout: string, stderr: string) => {
-        const uploadTime = Date.now() - startTime;
+    const uploaded = await nodeExecFile('arduino-cli', uploadArgs)
+    const uploadTime = Date.now() - startTime;
 
-        if (binaryPath) {
-          try {
-            fs.rmSync(path.dirname(binaryPath), { recursive: true, force: true });
-          } catch (cleanupError) {
-            console.warn('Failed to cleanup upload temp directory:', cleanupError);
-          }
-        }
+    if (binaryPath) {
+      try {
+        fs.rmSync(path.dirname(binaryPath), { recursive: true, force: true });
+      } catch (cleanupError) {
+        console.warn('Failed to cleanup upload temp directory:', cleanupError);
+      }
+    }
 
-        if (error) {
-          resolve({
-            success: false,
-            output: stderr,
-            error: error.message,
-            uploadTime
-          });
-        } else {
-          resolve({
-            success: true,
-            output: stdout,
-            uploadTime
-          });
-        }
-      });
-    });
+    if (!uploaded || uploaded.error) {
+      return {
+        success: false,
+        output: uploaded?.stderr ?? 'arduino-cli could not be launched.',
+        error: uploaded?.error?.message ?? 'arduino-cli could not be launched.',
+        uploadTime
+      };
+    }
+    return {
+      success: true,
+      output: uploaded.stdout,
+      uploadTime
+    };
   }
 
   private parseArduinoCliErrors(stderr: string): string[] {
@@ -826,30 +820,10 @@ export const boardProgrammer = new BoardProgrammer();
  * exit. `windowsHide` stops a console window flashing up behind a GUI launch.
  */
 export async function launchDetached(command: string, args: readonly string[]): Promise<boolean> {
-  // Fail closed *before* the import: Vite's browser build resolves
-  // `child_process` to a stub whose every property access throws, and a
-  // rejected dynamic import must never be mistaken for "spawn failed".
+  // Fail closed *before* the bridge: a missed runtime check returns false,
+  // never a stub throw.
   if (!isNodeRuntime()) return false
-  const { spawn } = await import('child_process')
-  return new Promise((resolve) => {
-    let settled = false
-    const finish = (value: boolean): void => {
-      if (!settled) {
-        settled = true
-        resolve(value)
-      }
-    }
-    try {
-      const child = spawn(command, [...args], { detached: true, stdio: 'ignore', windowsHide: true })
-      child.once('error', () => finish(false))
-      child.once('spawn', () => {
-        child.unref()
-        finish(true)
-      })
-    } catch {
-      finish(false)
-    }
-  })
+  return nodeSpawnDetached(command, args)
 }
 
 /**
@@ -919,9 +893,10 @@ export class ArduinoIDEIntegration {
     }
 
     try {
-      const fs = await import('fs');
-      const path = await import('path');
-      const os = await import('os');
+      const fs = await nodeFs();
+      const path = await nodePath();
+      const os = await nodeOs();
+      if (!fs || !path || !os) return false;
 
       // Create temporary sketch file
       const tempDir = path.join(os.tmpdir(), 'arduino-ide-' + Date.now());
@@ -954,20 +929,12 @@ export class ArduinoIDEIntegration {
    */
   private static async probeArduinoIdeVersion(command: string): Promise<string | null> {
     // Reached only after the public guard, but a future caller must not be
-    // able to import `child_process` from a browser context by accident.
+    // able to reach a builtin from a browser context by accident.
     if (!isNodeRuntime()) return null;
-    const { execFile } = await import('child_process');
-
-    return new Promise((resolve) => {
-      execFile(command, ['--version'], { timeout: 10_000, windowsHide: true }, (error, stdout) => {
-        if (error) {
-          resolve(null);
-          return;
-        }
-        const match = /(\d+\.\d+\.\d+)/.exec(stdout);
-        resolve(match ? match[1] : null);
-      });
-    });
+    const probed = await nodeExecFile(command, ['--version'])
+    if (!probed || probed.error) return null
+    const match = /(\d+\.\d+\.\d+)/.exec(probed.stdout);
+    return match ? match[1] : null;
   }
 
   /**
@@ -1006,15 +973,10 @@ export class ArduinoIDEIntegration {
       return false;
     }
     try {
-      const { execFile } = await import('child_process');
-
-      return new Promise((resolve) => {
-        // Argument array, not an interpolated command line: `boardId` is public
-        // API, and a shell would run whatever it contained.
-        execFile('arduino-cli', ['core', 'install', boardId], { windowsHide: true }, (error: Error | null) => {
-          resolve(!error);
-        });
-      });
+      // Argument array, not an interpolated command line: `boardId` is public
+      // API, and a shell would run whatever it contained.
+      const installed = await nodeExecFile('arduino-cli', ['core', 'install', boardId])
+      return installed !== null && !installed.error;
     } catch {
       return false;
     }
@@ -1025,13 +987,8 @@ export class ArduinoIDEIntegration {
       return false;
     }
     try {
-      const { execFile } = await import('child_process');
-
-      return new Promise((resolve) => {
-        execFile('arduino-cli', ['core', 'update-index'], { windowsHide: true }, (error: Error | null) => {
-          resolve(!error);
-        });
-      });
+      const updated = await nodeExecFile('arduino-cli', ['core', 'update-index'])
+      return updated !== null && !updated.error;
     } catch {
       return false;
     }
@@ -1050,8 +1007,6 @@ export class ArduinoIDEIntegration {
       return false;
     }
     try {
-      const { execFile } = await import('child_process');
-
       // Support for common FPGA programming tools. Each entry is an argument
       // array, not a command string: a bitstream path handed to a shell is a
       // path that gets split on its own spaces, and the Intel entry's payload
@@ -1070,16 +1025,12 @@ export class ArduinoIDEIntegration {
 
       const [programmer, ...programmerArgs] = programmingCommand;
 
-      return new Promise((resolve) => {
-        execFile(programmer, programmerArgs, { windowsHide: true }, (error: Error | null, _stdout: string, stderr: string) => {
-          if (error) {
-            console.error('FPGA programming failed:', stderr);
-            resolve(false);
-          } else {
-            resolve(true);
-          }
-        });
-      });
+      const programmed = await nodeExecFile(programmer, programmerArgs)
+      if (!programmed || programmed.error) {
+        console.error('FPGA programming failed:', programmed?.stderr ?? 'tool could not be launched');
+        return false;
+      }
+      return true;
     } catch {
       return false;
     }
