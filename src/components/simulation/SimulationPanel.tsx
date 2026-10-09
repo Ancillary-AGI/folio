@@ -100,6 +100,34 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
     }
   }
 
+  const [benchInput, setBenchInput] = useState<string>('')
+  const [benchVerdict, setBenchVerdict] = useState<string | null>(null)
+
+  const handleCorrelateBench = async () => {
+    try {
+      const { correlateBench, toleranceEnvelope } = await import('../../lib/simulation/benchCorrelation')
+      const { buildCircuitModel } = await import('../../lib/simulation/circuitModel')
+      const { runOperatingPoint } = await import('../../lib/simulation/solver')
+      const samples = benchInput
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .map((line) => {
+          const [signal, x, value] = line.split(',').map((part) => part.trim())
+          if (!signal || x === undefined || value === undefined) throw new Error(`Bad bench line: ${line} (want SIGNAL,x,value)`)
+          return { signal, x: Number(x), value: Number(value) }
+        })
+      const netlist = buildCircuitNetlist('Bench correlation', components, wires, { type: 'dc' })
+      const { model, errors } = buildCircuitModel(netlist)
+      if (errors.length > 0) throw new Error(errors.join(' '))
+      const { bands } = toleranceEnvelope(model, (perturbed) => runOperatingPoint(perturbed, { temperatureCelsius: 27 }).outcome, { iterations: 60, tolerance: 0.05 })
+      const verdict = correlateBench(bands, samples)
+      setBenchVerdict(verdict.summary)
+    } catch (thrown) {
+      setBenchVerdict(`Bench correlation failed: ${describeError(thrown)}`)
+    }
+  }
+
   const handleParameterChange = (key: keyof SimulationParameters, value: string | number | boolean) => {
     setParameters((previous) => ({ ...previous, [key]: value }))
   }
@@ -473,6 +501,21 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
               Export results
             </Button>
           )}
+        </div>
+        {/* Bench correlation (Giant 4): paste SIGNAL,x,value lines, verdict vs the tolerance envelope. */}
+        <div className="rounded-md border border-border bg-muted/50 p-3">
+          <h4 className="mb-1 text-xs font-medium text-card-foreground">Bench correlation</h4>
+          <textarea
+            aria-label="Bench samples (SIGNAL,x,value per line)"
+            value={benchInput}
+            onChange={(event) => setBenchInput(event.target.value)}
+            placeholder={'V(OUT),0,2.5'}
+            className="mb-2 h-16 w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-xs"
+          />
+          <Button onClick={handleCorrelateBench} variant="outline" size="sm">
+            Correlate bench samples
+          </Button>
+          {benchVerdict ? <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{benchVerdict}</p> : null}
         </div>
 
         {/* Solver diagnostics: floating nets, non-convergence, step widening. */}
