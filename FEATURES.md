@@ -27,6 +27,8 @@
 ## 🖥 PCB Design ✅
 
 - **Schematic → PCB conversion**: placement and auto-routing with design-rule constraints (converter is unit-tested)
+- **Multi-sheet schematics**: global-label stitching across sheets with private locals and duplicate-reference rejection (`multiSheet.ts`)
+- **KiCad netlist interchange**: s-expression import/export with round-trip tests (`kicadNetlist.ts`)
 - **PCB canvas**: board outline, traces, vias, pads, layer visibility toggles with color-coded layer list
 - **DRC**: clearance, trace width, drill, and annular-ring checks (`src/lib/manufacturing/drc.ts`)
 - **Manufacturing output**: full fab package — Gerber layer set (F/B Cu, masks, silks, Edge.Cuts), true Excellon drill, centroid/PnP, MPN BOM — gated on JLCPCB DRC (`fabExport.ts`, parser-validated tests); multilayer stackup + impedance engine, differential pairs, BGA fanout, power integrity, DDR rules, enclosure STEP
@@ -73,8 +75,6 @@
 
 ## ❌ Not implemented (previous drafts claimed these)
 
-- Multi-sheet / hierarchical schematics
-- EAGLE, KiCad, or Altium import/export
 - Real-time multi-user collaboration, comments/review workflows
 - Cloud sync beyond optional Supabase project persistence
 - Plugin system, JavaScript/Python scripting, REST API
