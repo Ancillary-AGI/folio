@@ -158,7 +158,20 @@ export function solveNewton(
       if (device.kind !== 'diode') continue
       const p = model.nodeIndex.get(device.p)
       const n = model.nodeIndex.get(device.n)
-      const junctionVoltage = (p === undefined ? 0 : next[p]) - (n === undefined ? 0 : next[n])
+      const rawVoltage = (p === undefined ? 0 : next[p]) - (n === undefined ? 0 : next[n])
+      // SPICE pnjlim: a forward step beyond ~2× thermal cries wolf — limit
+      // the change per iteration so the exponential cannot slingshot Newton
+      // into overflow. Reverse is unbounded (well-conditioned).
+      const previous = diodeOperatingPoints.get(device.name)?.voltage ?? 0
+      const vt = device.emissionCoefficient * thermal
+      let junctionVoltage = rawVoltage
+      if (rawVoltage > 0) {
+        const change = rawVoltage - previous
+        const critical = 2 * vt
+        if (change > critical) {
+          junctionVoltage = previous + vt * (2 + Math.log(Math.max(change / vt - 1, 1e-12)))
+        }
+      }
       const { current } = diodeCurrentAndConductance(device, junctionVoltage, thermal)
       updatedPoints.set(device.name, { voltage: junctionVoltage, current })
     }
