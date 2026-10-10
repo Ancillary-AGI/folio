@@ -258,6 +258,24 @@
     @apply pointer-events-none absolute left-1/2 top-7 z-10 flex -translate-x-1/2 items-center gap-2 border border-border border-l-2 border-l-primary bg-surface px-3 py-1 text-[11px] text-surface-foreground shadow;
   }
 
+  /* Right-click menu over the sheet. */
+  .cad-context-menu {
+    @apply absolute z-50 flex min-w-[11rem] flex-col border border-border bg-surface py-1 shadow;
+  }
+
+  .cad-context-item {
+    @apply px-3 py-1 text-left text-[11px] text-surface-foreground hover:bg-muted/60;
+  }
+
+  .cad-context-item--danger {
+    @apply text-destructive;
+  }
+
+  /* Fail-loud strip listing placed symbols that break the symbol contract. */
+  .cad-symbol-faults {
+    @apply pointer-events-none absolute inset-x-0 bottom-6 z-10 flex h-6 items-center gap-2 border-t border-destructive/40 bg-surface px-2 text-[10px] uppercase tracking-[0.08em] text-destructive;
+  }
+
   .cad-ruler-face {
     @apply pointer-events-none absolute bg-surface;
   }

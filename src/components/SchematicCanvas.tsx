@@ -7,6 +7,7 @@ import { useTheme } from '../lib/theme/useTheme'
 import { THEMES, hslTripletToRgb, rgbToHex } from '../lib/theme/tokens'
 import Konva from 'konva'
 import { generateId } from '../lib/utils'
+import { applyContextAction, CONTEXT_ACTIONS, validateSymbol, type ContextActionId } from '../lib/schematic/contextMenu'
 
 const RULER_SIZE = 18
 const RULER_STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000]
@@ -276,6 +277,44 @@ export default function SchematicCanvas({
     setSelectedComponents([id])
   }
 
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+
+  const handleComponentContextMenu = (event: Konva.KonvaEventObject<PointerEvent>, id: string) => {
+    event.evt.preventDefault()
+    setSelectedComponents([id])
+    const stage = stageRef.current
+    const pointer = stage?.getPointerPosition()
+    setMenu({ id, x: pointer?.x ?? 0, y: pointer?.y ?? 0 })
+  }
+
+  const handleMenuAction = (action: ContextActionId) => {
+    if (!menu) return
+    const next = applyContextAction(useProjectStore.getState().components, menu.id, action, () => generateId('comp'))
+    useProjectStore.setState({ components: next })
+    markDirty()
+    setMenu(null)
+  }
+
+  /*
+   * Symbol contract audit. A symbol whose body or pins are broken used to
+   * render as nothing at all; now every placed part is checked on each render
+   * and the failures are listed, never silently dropped.
+   */
+  const symbolFaults = useMemo(
+    () =>
+      canvasComponents.flatMap((canvasComp) =>
+        validateSymbol(
+          {
+            width: canvasComp.component.symbol_data.width,
+            height: canvasComp.component.symbol_data.height,
+            paths: canvasComp.component.symbol_data.paths ?? [],
+          },
+          canvasComp.component.pins ?? [],
+        ).map((reason) => ({ id: canvasComp.id, reference: canvasComp.reference, reason })),
+      ),
+    [canvasComponents],
+  )
+
   /*
    * Deletion is a cross-cutting shortcut, so it is memoised and attached once.
    * Re-registering the listener on every selection change is what made the
@@ -380,6 +419,7 @@ export default function SchematicCanvas({
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onClick={() => handleComponentClick(canvasComp.id)}
+        onContextMenu={(event) => handleComponentContextMenu(event, canvasComp.id)}
       >
         {/* Component body */}
         <Rect
@@ -666,6 +706,18 @@ export default function SchematicCanvas({
         </div>
       )}
 
+      {/* Symbol contract faults — fail loud, never a silently blank part */}
+      {symbolFaults.length > 0 && (
+        <div className="cad-symbol-faults" role="alert">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.14em]">Symbol</span>
+          <span className="cad-readout text-foreground">{symbolFaults.length} fault{symbolFaults.length === 1 ? '' : 's'}</span>
+          <span className="min-w-0 flex-1 truncate">
+            {symbolFaults[0].reference}: {symbolFaults[0].reason}
+            {symbolFaults.length > 1 ? ` (+${symbolFaults.length - 1} more)` : ''}
+          </span>
+        </div>
+      )}
+
       {/* Sheet status strip */}
       <div className="cad-hud">
         <span className="flex items-center gap-3">
@@ -688,6 +740,39 @@ export default function SchematicCanvas({
           </span>
         </span>
       </div>
+
+      {/* Right-click menu over the sheet */}
+      {menu && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setMenu(null)}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              setMenu(null)
+            }}
+          />
+          <div
+            className="cad-context-menu"
+            role="menu"
+            aria-label="Component actions"
+            style={{ left: menu.x + RULER_SIZE, top: menu.y + RULER_SIZE }}
+          >
+            {CONTEXT_ACTIONS.map((action) => (
+              <button
+                key={action.id}
+                type="button"
+                role="menuitem"
+                className={`cad-context-item${action.id === 'delete' ? ' cad-context-item--danger' : ''}`}
+                onClick={() => handleMenuAction(action.id)}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
     </div>
   )
 }
