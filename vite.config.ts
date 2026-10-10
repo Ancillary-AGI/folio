@@ -17,6 +17,10 @@ export default defineConfig({
           if (!id.includes('node_modules')) return undefined;
           if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'vendor-react';
           if (/[\\/]node_modules[\\/](konva|react-konva)[\\/]/.test(id)) return 'vendor-konva';
+          // Heavy lazy graphs: never in the initial payload — loaded on demand
+          // when the 3D viewer, robotics, or simulation panels open.
+          if (/[\\/]node_modules[\\/](three|@react-three)[\\/]/.test(id)) return 'vendor-three';
+          if (/[\\/]node_modules[\\/](recharts|d3-.*)[\\/]/.test(id)) return 'vendor-charts';
           return undefined;
         },
       },
