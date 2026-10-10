@@ -29,26 +29,26 @@
 - **Schematic → PCB conversion**: placement and auto-routing with design-rule constraints (converter is unit-tested)
 - **PCB canvas**: board outline, traces, vias, pads, layer visibility toggles with color-coded layer list
 - **DRC**: clearance, trace width, drill, and annular-ring checks (`src/lib/manufacturing/drc.ts`)
-- **Manufacturing output**: Gerber export with aperture definitions (incl. drill/flash data)
+- **Manufacturing output**: full fab package — Gerber layer set (F/B Cu, masks, silks, Edge.Cuts), true Excellon drill, centroid/PnP, MPN BOM — gated on JLCPCB DRC (`fabExport.ts`, parser-validated tests); multilayer stackup + impedance engine, differential pairs, BGA fanout, power integrity, DDR rules, enclosure STEP
 - **Bill of Materials**: cost, quantity, lifecycle and availability badges, editable per-line notes
 
 ## 🤖 Robotics, Mechanical & 3D ✅ / 🟡
 
-- **3D circuit viewer**: three.js scene with grid/PCB/components/traces visibility toggles (✅ logic, 🟡 UI)
-- **Mechanical/FEA panel**: multiphysics thermal-structural analysis controls (✅ solver, 🟡 panel)
+- **3D circuit viewer**: three.js scene with grid/PCB/components/traces visibility toggles, STL/OBJ export (render-tested)
+- **Mechanical/FEA panel**: multiphysics thermal-structural analysis controls (render-tested)
 - **Robotics toolbox & kinematics**: 3D robot preview, joint framing, advanced kinematics helpers (`advancedRobotics.ts`)
 
 ## 🔌 Embedded & Hardware ✅ / 🟡
 
 - **Hardware interfaces**: simulated I²C, SPI, UART, and CAN with a manager API (fully unit-tested)
 - **Firmware artifacts**: Intel HEX parse/serialize with round-trip tests
-- **Board programming**: browser-side toolchain integration that fails closed outside Node (guarded, tested)
-- **Hardware-in-the-loop panel**: HIL scenario UI (🟡)
+- **Board programming**: STK500v1 upload over WebSerial with read-back verification (live when a port is granted, honest refusal otherwise); browser-side toolchain integration fails closed outside Node (guarded, tested); bulk SD-image flasher core with MBR parse and hash-verified chunks
+- **Hardware-in-the-loop panel**: HIL scenario UI (render-tested)
 
-## 🧠 AI Design Assistant ✅ service / 🟡 UX
+## 🧠 AI Design Assistant ✅
 
 - **aiService**: component recommendations, circuit analysis, and natural-language-to-design suggestions (unit-tested; requires a configured provider to answer live)
-- **AI chat panel**: conversational UI with quick actions, confidence metadata, and response feedback
+- **AI chat panel**: conversational UI with quick actions, confidence metadata, and response feedback (render-tested)
 
 ## 🗂 Projects, Versioning & Offline ✅
 
