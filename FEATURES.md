@@ -19,6 +19,8 @@
 
 - **Analysis types**: DC operating point, DC sweep, transient, AC, noise, and Monte Carlo (six analyses wired into the simulation panel)
 - **In-app SPICE-style solver**: MNA stamping with 51 validated semiconductor devices (µ-normalized part library) and behavioral sources
+- **Digital logic simulator**: discrete-event, four-state (0/1/X/Z) engine — combinational gates (NOT/BUF/AND/NAND/OR/NOR/XOR/XNOR) with propagation delay, edge-triggered flip-flops (SR/D/JK/T), clocks and stimuli, priority-ordered event heap, X-propagating and fail-loud on combinational loops (`digitalLogic.ts`)
+- **Solver truth**: every analog and digital result checked against independently-computed reference equations at test time (no hand-typed tables) — fail-loud contract: unsupported constructs error, never invent a curve
 - **SPICE netlist import/export**: `netlistBuilder` + `spiceEngine` deck export with correct device card forms
 - **Waveform viewer**: interactive line charts with tooltips, legends, and measurement readouts (recharts)
 - **Multiphysics**: coupled thermal/structural solvers with golden-vector regression tests
@@ -70,7 +72,7 @@
 ## 🛠 Quality Infrastructure ✅
 
 - **CI (GitHub Actions)**: lint (zero warnings), button-label audit, typecheck (app + build config), full test suite, production build
-- **Tests**: 311 tests across 22 files, including React render tests for the app shell and project manager
+- **Tests**: 438 tests across 43 files, including React render tests for the app shell and project manager
 - **Bundle**: 805 KB critical path (242 KB gzip) with lazy-loaded heavy panels (3D, robotics, simulation)
 
 ## ❌ Not implemented (previous drafts claimed these)
@@ -79,7 +81,7 @@
 - Cloud sync beyond optional Supabase project persistence
 - Plugin system, JavaScript/Python scripting, REST API
 - UI translations (language selector exists; strings do not)
-- Context menus, symbol editor, font/icon-set options
+- Font/icon-set options (context menus and the symbol editor are now implemented)
 - GDPR/compliance certifications, end-to-end encryption claims
 - Classroom management, automated grading
 
