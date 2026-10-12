@@ -1,4 +1,5 @@
 import { Point, Size } from '../../types';
+import { analyseBeam, analyseConduction } from './mechanicalAnalysis';
 
 export interface MechanicalComponent {
   id: string;
@@ -78,60 +79,85 @@ export class MechanicalDesignEngine {
   }
 
   // Multi-physics analysis methods
-  analyzeThermalBehavior(component: MechanicalComponent, ambientTemp: number, powerDissipation: number): {
+  /**
+   * Steady-state and transient thermal behaviour of a part.
+   *
+   * `Size` carries only width and height, so the thickness heat must cross is not part
+   * of the stored geometry: it is an explicit argument, and when omitted a documented
+   * 10 mm default is used. Everything else comes from the real dimensions, and the
+   * maths is the `L/(kA)` conduction path in `mechanicalAnalysis` — the previous
+   * `1/(kA)` form had no thickness term at all, so it could not respond to one.
+   */
+  analyzeThermalBehavior(
+    component: MechanicalComponent,
+    ambientTemp: number,
+    powerDissipation: number,
+    thickness = 0.01,
+  ): {
     steadyStateTemp: number;
     thermalResistance: number;
     heatFlux: number;
     timeConstant: number;
   } {
     const thermalProps = component.thermalProperties || {
-      thermalConductivity: 50, // W/m·K for aluminum
+      thermalConductivity: 167, // W/m·K for aluminium
       specificHeat: 900, // J/kg·K
       emissivity: 0.9
     };
 
-    const surfaceArea = 2 * (component.dimensions.width * component.dimensions.height +
-                           component.dimensions.width * 0.01 +
-                           component.dimensions.height * 0.01); // m²
-
-    // Simplified thermal analysis
-    const thermalResistance = 1 / (thermalProps.thermalConductivity * surfaceArea);
-    const temperatureRise = powerDissipation * thermalResistance;
-
-    return {
-      steadyStateTemp: ambientTemp + temperatureRise,
-      thermalResistance,
-      heatFlux: powerDissipation / surfaceArea,
-      timeConstant: (component.weight * thermalProps.specificHeat) / (thermalProps.thermalConductivity * surfaceArea)
-    };
+    return analyseConduction(
+      {
+        width: component.dimensions.width,
+        height: component.dimensions.height,
+        depth: thickness,
+      },
+      { thermalConductivity: thermalProps.thermalConductivity, specificHeat: thermalProps.specificHeat },
+      component.weight,
+      ambientTemp,
+      powerDissipation,
+    );
   }
 
-  analyzeStructuralIntegrity(component: MechanicalComponent, loads: { force?: number; moment?: number }): {
+  /**
+   * Axial and bending integrity of a part under load.
+   *
+   * The bending axis is the part's height and the section is width × thickness, both
+   * taken from the arguments rather than the fixed 10 mm and 5 mm the previous version
+   * assumed. `safetyFactor` is `null` when nothing is loaded instead of `Infinity`.
+   */
+  analyzeStructuralIntegrity(
+    component: MechanicalComponent,
+    loads: { force?: number; moment?: number },
+    thickness = 0.01,
+  ): {
     normalStress: number;
     bendingStress: number;
     totalStress: number;
-    safetyFactor: number;
+    safetyFactor: number | null;
     deflection: number;
   } {
     const materialProps = this.getMaterialProperties(component.material);
-
-    // Simplified stress analysis
-    const area = component.dimensions.width * 0.01; // Cross-sectional area (m²)
-    const momentOfInertia = (component.dimensions.width * Math.pow(0.01, 3)) / 12;
-
-    const normalStress = loads.force ? loads.force / area : 0;
-    const bendingStress = loads.moment ? (loads.moment * 0.005) / momentOfInertia : 0; // Max at edge
-
-    const totalStress = normalStress + bendingStress;
-    const yieldStrength = materialProps.yieldStrength || 250e6; // Default for steel
-    const safetyFactor = yieldStrength / Math.abs(totalStress);
+    const result = analyseBeam(
+      {
+        width: component.dimensions.width,
+        height: component.dimensions.height,
+        depth: thickness,
+      },
+      {
+        youngsModulus: materialProps.youngsModulus,
+        yieldStrength: materialProps.yieldStrength,
+        density: materialProps.density,
+      },
+      loads,
+    );
 
     return {
-      normalStress,
-      bendingStress,
-      totalStress,
-      safetyFactor,
-      deflection: loads.force ? (loads.force * Math.pow(0.1, 3)) / (3 * materialProps.youngsModulus * momentOfInertia) : 0
+      // `normalStress` is the long-standing name for the axial term.
+      normalStress: result.axialStress,
+      bendingStress: result.bendingStress,
+      totalStress: result.totalStress,
+      safetyFactor: result.safetyFactor,
+      deflection: result.deflection,
     };
   }
 
