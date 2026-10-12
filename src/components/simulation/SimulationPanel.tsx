@@ -39,6 +39,17 @@ const ANALYSIS_SUMMARY: Record<AnalysisType, string> = {
 /** Component types whose value a DC sweep can step, by normalised symbol name. */
 const SWEEPABLE_TYPES = new Set(['voltage_source', 'current_source', 'resistor'])
 
+/** A ready-to-run digital deck so the timing card is useful on first open. */
+const DIGITAL_EXAMPLE = [
+  '# 2-bit ripple counter: CLOCK drives two T flip-flops, Q0 toggles every rising edge.',
+  'CLOCK c0 out=CLK period=20',
+  'FF q0 T clock=CLK q=Q0 qbar=Q0B T=one delay=3',
+  'FF q1 T clock=Q0 q=Q1 qbar=Q1B T=one delay=3',
+  'SET one 1',
+  'RUN until=120',
+].join('\n')
+
+
 export default function SimulationPanel({ onClose }: SimulationPanelProps) {
   const [isSimulating, setIsSimulating] = useState(false)
   const [simulationResults, setSimulationResults] = useState<SimulationResult | null>(null)
@@ -125,6 +136,41 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
       setBenchVerdict(verdict.summary)
     } catch (thrown) {
       setBenchVerdict(`Bench correlation failed: ${describeError(thrown)}`)
+    }
+  }
+
+  const [digitalDeck, setDigitalDeck] = useState<string>(DIGITAL_EXAMPLE)
+  const [digitalOutput, setDigitalOutput] = useState<{ lines: string[]; values: Array<[string, string]>; error: string | null } | null>(null)
+
+  const handleRunDigital = () => {
+    setDigitalOutput(null)
+    try {
+      // Parser and engine are loaded on demand: the analog path never pays for them.
+      import('../../lib/simulation/digitalNetlistParser')
+        .then(({ parseDigitalNetlist }) => import('../../lib/simulation/digitalLogic').then((digital) => ({ parseDigitalNetlist, digital })))
+        .then(({ parseDigitalNetlist, digital }) => {
+          const { netlist, until } = parseDigitalNetlist(digitalDeck)
+          const result = digital.simulateDigital(netlist, until)
+          if (!result.success) {
+            setDigitalOutput({ lines: [], values: [], error: result.error ?? 'digital simulation failed' })
+            return
+          }
+          // Render one line per node: a compact step timeline of its transitions.
+          const lines = result.nodeValues
+            .filter((node) => (result.transitions[node]?.length ?? 0) > 1)
+            .map((node) => {
+              const steps = result.transitions[node]
+                .slice(1)
+                .map((transition) => `${transition.value}@${transition.time}`)
+                .join(' ')
+              return `${node}: ${steps}`
+            })
+          const values = result.nodeValues.map((node) => [node, String(result.finalValues[node])] as [string, string])
+          setDigitalOutput({ lines, values, error: null })
+        })
+        .catch((thrown) => setDigitalOutput({ lines: [], values: [], error: describeError(thrown) }))
+    } catch (thrown) {
+      setDigitalOutput({ lines: [], values: [], error: describeError(thrown) })
     }
   }
 
@@ -516,6 +562,45 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
             Correlate bench samples
           </Button>
           {benchVerdict ? <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{benchVerdict}</p> : null}
+        </div>
+
+        {/* Digital timing: a discrete-event netlist (gates/FFs/clocks) with a step timeline. */}
+        <div className="rounded-md border border-border bg-muted/50 p-3">
+          <h4 className="mb-1 text-xs font-medium text-card-foreground">Digital timing</h4>
+          <p className="mb-2 text-xs leading-relaxed text-muted-foreground">
+            Four-state (0/1/X/Z) event-driven logic. Syntax:{' '}
+            <span className="font-mono">GATE id TYPE out=n in=a[,b] [delay=d]</span>,{' '}
+            <span className="font-mono">FF id D|T|JK|SR clock=n q=n qbar=n [D=n|T=n] [delay=d]</span>,{' '}
+            <span className="font-mono">CLOCK id out=n period=p</span>, <span className="font-mono">SET n 0|1|X|Z</span>, <span className="font-mono">RUN until=t</span>.
+          </p>
+          <textarea
+            aria-label="Digital netlist"
+            value={digitalDeck}
+            onChange={(event) => setDigitalDeck(event.target.value)}
+            spellCheck={false}
+            className="mb-2 h-28 w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-xs"
+          />
+          <Button onClick={handleRunDigital} variant="outline" size="sm">
+            Run digital timing
+          </Button>
+          {digitalOutput ? (
+            digitalOutput.error ? (
+              <p role="alert" className="mt-2 text-xs leading-relaxed text-destructive">{digitalOutput.error}</p>
+            ) : (
+              <div className="mt-2 space-y-2">
+                <pre className="overflow-x-auto rounded border border-border bg-background px-2 py-1 font-mono text-xs text-foreground">
+                  {digitalOutput.lines.length > 0 ? digitalOutput.lines.join('\n') : '(no switching nodes)'}
+                </pre>
+                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                  {digitalOutput.values.map(([node, value]) => (
+                    <span key={node} className="font-mono text-xs text-muted-foreground">
+                      {node}=<span className="text-foreground">{value}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )
+          ) : null}
         </div>
 
         {/* Solver diagnostics: floating nets, non-convergence, step widening. */}

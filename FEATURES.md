@@ -19,7 +19,8 @@
 
 - **Analysis types**: DC operating point, DC sweep, transient, AC, noise, and Monte Carlo (six analyses wired into the simulation panel)
 - **In-app SPICE-style solver**: MNA stamping with 51 validated semiconductor devices (µ-normalized part library) and behavioral sources
-- **Digital logic simulator**: discrete-event, four-state (0/1/X/Z) engine — combinational gates (NOT/BUF/AND/NAND/OR/NOR/XOR/XNOR) with propagation delay, edge-triggered flip-flops (SR/D/JK/T), clocks and stimuli, priority-ordered event heap, X-propagating and fail-loud on combinational loops (`digitalLogic.ts`)
+- **Digital logic simulator — runnable in the app**: discrete-event, four-state (0/1/X/Z) engine — combinational gates (NOT/BUF/AND/NAND/OR/NOR/XOR/XNOR) with propagation delay, edge-triggered flip-flops (SR/D/JK/T), clocks and stimuli, priority-ordered event heap, X-propagating and fail-loud on combinational loops (`digitalLogic.ts`). Reachable from the **Simulation panel → "Digital timing"** analysis: paste a compact digital deck (`digitalNetlistParser.ts`, fail-loud per line number), run, and read a step timing diagram plus final node values. A ready-to-run 2-bit ripple-counter deck is preloaded.
+- **Mixed-signal co-simulation** (`mixedSignal.ts`): lockstep bridge couples the digital engine to the analog SPICE solver — digital nets drive the analog net as PWL voltage sources, analog probes threshold back into digital stimuli, iterated over macro-steps, so a GPIO driving a load or a comparator driving logic works in one run.
 - **Solver truth**: every analog and digital result checked against independently-computed reference equations at test time (no hand-typed tables) — fail-loud contract: unsupported constructs error, never invent a curve
 - **SPICE netlist import/export**: `netlistBuilder` + `spiceEngine` deck export with correct device card forms
 - **Waveform viewer**: interactive line charts with tooltips, legends, and measurement readouts (recharts)
@@ -72,7 +73,7 @@
 ## 🛠 Quality Infrastructure ✅
 
 - **CI (GitHub Actions)**: lint (zero warnings), button-label audit, typecheck (app + build config), full test suite, production build
-- **Tests**: 438 tests across 43 files, including React render tests for the app shell and project manager
+- **Tests**: 451 tests across 45 files, including React render tests for the app shell and project manager
 - **Bundle**: 805 KB critical path (242 KB gzip) with lazy-loaded heavy panels (3D, robotics, simulation)
 
 ## ❌ Not implemented (previous drafts claimed these)
