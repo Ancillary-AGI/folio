@@ -53,6 +53,79 @@ export interface MechanismExportBlocked {
 
 export type GatedExport = MechanismExport | MechanismExportBlocked;
 
+/** Raw per-link measurements taken from a renderer's scene graph. */
+export interface LinkMeasurement {
+  id: string;
+  /** Longest horizontal extent of the link's geometry, millimetres. */
+  length: number;
+  /** Depth of the link's cross-section, millimetres. */
+  depth: number;
+  mass: number;
+  /** Assembled angle of the joint driving this link, radians. */
+  angle: number;
+  /** Declared travel of that joint, radians. */
+  jointMin: number;
+  jointMax: number;
+}
+
+/**
+ * Turns renderer measurements into the plain descriptions the gate and the geometry
+ * share. Keeping this a separate step means `mechanismExport` never imports three.js,
+ * so the export path is testable and usable outside the 3D view.
+ *
+ * Link indices and joint indices must line up: the panel builds `jointAngles` by
+ * walking `mechanism.joints` in insertion order, exactly as `initializeJointAngles`
+ * and `simulateMechanism` do, and this preserves that pairing.
+ */
+export function describeMechanism(
+  measurements: readonly LinkMeasurement[],
+  section: 'round' | 'rectangular' = 'round',
+): { links: ExportLink[]; joints: ManufacturabilityInput['joints'] } {
+  if (measurements.length === 0) throw new Error('A mechanism needs at least one link.');
+  const links: ExportLink[] = [];
+  const joints: ManufacturabilityInput['joints'] = [];
+  measurements.forEach((measurement, index) => {
+    if (!Number.isFinite(measurement.length) || measurement.length <= 0) {
+      throw new Error(`Link ${measurement.id} has an invalid length: ${measurement.length}.`);
+    }
+    if (!Number.isFinite(measurement.depth) || measurement.depth <= 0) {
+      throw new Error(`Link ${measurement.id} has an invalid depth: ${measurement.depth}.`);
+    }
+    if (!Number.isFinite(measurement.mass) || measurement.mass < 0) {
+      throw new Error(`Link ${measurement.id} has an invalid mass: ${measurement.mass}.`);
+    }
+    // A NaN angle would otherwise reach the STEP geometry as a NaN coordinate, which
+    // produces a file that no CAM system can read.
+    if (!Number.isFinite(measurement.angle)) {
+      throw new Error(`Link ${measurement.id} has a non-finite angle: ${measurement.angle}.`);
+    }
+    if (!Number.isFinite(measurement.jointMin) || !Number.isFinite(measurement.jointMax)) {
+      throw new Error(`Link ${measurement.id} has a non-finite joint limit.`);
+    }
+    if (measurement.jointMin > measurement.jointMax) {
+      throw new Error(
+        `Link ${measurement.id} has joint min ${measurement.jointMin} greater than max ${measurement.jointMax}.`,
+      );
+    }
+    links.push({
+      id: measurement.id,
+      length: measurement.length,
+      depth: measurement.depth,
+      width: measurement.depth,
+      section,
+      mass: measurement.mass,
+      angle: measurement.angle,
+    });
+    joints.push({
+      id: `${measurement.id}-joint-${index}`,
+      min: measurement.jointMin,
+      max: measurement.jointMax,
+      assembled: measurement.angle,
+    });
+  });
+  return { links, joints };
+}
+
 /**
  * The gate and the geometry in one call. Runs every manufacturability check and returns
  * the STEP only when all of them pass, so a caller physically cannot obtain a file for a

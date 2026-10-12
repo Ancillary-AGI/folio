@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { exportMechanismStep, mechanismStep, type ExportLink } from './mechanismExport';
+import {
+  describeMechanism,
+  exportMechanismStep,
+  mechanismStep,
+  type ExportLink,
+} from './mechanismExport';
 
 const PLA = { modulus: 3.5e9, yieldStrength: 50e6 };
 const BED = { bedWidth: 250, bedDepth: 210, bedHeight: 250 };
@@ -123,5 +128,58 @@ describe('gated export', () => {
     expect(first.ok && second.ok).toBe(true);
     if (!first.ok || !second.ok) return;
     expect(strip(first.step)).toBe(strip(second.step));
+  });
+});
+
+describe('describeMechanism', () => {
+  it('pairs each link with the joint driving it, in order', () => {
+    const { links, joints } = describeMechanism([
+      { id: 'a', length: 100, depth: 10, mass: 0.2, angle: 0.3, jointMin: -1, jointMax: 1 },
+      { id: 'b', length: 80, depth: 8, mass: 0.1, angle: -0.5, jointMin: -2, jointMax: 2 },
+    ]);
+    expect(links.map((l) => l.id)).toEqual(['a', 'b']);
+    expect(joints.map((j) => j.assembled)).toEqual([0.3, -0.5]);
+    expect(joints.map((j) => [j.min, j.max])).toEqual([
+      [-1, 1],
+      [-2, 2],
+    ]);
+    // A round section carries its depth across as the width, so the area is defined.
+    expect(links[0].width).toBe(10);
+    expect(links[0].section).toBe('round');
+  });
+
+  it('honours an explicit rectangular section', () => {
+    const { links } = describeMechanism(
+      [{ id: 'a', length: 50, depth: 6, mass: 0.1, angle: 0, jointMin: 0, jointMax: 1 }],
+      'rectangular',
+    );
+    expect(links[0].section).toBe('rectangular');
+    expect(links[0].width).toBe(6);
+  });
+
+  it('rejects an empty mechanism and any non-physical measurement', () => {
+    expect(() => describeMechanism([])).toThrow(/at least one link/);
+    const bad = { id: 'a', depth: 10, mass: 0.1, angle: 0, jointMin: 0, jointMax: 1 };
+    expect(() => describeMechanism([{ ...bad, length: 0 }])).toThrow(/invalid length/);
+    expect(() => describeMechanism([{ ...bad, length: 10, depth: 0 }])).toThrow(/invalid depth/);
+    expect(() => describeMechanism([{ ...bad, length: 10, mass: -1 }])).toThrow(/invalid mass/);
+    // A NaN angle would otherwise land in the STEP file as a NaN coordinate.
+    expect(() => describeMechanism([{ ...bad, length: 10, angle: Number.NaN }])).toThrow(
+      /non-finite angle/,
+    );
+    expect(() => describeMechanism([{ ...bad, length: 10, jointMin: Number.NaN }])).toThrow(
+      /non-finite joint limit/,
+    );
+    expect(() => describeMechanism([{ ...bad, length: 10, jointMin: 2, jointMax: 1 }])).toThrow(
+      /greater than max/,
+    );
+  });
+
+  it('feeds straight into the gated export', () => {
+    const { links, joints } = describeMechanism([
+      { id: 'arm', length: 120, depth: 10, mass: 0.1, angle: 0, jointMin: -Math.PI, jointMax: Math.PI },
+    ]);
+    const result = exportMechanismStep(links, { ...base, joints }, OPTIONS);
+    expect(result.ok).toBe(true);
   });
 });

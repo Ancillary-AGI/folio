@@ -196,6 +196,11 @@
     @apply inline-flex h-7 flex-shrink-0 items-center whitespace-nowrap border-r border-border px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground;
   }
 
+  /* Refused export: names every failed manufacturability check. */
+  .cad-export-blocked {
+    @apply bg-destructive/5;
+  }
+
   .cad-tab-active {
     @apply border-b-2 border-b-primary bg-background text-foreground;
   }

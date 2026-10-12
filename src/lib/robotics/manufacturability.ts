@@ -65,7 +65,12 @@ export interface PrinterSpec {
 
 export interface ManufacturabilityInput {
   links: readonly PrintableLink[];
-  joints: readonly JointLimit[];
+  /**
+   * Declared joint travel. Optional: a mechanism may legitimately have no limits
+   * declared, in which case the envelope still folds by each link's own angle and no
+   * joint-limit finding can be raised.
+   */
+  joints?: readonly JointLimit[];
   material: MaterialSpec;
   printer: PrinterSpec;
   /** Payload the end effector must carry, newtons, applied at the last link's tip. */
@@ -143,7 +148,7 @@ function envelopeOf(
 export function assessManufacturability(
   input: ManufacturabilityInput,
 ): ManufacturabilityReport {
-  const { links, joints, material, printer, payload } = input;
+  const { links, joints = [], material, printer, payload } = input;
   if (links.length === 0) throw new Error('A mechanism needs at least one link.');
   positive(material.modulus, 'material.modulus');
   positive(material.yieldStrength, 'material.yieldStrength');

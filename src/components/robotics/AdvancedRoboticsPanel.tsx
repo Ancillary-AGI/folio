@@ -10,9 +10,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Slider } from '../ui/slider';
 import { Badge } from '../ui/badge';
 import { advancedRobotics, Mechanism, Joint, Link, Trajectory, KinematicsResult, DynamicsResult } from '../../lib/robotics/advancedRobotics';
+import {
+  describeMechanism,
+  exportMechanismStep,
+  type LinkMeasurement,
+} from '../../lib/robotics/mechanismExport';
+import type { Finding } from '../../lib/robotics/manufacturability';
 
 interface AdvancedRoboticsPanelProps {
   onClose?: () => void;
+}
+
+/** Saves text to the user's disk, cleaning the object URL immediately. */
+function downloadText(content: string, filename: string, mime: string): void {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ onClose }) => {
@@ -27,6 +44,8 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
   const [kinematicsResult, setKinematicsResult] = useState<KinematicsResult | null>(null);
   const [dynamicsResult, setDynamicsResult] = useState<DynamicsResult | null>(null);
   const [runMessage, setRunMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  /** Findings from the last refused STEP export; empty when the last export succeeded. */
+  const [exportBlocked, setExportBlocked] = useState<Finding[]>([]);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -296,6 +315,62 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
     URL.revokeObjectURL(url);
   };
 
+  /**
+   * STEP export, gated. The mechanism is described in plain millimetres from the scene
+   * graph — the same bounding-box measurement `exportMechanismSTL` uses, so the two
+   * exports describe the same geometry — then run through the manufacturability gate.
+   * A refusal lists the failed checks and downloads nothing.
+   */
+  const exportStep = () => {
+    if (!selectedMechanism) return;
+    const size = new THREE.Vector3();
+    const measurements: LinkMeasurement[] = Array.from(selectedMechanism.links.values()).map(
+      (link, index) => {
+        link.geometry.computeBoundingBox();
+        const half = link.geometry.boundingBox
+          ? link.geometry.boundingBox.getSize(size).multiplyScalar(0.5)
+          : new THREE.Vector3(25, 25, 25);
+        const joint = Array.from(selectedMechanism.joints.values())[index];
+        return {
+          id: link.id,
+          // Scene units are metres; the export set is millimetres.
+          length: half.x * 2 * 1000,
+          depth: Math.max(half.y, half.z) * 2 * 1000,
+          mass: link.mass,
+          angle: jointAngles[index] ?? joint?.angle ?? 0,
+          jointMin: joint?.limits.min ?? -Math.PI,
+          jointMax: joint?.limits.max ?? Math.PI,
+        };
+      },
+    );
+
+    let described;
+    try {
+      described = describeMechanism(measurements);
+    } catch (error) {
+      setRunMessage({ kind: 'error', text: `Cannot export: ${(error as Error).message}` });
+      return;
+    }
+
+    const result = exportMechanismStep(
+      described.links,
+      {
+        material: { modulus: 3.5e9, yieldStrength: 50e6 },
+        printer: { bedWidth: 250, bedDepth: 210, bedHeight: 250 },
+        payload: 2,
+        joints: described.joints,
+      },
+      { jointBore: 4, name: selectedMechanism.name },
+    );
+
+    if (!result.ok) {
+      setExportBlocked(result.findings);
+      return;
+    }
+    setExportBlocked([]);
+    downloadText(result.step, `${selectedMechanism.name}.step`, 'application/step');
+  };
+
   const updateJointAngle = (jointIndex: number, angle: number) => {
     const newAngles = [...jointAngles];
     newAngles[jointIndex] = angle;
@@ -516,10 +591,45 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
           <CardHeader className="pb-3">
             <CardTitle className="text-sm">Export</CardTitle>
           </CardHeader>
-          <CardContent>
-            <Button onClick={exportSTL} variant="outline" className="w-full">
+          <CardContent className="space-y-2">
+            <Button
+              onClick={exportStep}
+              variant="outline"
+              className="w-full"
+              disabled={!selectedMechanism}
+            >
+              Export STEP (manufacturable check)
+            </Button>
+            <Button
+              onClick={exportSTL}
+              variant="ghost"
+              className="w-full"
+              disabled={!selectedMechanism}
+            >
               Export STL
             </Button>
+
+            {/* A refused export names every failed check instead of staying silent. */}
+            {exportBlocked.length > 0 && (
+              <div
+                role="alert"
+                className="cad-export-blocked space-y-1 rounded-md border border-destructive/40 p-2"
+              >
+                <p className="text-xs font-semibold text-destructive">
+                  Export refused — {exportBlocked.length} check
+                  {exportBlocked.length === 1 ? '' : 's'} failed
+                </p>
+                <ul className="space-y-1">
+                  {exportBlocked.map((finding) => (
+                    <li key={`${finding.check}-${finding.subject}`} className="text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">{finding.subject}</span>
+                      {': '}
+                      {finding.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </CardContent>
         </Card>
 
