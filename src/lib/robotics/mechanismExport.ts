@@ -13,7 +13,7 @@
  */
 
 import { boxFaces, holePrism, stepDocument } from '../manufacturing/stepGeometry';
-import { assessManufacturability, type ManufacturabilityInput } from './manufacturability';
+import { assessManufacturability, type JointLimit, type ManufacturabilityInput } from './manufacturability';
 
 /** One link in the export description, in millimetres. */
 export interface ExportLink {
@@ -80,10 +80,10 @@ export interface LinkMeasurement {
 export function describeMechanism(
   measurements: readonly LinkMeasurement[],
   section: 'round' | 'rectangular' = 'round',
-): { links: ExportLink[]; joints: ManufacturabilityInput['joints'] } {
+): { links: ExportLink[]; joints: JointLimit[] } {
   if (measurements.length === 0) throw new Error('A mechanism needs at least one link.');
   const links: ExportLink[] = [];
-  const joints: ManufacturabilityInput['joints'] = [];
+  const joints: JointLimit[] = [];
   measurements.forEach((measurement, index) => {
     if (!Number.isFinite(measurement.length) || measurement.length <= 0) {
       throw new Error(`Link ${measurement.id} has an invalid length: ${measurement.length}.`);
