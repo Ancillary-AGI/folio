@@ -3,6 +3,8 @@
  * Provides simulation, digital twin visualization, and AI-driven robotics control
  */
 
+import { manipulatorPose, solveManipulatorIk } from './serialManipulator';
+import type { DhJoint, Vec3 } from '../mechanical/kinematics';
 
 export interface RobotJoint {
   id: string;
@@ -118,6 +120,48 @@ export interface SimulationResult {
   performanceMetrics: Record<string, number>;
 }
 
+/**
+ * Builds the Denavit-Hartenberg chain implied by a robot configuration.
+ *
+ * The service stores joints and links as separate records with a link pointing at its
+ * driving joint, so the chain is assembled by walking joints in declaration order and
+ * taking the length of the link each one drives. Returns `null` when no joint drives a
+ * link, because an empty chain has no meaningful end-effector pose and the caller
+ * should say so rather than report the origin as a solution.
+ *
+ * Angles arrive in **degrees** on the service boundary and are converted to radians
+ * here, once, so nothing downstream has to remember which unit it is holding.
+ */
+function buildDhChain(
+  robot: {
+    joints: readonly { id: string; type: string }[];
+    links: readonly { parentJoint: string; length: number }[];
+  },
+  jointAngles: Record<string, number>,
+): DhJoint[] | null {
+  const chain: DhJoint[] = [];
+  for (const joint of robot.joints) {
+    const link = robot.links.find((candidate) => candidate.parentJoint === joint.id);
+    if (!link) continue;
+    if (!Number.isFinite(link.length) || link.length < 0) {
+      throw new Error(`Link driven by ${joint.id} has an invalid length: ${link.length}`);
+    }
+    const degrees = jointAngles[joint.id] ?? 0;
+    if (!Number.isFinite(degrees)) {
+      throw new Error(`Angle for joint ${joint.id} is not finite: ${degrees}`);
+    }
+    const radians = (degrees * Math.PI) / 180;
+    // A revolute joint varies `theta` about the previous Z; a prismatic joint varies
+    // `d` along it. Putting a prismatic value in `theta` would rotate instead of slide.
+    chain.push(
+      joint.type === 'prismatic'
+        ? { a: link.length, alpha: 0, d: radians, theta: 0, kind: 'prismatic' as const }
+        : { a: link.length, alpha: 0, d: 0, theta: radians, kind: 'revolute' as const },
+    );
+  }
+  return chain.length === 0 ? null : chain;
+}
+
 export class RoboticsSimulationService {
   private robots: Map<string, RobotConfiguration> = new Map();
   private tasks: Map<string, RobotTask> = new Map();
@@ -161,26 +205,28 @@ export class RoboticsSimulationService {
     const robot = this.robots.get(robotId);
     if (!robot) throw new Error('Robot not found');
 
-    // Simplified forward kinematics using DH parameters
-    let x = robot.baseFrame.position.x;
-    let y = robot.baseFrame.position.y;
-    const z = robot.baseFrame.position.z;
-    let angle = robot.baseFrame.orientation.yaw;
-
-    robot.joints.forEach((joint) => {
-      const angleRad = (jointAngles[joint.id] || 0) * Math.PI / 180;
-      const link = robot.links.find(l => l.parentJoint === joint.id);
-      
-      if (link) {
-        x += link.length * Math.cos(angle + angleRad);
-        y += link.length * Math.sin(angle + angleRad);
-        angle += angleRad;
-      }
-    });
-
+    // Delegates to the verified Denavit-Hartenberg chain in `serialManipulator`, so a
+    // revolute link with a twist and an offset is positioned correctly instead of being
+    // folded into a planar two-link approximation. The chain solves in base-frame
+    // coordinates, so the base frame's own translation is added back here; joint angles
+    // arrive in degrees at this boundary and become radians for the solver.
+    const chain = buildDhChain(robot, jointAngles);
+    if (chain === null) {
+      // No link follows any joint, so there is no mechanism to solve: the pose is the
+      // base frame itself rather than a fabricated position.
+      return {
+        position: { ...robot.baseFrame.position },
+        orientation: { ...robot.baseFrame.orientation },
+      };
+    }
+    const pose = manipulatorPose(chain);
     return {
-      position: { x, y, z },
-      orientation: { roll: 0, pitch: 0, yaw: angle }
+      position: {
+        x: robot.baseFrame.position.x + pose.position[0],
+        y: robot.baseFrame.position.y + pose.position[1],
+        z: robot.baseFrame.position.z + pose.position[2],
+      },
+      orientation: { roll: pose.roll, pitch: pose.pitch, yaw: pose.yaw },
     };
   }
 
@@ -192,18 +238,27 @@ export class RoboticsSimulationService {
     const robot = this.robots.get(robotId);
     if (!robot) throw new Error('Robot not found');
 
-    // Simplified inverse kinematics (iterative method)
-    const jointAngles: Record<string, number> = {};
-    
-    robot.joints.forEach((joint) => {
-      // Simplified calculation - in practice, this would use analytical or numerical IK
-      const targetAngle = Math.atan2(
-        targetPose.position.y - robot.baseFrame.position.y,
-        targetPose.position.x - robot.baseFrame.position.x
-      );
-      jointAngles[joint.id] = (targetAngle * 180 / Math.PI) / robot.joints.length;
-    });
+    // Delegates to the damped-least-squares solver. Orientation is deliberately not
+    // solved: a position-only iteration cannot pin a six-degree-of-freedom pose, and
+    // the previous implementation pretended it could by handing every joint the same
+    // angle. `null` now genuinely means "no solution was found".
+    const chain = buildDhChain(robot, {});
+    if (chain === null) return null;
+    const target: Vec3 = [
+      targetPose.position.x - robot.baseFrame.position.x,
+      targetPose.position.y - robot.baseFrame.position.y,
+      targetPose.position.z - robot.baseFrame.position.z,
+    ];
+    const result = solveManipulatorIk(chain, target);
+    if (!result.converged) return null;
 
+    const jointAngles: Record<string, number> = {};
+    robot.joints.forEach((joint, index) => {
+      if (index < result.values.length) {
+        // Back to degrees, matching the units this service has always accepted.
+        jointAngles[joint.id] = (result.values[index] * 180) / Math.PI;
+      }
+    });
     return jointAngles;
   }
 

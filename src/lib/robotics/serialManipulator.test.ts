@@ -8,9 +8,8 @@ import {
   rotationToRollPitchYaw,
   solveManipulatorIk,
   trapezoidalProfile,
-  type DhJoint,
 } from './serialManipulator';
-import { endEffectorPose, translationOf } from '../mechanical/kinematics';
+import { endEffectorPose, translationOf, type DhJoint } from '../mechanical/kinematics';
 
 /** Pure yaw about +Z: `Rz(θ)`. */
 function yawMatrix(angle: number): number[] {
