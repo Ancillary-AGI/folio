@@ -45,7 +45,15 @@ export class MechanicalDesignEngine {
   private assemblies: Map<string, MechanicalAssembly> = new Map();
   private idSeq = 0;
 
-  createComponent(type: MechanicalComponent['type'], dimensions: Size, material: string): MechanicalComponent {
+  createComponent(
+    type: MechanicalComponent['type'],
+    dimensions: Size,
+    material: string,
+    thickness: number,
+  ): MechanicalComponent {
+    if (!Number.isFinite(thickness) || thickness <= 0) {
+      throw new Error(`thickness must be a positive finite number, got ${thickness}.`);
+    }
     this.idSeq += 1;
     return {
       id: `mech_${Date.now()}_${this.idSeq}`,
@@ -53,14 +61,14 @@ export class MechanicalDesignEngine {
       type,
       dimensions,
       material,
-      weight: this.calculateWeight(dimensions, material),
+      weight: this.calculateWeight(dimensions, thickness, material),
       position: { x: 0, y: 0 },
       rotation: 0,
       constraints: []
     };
   }
 
-  private calculateWeight(dimensions: Size, material: string): number {
+  private calculateWeight(dimensions: Size, thickness: number, material: string): number {
     const densities: Record<string, number> = {
       'steel': 7850,
       'aluminum': 2700,
@@ -72,9 +80,15 @@ export class MechanicalDesignEngine {
       'PLA': 1240,
       'nylon': 1150
     };
-    const density = densities[material] || 1000;
-    // More accurate volume calculation assuming thickness of 10mm for 2D components
-    const volume = dimensions.width * dimensions.height * 0.01; // Convert to m³
+    // `Size` carries only width and height, so the extrusion thickness is an
+    // explicit argument validated by `createComponent`. Guessing 10 mm here
+    // silently mis-weighed every part whose real thickness differs.
+    const density = densities[material];
+    if (density === undefined) {
+      throw new Error(`Unknown material "${material}". Known materials: ${Object.keys(densities).join(', ')}.`);
+    }
+    // Caller guarantees SI metres throughout; no unit conversion here.
+    const volume = dimensions.width * dimensions.height * thickness;
     return volume * density; // Weight in kg
   }
 
@@ -92,18 +106,20 @@ export class MechanicalDesignEngine {
     component: MechanicalComponent,
     ambientTemp: number,
     powerDissipation: number,
-    thickness = 0.01,
+    thickness: number,
   ): {
     steadyStateTemp: number;
     thermalResistance: number;
     heatFlux: number;
     timeConstant: number;
   } {
-    const thermalProps = component.thermalProperties || {
-      thermalConductivity: 167, // W/m·K for aluminium
-      specificHeat: 900, // J/kg·K
-      emissivity: 0.9
-    };
+    const thermalProps = component.thermalProperties;
+    if (!thermalProps) {
+      throw new Error(
+        `Component "${component.id}" has no thermalProperties. ` +
+        `Provide { thermalConductivity, specificHeat, emissivity } — guessing aluminium values would silently mis-analyse every other material.`,
+      );
+    }
 
     return analyseConduction(
       {
