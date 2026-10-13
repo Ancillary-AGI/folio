@@ -239,20 +239,21 @@ export class AdvancedRobotics {
   }
 
   private getJointTransform(joint: Joint, angle: number): THREE.Matrix4 {
-    const transform = new THREE.Matrix4();
-
-    // Translation to joint position
-    transform.setPosition(joint.position);
-
-    // Rotation around joint axis
+    // Joint frame: translate to the joint's position in its parent frame,
+    // then rotate about the joint axis (R*T_local composed under T_parent).
+    // The old code multiplied in the wrong order, rotating the joint's own
+    // offset about itself: a straight arm reported the elbow at (0,1,0)
+    // when only the elbow joint turned.
     const rotation = new THREE.Matrix4();
     if (joint.type === 'revolute') {
       rotation.makeRotationAxis(joint.axis, angle);
+    } else if (joint.type === 'prismatic') {
+      const slide = joint.axis.clone().normalize().multiplyScalar(angle);
+      rotation.setPosition(slide);
     }
-
-    transform.multiply(rotation);
-
-    return transform;
+    const translation = new THREE.Matrix4().setPosition(joint.position);
+    // Parent frame first, then the joint's own frame: T_parent * (R * T_local).
+    return translation.multiply(rotation);
   }
 
   // Inverse Kinematics
