@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { planTimedTrajectory, profileFraction } from './serialManipulator';
 
 export interface Joint {
   id: string;
@@ -466,19 +467,21 @@ export class AdvancedRobotics {
 
     const trajectoryId = `trajectory-${Date.now()}`;
 
-    const waypoints = this.generateTrajectoryWaypoints(
+    const sized = this.generateTrajectoryWaypoints(
       mechanism,
       startConfig,
       endConfig,
       duration,
       profile
     );
+    const waypoints = sized.waypoints;
+    const actualDuration = sized.duration;
 
     const trajectory: Trajectory = {
       id: trajectoryId,
       name: `Trajectory ${trajectoryId}`,
       waypoints,
-      duration,
+      duration: actualDuration,
       profile,
       constraints: {
         maxVelocity: 1.0,
@@ -497,15 +500,28 @@ export class AdvancedRobotics {
     end: number[],
     duration: number,
     profile: Trajectory['profile']
-  ): Trajectory['waypoints'] {
-    const waypoints: Trajectory['waypoints'] = [];
-    const steps = 100;
-    const dt = duration / steps;
+  ): { waypoints: Trajectory['waypoints']; duration: number } {
     const joints = Array.from(mechanism.joints.values());
-
-    for (let i = 0; i <= steps; i++) {
-      const t = (i * dt) / duration; // Normalized time [0, 1]
-      const time = i * dt;
+    // Size one shared time-parameterised profile from the joint limits, so a
+    // requested duration shorter than the physics allows is stretched rather
+    // than silently oversped. The previous code interpolated a fixed shape
+    // over the caller's duration, ignoring every limit.
+    const limits = {
+      maxVelocity: Math.min(...joints.map((j) => j.velocity).filter((v) => Number.isFinite(v) && v > 0), 10),
+      maxAcceleration: Math.min(...joints.map((j) => j.acceleration).filter((a) => Number.isFinite(a) && a > 0), 20),
+    };
+    const timed = planTimedTrajectory(start, end, { ...limits, samples: 101 });
+    // The profile sizes the only duration the limits allow; a shorter caller
+    // request is stretched to it rather than oversped.
+    const actualDuration = Math.max(duration, timed.profile.duration);
+    const waypoints: Trajectory['waypoints'] = [];
+    for (let i = 0; i < timed.samples.length; i += 1) {
+      // Retiming onto the stretched duration keeps every sample's fraction,
+      // so the shape — and the limit compliance — is preserved.
+      const time = (actualDuration * i) / (timed.samples.length - 1);
+      const fraction = actualDuration === timed.profile.duration
+        ? timed.samples[i].fraction
+        : profileFraction(timed.profile, (timed.profile.duration * i) / (timed.samples.length - 1));
 
       const position = new THREE.Vector3();
       const orientation = new THREE.Quaternion();
@@ -513,7 +529,8 @@ export class AdvancedRobotics {
       // Interpolate joint angles based on profile
       const jointAngles = start.map((startAngle, j) => {
         const endAngle = end[j];
-        return this.interpolateJointAngle(startAngle, endAngle, t, profile);
+        if (profile === 'trapezoidal') return startAngle + (endAngle - startAngle) * fraction;
+        return this.interpolateJointAngle(startAngle, endAngle, fraction, profile);
       });
 
       // Compute forward kinematics for position/orientation
@@ -532,7 +549,7 @@ export class AdvancedRobotics {
       waypoints.push({ position, orientation, time });
     }
 
-    return waypoints;
+    return { waypoints, duration: actualDuration };
   }
 
   private interpolateJointAngle(start: number, end: number, t: number, profile: Trajectory['profile']): number {
