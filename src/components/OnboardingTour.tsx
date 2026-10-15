@@ -200,18 +200,24 @@ export default function OnboardingTour({
             </div>
             <div className="mt-auto flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/40 px-6 py-4">
               <Button variant="ghost" size="sm" onClick={finish}>Skip the guide</Button>
+              {/*
+               * CAD-wizard footer (KiCad / Altium / Fusion convention): paired
+               * Back + primary action share one grid with ONE fixed width that
+               * fits the longest label ("New project →") on a single line, so
+               * neither button can dwarf or wrap taller than the other.
+               */}
               <div className="grid grid-cols-2 items-center gap-2">
-                <Button variant="outline" size="sm" className="w-28 justify-center" onClick={() => goTo(activeIndex - 1)} disabled={activeIndex === 0} aria-label="Previous step">
-                  <ArrowLeft className="mr-2 h-4 w-4" />Back
+                <Button variant="outline" size="sm" className="w-36 justify-center whitespace-nowrap" onClick={() => goTo(activeIndex - 1)} disabled={activeIndex === 0} aria-label="Previous step">
+                  <ArrowLeft className="mr-2 h-4 w-4 shrink-0" />Back
                 </Button>
                 {activeIndex === 0 && !hasProject ? (
-                  <Button size="sm" className="w-28 justify-center" onClick={createAndAdvance}>
-                    New project<ArrowRight className="ml-2 h-4 w-4" />
+                  <Button size="sm" className="w-36 justify-center whitespace-nowrap" onClick={createAndAdvance}>
+                    New project<ArrowRight className="ml-2 h-4 w-4 shrink-0" />
                   </Button>
                 ) : (
-                  <Button size="sm" className="w-28 justify-center" onClick={advance}>
+                  <Button size="sm" className="w-36 justify-center whitespace-nowrap" onClick={advance}>
                     {isLast ? 'Finish' : 'Continue'}
-                    {!isLast && <ArrowRight className="ml-2 h-4 w-4" />}
+                    {!isLast && <ArrowRight className="ml-2 h-4 w-4 shrink-0" />}
                   </Button>
                 )}
               </div>

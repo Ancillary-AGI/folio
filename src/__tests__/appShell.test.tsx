@@ -93,9 +93,10 @@ describe('App shell', () => {
     const next = screen.getByRole('button', { name: /^new project/i })
     expect(dialog).toContainElement(back)
     expect(dialog).toContainElement(next)
-    // CAD-wizard rule: paired actions share one grid, so neither dwarfs the other.
-    expect(back.className).toContain('w-28')
-    expect(next.className).toContain('w-28')
+    // CAD-wizard rule: paired actions share one grid with one fixed width
+    // (w-36 fits "New project →" on a single line), so neither dwarfs the other.
+    expect(back.className).toContain('w-36')
+    expect(next.className).toContain('w-36')
     expect(next.parentElement?.className).toContain('grid-cols-2')
   })
 
