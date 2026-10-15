@@ -72,7 +72,7 @@ describe('App shell', () => {
     expect(await screen.findByRole('dialog', { name: /one project/i })).toBeInTheDocument()
   })
 
-  it('keeps Back/Continue equal width and offers an explicit project action', async () => {
+  it('keeps Back/Continue equal height in a fixed footer row', async () => {
     const { default: OnboardingTour } = await import('../components/OnboardingTour')
     // First run with no project: the wizard offers an explicit New-project
     // action instead of creating one behind Continue.
@@ -93,11 +93,18 @@ describe('App shell', () => {
     const next = screen.getByRole('button', { name: /^new project/i })
     expect(dialog).toContainElement(back)
     expect(dialog).toContainElement(next)
-    // CAD-wizard rule: paired actions share one grid with one fixed width
-    // (w-36 fits "New project →" on a single line), so neither dwarfs the other.
-    expect(back.className).toContain('w-36')
-    expect(next.className).toContain('w-36')
-    expect(next.parentElement?.className).toContain('grid-cols-2')
+    // CAD-wizard footer: fixed h-16 row, items-center, no wrap — neither
+    // button can stretch or wrap taller than the other.
+    const row = back.parentElement?.parentElement
+    expect(row?.className).toContain('h-16')
+    expect(row?.className).toContain('items-center')
+    expect(row?.className).not.toContain('flex-wrap')
+    for (const button of [back, next]) {
+      expect(button.className).toContain('h-9')
+      expect(button.className).toContain('whitespace-nowrap')
+    }
+    // Equal heights on screen, not just equal classes.
+    expect(next.getBoundingClientRect().height).toBe(back.getBoundingClientRect().height)
   })
 
   it('toggles the color theme from the header', async () => {

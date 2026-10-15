@@ -191,31 +191,32 @@ export default function OnboardingTour({
                     Loads the tested 2N2222 LED blinker (9 parts, 6 nets): DC operating point parks the
                     collector near 5 V with GPIO low, and the fab export ships with zero DRC violations.
                   </p>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <Button variant="outline" size="sm" className="justify-center" onClick={onLoadDemoBlinker}>Load blinker</Button>
-                    <Button variant="outline" size="sm" className="justify-center" onClick={onLoadSampleCircuit}>Load divider</Button>
+                  <div className="mt-3 grid grid-cols-2 items-stretch gap-2">
+                    <Button variant="outline" size="sm" className="h-9 justify-center whitespace-nowrap" onClick={onLoadDemoBlinker}>Load blinker</Button>
+                    <Button variant="outline" size="sm" className="h-9 justify-center whitespace-nowrap" onClick={onLoadSampleCircuit}>Load divider</Button>
                   </div>
                 </div>
               )}
             </div>
-            <div className="mt-auto flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/40 px-6 py-4">
+            {/*
+             * CAD-wizard footer (KiCad / Altium / Fusion convention):
+             * - single row, never wraps: Back + primary sit in a fixed-width
+             *   pair sized to the longest label, both h-9 from size="sm";
+             * - the row itself is h-16 with items-center, so nothing in it can
+             *   stretch one button taller than the other regardless of label.
+             */}
+            <div className="mt-auto flex h-16 flex-shrink-0 items-center justify-between gap-3 border-t border-border bg-muted/40 px-6">
               <Button variant="ghost" size="sm" onClick={finish}>Skip the guide</Button>
-              {/*
-               * CAD-wizard footer (KiCad / Altium / Fusion convention): paired
-               * Back + primary action share one grid with ONE fixed width that
-               * fits the longest label ("New project →") on a single line, so
-               * neither button can dwarf or wrap taller than the other.
-               */}
-              <div className="grid grid-cols-2 items-center gap-2">
-                <Button variant="outline" size="sm" className="w-36 justify-center whitespace-nowrap" onClick={() => goTo(activeIndex - 1)} disabled={activeIndex === 0} aria-label="Previous step">
+              <div className="grid w-72 grid-cols-2 items-stretch gap-2">
+                <Button variant="outline" size="sm" className="h-9 justify-center whitespace-nowrap" onClick={() => goTo(activeIndex - 1)} disabled={activeIndex === 0} aria-label="Previous step">
                   <ArrowLeft className="mr-2 h-4 w-4 shrink-0" />Back
                 </Button>
                 {activeIndex === 0 && !hasProject ? (
-                  <Button size="sm" className="w-36 justify-center whitespace-nowrap" onClick={createAndAdvance}>
+                  <Button size="sm" className="h-9 justify-center whitespace-nowrap" onClick={createAndAdvance}>
                     New project<ArrowRight className="ml-2 h-4 w-4 shrink-0" />
                   </Button>
                 ) : (
-                  <Button size="sm" className="w-36 justify-center whitespace-nowrap" onClick={advance}>
+                  <Button size="sm" className="h-9 justify-center whitespace-nowrap" onClick={advance}>
                     {isLast ? 'Finish' : 'Continue'}
                     {!isLast && <ArrowRight className="ml-2 h-4 w-4 shrink-0" />}
                   </Button>
