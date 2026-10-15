@@ -156,6 +156,9 @@ export default function DomainWorkspace({ libraryComponents, onSave }: DomainWor
         case 'v':
           setActiveTool('select')
           break
+        case 'w':
+          setActiveTool('wire')
+          break
         case 'd':
           setActiveTool('delete')
           break

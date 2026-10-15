@@ -303,12 +303,44 @@ export default function SchematicCanvas({
     setSelectedComponents([])
   }
 
-  const handleComponentClick = (id: string) => {
+  const handleComponentClick = (id: string, pinId?: string) => {
     // Delete tool removes the part in place of selecting it.
     if (activeTool === 'delete') {
       removeComponent(id)
       markDirty()
       setSelectedComponents(selectedComponents.filter((selectedId) => selectedId !== id))
+      return
+    }
+
+    // Wire tool on a pin: same click-to-click flow as empty-sheet pin hits.
+    if (activeTool === 'wire' && pinId) {
+      const hit = { componentId: id, pinId }
+      if (!wireStart) {
+        setWireStart(hit)
+        return
+      }
+      if (wireStart.componentId === hit.componentId && wireStart.pinId === hit.pinId) {
+        setWireStart(null)
+        return
+      }
+      const startComp = canvasComponents.find((c) => c.id === wireStart.componentId)
+      const endComp = canvasComponents.find((c) => c.id === hit.componentId)
+      const startPin = startComp?.component.pins.find((p) => p.id === wireStart.pinId)
+      const endPin = endComp?.component.pins.find((p) => p.id === hit.pinId)
+      if (!startComp || !endComp || !startPin || !endPin) {
+        setWireStart(null)
+        return
+      }
+      addWire({
+        id: generateId('wire'),
+        points: [
+          { x: startComp.x + startPin.x, y: startComp.y + startPin.y },
+          { x: endComp.x + endPin.x, y: endComp.y + endPin.y },
+        ],
+        connectedPins: [wireStart, hit],
+      })
+      markDirty()
+      setWireStart(null)
       return
     }
 
@@ -562,7 +594,7 @@ export default function SchematicCanvas({
           />
         )}
 
-        {/* Pins */}
+        {/* Pins — clickable targets for the wire tool (larger hit area). */}
         {canvasComp.component.pins.map(pin => (
           <Circle
             key={pin.id}
@@ -570,8 +602,13 @@ export default function SchematicCanvas({
             y={pin.y}
             radius={3}
             fill={palette.pinFill}
-            stroke={palette.pinStroke}
-            strokeWidth={1}
+            stroke={wireStart?.componentId === canvasComp.id && wireStart?.pinId === pin.id ? palette.selectedStroke : palette.pinStroke}
+            strokeWidth={wireStart?.componentId === canvasComp.id && wireStart?.pinId === pin.id ? 2 : 1}
+            hitStrokeWidth={12}
+            onClick={(event) => {
+              event.cancelBubble = true
+              handleComponentClick(canvasComp.id, pin.id)
+            }}
           />
         ))}
       </Group>
