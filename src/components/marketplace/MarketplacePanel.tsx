@@ -49,6 +49,27 @@ export default function MarketplacePanel() {
       {installed.length > 0 && (
         <p className="text-sm text-muted-foreground">Installed: {installed.map((i) => i.title).join(', ')}</p>
       )}
+      <Card>
+        <CardContent className="space-y-2 p-4 text-sm">
+          <p className="text-muted-foreground">
+            Publish the proven blinker bundle (schematic + fab data + firmware) as a versioned listing.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              void import('../../lib/demo/demoMarketplace').then((m) => {
+                m.buildDemoMarketplaceBundle(designMarketplace);
+                setInstalled(designMarketplace.getInstalled());
+                setQuery('blinker');
+                setItems(designMarketplace.search('blinker'));
+              });
+            }}
+          >
+            Publish blinker bundle
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }
