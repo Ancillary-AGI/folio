@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { 
-  X, 
-  Wrench, 
-  RotateCcw, 
+import {
+  X,
+  Wrench,
+  RotateCcw,
   Download,
   Layers,
   Eye,
@@ -12,6 +12,7 @@ import {
   Zap,
   BarChart3
 } from 'lucide-react';
+import { buildDemoEnclosure } from '../../lib/demo/demoEnclosure';
 
 interface MechanicalDesignPanelProps {
   onClose: () => void;
@@ -182,6 +183,7 @@ function MechanicalComponentView({
 }
 
 export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanelProps) {
+  const [enclosureVerdict] = useState(() => buildDemoEnclosure().summary.verdict.split(':')[0]);
   const [components] = useState<MechanicalComponent[]>([
     {
       id: 'beam-1',
@@ -411,6 +413,25 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
                       Run Analysis
                     </>
                   )}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const demo = buildDemoEnclosure();
+                    setAnalysisResult({
+                      displacement: [{ nodeId: 'lid', x: 0, y: 0, z: 0 }],
+                      stress: [{ nodeId: 'floor', vonMises: demo.thermal.temperatureRise, principal: [demo.thermal.temperatureRise, 0, 0] }],
+                      strain: [{ nodeId: 'lid', x: 0, y: 0, z: 0 }],
+                      naturalFrequencies: [],
+                      buckling: { criticalLoad: 0, mode: 1 },
+                      fatigue: { cycles: 0, safetyFactor: demo.summary.lidTempC < 60 ? 2 : 0.5 },
+                    });
+                    setAnalysisType('thermal');
+                  }}
+                  className="w-full flex items-center gap-2"
+                >
+                  <Zap className="w-4 h-4" />
+                  Load blinker enclosure ({enclosureVerdict})
                 </Button>
                 
                 {analysisResult && (
