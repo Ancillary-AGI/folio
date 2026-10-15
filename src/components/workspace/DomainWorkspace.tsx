@@ -162,6 +162,19 @@ export default function DomainWorkspace({ libraryComponents, onSave }: DomainWor
         case 'd':
           setActiveTool('delete')
           break
+        case 'r': {
+          // Rotate every selected part 90° clockwise, like KiCad.
+          const project = useProjectStore.getState()
+          const selectedIds = useAppStore.getState().selectedComponents
+          let touched = false
+          for (const comp of project.components) {
+            if (!selectedIds.includes(comp.id)) continue
+            project.updateComponent(comp.id, { rotation: (comp.rotation + 90) % 360 })
+            touched = true
+          }
+          if (touched) project.markDirty()
+          break
+        }
         case 'g':
           updateSettings({ showGrid: !settings.showGrid })
           break

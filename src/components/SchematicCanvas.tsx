@@ -329,12 +329,11 @@ export default function SchematicCanvas({
       setWireStart(null)
       return
     }
+    const start = pinWorld(startComp, startPin)
+    const end = pinWorld(endComp, endPin)
     addWire({
       id: generateId('wire'),
-      points: [
-        { x: startComp.x + startPin.x, y: startComp.y + startPin.y },
-        { x: endComp.x + endPin.x, y: endComp.y + endPin.y },
-      ],
+      points: [start, end],
       connectedPins: [wireStart, hit],
     })
     markDirty()
@@ -348,14 +347,34 @@ export default function SchematicCanvas({
     const tolerance = 10 / viewport.zoom
     for (const comp of canvasComponents) {
       for (const pin of comp.component.pins) {
-        const dx = comp.x + pin.x - world.x
-        const dy = comp.y + pin.y - world.y
+        const rotated = rotatePin(pin, comp.rotation)
+        const dx = comp.x + rotated.x - world.x
+        const dy = comp.y + rotated.y - world.y
         if (dx * dx + dy * dy <= tolerance * tolerance) {
           return { componentId: comp.id, pinId: pin.id }
         }
       }
     }
     return null
+  }
+
+  /** Pin offset rotated by the part's rotation (degrees, clockwise positive). */
+  const rotatePin = (
+    pin: { x: number; y: number },
+    rotationDegrees: number,
+  ): { x: number; y: number } => {
+    const radians = ((rotationDegrees % 360) * Math.PI) / 180
+    const cos = Math.cos(radians)
+    const sin = Math.sin(radians)
+    return { x: pin.x * cos - pin.y * sin, y: pin.x * sin + pin.y * cos }
+  }
+
+  const pinWorld = (
+    comp: { x: number; y: number; rotation: number },
+    pin: { x: number; y: number },
+  ): { x: number; y: number } => {
+    const rotated = rotatePin(pin, comp.rotation)
+    return { x: comp.x + rotated.x, y: comp.y + rotated.y }
   }
 
   const screenToWorld = (screen: { x: number; y: number }): { x: number; y: number } => {
@@ -514,6 +533,7 @@ export default function SchematicCanvas({
         id={canvasComp.id}
         x={canvasComp.x}
         y={canvasComp.y}
+        rotation={canvasComp.rotation}
         draggable={activeTool === 'select'}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
@@ -618,10 +638,11 @@ export default function SchematicCanvas({
     const comp = canvasComponents.find((c) => c.id === wireStart.componentId)
     const pin = comp?.component.pins.find((p) => p.id === wireStart.pinId)
     if (!comp || !pin) return null
+    const at = pinWorld(comp, pin)
     return (
       <Circle
-        x={comp.x + pin.x}
-        y={comp.y + pin.y}
+        x={at.x}
+        y={at.y}
         radius={6}
         stroke={palette.selectedStroke}
         strokeWidth={2}
