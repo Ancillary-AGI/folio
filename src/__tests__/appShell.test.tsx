@@ -72,6 +72,33 @@ describe('App shell', () => {
     expect(await screen.findByRole('dialog', { name: /one project/i })).toBeInTheDocument()
   })
 
+  it('keeps Back/Continue equal width and offers an explicit project action', async () => {
+    const { default: OnboardingTour } = await import('../components/OnboardingTour')
+    // First run with no project: the wizard offers an explicit New-project
+    // action instead of creating one behind Continue.
+    render(
+      <OnboardingTour
+        onClose={() => {}}
+        onCreateProject={() => {}}
+        onLoadSampleCircuit={() => {}}
+        onLoadDemoBlinker={() => {}}
+        hasProject={false}
+        stepIndex={0}
+        setStepIndex={() => {}}
+      />,
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    const back = screen.getByRole('button', { name: 'Previous step' })
+    const next = screen.getByRole('button', { name: /^new project/i })
+    expect(dialog).toContainElement(back)
+    expect(dialog).toContainElement(next)
+    // CAD-wizard rule: paired actions share one grid, so neither dwarfs the other.
+    expect(back.className).toContain('w-28')
+    expect(next.className).toContain('w-28')
+    expect(next.parentElement?.className).toContain('grid-cols-2')
+  })
+
   it('toggles the color theme from the header', async () => {
     render(<App />)
 

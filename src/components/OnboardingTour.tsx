@@ -9,6 +9,7 @@ export interface OnboardingTourProps {
   onClose: () => void
   onCreateProject: () => void
   onLoadSampleCircuit: () => void
+  onLoadDemoBlinker: () => void
   hasProject: boolean
   stepIndex: number
   setStepIndex: (step: number | ((current: number) => number)) => void
@@ -18,6 +19,7 @@ export default function OnboardingTour({
   onClose,
   onCreateProject,
   onLoadSampleCircuit,
+  onLoadDemoBlinker,
   hasProject,
   stepIndex,
   setStepIndex,
@@ -41,11 +43,19 @@ export default function OnboardingTour({
     [setStepIndex],
   )
   const finish = useCallback(() => onClose(), [onClose])
+  /*
+   * Project creation is explicit: the wizard explains on step 1 and offers a
+   * single clearly-labelled action there. Advancing never creates anything —
+   * KiCad/Altium wizards review, they don't mutate the design behind Next.
+   */
   const advance = useCallback(() => {
-    if (activeIndex === 0 && !hasProject) onCreateProject()
     if (isLast) finish()
     else goTo(activeIndex + 1)
-  }, [activeIndex, finish, goTo, hasProject, isLast, onCreateProject])
+  }, [activeIndex, finish, goTo, isLast])
+  const createAndAdvance = useCallback(() => {
+    if (!hasProject) onCreateProject()
+    goTo(activeIndex + 1)
+  }, [activeIndex, goTo, hasProject, onCreateProject])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -178,22 +188,32 @@ export default function OnboardingTour({
                 <div className="mt-6 rounded-md border border-primary/40 bg-primary/5 p-4">
                   <h3 className="text-sm font-semibold text-card-foreground">Run a known circuit</h3>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    Loads a 5 V divider built from two 1 kOhm resistors. Solving its operating point should give 2.5 V at the midpoint.
+                    Loads the tested 2N2222 LED blinker (9 parts, 6 nets): DC operating point parks the
+                    collector near 5 V with GPIO low, and the fab export ships with zero DRC violations.
                   </p>
-                  <Button className="mt-3" variant="outline" size="sm" onClick={onLoadSampleCircuit}>Load the 5 V divider example</Button>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <Button variant="outline" size="sm" className="justify-center" onClick={onLoadDemoBlinker}>Load blinker</Button>
+                    <Button variant="outline" size="sm" className="justify-center" onClick={onLoadSampleCircuit}>Load divider</Button>
+                  </div>
                 </div>
               )}
             </div>
             <div className="mt-auto flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/40 px-6 py-4">
               <Button variant="ghost" size="sm" onClick={finish}>Skip the guide</Button>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => goTo(activeIndex - 1)} disabled={activeIndex === 0} aria-label="Previous step">
+              <div className="grid grid-cols-2 items-center gap-2">
+                <Button variant="outline" size="sm" className="w-28 justify-center" onClick={() => goTo(activeIndex - 1)} disabled={activeIndex === 0} aria-label="Previous step">
                   <ArrowLeft className="mr-2 h-4 w-4" />Back
                 </Button>
-                <Button size="sm" onClick={advance}>
-                  {isLast ? 'Finish and start designing' : activeIndex === 0 && !hasProject ? 'Create project and continue' : 'Continue'}
-                  {!isLast && <ArrowRight className="ml-2 h-4 w-4" />}
-                </Button>
+                {activeIndex === 0 && !hasProject ? (
+                  <Button size="sm" className="w-28 justify-center" onClick={createAndAdvance}>
+                    New project<ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                ) : (
+                  <Button size="sm" className="w-28 justify-center" onClick={advance}>
+                    {isLast ? 'Finish' : 'Continue'}
+                    {!isLast && <ArrowRight className="ml-2 h-4 w-4" />}
+                  </Button>
+                )}
               </div>
             </div>
             <p className="flex-shrink-0 border-t border-border px-6 py-3 text-xs leading-relaxed text-muted-foreground">

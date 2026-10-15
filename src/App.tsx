@@ -9,6 +9,7 @@ import type { PlacedComponent, Wire, User } from './types'
 import { supabase, isSupabaseConfigured, type Project, type Schematic, type Component } from './lib/supabase'
 import { offlineProjectStore } from './lib/offlineProjectStore'
 import { standardComponents } from './lib/componentLibrary'
+import { buildDemoBoard } from './lib/demo/demoBoard'
 import { exportToImage, exportToNetlist, exportToJSON, exportToBOM, exportToGerber, downloadFile } from './lib/exportUtils'
 import { pluginManager } from './lib/plugins/pluginManager'
 import { collaborativeEditor } from './lib/collaboration/collaborativeEditor'
@@ -294,10 +295,19 @@ function App() {
     setShowOnboarding(true)
   }
 
-  const handleLoadSampleCircuit = async () => {
-    if (useProjectStore.getState().components.length > 0 && !window.confirm('Replace the current schematic with the 5 V divider example?')) return
+  const confirmReplace = (label: string): boolean => {
+    if (useProjectStore.getState().components.length === 0) return true
+    return window.confirm(`Replace the current schematic with the ${label}?`)
+  }
+
+  const ensureProject = async (): Promise<boolean> => {
     if (!useProjectStore.getState().currentProject) await handleNewProject()
-    if (!useProjectStore.getState().currentProject) return
+    return Boolean(useProjectStore.getState().currentProject)
+  }
+
+  const handleLoadSampleCircuit = async () => {
+    if (!confirmReplace('5 V divider example')) return
+    if (!(await ensureProject())) return
 
     const resistorDefinition = standardComponents.find(component => component.name === 'Resistor')
     const sourceDefinition = standardComponents.find(component => component.name === 'DC Voltage Source')
@@ -340,6 +350,15 @@ function App() {
     ]
 
     useProjectStore.setState({ components: [source, upperResistor, lowerResistor], wires: sampleWires, isDirty: true })
+    useAppStore.setState({ simulationPanelOpen: true })
+    useAppStore.getState().setWorkspaceMode('schematic')
+  }
+
+  const handleLoadDemoBlinker = async () => {
+    if (!confirmReplace('tested LED blinker board')) return
+    if (!(await ensureProject())) return
+    const board = buildDemoBoard()
+    useProjectStore.setState({ components: board.components, wires: board.wires, isDirty: true })
     useAppStore.setState({ simulationPanelOpen: true })
     useAppStore.getState().setWorkspaceMode('schematic')
   }
@@ -666,6 +685,7 @@ function App() {
             onClose={closeOnboarding}
             onCreateProject={() => { void handleNewProject() }}
             onLoadSampleCircuit={() => { void handleLoadSampleCircuit() }}
+            onLoadDemoBlinker={() => { void handleLoadDemoBlinker() }}
             hasProject={Boolean(currentProject)}
             stepIndex={onboardingStep}
             setStepIndex={setOnboardingStep}
@@ -965,6 +985,7 @@ function App() {
           onClose={closeOnboarding}
           onCreateProject={() => { void handleNewProject() }}
           onLoadSampleCircuit={() => { void handleLoadSampleCircuit() }}
+          onLoadDemoBlinker={() => { void handleLoadDemoBlinker() }}
           hasProject
           stepIndex={onboardingStep}
           setStepIndex={setOnboardingStep}
