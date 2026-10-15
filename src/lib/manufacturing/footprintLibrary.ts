@@ -298,6 +298,21 @@ export class FootprintLibrary {
       });
     });
 
+    // SOT-23 footprint (2N2222 / jellybean NPN workhorse)
+    this.addFootprint({
+      id: 'sot_23',
+      name: 'SOT-23',
+      description: 'SOT-23 3-pin SMD transistor',
+      category: 'semiconductor',
+      pads: [
+        { id: 'pad1', shape: 'rectangle', position: { x: -0.95, y: 0.95 }, size: { width: 0.8, height: 0.9 }, layers: ['top_copper'] },
+        { id: 'pad2', shape: 'rectangle', position: { x: 0.95, y: 0.95 }, size: { width: 0.8, height: 0.9 }, layers: ['top_copper'] },
+        { id: 'pad3', shape: 'rectangle', position: { x: 0, y: -0.95 }, size: { width: 0.8, height: 0.9 }, layers: ['top_copper'] },
+      ],
+      dimensions: { width: 2.9, height: 2.4 },
+      metadata: { ipcStandard: 'IPC-7351', thermalPad: false },
+    });
+
     // Connector footprints
     ['header_2x1', 'header_2x2', 'header_2x3', 'header_2x4'].forEach(type => {
       const match = type.match(/header_2x(\d+)/);

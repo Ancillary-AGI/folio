@@ -16,6 +16,7 @@ import {
   describeTheme,
 } from './tokens'
 import {
+  DEFAULT_THEME_PREFERENCE,
   applyTheme,
   clearTheme,
   isDarkTheme,
@@ -35,6 +36,12 @@ describe('design tokens', () => {
     for (const id of THEME_IDS) {
       expect(() => assertValidTheme(id, THEMES[id])).not.toThrow()
     }
+  })
+
+  it('keeps Professional visually distinct from Dark', () => {
+    expect(THEMES.professional).not.toEqual(THEMES.dark)
+    expect(describeTheme('professional', 'dark')).toBe('Professional')
+    expect(isDarkTheme('professional')).toBe(true)
   })
 
   it('rejects the RGB triplets that produced the brown theme', () => {
@@ -122,12 +129,13 @@ describe('theme controller', () => {
   })
 
   it('migrates retired theme names instead of leaking them into the UI', () => {
-    expect(normalizeThemePreference('professional')).toBe('dark')
+    expect(normalizeThemePreference('professional')).toBe('professional')
     expect(normalizeThemePreference('solarized')).toBe('dark')
     expect(normalizeThemePreference('high-contrast')).toBe('high-contrast')
     expect(normalizeThemePreference('light')).toBe('light')
-    expect(normalizeThemePreference(undefined)).toBe('system')
-    expect(normalizeThemePreference(42)).toBe('system')
+    expect(normalizeThemePreference(undefined)).toBe('dark')
+    expect(normalizeThemePreference(42)).toBe('dark')
+    expect(DEFAULT_THEME_PREFERENCE).toBe('dark')
   })
 
   it('covers every declared preference in the descriptors', () => {

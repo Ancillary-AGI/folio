@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react'
 import {
   Cpu, FolderOpen, Menu, Bot, BarChart3, Settings, Package, Users,
   Download, Image, FileText, List, LogOut, Mic, MicOff,
-  Shield, Bell, RefreshCw, History, RotateCcw, Moon, Sun, BookOpen, AlertCircle
+  Shield, Bell, RefreshCw, History, RotateCcw, Moon, Sun, AlertCircle
 } from 'lucide-react'
 import { Button } from './components/ui/button'
 import type { PlacedComponent, Wire, User } from './types'
@@ -17,17 +17,22 @@ import { siemService } from './lib/siem/siemService'
 import { backupService, type ProjectBackup } from './lib/backup/backupService'
 import { useAppStore, type WorkspaceMode } from './stores/useAppStore'
 import { useProjectStore } from './stores/useProjectStore'
-import { vcsService, type VcsCommit } from './lib/vcs/vcsService'
 import type { CanvasComponent, CanvasWire } from './stores/useProjectStore'
+import { vcsService, type VcsCommit } from './lib/vcs/vcsService'
+import OnboardingTour from './components/OnboardingTour'
+import { ONBOARDING_STEP_COUNT } from './lib/onboarding/onboardingSteps'
+import {
+  hasCompletedOnboarding,
+  markOnboardingComplete,
+  readOnboardingStep,
+  resetOnboarding,
+} from './lib/onboarding/onboardingStorage'
 import DomainWorkspace from './components/workspace/DomainWorkspace'
 import ProjectManager from './components/ProjectManager'
 import AuthForm from './components/AuthForm'
 import UserPresence from './components/collaboration/UserPresence'
-import OnboardingTour from './components/OnboardingTour'
 import { useTheme } from './lib/theme/useTheme'
 import { describeTheme } from './lib/theme/tokens'
-import { hasCompletedOnboarding, markOnboardingComplete, readOnboardingStep } from './lib/onboarding/onboardingStorage'
-import { ONBOARDING_STEP_COUNT } from './lib/onboarding/onboardingSteps'
 
 // On-demand panels keep their heavyweight deps (recharts, plugin runtimes)
 // out of the first paint until the user actually opens them.
@@ -46,9 +51,9 @@ function App() {
       : { id: 'offline-local', name: 'Local User', email: 'local@offline', role: 'owner' },
   )
   const offlineMode = !isSupabaseConfigured
-  const [showOnboarding, setShowOnboarding] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [onboardingStep, setOnboardingStep] = useState(0)
+  const [showOnboarding, setShowOnboarding] = useState(false)
+  const [onboardingStep, setOnboardingStep] = useState(() => readOnboardingStep(ONBOARDING_STEP_COUNT))
   const [loading, setLoading] = useState(true)
   const [libraryComponents, setLibraryComponents] = useState<Component[]>([])
   const [canvasData, setCanvasData] = useState<Record<string, unknown> | null>(null)
@@ -106,14 +111,6 @@ function App() {
    */
   const { preference: themePreference, theme: resolvedTheme, isDark: isDarkTheme, toggle: toggleTheme } = useTheme()
 
-  useEffect(() => {
-    if (!user) return
-    // Resume an interrupted guide; only first-run users see it unprompted.
-    if (hasCompletedOnboarding()) return
-    setOnboardingStep(readOnboardingStep(ONBOARDING_STEP_COUNT))
-    setShowOnboarding(true)
-  }, [user])
-
   // ── Auth ────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -132,6 +129,10 @@ function App() {
     })
     return () => subscription.unsubscribe()
   }, [])
+
+  useEffect(() => {
+    if (user && !hasCompletedOnboarding()) setShowOnboarding(true)
+  }, [user])
 
   useEffect(() => {
     if (!user) return
@@ -281,15 +282,26 @@ function App() {
     }
   }
 
+  const closeOnboarding = () => {
+    markOnboardingComplete()
+    setShowOnboarding(false)
+    setOnboardingStep(0)
+  }
+
+  const restartOnboarding = () => {
+    resetOnboarding()
+    setOnboardingStep(0)
+    setShowOnboarding(true)
+  }
+
   const handleLoadSampleCircuit = async () => {
     if (useProjectStore.getState().components.length > 0 && !window.confirm('Replace the current schematic with the 5 V divider example?')) return
     if (!useProjectStore.getState().currentProject) await handleNewProject()
-    const project = useProjectStore.getState().currentProject
-    if (!project) return
+    if (!useProjectStore.getState().currentProject) return
 
     const resistorDefinition = standardComponents.find(component => component.name === 'Resistor')
     const sourceDefinition = standardComponents.find(component => component.name === 'DC Voltage Source')
-    if (!resistorDefinition || !sourceDefinition) throw new Error('The sample circuit components are missing from the standard library')
+    if (!resistorDefinition || !sourceDefinition) throw new Error('The standard library is missing a sample-circuit component')
 
     const makeComponent = (
       libraryId: string,
@@ -298,19 +310,16 @@ function App() {
       x: number,
       y: number,
       properties: Record<string, string | number | boolean>,
-    ): CanvasComponent => {
-      const libraryComponent = { ...definition, id: libraryId } as Component
-      return {
-        id: `sample-${reference.toLowerCase()}`,
-        componentId: libraryId,
-        component: libraryComponent,
-        x,
-        y,
-        rotation: 0,
-        reference,
-        properties,
-      }
-    }
+    ): CanvasComponent => ({
+      id: `sample-${reference.toLowerCase()}`,
+      componentId: libraryId,
+      component: { ...definition, id: libraryId } as Component,
+      x,
+      y,
+      rotation: 0,
+      reference,
+      properties,
+    })
 
     const source = makeComponent('standard-dc-source', 'V1', sourceDefinition, 170, 100, { type: 'DC', voltage: '5V' })
     const upperResistor = makeComponent('standard-resistor', 'R1', resistorDefinition, 360, 85, { value: '1k' })
@@ -597,12 +606,6 @@ function App() {
   const themeLabel = describeTheme(themePreference, resolvedTheme)
   const themeToggleLabel = isDarkTheme ? 'Switch to light theme' : 'Switch to dark theme'
 
-  const closeOnboarding = () => {
-    setShowOnboarding(false)
-    setOnboardingStep(0)
-    markOnboardingComplete()
-  }
-
   const toggleVoice = async () => {
     if (isVoiceActive) {
       nlpService.stopVoiceListening()
@@ -653,11 +656,11 @@ function App() {
           </div>
         </header>
         <ProjectManager onSelectProject={handleSelectProject} onNewProject={handleNewProject} offlineMode={offlineMode} />
-        <div className="fixed bottom-4 right-4 z-40 flex gap-2">
-          <Button variant="outline" onClick={() => setShowOnboarding(true)}>
-            <BookOpen className="mr-2 h-4 w-4" /> Guided onboarding
-          </Button>
-        </div>
+        {showSettings && (
+          <Suspense fallback={null}>
+            <SettingsPanel onClose={() => setShowSettings(false)} onRestartOnboarding={restartOnboarding} />
+          </Suspense>
+        )}
         {showOnboarding && (
           <OnboardingTour
             onClose={closeOnboarding}
@@ -667,11 +670,6 @@ function App() {
             stepIndex={onboardingStep}
             setStepIndex={setOnboardingStep}
           />
-        )}
-        {showSettings && (
-          <Suspense fallback={null}>
-            <SettingsPanel onClose={() => setShowSettings(false)} />
-          </Suspense>
         )}
       </div>
     )
@@ -747,9 +745,6 @@ function App() {
           </Button>
           <Button variant="ghost" size="icon" onClick={() => setShowPluginPanel(true)} title="Plugins" aria-label="Plugins">
             <Package className="w-4 h-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => setShowOnboarding(true)} title="Guided onboarding" aria-label="Guided onboarding">
-            <BookOpen className="w-4 h-4" />
           </Button>
           <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
           <div className="relative">
@@ -963,7 +958,7 @@ function App() {
 
       <Suspense fallback={null}>
         {showPluginPanel && <PluginPanel onClose={() => setShowPluginPanel(false)} />}
-        {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+        {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} onRestartOnboarding={restartOnboarding} />}
       </Suspense>
       {showOnboarding && (
         <OnboardingTour

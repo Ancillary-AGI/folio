@@ -867,7 +867,7 @@ Design Complexity:
     }
 
     if (nlpResult.intent === 'simulate_circuit') {
-      return `To run a DC operating-point solve:\n1. Open the **Schematic** workspace\n2. Open **Simulation** from the toolbar\n3. Select the enabled **DC** analysis and run it\n4. Inspect node voltages and resolve any singular-circuit error\n\nThe current solver supports linear resistor networks with independent DC sources. This design has **${components.length} components** and **${wires.length} wires**; results still depend on correct connectivity and component values.`
+      return `To run a simulation:\n1. Open the **Schematic** workspace\n2. Open **Simulation** from the toolbar\n3. Pick an analysis (DC, DC sweep, transient, AC, noise, Monte Carlo, digital timing) and run it\n4. Inspect node voltages/waveforms and resolve any singular-circuit error\n\nThe solver covers passives, diodes, BJTs, MOSFETs, JFETs, op-amps, switches and behavioral sources with DC/PULSE/SINE/EXP/SFFM/PWL excitation. This design has **${components.length} components** and **${wires.length} wires**; results still depend on correct connectivity and component values.`
     }
 
     if (nlpResult.intent === 'export_design') {

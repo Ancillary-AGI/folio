@@ -94,8 +94,8 @@ export interface AppState {
 }
 
 const defaultSettings: AppSettings = {
-  // `system` follows the OS appearance and contrast hints; explicit themes never drift.
-  theme: 'system',
+  // Dark is the CAD-oriented first-run default; System remains an explicit choice.
+  theme: 'dark',
   gridSize: 10,
   snapToGrid: true,
   showGrid: true,

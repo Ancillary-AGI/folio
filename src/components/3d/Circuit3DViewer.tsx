@@ -54,6 +54,13 @@ const COMPONENT_SHAPES: Record<string, ComponentShape> = {
   ic: { kind: 'box', size: [2, 0.3, 1] },
   led: { kind: 'cylinder', radiusTop: 0.3, radiusBottom: 0.3, height: 1, segments: 8 },
   transistor: { kind: 'box', size: [0.8, 0.5, 0.6] },
+  // Realistic SMD bodies (mm-ish units): 0805 chip, SOT-23, pin header, crystal.
+  passive: { kind: 'box', size: [2.0, 0.6, 1.25] },
+  semiconductor: { kind: 'box', size: [2.9, 0.8, 2.4] },
+  microcontroller: { kind: 'box', size: [7, 1, 7] },
+  connector: { kind: 'box', size: [5.08, 2.5, 2.54] },
+  timing: { kind: 'box', size: [11, 3, 4.5] },
+  power: { kind: 'cylinder', radiusTop: 0.5, radiusBottom: 0.5, height: 1, segments: 12 },
 };
 
 const DEFAULT_SHAPE: ComponentShape = { kind: 'box', size: [1, 0.5, 1] };
@@ -92,17 +99,17 @@ function Component3DModel({ component }: { component: Component3D }) {
   );
 }
 
-// PCB Board representation
+// PCB Board representation — demo board is a real 60x53 mm FR-4 stackup.
 function PCBBoard({ layers }: { layers: PCBLayer[] }) {
   return (
     <group>
       {layers.map((layer, index) => (
         layer.visible && (
           <mesh key={layer.name} position={[0, -index * layer.thickness, 0]}>
-            <boxGeometry args={[20, layer.thickness, 15]} />
-            <meshStandardMaterial 
-              color={layer.color} 
-              transparent 
+            <boxGeometry args={[60, layer.thickness, 53]} />
+            <meshStandardMaterial
+              color={layer.color}
+              transparent
               opacity={layer.opacity}
             />
           </mesh>
@@ -196,13 +203,14 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
   const [reframe, setReframe] = useState(0);
   const glRef = useRef<THREE.WebGLRenderer | null>(null);
   
-  // Convert 2D components to 3D
+  // Convert 2D components to 3D — canvas (0..800, 0..500) maps onto the
+  // 60x53 mm board centred at the origin; height sits on the top copper.
   const components3D: Component3D[] = components.map((comp, index) => ({
     id: comp.id,
     position: [
-      (comp.x - 400) / 20, // Scale and center
-      1 + index * 0.1, // Stack components slightly
-      (comp.y - 300) / 20
+      (comp.x / 800) * 60 - 30,
+      1 + index * 0.05,
+      (comp.y / 500) * 53 - 26.5,
     ],
     rotation: [0, comp.rotation * Math.PI / 180, 0],
     scale: [1, 1, 1],
@@ -220,13 +228,13 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
     { name: 'Silkscreen', color: '#ffffff', thickness: 0.01, visible: true, opacity: 1.0 }
   ]);
 
-  // Convert 2D wires to 3D traces
+  // Convert 2D wires to 3D traces on the same board mapping.
   const traces3D = wires.map(wire => ({
     id: wire.id,
     points: wire.points.map(p => [
-      (p.x - 400) / 20,
+      (p.x / 800) * 60 - 30,
       2.1, // Above PCB surface
-      (p.y - 300) / 20
+      (p.y / 500) * 53 - 26.5
     ] as [number, number, number])
   }));
 

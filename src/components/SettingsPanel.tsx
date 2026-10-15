@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import { X, Monitor, Palette, Grid3X3, Save, RotateCcw, Globe, Zap, Check, BookOpen, Ruler } from 'lucide-react';
+import { X, Monitor, Palette, Grid3X3, Save, RotateCcw, Globe, Zap, Check, Ruler, BookOpen } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { useAppStore } from '../stores/useAppStore';
 import { useTheme } from '../lib/theme/useTheme';
 import { contrastRatio, THEME_DESCRIPTORS, THEMES } from '../lib/theme/tokens';
-import { hasCompletedOnboarding, resetOnboarding } from '../lib/onboarding/onboardingStorage';
 
 interface SettingsPanelProps {
   onClose: () => void;
+  onRestartOnboarding: () => void;
 }
 
 /**
@@ -18,12 +18,11 @@ interface SettingsPanelProps {
  * and therefore has a visible effect. There are deliberately no decorative
  * toggles: a setting that does nothing is worse than no setting at all.
  */
-export default function SettingsPanel({ onClose }: SettingsPanelProps) {
+export default function SettingsPanel({ onClose, onRestartOnboarding }: SettingsPanelProps) {
   const { settings, updateSettings } = useAppStore();
   const { preference, theme: resolvedTheme, setPreference } = useTheme();
   const [draft, setDraft] = useState(settings);
   const [dirty, setDirty] = useState(false);
-  const [guideReset, setGuideReset] = useState(() => !hasCompletedOnboarding());
 
   const patch = (updates: Partial<typeof settings>) => {
     setDraft((current) => ({ ...current, ...updates }));
@@ -342,27 +341,11 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
                     </dd>
                   </div>
                 </dl>
+                <Button variant="outline" size="sm" onClick={onRestartOnboarding}>
+                  <BookOpen className="mr-2 h-4 w-4" />
+                  Restart guided setup
+                </Button>
 
-                <div className="rounded-md border border-border bg-muted/50 p-3">
-                  <p className="text-sm font-medium text-card-foreground">Getting-started guide</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {guideReset
-                      ? 'The guide is currently marked as seen.'
-                      : 'The guide has not been completed yet.'}
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-2"
-                    onClick={() => {
-                      resetOnboarding();
-                      setGuideReset(true);
-                    }}
-                  >
-                    <BookOpen className="mr-2 h-4 w-4" />
-                    {guideReset ? 'Reset the guide' : 'Already reset'}
-                  </Button>
-                </div>
               </CardContent>
             </Card>
           </div>

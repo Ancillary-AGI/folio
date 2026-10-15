@@ -480,7 +480,7 @@ export type Selection = SelectionState
 export type Tool = ToolState['activeTool']
 
 export interface ApplicationSettings {
-  theme: 'light' | 'dark' | 'professional' | 'system'
+  theme: 'light' | 'dark' | 'professional' | 'high-contrast' | 'system'
   language: string
   units: 'metric' | 'imperial'
   gridSize: number
@@ -498,7 +498,7 @@ export interface ApplicationSettings {
 }
 
 export interface UserPreferences {
-  theme?: 'light' | 'dark' | 'professional'
+  theme?: 'light' | 'dark' | 'professional' | 'high-contrast'
   language?: string
   units?: 'metric' | 'imperial'
 }

@@ -8,9 +8,9 @@ import type { WorkspaceMode } from '../../stores/useAppStore'
  * The onboarding curriculum.
  *
  * Kept as data, outside the component, so that:
- *   • the tour, the step counter and the tests all read the same source;
- *   • content can be reviewed and translated without touching JSX;
- *   • a new step cannot silently desynchronise the progress indicator.
+ *   - the tour, the step counter and the tests all read the same source;
+ *   - content can be reviewed and translated without touching JSX;
+ *   - a new step cannot silently desynchronise the progress indicator.
  *
  * `mode` is the workspace the step teaches, and the tour switches to it so the
  * user sees the domain being described rather than a blank shell.
@@ -33,7 +33,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     title: 'One project, one connected engineering workflow',
     summary: 'Start from intent, then move deliberately toward implementation evidence.',
     detail:
-      'Schematic, PCB, mechanical, embedded, simulation, robotics, digital-twin and security tools all operate on the same project. Each domain keeps its own model and validation limits — sharing a workspace is not the same as physics being coupled.',
+      'Schematic, PCB, mechanical, embedded, simulation, robotics, digital-twin and security tools all operate on the same project. Each domain keeps its own model and validation limits. Sharing a workspace is not the same as physics being coupled.',
     checklist: [
       'Create one project per revision of your design',
       'Keep requirements, assumptions and units explicit',
@@ -47,7 +47,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     title: 'Capture electrical intent in the schematic',
     summary: 'Build a circuit that reads correctly before you optimise it.',
     detail:
-      'Place components, connect pins, and give every part a real value or model. Netlist extraction resolves connectivity from wire topology and net names, so naming your power and ground rails is what makes the rest of the toolchain reliable.',
+      'Place components, connect pins, and give every part a real value or model. Netlist extraction resolves connectivity from wire topology and net names, so naming power and ground rails is what makes the rest of the toolchain reliable.',
     checklist: [
       'Name your power and ground rails explicitly',
       'Use exact manufacturer part numbers where you can',
@@ -62,7 +62,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     title: 'Simulate with stated models and assumptions',
     summary: 'A numeric result is only as trustworthy as its model and boundary conditions.',
     detail:
-      'The simulator solves the circuit you actually drew. DC uses modified nodal analysis, transient integrates charge on capacitors and flux on inductors, AC sweeps the linearised network, and Monte Carlo re-solves the circuit under component tolerances instead of inventing curves.',
+      'The simulator solves the circuit you actually drew. DC uses modified nodal analysis. Other analyses are available only when the selected solver implements them; do not treat a numerical result as hardware certification.',
     checklist: [
       'Use vendor models for critical active devices',
       'Sweep tolerances and operating corners, not just nominal',
@@ -104,7 +104,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     title: 'Connect firmware, hardware tests and twins',
     summary: 'Move from design artefacts to controlled experiments.',
     detail:
-      'Embedded, FPGA and HIL workspaces organise the programming and test flow. Real hardware needs a supported toolchain, a configured target, an attached interface, safe test limits and explicit calibration. A digital twin needs trustworthy live signals and a validated physical model.',
+      'Embedded, FPGA and HIL workspaces organise the programming and test flow. Real hardware needs a supported toolchain, configured target, attached interface, safe test limits and calibration. A digital twin needs trustworthy live signals and a validated physical model.',
     checklist: [
       'Select and verify the actual board and toolchain',
       'Use current-limited supplies and documented test fixtures',

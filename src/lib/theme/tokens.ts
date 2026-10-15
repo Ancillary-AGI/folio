@@ -22,13 +22,13 @@
  */
 
 /** Themes that ship today. `system` is a *preference*, not a theme. */
-export type ThemeId = 'light' | 'dark' | 'high-contrast'
+export type ThemeId = 'light' | 'dark' | 'professional' | 'high-contrast'
 
 /** What the user picked in Settings. */
 export type ThemePreference = ThemeId | 'system'
 
-export const THEME_IDS: readonly ThemeId[] = ['light', 'dark', 'high-contrast']
-export const THEME_PREFERENCES: readonly ThemePreference[] = ['system', 'light', 'dark', 'high-contrast']
+export const THEME_IDS: readonly ThemeId[] = ['light', 'dark', 'professional', 'high-contrast']
+export const THEME_PREFERENCES: readonly ThemePreference[] = ['light', 'dark', 'professional', 'system', 'high-contrast']
 
 /**
  * Flat map of CSS custom property name → HSL triplet.
@@ -38,7 +38,7 @@ export const THEME_PREFERENCES: readonly ThemePreference[] = ['system', 'light',
 export type ThemeTokens = Readonly<Record<string, string>>
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Light — the default. Optimised for long editing sessions on a bright screen:
+ * Light — an explicit option. Optimised for bright screens:
  * pure white "paper" for the schematic sheet, a barely-there tint for chrome.
  * ──────────────────────────────────────────────────────────────────────────── */
 const light: ThemeTokens = {
@@ -200,6 +200,49 @@ const dark: ThemeTokens = {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
+ * Professional — a separate EDA-oriented graphite theme. It keeps the dark
+ * shell's readable surfaces while giving nets, buses, and focus states a cool
+ * cyan/green instrument-panel accent. It is not a high-contrast accessibility
+ * mode and contains no brown/RGB legacy values.
+ * ──────────────────────────────────────────────────────────────────────────── */
+const professional: ThemeTokens = {
+  ...dark,
+  '--surface': '205 31% 11%',
+  '--card': '205 27% 14%',
+  '--popover': '205 29% 12%',
+  '--muted': '205 23% 19%',
+  '--muted-foreground': '202 20% 76%',
+  '--accent': '202 34% 23%',
+  '--secondary': '205 25% 21%',
+  '--primary': '186 82% 63%',
+  '--primary-foreground': '205 44% 8%',
+  '--ring': '186 82% 63%',
+  '--border': '205 22% 29%',
+  '--input': '205 22% 31%',
+  '--canvas': '205 44% 5%',
+  '--grid': '205 26% 15%',
+  '--grid-major': '205 20% 27%',
+  '--wire': '154 62% 60%',
+  '--bus': '267 77% 76%',
+  '--symbol-fill': '205 30% 21%',
+  '--symbol-outline': '197 24% 77%',
+  '--symbol-selected-fill': '194 56% 29%',
+  '--pin-ring': '31 91% 70%',
+  '--junction': '186 82% 63%',
+  '--selection': '186 82% 63%',
+  '--hover': '186 84% 67%',
+  '--net-label': '196 40% 91%',
+  '--reference-label': '202 20% 76%',
+  '--value-label': '202 20% 76%',
+  '--chart-1': '186 82% 63%',
+  '--chart-2': '154 62% 60%',
+  '--chart-3': '35 96% 66%',
+  '--chart-4': '267 77% 76%',
+  '--chart-5': '190 90% 68%',
+  '--chart-6': '338 86% 74%',
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
  * High contrast — WCAG 2.2 AAA (7:1) for body copy on every surface. Intended
  * for accessibility profiles, low-quality panels, and bright sunlight.
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -274,6 +317,7 @@ const highContrast: ThemeTokens = {
 export const THEMES: Readonly<Record<ThemeId, ThemeTokens>> = {
   light,
   dark,
+  professional,
   'high-contrast': highContrast,
 }
 
@@ -287,10 +331,11 @@ export interface ThemeDescriptor {
 }
 
 export const THEME_DESCRIPTORS: readonly ThemeDescriptor[] = [
-  { id: 'system', label: 'System', description: 'Follow the operating system appearance.', isDark: false },
   { id: 'light', label: 'Light', description: 'Bright paper-white editor for daylight work.', isDark: false },
   { id: 'dark', label: 'Dark', description: 'Recessed, low-glare shell for long sessions.', isDark: true },
-  { id: 'high-contrast', label: 'High contrast', description: 'AAA contrast for accessibility profiles.', isDark: true },
+  { id: 'professional', label: 'Professional', description: 'Graphite EDA surfaces with cyan and green signal accents.', isDark: true },
+  { id: 'system', label: 'System', description: 'Follow the operating system appearance.', isDark: false },
+  { id: 'high-contrast', label: 'High Contrast (Accessibility)', description: 'Maximum separation for low vision and difficult lighting.', isDark: true },
 ]
 
 /** Every CSS custom property the runtime guarantees to write. */

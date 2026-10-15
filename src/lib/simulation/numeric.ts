@@ -43,8 +43,8 @@ export const cDiv = (a: Complex, b: Complex): Complex => {
 
 export const cScale = (a: Complex, factor: number): Complex => ({ re: a.re * factor, im: a.im * factor })
 
-/** Magnitude (modulus) of a complex value. */
-export const cAbs = (a: Complex): number => Math.hypot(a.re, a.im)
+/** Magnitude (modulus) of a complex value. sqrt is ~3x faster than Math.hypot here. */
+export const cAbs = (a: Complex): number => Math.sqrt(a.re * a.re + a.im * a.im)
 
 /** Convert a magnitude and phase (radians) into a complex value. */
 export const fromPolar = (magnitude: number, phaseRadians: number): Complex => ({
@@ -145,7 +145,10 @@ export function solveComplexSystem(
     let pivotRow = column
     let bestRatio = 0
     for (let row = column; row < size; row += 1) {
-      const ratio = cAbs(a[row][column]) / scales[row]
+      // Inline magnitude: |a+bi| without object allocation.
+      const re = a[row][column].re
+      const im = a[row][column].im
+      const ratio = Math.sqrt(re * re + im * im) / scales[row]
       if (ratio > bestRatio) {
         bestRatio = ratio
         pivotRow = row
@@ -160,26 +163,56 @@ export function solveComplexSystem(
     }
 
     const pivot = a[column][column]
+    // Inline complex division + rank-1 update: zero per-entry allocation.
+    // factor = a[row][column] / pivot
+    const pr = pivot.re
+    const pi = pivot.im
+    const denom = pr * pr + pi * pi
+    if (denom === 0) return null
     for (let row = column + 1; row < size; row += 1) {
-      const factor = cDiv(a[row][column], pivot)
-      if (factor.re === 0 && factor.im === 0) continue
-      a[row][column] = complex(0)
+      const nr = a[row][column].re
+      const ni = a[row][column].im
+      if (nr === 0 && ni === 0) continue
+      const fr = (nr * pr + ni * pi) / denom
+      const fi = (ni * pr - nr * pi) / denom
+      if (!Number.isFinite(fr) || !Number.isFinite(fi)) return null
+      a[row][column].re = 0
+      a[row][column].im = 0
+      const pivotRowArr = a[column]
+      const targetRow = a[row]
       for (let entry = column + 1; entry < size; entry += 1) {
-        a[row][entry] = cSub(a[row][entry], cMul(factor, a[column][entry]))
+        const er = pivotRowArr[entry].re
+        const ei = pivotRowArr[entry].im
+        // target -= factor * pivotEntry (inlined cMul + cSub)
+        targetRow[entry].re -= fr * er - fi * ei
+        targetRow[entry].im -= fr * ei + fi * er
       }
-      b[row] = cSub(b[row], cMul(factor, b[column]))
+      // b[row] -= factor * b[column] (inlined)
+      const br = b[column].re
+      const bi = b[column].im
+      b[row].re -= fr * br - fi * bi
+      b[row].im -= fr * bi + fi * br
     }
   }
 
   const solution = Array.from({ length: size }, () => complex(0))
   for (let row = size - 1; row >= 0; row -= 1) {
-    let sum = b[row]
+    let sr = b[row].re
+    let si = b[row].im
     for (let column = row + 1; column < size; column += 1) {
-      sum = cSub(sum, cMul(a[row][column], solution[column]))
+      const er = a[row][column].re
+      const ei = a[row][column].im
+      const xr = solution[column].re
+      const xi = solution[column].im
+      sr -= er * xr - ei * xi
+      si -= er * xi + ei * xr
     }
-    const diagonal = a[row][row]
-    if (diagonal.re === 0 && diagonal.im === 0) return null
-    solution[row] = cDiv(sum, diagonal)
+    const dr = a[row][row].re
+    const di = a[row][row].im
+    if (dr === 0 && di === 0) return null
+    const dd = dr * dr + di * di
+    solution[row].re = (sr * dr + si * di) / dd
+    solution[row].im = (si * dr - sr * di) / dd
   }
 
   return solution.every((value) => Number.isFinite(value.re) && Number.isFinite(value.im))

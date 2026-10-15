@@ -60,3 +60,34 @@ export function parseEagleSchematic(text: string): EagleNetlist {
   }
   return { components, nets };
 }
+
+/**
+ * Serialize the shared interchange back to EAGLE XML (same subset as above).
+ * Lives here — not in a separate file — so import/export cannot drift apart.
+ */
+const escapeXml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+export function serializeEagleSchematic(net: EagleNetlist): string {
+  if (net.components.length === 0 && net.nets.length === 0) {
+    throw new Error('EAGLE: nothing to serialize (no parts or nets).');
+  }
+  const known = new Set(net.components.map((c) => c.ref));
+  for (const n of net.nets) {
+    if (!n.name) throw new Error('EAGLE: net without name.');
+    for (const node of n.nodes) {
+      if (!known.has(node.ref)) throw new Error(`EAGLE: net ${n.name} references unknown part ${node.ref}.`);
+      if (!node.pin) throw new Error(`EAGLE: net ${n.name} has a node without pin.`);
+    }
+  }
+  const parts = net.components
+    .map((c) => `    <part name="${escapeXml(c.ref)}" library="" deviceset="" device="" value="${escapeXml(c.value)}" package="${escapeXml(c.footprint)}"/>`)
+    .join('\n');
+  const nets = net.nets
+    .map((n) => {
+      const refs = n.nodes.map((x) => `      <pinref part="${escapeXml(x.ref)}" pin="${escapeXml(x.pin)}"/>`).join('\n');
+      return `   <net name="${escapeXml(n.name)}" class="0">\n    <segment>\n${refs}\n    </segment>\n   </net>`;
+    })
+    .join('\n');
+  return `<?xml version="1.0" encoding="utf-8"?>\n<eagle version="9.6.2">\n<drawing>\n<schematic>\n<sheets>\n<sheet>\n<parts>\n${parts}\n</parts>\n<nets>\n${nets}\n</nets>\n</sheet>\n</sheets>\n</schematic>\n</drawing>\n</eagle>\n`;
+}

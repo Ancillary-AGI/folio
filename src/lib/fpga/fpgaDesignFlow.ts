@@ -1,5 +1,9 @@
 export type FPGAVendor = 'xilinx' | 'intel' | 'lattice' | 'gowin';
 
+import { parseVerilogModule } from './verilogSubset';
+import { parseVhdl } from './vhdlSubset';
+import { simulateDigital } from '../simulation/digitalLogic';
+
 export interface FPGADevice {
   id: string;
   vendor: FPGAVendor;
@@ -104,8 +108,47 @@ export class FPGADesignFlow {
       warnings.push('Multiple clock edges detected; check CDC constraints');
     }
 
-    const loc = Math.min(device.luts, 40 + source.length * 2);
-    const ff = Math.min(device.flipFlops, 20 + source.length);
+    // Real HDL elaboration: parse structural Verilog/VHDL into the digital
+    // netlist and functionally verify it on the digital engine, so synthesis
+    // estimates count actual gates instead of source characters.
+    let gateCount = 0;
+    let ffCount = 0;
+    for (const module of modules) {
+      const lang = module.language.toLowerCase();
+      try {
+        if (lang === 'vhdl') {
+          const { ports, netlist } = parseVhdl(module.source);
+          gateCount += netlist.gates?.length ?? 0;
+          ffCount += netlist.flipFlops?.length ?? 0;
+          const sim = simulateDigital(
+            { gates: netlist.gates, stimuli: ports.filter((p) => p.direction === 'in').map((p) => ({ node: p.name, value: 0 as const, time: 0 })) },
+            10,
+          );
+          if (!sim.success) warnings.push(`VHDL ${module.name}: functional check failed — ${sim.error ?? 'unknown'}`);
+        } else if (lang === 'verilog' || lang === 'systemverilog') {
+          const { ports, netlist } = parseVerilogModule(module.source);
+          gateCount += netlist.gates?.length ?? 0;
+          ffCount += netlist.flipFlops?.length ?? 0;
+          const sim = simulateDigital(
+            { gates: netlist.gates, stimuli: ports.filter((p) => p.direction === 'input').map((p) => ({ node: p.name, value: 0 as const, time: 0 })) },
+            10,
+          );
+          if (!sim.success) warnings.push(`Verilog ${module.name}: functional check failed — ${sim.error ?? 'unknown'}`);
+        }
+      } catch (error) {
+        errors.push(`HDL ${module.name}: ${error instanceof Error ? error.message : 'parse failed'}`);
+      }
+    }
+    if (errors.length > 0) {
+      return {
+        success: false, device,
+        utilization: { luts: 0, flipFlops: 0, bramKb: 0, dsp: 0, lutPercent: 0 },
+        timing: { fmaxMhz: 0, wnsNs: 0 }, warnings, errors, netlistHash: '',
+      };
+    }
+
+    const loc = Math.min(device.luts, Math.max(1, gateCount * 2 + Math.floor(source.length / 400)));
+    const ff = Math.min(device.flipFlops, Math.max(ffCount, Math.floor(source.length / 120)));
     const bram = Math.min(device.bramKb, Math.floor(source.length / 80));
     const dsp = /mult|\*|dsp/i.test(source) ? Math.min(device.dsp, 4) : 0;
     const lutPercent = (loc / device.luts) * 100;

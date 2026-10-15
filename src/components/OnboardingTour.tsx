@@ -68,7 +68,7 @@ export default function OnboardingTour({
         root.querySelectorAll<HTMLElement>(
           'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
         ),
-      ).filter((el) => el.offsetParent !== null)
+      ).filter((element) => element.offsetParent !== null)
       if (items.length === 0) return
       const first = items[0]
       const last = items[items.length - 1]
@@ -100,12 +100,8 @@ export default function OnboardingTour({
               <StepIcon className="h-5 w-5" />
             </span>
             <div className="min-w-0">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Guided setup
-              </p>
-              <p className="truncate text-sm font-semibold text-surface-foreground">
-                Step {activeIndex + 1} of {ONBOARDING_STEPS.length}
-              </p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Guided setup</p>
+              <p className="truncate text-sm font-semibold text-surface-foreground">Step {activeIndex + 1} of {ONBOARDING_STEPS.length}</p>
             </div>
           </div>
           <div className="flex flex-shrink-0 items-center gap-3">
@@ -117,10 +113,7 @@ export default function OnboardingTour({
               aria-valuenow={activeIndex + 1}
               aria-label={`Step ${activeIndex + 1} of ${ONBOARDING_STEPS.length}`}
             >
-              <div
-                className="h-full bg-primary transition-[width] duration-300"
-                style={{ width: `${((activeIndex + 1) / ONBOARDING_STEPS.length) * 100}%` }}
-              />
+              <div className="h-full bg-primary transition-[width] duration-300" style={{ width: `${((activeIndex + 1) / ONBOARDING_STEPS.length) * 100}%` }} />
             </div>
             <Button variant="ghost" size="icon" onClick={finish} aria-label="Close the guide">
               <X className="h-4 w-4" />
@@ -159,9 +152,7 @@ export default function OnboardingTour({
                       </span>
                       <span className="min-w-0 leading-tight">
                         <span className="block truncate">{entry.title}</span>
-                        <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
-                          {entry.summary}
-                        </span>
+                        <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">{entry.summary}</span>
                       </span>
                     </button>
                   </li>
@@ -171,16 +162,10 @@ export default function OnboardingTour({
           </nav>
           <div className="scrollbar-thin flex min-h-0 flex-1 flex-col overflow-y-auto">
             <div className="px-6 py-6">
-              <h2 id="onboarding-title" className="text-xl font-semibold leading-snug text-card-foreground sm:text-2xl">
-                {step.title}
-              </h2>
-              <p id="onboarding-summary" className="mt-2 text-sm font-medium text-primary">
-                {step.summary}
-              </p>
+              <h2 id="onboarding-title" className="text-xl font-semibold leading-snug text-card-foreground sm:text-2xl">{step.title}</h2>
+              <p id="onboarding-summary" className="mt-2 text-sm font-medium text-primary">{step.summary}</p>
               <p className="mt-4 text-sm leading-relaxed text-card-foreground/90">{step.detail}</p>
-              <h3 className="mt-6 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                In this stage
-              </h3>
+              <h3 className="mt-6 text-xs font-semibold uppercase tracking-wide text-muted-foreground">In this stage</h3>
               <ul className="mt-3 space-y-2">
                 {step.checklist.map((item) => (
                   <li key={item} className="flex gap-3 text-sm leading-relaxed text-card-foreground">
@@ -193,43 +178,26 @@ export default function OnboardingTour({
                 <div className="mt-6 rounded-md border border-primary/40 bg-primary/5 p-4">
                   <h3 className="text-sm font-semibold text-card-foreground">Run a known circuit</h3>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    Loads a 5 V divider built from two 1 kΩ resistors. Solving its operating point
-                    should give 2.5 V at the midpoint.
+                    Loads a 5 V divider built from two 1 kOhm resistors. Solving its operating point should give 2.5 V at the midpoint.
                   </p>
-                  <Button className="mt-3" variant="outline" size="sm" onClick={onLoadSampleCircuit}>
-                    Load the 5 V divider example
-                  </Button>
+                  <Button className="mt-3" variant="outline" size="sm" onClick={onLoadSampleCircuit}>Load the 5 V divider example</Button>
                 </div>
               )}
             </div>
             <div className="mt-auto flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/40 px-6 py-4">
-              <Button variant="ghost" size="sm" onClick={finish}>
-                Skip the guide
-              </Button>
+              <Button variant="ghost" size="sm" onClick={finish}>Skip the guide</Button>
               <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => goTo(activeIndex - 1)}
-                  disabled={activeIndex === 0}
-                  aria-label="Previous step"
-                >
-                  <ArrowLeft className="mr-2 h-4 w-4" />
-                  Back
+                <Button variant="outline" size="sm" onClick={() => goTo(activeIndex - 1)} disabled={activeIndex === 0} aria-label="Previous step">
+                  <ArrowLeft className="mr-2 h-4 w-4" />Back
                 </Button>
                 <Button size="sm" onClick={advance}>
-                  {isLast
-                    ? 'Finish and start designing'
-                    : activeIndex === 0 && !hasProject
-                      ? 'Create project and continue'
-                      : 'Continue'}
+                  {isLast ? 'Finish and start designing' : activeIndex === 0 && !hasProject ? 'Create project and continue' : 'Continue'}
                   {!isLast && <ArrowRight className="ml-2 h-4 w-4" />}
                 </Button>
               </div>
             </div>
             <p className="flex-shrink-0 border-t border-border px-6 py-3 text-xs leading-relaxed text-muted-foreground">
-              Use the arrow keys to move between steps, or Esc to close. Always validate critical
-              results independently before fabrication or before connecting real hardware.
+              Use the arrow keys to move between steps, or Esc to close. Always validate critical results independently before fabrication or before connecting real hardware.
             </p>
           </div>
         </div>

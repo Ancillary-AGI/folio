@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseEagleSchematic } from './eagleSchematic';
+import { parseEagleSchematic, serializeEagleSchematic } from './eagleSchematic';
 
 const SCH = `<?xml version="1.0" encoding="utf-8"?>
 <eagle version="9.6.2">
@@ -60,5 +60,25 @@ describe('EAGLE schematic import', () => {
     expect(() => parseEagleSchematic(SCH.replace('part="R1" pin="1"', 'part="R9" pin="1"'))).toThrow(/unknown part R9/);
     expect(() => parseEagleSchematic(SCH.replace('name="R1"', ''))).toThrow(/without name/);
     expect(() => parseEagleSchematic(SCH.replace('part="R1" pin="2"', 'part="R1"'))).toThrow(/without part\/pin/);
+  });
+  it('round-trips serialize back through the parser without loss', () => {
+    const parsed = parseEagleSchematic(SCH);
+    const xml = serializeEagleSchematic(parsed);
+    expect(xml).toContain('<eagle');
+    const back = parseEagleSchematic(xml);
+    expect(back.components).toEqual(parsed.components);
+    expect(back.nets.map((n) => n.name)).toEqual(parsed.nets.map((n) => n.name));
+    expect(back.nets[0].nodes).toEqual(parsed.nets[0].nodes);
+  });
+  it('serializer refuses empty and dangling input and escapes XML', () => {
+    expect(() => serializeEagleSchematic({ components: [], nets: [] })).toThrow(/nothing/);
+    expect(() =>
+      serializeEagleSchematic({ components: [], nets: [{ code: '1', name: 'N', nodes: [{ ref: 'X', pin: '1' }] }] }),
+    ).toThrow(/unknown part/);
+    const xml = serializeEagleSchematic({
+      components: [{ ref: 'R1', value: 'a&b', footprint: '0805' }],
+      nets: [{ code: '1', name: 'N', nodes: [{ ref: 'R1', pin: '1' }] }],
+    });
+    expect(xml).toContain('a&amp;b');
   });
 });

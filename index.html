@@ -21,7 +21,7 @@
        */
       (function () {
         var key = 'circuit-cad-app-store';
-        var preference = 'system';
+        var preference = 'dark';
         try {
           var raw = localStorage.getItem(key);
           if (raw) {
@@ -30,7 +30,7 @@
             if (stored) preference = stored;
           }
         } catch (error) {
-          /* storage disabled — fall through to system */
+          /* storage disabled — use the Dark CAD default */
         }
         var prefersDark = false;
         var prefersContrast = false;
@@ -38,7 +38,7 @@
           prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
           prefersContrast = window.matchMedia('(prefers-contrast: more)').matches;
         } catch (error) {
-          /* no matchMedia — treat as light */
+          /* no matchMedia — explicit preference remains Dark */
         }
         var theme =
           preference === 'system'

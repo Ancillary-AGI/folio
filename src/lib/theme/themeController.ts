@@ -29,7 +29,7 @@ export const THEME_STORAGE_KEY = 'circuit-cad-app-store'
 const DARK_QUERY = '(prefers-color-scheme: dark)'
 const CONTRAST_QUERY = '(prefers-contrast: more)'
 
-export const DEFAULT_THEME_PREFERENCE: ThemePreference = 'system'
+export const DEFAULT_THEME_PREFERENCE: ThemePreference = 'dark'
 
 /** Narrow an arbitrary persisted value into a supported preference. */
 export function normalizeThemePreference(value: unknown): ThemePreference {
@@ -37,12 +37,8 @@ export function normalizeThemePreference(value: unknown): ThemePreference {
   if (typeof value === 'string' && (THEME_IDS as readonly string[]).includes(value)) {
     return value as ThemeId
   }
-  /*
-   * Legacy/retired names from earlier releases. `professional` produced a brown
-   * UI because its CSS triplets were RGB, not HSL — mapping it to a real theme
-   * is the migration path for anyone who had it selected.
-   */
-  if (value === 'professional' || value === 'solarized' || value === 'midnight') return 'dark'
+  /* Retired palettes migrate to the closest supported appearance. */
+  if (value === 'solarized' || value === 'midnight') return 'dark'
   if (value === 'hc' || value === 'contrast') return 'high-contrast'
   return DEFAULT_THEME_PREFERENCE
 }

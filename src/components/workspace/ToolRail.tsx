@@ -8,9 +8,12 @@
   ZoomOut,
   Maximize2,
   Save,
+  CircuitBoard,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useAppStore } from '../../stores/useAppStore'
+import { useProjectStore } from '../../stores/useProjectStore'
+import { buildDemoBoard } from '../../lib/demo/demoBoard'
 
 interface ToolRailProps {
   /** Persists the current design snapshot (same payload as the canvas autosave). */
@@ -133,6 +136,19 @@ export default function ToolRail({ onSave }: ToolRailProps) {
 
       <RailButton title="Save (Ctrl+S)" onClick={onSave}>
         <Save className="h-4 w-4" />
+      </RailButton>
+
+      {/* One-click proof: load the tested 9-part blinker onto the sheet. */}
+      <RailButton
+        title="Load demo blinker board (tested: sim + fab)"
+        ariaLabel="Load demo blinker board"
+        onClick={() => {
+          const board = buildDemoBoard();
+          useProjectStore.setState({ components: board.components, wires: board.wires, isDirty: true });
+          window.dispatchEvent(new CustomEvent('folio:fit-view'));
+        }}
+      >
+        <CircuitBoard className="h-4 w-4" />
       </RailButton>
     </div>
   )
