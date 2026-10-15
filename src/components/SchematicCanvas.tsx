@@ -53,6 +53,7 @@ export default function SchematicCanvas({
     components: canvasComponents,
     wires,
     addComponent,
+    addWire,
     updateComponent,
     removeComponent,
     markDirty
@@ -262,6 +263,43 @@ export default function SchematicCanvas({
       return
     }
 
+    // Wire tool: pin-to-pin click-to-click wiring.
+    if (activeTool === 'wire' && pointer) {
+      const world = screenToWorld(pointer)
+      const hit = pinHit(world)
+      if (!hit) {
+        setWireStart(null)
+        return
+      }
+      if (!wireStart) {
+        setWireStart(hit)
+        return
+      }
+      if (wireStart.componentId === hit.componentId && wireStart.pinId === hit.pinId) {
+        setWireStart(null)
+        return
+      }
+      const startComp = canvasComponents.find((c) => c.id === wireStart.componentId)
+      const endComp = canvasComponents.find((c) => c.id === hit.componentId)
+      const startPin = startComp?.component.pins.find((p) => p.id === wireStart.pinId)
+      const endPin = endComp?.component.pins.find((p) => p.id === hit.pinId)
+      if (!startComp || !endComp || !startPin || !endPin) {
+        setWireStart(null)
+        return
+      }
+      addWire({
+        id: generateId('wire'),
+        points: [
+          { x: startComp.x + startPin.x, y: startComp.y + startPin.y },
+          { x: endComp.x + endPin.x, y: endComp.y + endPin.y },
+        ],
+        connectedPins: [wireStart, hit],
+      })
+      markDirty()
+      setWireStart(null)
+      return
+    }
+
     setSelectedComponents([])
   }
 
@@ -278,6 +316,44 @@ export default function SchematicCanvas({
   }
 
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+
+  /*
+   * Click-to-click wiring (the missing Wire tool): with the wire tool armed,
+   * the first pin click starts a wire, the second pin click finishes it with
+   * both pins recorded in `connectedPins` — the exact shape the netlister
+   * reads. Clicking empty space cancels. Esc cancels (handled below).
+   */
+  const [wireStart, setWireStart] = useState<{ componentId: string; pinId: string } | null>(null)
+
+  /** World position of every pin on the sheet, for hit-testing wire clicks. */
+  const pinHit = (
+    world: { x: number; y: number },
+  ): { componentId: string; pinId: string } | null => {
+    const tolerance = 10 / viewport.zoom
+    for (const comp of canvasComponents) {
+      for (const pin of comp.component.pins) {
+        const dx = comp.x + pin.x - world.x
+        const dy = comp.y + pin.y - world.y
+        if (dx * dx + dy * dy <= tolerance * tolerance) {
+          return { componentId: comp.id, pinId: pin.id }
+        }
+      }
+    }
+    return null
+  }
+
+  const screenToWorld = (screen: { x: number; y: number }): { x: number; y: number } => {
+    const { viewport: currentViewport, settings: currentSettings } = useAppStore.getState()
+    const pos = {
+      x: (screen.x - currentViewport.pan.x) / currentViewport.zoom,
+      y: (screen.y - currentViewport.pan.y) / currentViewport.zoom,
+    }
+    if (currentSettings.snapToGrid) {
+      pos.x = Math.round(pos.x / currentSettings.gridSize) * currentSettings.gridSize
+      pos.y = Math.round(pos.y / currentSettings.gridSize) * currentSettings.gridSize
+    }
+    return pos
+  }
 
   const handleComponentContextMenu = (event: Konva.KonvaEventObject<PointerEvent>, id: string) => {
     event.evt.preventDefault()
@@ -322,6 +398,13 @@ export default function SchematicCanvas({
    */
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        // Cancel an in-progress wire first; the sheet owns this shortcut while wiring.
+        if (wireStart) {
+          setWireStart(null)
+          return
+        }
+      }
       if (event.key !== 'Delete' && event.key !== 'Backspace') return
       // Never eat keys while the user is typing in a field.
       const target = event.target as HTMLElement | null
@@ -340,7 +423,7 @@ export default function SchematicCanvas({
       setSelectedComponents([])
       markDirty()
     },
-    [selectedComponents, removeComponent, setSelectedComponents, markDirty],
+    [wireStart, selectedComponents, removeComponent, setSelectedComponents, markDirty],
   )
 
   useEffect(() => {
@@ -508,6 +591,24 @@ export default function SchematicCanvas({
     ))
   }
 
+  /* Pending first-pin marker while wiring: the exact pin the wire starts from. */
+  const renderWireStart = () => {
+    if (activeTool !== 'wire' || !wireStart) return null
+    const comp = canvasComponents.find((c) => c.id === wireStart.componentId)
+    const pin = comp?.component.pins.find((p) => p.id === wireStart.pinId)
+    if (!comp || !pin) return null
+    return (
+      <Circle
+        x={comp.x + pin.x}
+        y={comp.y + pin.y}
+        radius={6}
+        stroke={palette.selectedStroke}
+        strokeWidth={2}
+        listening={false}
+      />
+    )
+  }
+
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
     pendingCursor.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
@@ -580,7 +681,7 @@ export default function SchematicCanvas({
   return (
     <div
       className={`relative h-full w-full overflow-hidden bg-canvas text-canvas-foreground ${
-        pendingComponent || activeTool === 'delete' ? 'cursor-crosshair' : ''
+        pendingComponent || activeTool === 'delete' || activeTool === 'wire' ? 'cursor-crosshair' : ''
       }`}
       onDrop={handleDrop}
       onDragOver={handleDragOver}
@@ -605,6 +706,9 @@ export default function SchematicCanvas({
           
           {/* Wires */}
           {renderWires()}
+
+          {/* Pending wire start */}
+          {renderWireStart()}
           
           {/* Components */}
           {canvasComponents.map(renderComponent)}

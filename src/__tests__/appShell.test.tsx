@@ -19,6 +19,7 @@ vi.mock('../components/SchematicCanvas', () => ({
 }))
 
 import App from '../App'
+import { useAppStore } from '../stores/useAppStore'
 import { useProjectStore } from '../stores/useProjectStore'
 
 const ONBOARDING_COMPLETED_KEY = 'folio.onboarding.completed.v2'
@@ -26,8 +27,9 @@ const themeToggleName = /^switch to (dark|light) theme$/i
 
 beforeEach(() => {
   localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
-  // Zustand stores are module singletons — never assume the previous test's project.
+  // Zustand stores are module singletons — never assume the previous test's project or tool.
   useProjectStore.setState({ currentProject: null, currentSchematic: null, components: [], wires: [], isDirty: false })
+  useAppStore.setState({ activeTool: 'select' })
 })
 
 describe('App shell', () => {
@@ -93,18 +95,24 @@ describe('App shell', () => {
     const next = screen.getByRole('button', { name: /^new project/i })
     expect(dialog).toContainElement(back)
     expect(dialog).toContainElement(next)
-    // CAD-wizard footer: fixed h-16 row, items-center, no wrap — neither
-    // button can stretch or wrap taller than the other.
-    const row = back.parentElement?.parentElement
-    expect(row?.className).toContain('h-16')
-    expect(row?.className).toContain('items-center')
-    expect(row?.className).not.toContain('flex-wrap')
-    for (const button of [back, next]) {
-      expect(button.className).toContain('h-9')
-      expect(button.className).toContain('whitespace-nowrap')
-    }
+    // Shared CAD footer classes: fixed row, grid pair, equal heights.
+    const row = back.closest('.cad-footer-row')
+    expect(row).not.toBeNull()
+    const pair = back.closest('.cad-action-pair')
+    expect(pair).not.toBeNull()
     // Equal heights on screen, not just equal classes.
     expect(next.getBoundingClientRect().height).toBe(back.getBoundingClientRect().height)
+  })
+
+  it('arms the wire tool on the rail (click-to-click wiring)', async () => {
+    const { default: ToolRail } = await import('../components/workspace/ToolRail')
+    const { useAppStore } = await import('../stores/useAppStore')
+    render(<ToolRail onSave={() => {}} />)
+    const wire = screen.getByRole('button', { name: 'Wire tool' })
+    expect(wire).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(wire)
+    expect(useAppStore.getState().activeTool).toBe('wire')
+    expect(screen.getByRole('button', { name: 'Wire tool' })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('toggles the color theme from the header', async () => {

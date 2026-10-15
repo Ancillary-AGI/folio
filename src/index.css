@@ -122,6 +122,35 @@
     @apply relative min-h-0 flex-1 overflow-hidden bg-canvas text-canvas-foreground;
   }
 
+  /* ── CAD action pair (KiCad/Altium/Fusion convention) ────────────────────
+   * Side-by-side Back + primary actions that can NEVER differ in height:
+   * one grid, one fixed width, one height, no wrap. Use for every wizard /
+   * dialog footer in the product — never hand-roll two buttons again.
+   */
+  .cad-action-pair {
+    @apply grid w-72 grid-cols-2 items-stretch gap-2;
+  }
+
+  .cad-action-pair > * {
+    @apply h-9 justify-center whitespace-nowrap;
+  }
+
+  /* Fixed-height dialog footer row: nothing inside can stretch taller. */
+  .cad-footer-row {
+    @apply mt-auto flex h-16 flex-shrink-0 items-center justify-between gap-3 border-t border-border bg-muted/40 px-6;
+  }
+
+  /* Responsive panel shell: full-height on desktop, bottom-sheet on mobile. */
+  .cad-panel-shell {
+    @apply flex max-h-[calc(100vh-2rem)] min-h-0 w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-border shadow-2xl outline-none;
+  }
+
+  @media (max-width: 640px) {
+    .cad-panel-shell {
+      @apply max-h-[calc(100dvh-1rem)] rounded-b-none;
+    }
+  }
+
   /* The schematic / PCB grid. Drawn from tokens so it is subtle in both themes
      and never fights the sheet colour. */
   .editor-grid {
@@ -350,6 +379,10 @@
 }
 
 @layer utilities {
+  /* ── Custom themed scrollbars (all token-driven, no hex) ────────────────
+   * Overlay style: transparent track, bordered thumb that brightens on hover.
+   * `.scrollbar-thin` for docks/lists, `.scrollbar-overlay` for panels/dialogs.
+   */
   .scrollbar-thin {
     scrollbar-width: thin;
     scrollbar-color: hsl(var(--border)) transparent;
@@ -374,6 +407,58 @@
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
     background-color: hsl(var(--muted-foreground));
     background-clip: content-box;
+  }
+
+  .scrollbar-overlay {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.45) transparent;
+  }
+
+  .scrollbar-overlay::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .scrollbar-overlay::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-overlay::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground) / 0.45);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+    transition: background-color 120ms ease-out;
+  }
+
+  .scrollbar-overlay::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--primary) / 0.7);
+    background-clip: content-box;
+  }
+
+  .scrollbar-overlay::-webkit-scrollbar-thumb:active {
+    background-color: hsl(var(--primary));
+    background-clip: content-box;
+  }
+
+  /* ── CAD motion language ───────────────────────────────────────────────
+   * 120 ms micro (hover/press), 220 ms panel rise, shimmer for lazy loads.
+   * All gated by prefers-reduced-motion + the app setting (see base layer).
+   */
+  .cad-press {
+    transition: transform 120ms ease-out, background-color 120ms ease-out;
+  }
+
+  .cad-press:active {
+    transform: scale(0.97);
+  }
+
+  .cad-panel-enter {
+    animation: rise-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .cad-skeleton {
+    @apply animate-pulse rounded-md bg-muted;
   }
 
   /* Text that must not be selectable while dragging on the sheet. */

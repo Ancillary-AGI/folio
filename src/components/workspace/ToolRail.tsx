@@ -4,6 +4,7 @@
   Grid3X3,
   Magnet,
   Ruler,
+  Zap,
   ZoomIn,
   ZoomOut,
   Maximize2,
@@ -22,6 +23,7 @@ interface ToolRailProps {
 
 const POINTER_TOOLS = [
   { id: 'select', label: 'Select', key: 'V', icon: MousePointer },
+  { id: 'wire', label: 'Wire', key: 'W', icon: Zap },
   { id: 'delete', label: 'Delete', key: 'D', icon: Trash2 },
 ] as const
 
