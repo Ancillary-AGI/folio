@@ -342,10 +342,24 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                 className="px-3 py-1 text-sm border border-input rounded bg-background"
               >
                 <option value="basic">Basic Blink</option>
+                <option value="demo_blinker">Demo blinker (tested)</option>
                 <option value="sensor_reading">Sensor Reading</option>
                 <option value="servo_control">Servo Control</option>
                 <option value="wifi_connection">WiFi Connection</option>
               </select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void import('../../lib/demo/demoFirmware').then((m) => {
+                    handleCodeChange(m.DEMO_SKETCH);
+                    setSelectedTemplate('demo_blinker');
+                    setToolchainError(null);
+                  });
+                }}
+              >
+                Load demo firmware
+              </Button>
             </div>
           </div>
 
