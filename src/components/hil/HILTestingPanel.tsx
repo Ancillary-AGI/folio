@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ArduinoIDEIntegration, type HILTestSession, type HILTestSummary } from '../../lib/programming/boardProgrammer';
+import { BLINKER_HIL_SUITE } from '../../lib/demo/demoHilTwin';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
@@ -14,25 +15,10 @@ export default function HILTestingPanel() {
     setBusy(true);
     setError('');
     try {
+      // The proven blinker suite — not fixture data: same cases the demo test validates.
       const setup = await ArduinoIDEIntegration.setupHILTest({
-        hardwareInterfaces: { digital: true, analog: true, uart: true },
-        testCases: [
-          {
-            id: 'led-high',
-            name: 'LED drive',
-            inputs: { digital: { D13: true } },
-            expectedOutputs: { digital: { D13: true } },
-            settlingTime: 20,
-          },
-          {
-            id: 'adc-rail',
-            name: 'Analog rail',
-            inputs: { analog: { A0: 3.3 } },
-            expectedOutputs: { analog: { A0: 3.3 } },
-            tolerances: { analog: { A0: 0.15 } },
-            settlingTime: 20,
-          },
-        ],
+        hardwareInterfaces: { ...BLINKER_HIL_SUITE.hardwareInterfaces },
+        testCases: [...BLINKER_HIL_SUITE.testCases],
       });
       setSession(setup);
       const result = await ArduinoIDEIntegration.runHILTest(setup);

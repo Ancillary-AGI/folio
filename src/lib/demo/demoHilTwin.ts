@@ -28,22 +28,31 @@ export interface DemoHilTwin {
 const operatingPointOf = (perturbed: CircuitModel): AnalysisOutcome =>
   runOperatingPoint(perturbed, { temperatureCelsius: 27 }).outcome;
 
+/**
+ * The blinker HIL suite — single source shared by the demo proof and the
+ * panel, so the UI can never drift back to fixture data.
+ */
+export const BLINKER_HIL_SUITE = {
+  hardwareInterfaces: { digital: true },
+  testCases: [
+    {
+      id: 'blinker-led-on', name: 'LED on at GPIO high',
+      inputs: { digital: { GPIO: true } }, expectedOutputs: { digital: { LED_K: false } },
+      settlingTime: 20,
+    },
+    {
+      id: 'blinker-led-off', name: 'LED off at GPIO low',
+      inputs: { digital: { GPIO: false } }, expectedOutputs: { digital: { LED_K: true } },
+      settlingTime: 20,
+    },
+  ],
+} as const;
+
 export async function buildDemoHilTwin(): Promise<DemoHilTwin> {
   // HIL suite coherence: LED drive + GPIO cases on enabled digital lines.
   const session = await ArduinoIDEIntegration.setupHILTest({
-    hardwareInterfaces: { digital: true },
-    testCases: [
-      {
-        id: 'blinker-led-on', name: 'LED on at GPIO high',
-        inputs: { digital: { GPIO: true } }, expectedOutputs: { digital: { LED_K: false } },
-        settlingTime: 20,
-      },
-      {
-        id: 'blinker-led-off', name: 'LED off at GPIO low',
-        inputs: { digital: { GPIO: false } }, expectedOutputs: { digital: { LED_K: true } },
-        settlingTime: 20,
-      },
-    ],
+    hardwareInterfaces: { ...BLINKER_HIL_SUITE.hardwareInterfaces },
+    testCases: [...BLINKER_HIL_SUITE.testCases],
   });
   // Twin envelope over the REAL blinker netlist (not a divider fixture).
   const board = buildDemoBoard();

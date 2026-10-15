@@ -22,12 +22,15 @@ describe('HILTestingPanel', () => {
     expect(screen.getByText('Session —')).toBeInTheDocument()
   })
 
-  it('runs the suite live and reports the verdict', async () => {
+  it('runs the blinker suite live: validates coherently, drive refuses without hardware', async () => {
     render(<HILTestingPanel />)
     fireEvent.click(screen.getByRole('button', { name: 'Run HIL suite' }))
     await waitFor(() => expect(screen.getByText(/passed in/)).toBeInTheDocument())
-    expect(screen.getByText('led-high')).toBeInTheDocument()
-    expect(screen.getByText('adc-rail')).toBeInTheDocument()
+    // Proven blinker cases (shared with demoHilTwin), not fixture data.
+    expect(screen.getByText('blinker-led-on')).toBeInTheDocument()
+    expect(screen.getByText('blinker-led-off')).toBeInTheDocument()
+    // Without bench hardware drive/measure refuses closed: 0/2 pass, honestly.
+    expect(screen.getByText(/0\/2 passed/)).toBeInTheDocument()
   })
 
   it('locks the button while running', async () => {
