@@ -9,6 +9,7 @@ export default function DigitalTwinFleetPanel() {
   const [health, setHealth] = useState(iiotFleetManager.fleetHealth());
   const [devices, setDevices] = useState(iiotFleetManager.listDevices());
   const [twinStatus, setTwinStatus] = useState('idle');
+  const [twinVerdict, setTwinVerdict] = useState<string | null>(null);
 
   useEffect(() => {
     if (iiotFleetManager.listDevices().length === 0) {
@@ -45,6 +46,14 @@ export default function DigitalTwinFleetPanel() {
     refresh();
   };
 
+  const verifyBlinkerTwin = async () => {
+    const { buildDemoHilTwin } = await import('../../lib/demo/demoHilTwin');
+    const demo = await buildDemoHilTwin();
+    setTwinVerdict(demo.verdict);
+    setTwinStatus(demo.verified ? 'verified' : 'failed');
+    refresh();
+  };
+
   return (
     <div className="h-full overflow-auto p-4 space-y-4">
       <div className="flex justify-between items-center">
@@ -52,7 +61,10 @@ export default function DigitalTwinFleetPanel() {
           <h2 className="text-xl font-semibold">Digital twin & IIoT fleet</h2>
           <p className="text-sm text-muted-foreground">Live sync between simulated robots and plant devices.</p>
         </div>
-        <Button onClick={syncTwin}>Sync twins</Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={syncTwin}>Sync twins</Button>
+          <Button variant="outline" onClick={() => { void verifyBlinkerTwin(); }}>Verify blinker twin</Button>
+        </div>
       </div>
       <div className="grid grid-cols-4 gap-3">
         <Card><CardContent className="p-4"><div className="text-2xl font-bold">{health.score}%</div><div className="text-xs text-muted-foreground">Fleet health</div></CardContent></Card>
@@ -60,6 +72,16 @@ export default function DigitalTwinFleetPanel() {
         <Card><CardContent className="p-4"><div className="text-2xl font-bold">{health.degraded}</div><div className="text-xs text-muted-foreground">Degraded</div></CardContent></Card>
         <Card><CardContent className="p-4"><div className="text-2xl font-bold">{twinStatus}</div><div className="text-xs text-muted-foreground">Twin status</div></CardContent></Card>
       </div>
+      {twinVerdict && (
+        <Card>
+          <CardContent className="p-4 text-sm">
+            <Badge variant={twinStatus === 'verified' ? 'default' : 'destructive'}>
+              {twinStatus === 'verified' ? 'verified' : 'not verified'}
+            </Badge>
+            <p className="mt-2 text-muted-foreground">{twinVerdict}</p>
+          </CardContent>
+        </Card>
+      )}
       <Card>
         <CardHeader><CardTitle>Devices</CardTitle></CardHeader>
         <CardContent className="space-y-2">

@@ -69,6 +69,11 @@ export default function HILTestingPanel() {
               <Badge variant={r.passed ? 'default' : 'destructive'}>{r.passed ? 'pass' : 'fail'}</Badge>
             </div>
           ))}
+          <p className="text-xs text-muted-foreground">
+            No hardware attached: drive/measure refuses closed. The blinker suite above validates coherently,
+            and the twin envelope (Monte Carlo ±3σ) verifies centre samples while refusing drift — see the
+            Twin panel.
+          </p>
         </CardContent>
       </Card>
     </div>
