@@ -15,6 +15,7 @@ import {
   exportMechanismStep,
   type LinkMeasurement,
 } from '../../lib/robotics/mechanismExport';
+import { buildDemoArm } from '../../lib/demo/demoArm';
 import type { Finding } from '../../lib/robotics/manufacturability';
 
 interface AdvancedRoboticsPanelProps {
@@ -419,6 +420,16 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
             </Select>
             <Button onClick={createSampleMechanism} className="w-full">
               Create 6-DOF Arm
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                const demo = buildDemoArm();
+                setRunMessage({ kind: demo.export.ok ? 'ok' : 'error', text: demo.verdict });
+              }}
+            >
+              Load 2-link demo (FK + STEP)
             </Button>
           </CardContent>
         </Card>
