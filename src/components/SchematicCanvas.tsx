@@ -33,7 +33,10 @@ export default function SchematicCanvas({
 }: SchematicCanvasProps) {
   const stageRef = useRef<Konva.Stage>(null)
   const [stageSize, setStageSize] = useState({ width: 800, height: 600 })
+  /** True while a part is being dragged (suppresses click-select on drop). */
   const [isDragging, setIsDragging] = useState(false)
+  /** Middle-button / space-drag pan state (the ONLY way the sheet moves). */
+  const [panning, setPanning] = useState<{ startX: number; startY: number; panX: number; panY: number } | null>(null)
   /** rAF-throttled crosshair position in screen pixels. */
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   const cursorFrame = useRef<number | null>(null)
@@ -198,7 +201,6 @@ export default function SchematicCanvas({
   }
 
   const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
-    setIsDragging(false)
     const id = e.target.id()
     const newPos = e.target.position()
 
@@ -206,6 +208,7 @@ export default function SchematicCanvas({
       updateComponent(id, { x: newPos.x, y: newPos.y })
       markDirty()
     }
+    setIsDragging(false)
   }
 
   /** Drop a library part at a screen-space point, snapped to the grid. */
@@ -263,7 +266,7 @@ export default function SchematicCanvas({
       return
     }
 
-    // Wire tool: pin-to-pin click-to-click wiring.
+    // Wire tool: pin-to-pin click-to-click wiring (shared finishWire).
     if (activeTool === 'wire' && pointer) {
       const world = screenToWorld(pointer)
       const hit = pinHit(world)
@@ -271,32 +274,7 @@ export default function SchematicCanvas({
         setWireStart(null)
         return
       }
-      if (!wireStart) {
-        setWireStart(hit)
-        return
-      }
-      if (wireStart.componentId === hit.componentId && wireStart.pinId === hit.pinId) {
-        setWireStart(null)
-        return
-      }
-      const startComp = canvasComponents.find((c) => c.id === wireStart.componentId)
-      const endComp = canvasComponents.find((c) => c.id === hit.componentId)
-      const startPin = startComp?.component.pins.find((p) => p.id === wireStart.pinId)
-      const endPin = endComp?.component.pins.find((p) => p.id === hit.pinId)
-      if (!startComp || !endComp || !startPin || !endPin) {
-        setWireStart(null)
-        return
-      }
-      addWire({
-        id: generateId('wire'),
-        points: [
-          { x: startComp.x + startPin.x, y: startComp.y + startPin.y },
-          { x: endComp.x + endPin.x, y: endComp.y + endPin.y },
-        ],
-        connectedPins: [wireStart, hit],
-      })
-      markDirty()
-      setWireStart(null)
+      finishWire(hit)
       return
     }
 
@@ -304,6 +282,8 @@ export default function SchematicCanvas({
   }
 
   const handleComponentClick = (id: string, pinId?: string) => {
+    // A drag-end click carries no pin and must not re-select the part.
+    if (isDragging && !pinId) return
     // Delete tool removes the part in place of selecting it.
     if (activeTool === 'delete') {
       removeComponent(id)
@@ -312,35 +292,9 @@ export default function SchematicCanvas({
       return
     }
 
-    // Wire tool on a pin: same click-to-click flow as empty-sheet pin hits.
+    // Wire tool on a pin: same shared finishWire as empty-sheet pin hits.
     if (activeTool === 'wire' && pinId) {
-      const hit = { componentId: id, pinId }
-      if (!wireStart) {
-        setWireStart(hit)
-        return
-      }
-      if (wireStart.componentId === hit.componentId && wireStart.pinId === hit.pinId) {
-        setWireStart(null)
-        return
-      }
-      const startComp = canvasComponents.find((c) => c.id === wireStart.componentId)
-      const endComp = canvasComponents.find((c) => c.id === hit.componentId)
-      const startPin = startComp?.component.pins.find((p) => p.id === wireStart.pinId)
-      const endPin = endComp?.component.pins.find((p) => p.id === hit.pinId)
-      if (!startComp || !endComp || !startPin || !endPin) {
-        setWireStart(null)
-        return
-      }
-      addWire({
-        id: generateId('wire'),
-        points: [
-          { x: startComp.x + startPin.x, y: startComp.y + startPin.y },
-          { x: endComp.x + endPin.x, y: endComp.y + endPin.y },
-        ],
-        connectedPins: [wireStart, hit],
-      })
-      markDirty()
-      setWireStart(null)
+      finishWire({ componentId: id, pinId })
       return
     }
 
@@ -350,12 +304,42 @@ export default function SchematicCanvas({
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
 
   /*
-   * Click-to-click wiring (the missing Wire tool): with the wire tool armed,
-   * the first pin click starts a wire, the second pin click finishes it with
-   * both pins recorded in `connectedPins` — the exact shape the netlister
-   * reads. Clicking empty space cancels. Esc cancels (handled below).
+   * Click-to-click wiring with the wire tool armed: first pin click starts,
+   * second pin click finishes with both pins in `connectedPins` — the exact
+   * shape the netlister reads. Clicking the SAME pin or empty space cancels.
+   * The pins themselves are the targets (12px hit circles); the empty-sheet
+   * hit test is the fallback for near-misses.
    */
   const [wireStart, setWireStart] = useState<{ componentId: string; pinId: string } | null>(null)
+
+  const finishWire = (hit: { componentId: string; pinId: string }): void => {
+    if (!wireStart) {
+      setWireStart(hit)
+      return
+    }
+    if (wireStart.componentId === hit.componentId && wireStart.pinId === hit.pinId) {
+      setWireStart(null)
+      return
+    }
+    const startComp = canvasComponents.find((c) => c.id === wireStart.componentId)
+    const endComp = canvasComponents.find((c) => c.id === hit.componentId)
+    const startPin = startComp?.component.pins.find((p) => p.id === wireStart.pinId)
+    const endPin = endComp?.component.pins.find((p) => p.id === hit.pinId)
+    if (!startComp || !endComp || !startPin || !endPin) {
+      setWireStart(null)
+      return
+    }
+    addWire({
+      id: generateId('wire'),
+      points: [
+        { x: startComp.x + startPin.x, y: startComp.y + startPin.y },
+        { x: endComp.x + endPin.x, y: endComp.y + endPin.y },
+      ],
+      connectedPins: [wireStart, hit],
+    })
+    markDirty()
+    setWireStart(null)
+  }
 
   /** World position of every pin on the sheet, for hit-testing wire clicks. */
   const pinHit = (
@@ -648,6 +632,16 @@ export default function SchematicCanvas({
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
+    // Active middle-button pan: viewport follows the pointer, clamped so the
+    // sheet origin can never leave the visible area entirely.
+    if (panning) {
+      const { zoom } = useAppStore.getState().viewport
+      const margin = 200
+      setPan({
+        x: Math.min(margin, Math.max(stageSize.width - 2000 * zoom - margin, panning.panX + (e.clientX - panning.startX))),
+        y: Math.min(margin, Math.max(stageSize.height - 1500 * zoom - margin, panning.panY + (e.clientY - panning.startY))),
+      })
+    }
     pendingCursor.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
     if (cursorFrame.current !== null) return
     cursorFrame.current = requestAnimationFrame(() => {
@@ -658,6 +652,7 @@ export default function SchematicCanvas({
   }
 
   const handleMouseLeave = () => {
+    setPanning(null)
     pendingCursor.current = null
     if (cursorFrame.current !== null) {
       cancelAnimationFrame(cursorFrame.current)
@@ -724,6 +719,14 @@ export default function SchematicCanvas({
       onDragOver={handleDragOver}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
+      onMouseDown={(e) => {
+        // Middle button starts a clamped pan; left button never pans.
+        if (e.button !== 1) return
+        e.preventDefault()
+        const { pan } = useAppStore.getState().viewport
+        setPanning({ startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y })
+      }}
+      onMouseUp={() => setPanning(null)}
     >
       <Stage
         ref={stageRef}
@@ -735,7 +738,13 @@ export default function SchematicCanvas({
         y={viewport.pan.y}
         onWheel={handleWheel}
         onClick={handleStageClick}
-        draggable={activeTool === 'select' && !isDragging}
+        /*
+         * The sheet itself is NEVER draggable: dragging empty canvas used to
+         * throw the whole grid off-screen with no way back. Pan with the
+         * middle mouse button, space+drag, or the Fit button instead —
+         * the KiCad convention.
+         */
+        draggable={false}
       >
         <Layer>
           {/* Grid */}
