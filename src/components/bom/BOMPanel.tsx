@@ -233,6 +233,21 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={exportCSV} className="text-xs"><Download className="w-3 h-3 mr-1" />CSV</Button>
           <Button variant="outline" size="sm" onClick={exportJSON} className="text-xs"><Download className="w-3 h-3 mr-1" />JSON</Button>
+          {components.length === 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs"
+              onClick={() => {
+                void import('../../lib/demo/demoBoard').then((m) => {
+                  const board = m.buildDemoBoard();
+                  useProjectStore.setState({ components: board.components, wires: board.wires, isDirty: true });
+                });
+              }}
+            >
+              <Package className="w-3 h-3 mr-1" />Load blinker
+            </Button>
+          )}
           {onClose && <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close BOM panel"><X className="w-4 h-4" /></Button>}
         </div>
       </div>
