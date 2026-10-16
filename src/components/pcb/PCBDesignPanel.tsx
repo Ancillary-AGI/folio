@@ -20,6 +20,7 @@ import { Badge } from '../ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
 import type { PlacedComponent, Wire, Point } from '../../types'
+import { useProjectStore } from '../../stores/useProjectStore'
 import { emcSimulationEngine, type EMCTrace } from '../../lib/emc/emcSimulation'
 import { thermalAnalysisEngine, type ThermalNode, type ThermalBoundary } from '../../lib/pcb/thermalAnalysis'
 import { signalIntegrityAnalyzer } from '../../lib/pcb/signalIntegrity'
@@ -148,7 +149,51 @@ function PCBCanvas({
 
 // ── Main Panel ────────────────────────────────────────────────────────────────
 
-export default function PCBDesignPanel({ onClose, components = [], wires = [] }: PCBDesignPanelProps) {
+export default function PCBDesignPanel({ onClose, components: propComponents, wires: propWires }: PCBDesignPanelProps) {
+  // Live canvas data from the store — but explicit props (tests, embedding)
+  // win when provided, so the panel works both mounted in the workspace
+  // (onClose only) and standalone with supplied data.
+  const storeComponents = useProjectStore((s) => s.components)
+  const storeWires = useProjectStore((s) => s.wires)
+  const components = useMemo<PlacedComponent[]>(
+    () => {
+      if (propComponents !== undefined) return propComponents
+      return storeComponents.map((c) => ({
+        id: c.id,
+        componentId: c.componentId,
+        component: {
+          id: c.component.id ?? c.componentId,
+          name: c.component.name,
+          category: typeof c.component.category === 'string' ? c.component.category : 'passive',
+          symbol: c.component.symbol_data,
+          pins: c.component.pins,
+          properties: c.properties,
+        },
+        position: { x: c.x / 10, y: c.y / 10 },
+        rotation: c.rotation,
+        scale: 1,
+        reference: c.reference,
+        properties: c.properties,
+      }))
+    },
+    [propComponents, storeComponents],
+  )
+  const wires: Wire[] = useMemo(
+    () => {
+      if (propWires !== undefined) return propWires
+      return storeWires.map((w) => ({
+        id: w.id,
+        schematic_id: 'active',
+        points: w.points.map((p) => ({ x: p.x / 10, y: p.y / 10 })),
+        net_name: w.netName,
+        style: w.style ? { width: w.style.width, color: w.style.color } : undefined,
+        connectedPins: w.connectedPins,
+        created_at: '',
+        updated_at: '',
+      }))
+    },
+    [propWires, storeWires],
+  )
   const [layers, setLayers] = useState<PCBLayer[]>(DEFAULT_LAYERS)
   const [selectedLayerId, setSelectedLayerId] = useState('top-cu')
   const [activeTool, setActiveTool] = useState<'select' | 'route' | 'via' | 'move'>('select')
