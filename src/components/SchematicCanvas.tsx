@@ -329,6 +329,26 @@ export default function SchematicCanvas({
       setWireStart(null)
       return
     }
+    // No duplicate wire between the same two pins: re-clicking a connected
+    // pair removes it (toggle), instead of stacking invisible copies.
+    const existing = wires.find(
+      (w) =>
+        w.connectedPins.length === 2 &&
+        ((w.connectedPins[0].componentId === wireStart.componentId &&
+          w.connectedPins[0].pinId === wireStart.pinId &&
+          w.connectedPins[1].componentId === hit.componentId &&
+          w.connectedPins[1].pinId === hit.pinId) ||
+          (w.connectedPins[1].componentId === wireStart.componentId &&
+            w.connectedPins[1].pinId === wireStart.pinId &&
+            w.connectedPins[0].componentId === hit.componentId &&
+            w.connectedPins[0].pinId === hit.pinId)),
+    )
+    if (existing) {
+      useProjectStore.getState().removeWire(existing.id)
+      markDirty()
+      setWireStart(null)
+      return
+    }
     const start = pinWorld(startComp, startPin)
     const end = pinWorld(endComp, endPin)
     addWire({

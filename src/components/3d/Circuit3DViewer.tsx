@@ -203,14 +203,15 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
   const [reframe, setReframe] = useState(0);
   const glRef = useRef<THREE.WebGLRenderer | null>(null);
   
-  // Convert 2D components to 3D — canvas (0..800, 0..500) maps onto the
-  // 60x53 mm board centred at the origin; height sits on the top copper.
+  // Convert 2D components to 3D — the board fills the viewport (60x53 mm
+  // centred at the origin), so canvas (0..800, 0..500) maps onto it and
+  // parts far outside the canvas clamp to the edge instead of vanishing.
   const components3D: Component3D[] = components.map((comp, index) => ({
     id: comp.id,
     position: [
-      (comp.x / 800) * 60 - 30,
+      Math.min(30, Math.max(-30, (comp.x / 800) * 60 - 30)),
       1 + index * 0.05,
-      (comp.y / 500) * 53 - 26.5,
+      Math.min(26.5, Math.max(-26.5, (comp.y / 500) * 53 - 26.5)),
     ],
     rotation: [0, comp.rotation * Math.PI / 180, 0],
     scale: [1, 1, 1],
@@ -228,13 +229,13 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
     { name: 'Silkscreen', color: '#ffffff', thickness: 0.01, visible: true, opacity: 1.0 }
   ]);
 
-  // Convert 2D wires to 3D traces on the same board mapping.
+  // Convert 2D wires to 3D traces on the same clamped board mapping.
   const traces3D = wires.map(wire => ({
     id: wire.id,
     points: wire.points.map(p => [
-      (p.x / 800) * 60 - 30,
+      Math.min(30, Math.max(-30, (p.x / 800) * 60 - 30)),
       2.1, // Above PCB surface
-      (p.y / 500) * 53 - 26.5
+      Math.min(26.5, Math.max(-26.5, (p.y / 500) * 53 - 26.5))
     ] as [number, number, number])
   }));
 
@@ -284,7 +285,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
     if (showPCB) {
       pcbLayers.forEach((layer, index) => {
         if (!layer.visible) return;
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(20, layer.thickness, 15));
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(60, layer.thickness, 53));
         mesh.name = `layer-${layer.name}`;
         mesh.position.set(0, -index * layer.thickness, 0);
         scene.add(mesh);
