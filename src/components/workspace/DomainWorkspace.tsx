@@ -4,6 +4,7 @@ import ComponentLibrary from '../ComponentLibrary'
 import PropertiesPanel from '../PropertiesPanel'
 import ToolRail from './ToolRail'
 import { useAppStore, type WorkspaceMode } from '../../stores/useAppStore'
+import { modeFromHash, projectFromHash, writeHash } from '../../stores/routing'
 import { useProjectStore } from '../../stores/useProjectStore'
 import type { Component } from '../../lib/supabase'
 import type { Schematic } from '../../types'
@@ -122,6 +123,23 @@ export default function DomainWorkspace({ libraryComponents, onSave }: DomainWor
       timestamp: Date.now(),
     })
   }, [onSave])
+
+  /* Read the mode from the URL on load; follow back/forward afterwards. */
+  useEffect(() => {
+    const mode = modeFromHash()
+    if (mode) useAppStore.getState().setWorkspaceMode(mode)
+    const onHashChange = () => {
+      const next = modeFromHash()
+      if (next) useAppStore.getState().setWorkspaceMode(next)
+    }
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
+
+  /* Keep the URL in step with the active tab (+ project id when present). */
+  useEffect(() => {
+    writeHash(workspaceMode, currentProject?.id ?? projectFromHash())
+  }, [workspaceMode, currentProject?.id])
 
   /*
    * CAD shortcuts. Registered only while the sheet is the active workspace and
