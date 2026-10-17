@@ -439,6 +439,7 @@ export class NLPService {
     })
 
     // ── Undo / redo ───────────────────────────────────────────────────────────
+    // Canvas history lives in the PROJECT store (component/wire snapshots).
     this.registerIntent({
       name: 'undo',
       keywords: [
@@ -446,8 +447,8 @@ export class NLPService {
       ],
       examples: ['undo', 'undo last action', 'revert change', 'go back'],
       handler: async () => {
-        const useAppStore = await getAppStore()
-        useAppStore.getState().undo()
+        const { useProjectStore } = await import('../../stores/useProjectStore')
+        useProjectStore.getState().undo()
         return { action: 'undo' }
       },
     })
@@ -459,8 +460,8 @@ export class NLPService {
       ],
       examples: ['redo', 'redo last action', 'reapply change'],
       handler: async () => {
-        const useAppStore = await getAppStore()
-        useAppStore.getState().redo()
+        const { useProjectStore } = await import('../../stores/useProjectStore')
+        useProjectStore.getState().redo()
         return { action: 'redo' }
       },
     })

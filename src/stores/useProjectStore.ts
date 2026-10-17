@@ -60,6 +60,10 @@ export interface ProjectState {
   addWire: (wire: CanvasWire) => void
   updateWire: (id: string, updates: Partial<CanvasWire>) => void
   removeWire: (id: string) => void
+  undo: () => void
+  redo: () => void
+  canUndo: () => boolean
+  canRedo: () => boolean
   
   // Project management
   setCurrentProject: (project: Project | null) => void
@@ -108,7 +112,23 @@ let componentCounter = 1
 let simRunSeq = 0
 
 export const useProjectStore = create<ProjectState>()(
-  devtools((set, get) => ({
+  devtools((set, get) => {
+    const undoStack: Array<{ components: CanvasComponent[]; wires: CanvasWire[] }> = []
+    const redoStack: Array<{ components: CanvasComponent[]; wires: CanvasWire[] }> = []
+    const takeSnapshot = () => ({
+      components: get().components.map((c) => ({ ...c, properties: { ...c.properties } })),
+      wires: get().wires.map((w) => ({
+        ...w,
+        points: w.points.map((p) => ({ ...p })),
+        connectedPins: w.connectedPins.map((p) => ({ ...p })),
+      })),
+    })
+    const pushUndo = () => {
+      undoStack.push(takeSnapshot())
+      if (undoStack.length > 50) undoStack.shift()
+      redoStack.length = 0
+    }
+    return {
     // Current project
     currentProject: null,
     currentSchematic: null,
@@ -118,28 +138,31 @@ export const useProjectStore = create<ProjectState>()(
     wires: [],
     
     // Component management
-    addComponent: (component) =>
-      set((state) => ({
-        components: [...state.components, component],
-        isDirty: true
-      })),
+    addComponent: (component) => {
+      pushUndo()
+      set((state) => ({ components: [...state.components, component], isDirty: true }))
+    },
     
-    updateComponent: (id, updates) =>
+    updateComponent: (id, updates) => {
+      pushUndo()
       set((state) => ({
         components: state.components.map((comp) =>
           comp.id === id ? { ...comp, ...updates } : comp
         ),
         isDirty: true
-      })),
+      }))
+    },
     
-    removeComponent: (id) =>
+    removeComponent: (id) => {
+      pushUndo()
       set((state) => ({
         components: state.components.filter((comp) => comp.id !== id),
         wires: state.wires.filter((wire) =>
           !wire.connectedPins.some((pin) => pin.componentId === id)
         ),
         isDirty: true
-      })),
+      }))
+    },
     
     duplicateComponent: (id) =>
       set((state) => {
@@ -161,25 +184,39 @@ export const useProjectStore = create<ProjectState>()(
       }),
     
     // Wire management
-    addWire: (wire) =>
-      set((state) => ({
-        wires: [...state.wires, wire],
-        isDirty: true
-      })),
+    addWire: (wire) => {
+      pushUndo()
+      set((state) => ({ wires: [...state.wires, wire], isDirty: true }))
+    },
     
-    updateWire: (id, updates) =>
+    updateWire: (id, updates) => {
+      pushUndo()
       set((state) => ({
         wires: state.wires.map((wire) =>
           wire.id === id ? { ...wire, ...updates } : wire
         ),
         isDirty: true
-      })),
+      }))
+    },
     
-    removeWire: (id) =>
-      set((state) => ({
-        wires: state.wires.filter((wire) => wire.id !== id),
-        isDirty: true
-      })),
+    removeWire: (id) => {
+      pushUndo()
+      set((state) => ({ wires: state.wires.filter((wire) => wire.id !== id), isDirty: true }))
+    },
+    undo: () => {
+      const prev = undoStack.pop()
+      if (!prev) return
+      redoStack.push(takeSnapshot())
+      set({ components: prev.components, wires: prev.wires, isDirty: true })
+    },
+    redo: () => {
+      const next = redoStack.pop()
+      if (!next) return
+      undoStack.push(takeSnapshot())
+      set({ components: next.components, wires: next.wires, isDirty: true })
+    },
+    canUndo: () => undoStack.length > 0,
+    canRedo: () => redoStack.length > 0,
     
     // Project management
     setCurrentProject: (project) => set({ currentProject: project }),
@@ -308,5 +345,6 @@ export const useProjectStore = create<ProjectState>()(
       
       return issues
     }
-  }))
+    }
+  })
 )

@@ -64,6 +64,30 @@ function RailButton({
   )
 }
 
+/** Undo/redo buttons that re-render as the snapshot stacks change. */
+function UndoRedoRailButtons() {
+  const components = useProjectStore((s) => s.components)
+  const wires = useProjectStore((s) => s.wires)
+  void components
+  void wires
+  const canUndo = useProjectStore.getState().canUndo()
+  const canRedo = useProjectStore.getState().canRedo()
+  return (
+    <>
+      <RailButton title="Undo (Ctrl+Z)" ariaLabel="Undo" onClick={() => useProjectStore.getState().undo()}>
+        <span style={{ opacity: canUndo ? 1 : 0.35 }}>
+          <Undo2 className="h-4 w-4" />
+        </span>
+      </RailButton>
+      <RailButton title="Redo (Ctrl+Shift+Z)" ariaLabel="Redo" onClick={() => useProjectStore.getState().redo()}>
+        <span style={{ opacity: canRedo ? 1 : 0.35 }}>
+          <Redo2 className="h-4 w-4" />
+        </span>
+      </RailButton>
+    </>
+  )
+}
+
 /**
  * Vertical tool rail pinned to the left edge of the sheet: pointer tools with
  * keyboard shortcuts, display toggles, and view controls.
@@ -139,6 +163,9 @@ export default function ToolRail({ onSave }: ToolRailProps) {
       <RailButton title="Save (Ctrl+S)" onClick={onSave}>
         <Save className="h-4 w-4" />
       </RailButton>
+
+      {/* Undo/redo operate on the project store's snapshot stack. */}
+      <UndoRedoRailButtons />
 
       {/* One-click proof: load the tested 9-part blinker onto the sheet. */}
       <RailButton

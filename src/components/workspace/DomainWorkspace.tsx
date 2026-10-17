@@ -162,6 +162,13 @@ export default function DomainWorkspace({ libraryComponents, onSave }: DomainWor
         if (event.key.toLowerCase() === 's') {
           event.preventDefault()
           saveSnapshot()
+        } else if (event.key.toLowerCase() === 'z' && !event.shiftKey) {
+          // Undo lives in the project store (canvas snapshots).
+          event.preventDefault()
+          useProjectStore.getState().undo()
+        } else if (event.key.toLowerCase() === 'z' || event.key.toLowerCase() === 'y') {
+          event.preventDefault()
+          useProjectStore.getState().redo()
         }
         return
       }
