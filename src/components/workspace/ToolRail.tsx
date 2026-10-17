@@ -4,6 +4,8 @@
   Grid3X3,
   Magnet,
   Ruler,
+  Undo2,
+  Redo2,
   Zap,
   ZoomIn,
   ZoomOut,
@@ -66,10 +68,10 @@ function RailButton({
 
 /** Undo/redo buttons that re-render as the snapshot stacks change. */
 function UndoRedoRailButtons() {
-  const components = useProjectStore((s) => s.components)
-  const wires = useProjectStore((s) => s.wires)
-  void components
-  void wires
+  // Subscribe to canvas arrays so the buttons re-render on every edit;
+  // canUndo/canRedo read the stacks owned beside the store creator.
+  useProjectStore((s) => s.components)
+  useProjectStore((s) => s.wires)
   const canUndo = useProjectStore.getState().canUndo()
   const canRedo = useProjectStore.getState().canRedo()
   return (
