@@ -6,6 +6,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { spiceEngine, SimulationParameters, SimulationResult } from '../../lib/simulation/spiceEngine'
 import { buildCircuitNetlist } from '../../lib/simulation/netlistBuilder'
 import { playbackDuration, playbackFrame } from '../../lib/simulation/playback'
+import { measureWaveform, waveformsToCsv } from '../../lib/simulation/scopeAnalysis'
 import { useProjectStore } from '../../stores/useProjectStore'
 import { useTheme } from '../../lib/theme/useTheme'
 import { chartSeriesColors } from '../../lib/theme/tokens'
@@ -268,6 +269,36 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
       acc[name] = seriesColors[index % seriesColors.length]
       return acc
     }, {})
+  }
+
+  // ── Scope measurements + power + CSV export ──────────────────────────────
+  const scopeMeasurements = useMemo(() => {
+    if (!simulationResults?.waveforms) return []
+    try {
+      return simulationResults.waveforms
+        .filter((w) => selectedWaveforms.includes(w.name))
+        .map((w) => ({ name: w.name, unit: w.unit, measurement: measureWaveform(w) }))
+    } catch {
+      return []
+    }
+  }, [simulationResults, selectedWaveforms])
+
+  const handleExportCsv = () => {
+    if (!simulationResults?.waveforms) return
+    try {
+      const csv = waveformsToCsv(
+        simulationResults.waveforms.filter((w) => selectedWaveforms.includes(w.name)),
+      )
+      const blob = new Blob([csv], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `waveforms_${Date.now()}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (thrown) {
+      setError(describeError(thrown))
+    }
   }
   
   return (
@@ -813,6 +844,32 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
                   </div>
                 )}
                 
+                {/* Scope measurements: min/max/pp/RMS/frequency/duty per trace. */}
+                {scopeMeasurements.length > 0 && (
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <h4 className="text-sm font-medium">Scope measurements</h4>
+                      <Button size="sm" variant="outline" onClick={handleExportCsv}>Export CSV</Button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      {scopeMeasurements.map(({ name, unit, measurement }) => (
+                        <div key={name} className="rounded bg-muted p-2">
+                          <div className="font-medium">{name} <span className="text-muted-foreground">({unit})</span></div>
+                          <div className="mt-1 font-mono leading-relaxed text-muted-foreground">
+                            pk-pk {measurement.peakToPeak.toPrecision(4)} · RMS {measurement.rms.toPrecision(4)} · mean {measurement.mean.toPrecision(4)}
+                            {measurement.frequencyHz !== null && (
+                              <> · f {measurement.frequencyHz >= 1000 ? `${(measurement.frequencyHz / 1000).toFixed(2)} kHz` : `${measurement.frequencyHz.toFixed(1)} Hz`}</>
+                            )}
+                            {measurement.dutyCycle !== null && (
+                              <> · duty {(measurement.dutyCycle * 100).toFixed(1)}%</>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Convergence Info */}
                 {simulationResults.convergenceInfo && (
                   <div className="text-xs text-muted-foreground">
