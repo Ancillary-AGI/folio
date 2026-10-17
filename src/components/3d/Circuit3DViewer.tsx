@@ -72,8 +72,8 @@ function geometryFor(type: string): THREE.BufferGeometry {
     : new THREE.CylinderGeometry(shape.radiusTop, shape.radiusBottom, shape.height, shape.segments);
 }
 
-// Component 3D representations
-function Component3DModel({ component }: { component: Component3D }) {
+// Component 3D representations — brightness follows the live frame.
+function Component3DModel({ component, glow = 0 }: { component: Component3D; glow?: number }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const geometry = useMemo(() => geometryFor(component.type), [component.type]);
 
@@ -94,7 +94,11 @@ function Component3DModel({ component }: { component: Component3D }) {
       scale={component.scale}
       geometry={geometry}
     >
-      <meshStandardMaterial color={component.color} />
+      <meshStandardMaterial
+        color={component.color}
+        emissive={component.color}
+        emissiveIntensity={glow * 0.9}
+      />
     </mesh>
   );
 }
@@ -192,6 +196,7 @@ function Lighting() {
 
 export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
   const { components, wires } = useProjectStore();
+  const liveFrame = useProjectStore((s) => s.liveFrame);
   const [currentView, setCurrentView] = useState('iso');
   const [showGrid, setShowGrid] = useState(true);
   const [showComponents, setShowComponents] = useState(true);
@@ -396,7 +401,11 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
             {showPCB && <PCBBoard layers={pcbLayers} />}
             
             {showComponents && components3D.map(comp => (
-              <Component3DModel key={comp.id} component={comp} />
+              <Component3DModel
+                key={comp.id}
+                component={comp}
+                glow={liveFrame ? Math.max(0, ...Object.values(liveFrame.glow)) * 0.5 : 0}
+              />
             ))}
             
             {showTraces && traces3D.map(trace => (

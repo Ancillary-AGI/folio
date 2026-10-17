@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { spiceEngine, SimulationParameters, SimulationResult } from '../../lib/simulation/spiceEngine'
 import { buildCircuitNetlist } from '../../lib/simulation/netlistBuilder'
+import { playbackDuration, playbackFrame } from '../../lib/simulation/playback'
 import { useProjectStore } from '../../stores/useProjectStore'
 import { useTheme } from '../../lib/theme/useTheme'
 import { chartSeriesColors } from '../../lib/theme/tokens'
@@ -57,6 +58,46 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
   const [error, setError] = useState<string | null>(null)
   const [parameters, setParameters] = useState<SimulationParameters>({ type: 'dc' })
   const [selectedWaveforms, setSelectedWaveforms] = useState<string[]>([])
+  // Live playback: playhead time + clock. The frame is derived (never
+  // stored), so 2D/3D views always agree on the circuit's state.
+  const [playing, setPlaying] = useState(false)
+  const [playhead, setPlayhead] = useState<number | null>(null)
+  const playDuration = useMemo(
+    () => playbackDuration(simulationResults?.waveforms ?? []),
+    [simulationResults],
+  )
+  const liveFrame = useMemo(
+    () => (playhead === null ? null : playbackFrame(simulationResults?.waveforms ?? [], playhead)),
+    [simulationResults, playhead],
+  )
+
+  // Publish the live frame to the project store so the 2D sheet and the 3D
+  // viewer animate from the same clock without prop-drilling.
+  useEffect(() => {
+    useProjectStore.getState().setLiveFrame(liveFrame)
+  }, [liveFrame])
+
+  useEffect(() => {
+    if (!playing || playDuration <= 0) return
+    let frame = 0
+    const start = performance.now()
+    if (playhead === null || playhead >= playDuration) setPlayhead(0)
+    const tick = (now: number) => {
+      const elapsed = (now - start) / 1000
+      // Play the run in ~4 s wall time regardless of simulated span.
+      const t = elapsed * (playDuration / 4)
+      if (t >= playDuration) {
+        setPlayhead(playDuration)
+        setPlaying(false)
+        return
+      }
+      setPlayhead(t)
+      frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, playDuration])
 
   const { components, wires, addSimulationRun } = useProjectStore()
   const { theme } = useTheme()
@@ -729,9 +770,46 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
                               dot={false}
                             />
                           ))}
+                          {playhead !== null && selectedAnalysis === 'transient' && (
+                            <Line
+                              type="monotone"
+                              dataKey={() => playhead}
+                              stroke="#888"
+                              strokeDasharray="4 4"
+                              dot={false}
+                              isAnimationActive={false}
+                            />
+                          )}
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
+                    {selectedAnalysis === 'transient' && simulationResults.waveforms.length > 0 && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant={playing ? 'destructive' : 'default'}
+                          onClick={() => setPlaying((p) => !p)}
+                          aria-label={playing ? 'Pause live playback' : 'Play live circuit'}
+                        >
+                          {playing ? 'Pause' : '▶ Run live'}
+                        </Button>
+                        <input
+                          type="range"
+                          min={0}
+                          max={1000}
+                          value={playhead === null ? 0 : Math.round((playhead / playDuration) * 1000)}
+                          onChange={(e) => {
+                            setPlaying(false)
+                            setPlayhead((Number(e.target.value) / 1000) * playDuration)
+                          }}
+                          aria-label="Playback time"
+                          className="flex-1"
+                        />
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {playhead === null ? '—' : `${playhead.toExponential(2)} s`}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
                 

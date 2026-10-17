@@ -59,7 +59,8 @@ export default function SchematicCanvas({
     addWire,
     updateComponent,
     removeComponent,
-    markDirty
+    markDirty,
+    liveFrame,
   } = useProjectStore()
 
   // Konva renders raw strings, not CSS variables, so resolve the canvas
@@ -546,6 +547,8 @@ export default function SchematicCanvas({
 
   const renderComponent = (canvasComp: typeof canvasComponents[0]) => {
     const isSelected = selectedComponents.includes(canvasComp.id)
+    // Live state: a lit branch (diode current > 0) glows its body.
+    const lit = liveFrame?.lit[canvasComp.reference.toUpperCase()] ?? false
 
     return (
       <Group
@@ -560,13 +563,15 @@ export default function SchematicCanvas({
         onClick={() => handleComponentClick(canvasComp.id)}
         onContextMenu={(event) => handleComponentContextMenu(event, canvasComp.id)}
       >
-        {/* Component body */}
+        {/* Component body — glows while its branch conducts live. */}
         <Rect
           width={canvasComp.component.symbol_data.width}
           height={canvasComp.component.symbol_data.height}
-          fill={isSelected ? palette.selectedBody : palette.body}
-          stroke={isSelected ? palette.selectedStroke : palette.bodyStroke}
-          strokeWidth={isSelected ? 2 : 1}
+          fill={lit ? palette.selectedBody : isSelected ? palette.selectedBody : palette.body}
+          stroke={lit ? palette.selectedStroke : isSelected ? palette.selectedStroke : palette.bodyStroke}
+          strokeWidth={lit || isSelected ? 2 : 1}
+          shadowBlur={lit ? 12 : 0}
+          shadowColor={lit ? palette.selectedStroke : 'transparent'}
         />
 
         {/* Component symbol paths */}
@@ -640,16 +645,26 @@ export default function SchematicCanvas({
   }
 
   const renderWires = () => {
-    return wires.map(wire => (
-      <Line
-        key={wire.id}
-        points={wire.points.flatMap(p => [p.x, p.y])}
-        stroke={wire.style?.color || palette.wire}
-        strokeWidth={wire.style?.width || 2}
-        lineCap="round"
-        lineJoin="round"
-      />
-    ))
+    return wires.map(wire => {
+      // Live current: a conducting net glows brighter + thicker.
+      const netGlow = liveFrame && wire.netName
+        ? (liveFrame.glow[wire.netName.toUpperCase()] ?? 0)
+        : 0
+      const live = netGlow > 0.5
+      return (
+        <Line
+          key={wire.id}
+          points={wire.points.flatMap(p => [p.x, p.y])}
+          stroke={wire.style?.color || palette.wire}
+          strokeWidth={(wire.style?.width || 2) + (live ? 1.5 : 0)}
+          opacity={liveFrame ? 0.55 + netGlow * 0.45 : 1}
+          lineCap="round"
+          lineJoin="round"
+          shadowBlur={live ? 8 : 0}
+          shadowColor={live ? palette.wire : 'transparent'}
+        />
+      )
+    })
   }
 
   /* Pending first-pin marker while wiring: the exact pin the wire starts from. */

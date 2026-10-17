@@ -91,6 +91,10 @@ export interface ProjectState {
   simulationRuns: Array<{ id: string; name: string; type: string; parameters: Record<string, unknown>; results?: Record<string, unknown>; status: string; createdAt: number }>
   addSimulationRun: (run: { name: string; type: string; parameters: Record<string, unknown>; results?: Record<string, unknown>; status: string }) => { id: string }
 
+  // Live playback frame (ephemeral: overwritten every animation frame, never persisted)
+  liveFrame: { time: number; voltages: Record<string, number>; glow: Record<string, number>; lit: Record<string, boolean> } | null
+  setLiveFrame: (frame: { time: number; voltages: Record<string, number>; glow: Record<string, number>; lit: Record<string, boolean> } | null) => void
+
   // Auto-save
   isDirty: boolean
   lastSaved: number
@@ -281,6 +285,10 @@ export const useProjectStore = create<ProjectState>()(
       }))
       return { id }
     },
+
+    // Live playback frame: ephemeral, overwritten per animation frame.
+    liveFrame: null,
+    setLiveFrame: (frame) => set({ liveFrame: frame }),
     
     // Auto-save
     isDirty: false,
