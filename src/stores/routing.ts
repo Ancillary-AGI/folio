@@ -10,6 +10,7 @@ import type { WorkspaceMode } from './useAppStore';
 
 export const WORKSPACE_ROUTES: Readonly<Record<WorkspaceMode, string>> = {
   schematic: '/',
+  simulation: '/simulation',
   mechanical: '/cad',
   pcb: '/pcb',
   convert: '/schematic-pcb',

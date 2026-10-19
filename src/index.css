@@ -260,12 +260,12 @@
   }
 
   .cad-dock {
-    @apply flex w-64 min-h-0 flex-shrink-0 flex-col overflow-hidden border-r border-border bg-card text-card-foreground;
+    @apply flex w-64 min-w-64 min-h-0 max-w-64 flex-shrink-0 flex-col overflow-hidden border-r border-border bg-card text-card-foreground;
   }
 
   /* Inspector dock — same palette anatomy as the library, mirrored border. */
   .cad-inspector {
-    @apply flex w-72 min-h-0 flex-shrink-0 flex-col overflow-hidden border-l border-border bg-card text-card-foreground;
+    @apply flex w-72 min-w-72 min-h-0 max-w-72 flex-shrink-0 flex-col overflow-hidden border-l border-border bg-card text-card-foreground;
   }
 
   /* Fixed 28px palette title bar shared by every docked panel. */
@@ -351,6 +351,12 @@
   .cad-lib-row-armed::before {
     content: '';
     @apply absolute inset-y-0 left-0 w-0.5 bg-primary;
+  }
+
+  /* CAD hover tooltip: follows the pointer, offset so it never covers the
+   * pin or part under the cursor (KiCad-style readout, not a toast). */
+  .cad-tip {
+    @apply pointer-events-none absolute left-0 top-0 z-30 flex max-w-64 items-center gap-2 truncate whitespace-nowrap rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] text-surface-foreground shadow-lg;
   }
 
   /* Bordered monospace glyph standing in for a symbol thumbnail. */

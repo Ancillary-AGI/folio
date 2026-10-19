@@ -12,6 +12,7 @@
   Maximize2,
   Save,
   CircuitBoard,
+  Activity,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useAppStore } from '../../stores/useAppStore'
@@ -175,11 +176,22 @@ export default function ToolRail({ onSave }: ToolRailProps) {
         ariaLabel="Load demo blinker board"
         onClick={() => {
           const board = buildDemoBoard();
-          useProjectStore.setState({ components: board.components, wires: board.wires, isDirty: true });
+          // Same reset as the divider loader: clear selection/live state so the
+          // proof lands on a clean sheet instead of stacking on old content.
+          useAppStore.getState().clearSelection();
+          useProjectStore.setState({ components: board.components, wires: board.wires, isDirty: true, liveFrame: null });
           window.dispatchEvent(new CustomEvent('folio:fit-view'));
         }}
       >
         <CircuitBoard className="h-4 w-4" />
+      </RailButton>
+      {/* Simulation lives one tab to the right of the sheet — jump straight there. */}
+      <RailButton
+        title="Open Simulation (run DC, sweep, transient on this sheet)"
+        ariaLabel="Open Simulation panel"
+        onClick={() => useAppStore.getState().setWorkspaceMode('simulation')}
+      >
+        <Activity className="h-4 w-4" />
       </RailButton>
     </div>
   )

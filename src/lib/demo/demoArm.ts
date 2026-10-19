@@ -68,6 +68,6 @@ export function buildDemoArm(): DemoArm {
   );
   const verdict = exported.ok
     ? `PASS: 2-link arm reaches ${reachMm} mm, move takes ${durationS.toFixed(2)} s, STEP exported.`
-    : `FAIL: export refused — ${exported.findings.map((f) => f.message).join('; ')}`;
+    : `FAIL: export refused — ${exported.findings.map((f) => `${f.subject}: ${f.reason}`).join('; ')}`;
   return { home, folded, reachMm, durationS, peakVel, samples: planned.samples.length, export: exported, verdict };
 }

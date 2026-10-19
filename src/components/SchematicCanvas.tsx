@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
-import { Stage, Layer, Rect, Line, Circle, Text, Group } from 'react-konva'
+import { Stage, Layer, Rect, Line, Circle, Text, Group, Path } from 'react-konva'
 import { Component } from '../lib/supabase'
 import { useAppStore } from '../stores/useAppStore'
 import { useProjectStore } from '../stores/useProjectStore'
@@ -15,6 +15,28 @@ const RULER_STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000
 /** Compact coordinate label for rulers and the HUD. */
 const fmtCoord = (value: number) =>
   Math.abs(value) >= 1000 ? String(Math.round(value)) : String(Math.round(value * 10) / 10)
+
+/** Pin offset rotated by the part's rotation (degrees, clockwise positive).
+    Konva rotates the Group about its x/y origin, so this matches. Pure —
+    safe to call from any memo. */
+const rotatePinCoord = (
+  pin: { x: number; y: number },
+  rotationDegrees: number,
+): { x: number; y: number } => {
+  const radians = ((rotationDegrees % 360) * Math.PI) / 180
+  const cos = Math.cos(radians)
+  const sin = Math.sin(radians)
+  return { x: pin.x * cos - pin.y * sin, y: pin.x * sin + pin.y * cos }
+}
+
+/** World position of a pin: part origin plus rotated offset. */
+const pinWorldCoord = (
+  comp: { x: number; y: number; rotation: number },
+  pin: { x: number; y: number },
+): { x: number; y: number } => {
+  const rotated = rotatePinCoord(pin, comp.rotation)
+  return { x: comp.x + rotated.x, y: comp.y + rotated.y }
+}
 
 interface SchematicCanvasProps {
   components: Component[]
@@ -41,6 +63,33 @@ export default function SchematicCanvas({
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   const cursorFrame = useRef<number | null>(null)
   const pendingCursor = useRef<{ x: number; y: number } | null>(null)
+  /** Pin under the pointer: drives the KiCad-style hover readout. */
+  const [hoveredPin, setHoveredPin] = useState<{
+    id: string; ref: string; name: string; pin: { id: string; name: string }; at: { x: number; y: number }
+  } | null>(null)
+  /** Part body under the pointer (no pin): shows ref + value + footprint. */
+  const [hoveredPart, setHoveredPart] = useState<{
+    id: string; ref: string; name: string; props: Record<string, unknown>
+  } | null>(null)
+  /** Wire under the pointer: shows its net name. */
+  const [hoveredWire, setHoveredWire] = useState<{
+    id: string; netName: string; pins: number
+  } | null>(null)
+
+  /** Screen cursor from the stage pointer (tooltip anchor). */
+  const setCursorFromEvent = () => {
+    const stage = stageRef.current
+    const pointer = stage?.getPointerPosition()
+    if (pointer) setCursor({ x: pointer.x, y: pointer.y })
+  }
+
+  /** Net name touching a pin, for the hover readout. */
+  const netOfPin = (componentId: string, pinId: string): string => {
+    const wire = wires.find((w) =>
+      w.connectedPins?.some((p) => p.componentId === componentId && p.pinId === pinId),
+    )
+    return wire?.netName ?? '—'
+  }
 
   const {
     viewport,
@@ -168,6 +217,21 @@ export default function SchematicCanvas({
 
   const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault()
+
+    // Ctrl/Cmd + wheel (or pinch): zoom at the cursor like KiCad/Altium.
+    // Plain wheel: vertical scroll pans; Shift + wheel: horizontal scroll.
+    if (!e.evt.ctrlKey && !e.evt.metaKey) {
+      const factor = 1.1
+      const dx = e.evt.shiftKey ? e.evt.deltaY : e.evt.deltaX
+      const dy = e.evt.shiftKey ? 0 : e.evt.deltaY
+      const { zoom, pan } = useAppStore.getState().viewport
+      const margin = 200
+      setPan({
+        x: Math.min(margin, Math.max(stageSize.width - 2000 * zoom - margin, pan.x - dx * factor)),
+        y: Math.min(margin, Math.max(stageSize.height - 1500 * zoom - margin, pan.y - dy * factor)),
+      })
+      return
+    }
     
     const scaleBy = 1.1
     const stage = e.target.getStage()
@@ -201,11 +265,40 @@ export default function SchematicCanvas({
     setIsDragging(true)
   }
 
+  /*
+   * Rubber-band drag: moving a part reconciles every attached wire endpoint
+   * onto its moved pin, so wires stay landed on terminals (your screenshot
+   * showed them frozen mid-air). Corners survive: the moved endpoint rides
+   * the pin delta, the joint before it holds unless the segment collapses.
+   */
   const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
     const id = e.target.id()
     const newPos = e.target.position()
-
-    if (id && canvasComponents.find(c => c.id === id)) {
+    const moved = canvasComponents.find(c => c.id === id)
+    if (id && moved) {
+      const store = useProjectStore.getState()
+      for (const wire of store.wires) {
+        // Stretch every point attached to the dragged part; hold the rest.
+        // The old endpoint-only version left T-junction middles behind,
+        // which is why your screenshot showed segments floating off-pin.
+        const pinsById = new Map(moved.component.pins.map((p) => [p.id, p]))
+        const landed = new Map<number, { x: number; y: number }>()
+        wire.connectedPins.forEach((pinned) => {
+          if (pinned.componentId !== id) return
+          const pin = pinsById.get(pinned.pinId)
+          if (!pin) return
+          const rotated = rotatePinCoord(pin, moved.rotation)
+          const at = { x: newPos.x + rotated.x, y: newPos.y + rotated.y }
+          wire.points.forEach((pt, index) => {
+            if (Math.hypot(pt.x - (moved.x + rotated.x), pt.y - (moved.y + rotated.y)) < 1.5) {
+              landed.set(index, at)
+            }
+          })
+        })
+        if (landed.size === 0) continue
+        const points = wire.points.map((pt, index) => landed.get(index) ?? pt)
+        store.updateWire(wire.id, { points })
+      }
       updateComponent(id, { x: newPos.x, y: newPos.y })
       markDirty()
     }
@@ -257,8 +350,16 @@ export default function SchematicCanvas({
   }
 
   const handleStageClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    setHoveredWire(null)
     if (e.target !== e.target.getStage()) return
     const pointer = e.target.getStage()?.getPointerPosition()
+
+    // Left-drag on EMPTY sheet with the select tool was a pan, not a click:
+    // the viewport already moved under handleMouseMove. Swallow it.
+    if (activeTool === 'select' && !pendingComponent && panning && pointer) {
+      const moved = Math.hypot(e.evt.clientX - panning.startX, e.evt.clientY - panning.startY)
+      if (moved > 3) return
+    }
 
     // Armed library part: drop it on the empty sheet.
     if (pendingComponent && pointer) {
@@ -350,11 +451,16 @@ export default function SchematicCanvas({
       setWireStart(null)
       return
     }
-    const start = pinWorld(startComp, startPin)
-    const end = pinWorld(endComp, endPin)
+    const start = pinWorldCoord(startComp, startPin)
+    const end = pinWorldCoord(endComp, endPin)
+    // Drafting rule: every new wire is orthogonal (one L corner). Diagonal
+    // pin-to-pin runs are what made the sheet read as crisscross spaghetti.
+    const points = (start.x === end.x || start.y === end.y)
+      ? [start, end]
+      : [start, { x: end.x, y: start.y }, end]
     addWire({
       id: generateId('wire'),
-      points: [start, end],
+      points,
       connectedPins: [wireStart, hit],
     })
     markDirty()
@@ -368,7 +474,7 @@ export default function SchematicCanvas({
     const tolerance = 10 / viewport.zoom
     for (const comp of canvasComponents) {
       for (const pin of comp.component.pins) {
-        const rotated = rotatePin(pin, comp.rotation)
+        const rotated = rotatePinCoord(pin, comp.rotation)
         const dx = comp.x + rotated.x - world.x
         const dy = comp.y + rotated.y - world.y
         if (dx * dx + dy * dy <= tolerance * tolerance) {
@@ -377,25 +483,6 @@ export default function SchematicCanvas({
       }
     }
     return null
-  }
-
-  /** Pin offset rotated by the part's rotation (degrees, clockwise positive). */
-  const rotatePin = (
-    pin: { x: number; y: number },
-    rotationDegrees: number,
-  ): { x: number; y: number } => {
-    const radians = ((rotationDegrees % 360) * Math.PI) / 180
-    const cos = Math.cos(radians)
-    const sin = Math.sin(radians)
-    return { x: pin.x * cos - pin.y * sin, y: pin.x * sin + pin.y * cos }
-  }
-
-  const pinWorld = (
-    comp: { x: number; y: number; rotation: number },
-    pin: { x: number; y: number },
-  ): { x: number; y: number } => {
-    const rotated = rotatePin(pin, comp.rotation)
-    return { x: comp.x + rotated.x, y: comp.y + rotated.y }
   }
 
   const screenToWorld = (screen: { x: number; y: number }): { x: number; y: number } => {
@@ -562,42 +649,41 @@ export default function SchematicCanvas({
         onDragEnd={handleDragEnd}
         onClick={() => handleComponentClick(canvasComp.id)}
         onContextMenu={(event) => handleComponentContextMenu(event, canvasComp.id)}
+        onMouseEnter={() => {
+          setHoveredPin(null)
+          setHoveredPart({ id: canvasComp.id, ref: canvasComp.reference, name: canvasComp.component.name, props: canvasComp.properties })
+          setCursorFromEvent()
+        }}
+        onMouseMove={() => setCursorFromEvent()}
+        onMouseLeave={() => setHoveredPart(null)}
       >
-        {/* Component body — glows while its branch conducts live. */}
+        {/* Selection outline only — never a box behind the symbol. Real CAD
+            sheets show bare symbols; a filled rect here is what made every
+            part read as a chip and buried wire ends under its edge. */}
         <Rect
           width={canvasComp.component.symbol_data.width}
           height={canvasComp.component.symbol_data.height}
-          fill={lit ? palette.selectedBody : isSelected ? palette.selectedBody : palette.body}
-          stroke={lit ? palette.selectedStroke : isSelected ? palette.selectedStroke : palette.bodyStroke}
-          strokeWidth={lit || isSelected ? 2 : 1}
+          fill="transparent"
+          stroke={lit || isSelected ? palette.selectedStroke : 'transparent'}
+          strokeWidth={lit || isSelected ? 2 : 0}
           shadowBlur={lit ? 12 : 0}
           shadowColor={lit ? palette.selectedStroke : 'transparent'}
         />
 
-        {/* Component symbol paths */}
-        {canvasComp.component.symbol_data.paths.map((path, index) => {
-          const commands = path.match(/[MLHVCSQTAZmlhvcsqtaz][^MLHVCSQTAZmlhvcsqtaz]*/g) || []
-          const points: number[] = []
-
-          commands.forEach(command => {
-            const type = command[0]
-            const coords = command.slice(1).trim().split(/[\s,]+/).map(Number)
-
-            if (type === 'M' || type === 'L') {
-              points.push(coords[0], coords[1])
-            }
-          })
-
-          return (
-            <Line
-              key={index}
-              points={points}
-              stroke={palette.line}
-              strokeWidth={2}
-              closed={false}
-            />
-          )
-        })}
+        {/* Component symbol - full SVG path (circles/arcs kept). */}
+        {canvasComp.component.symbol_data.paths.map((path, index) => (
+        <Path
+        key={index}
+        data={path}
+        stroke={palette.line}
+        strokeWidth={2}
+        fillEnabled={false}
+        lineCap="round"
+        lineJoin="round"
+        />
+        ))}
+        {/* Sources carry their circle inside symbol_data; no overlay here —
+            a second circle used to sit off-centre and read as an open loop. */}
 
         {/* Component label */}
         <Text
@@ -623,48 +709,209 @@ export default function SchematicCanvas({
           />
         )}
 
-        {/* Pins — clickable targets for the wire tool (larger hit area). */}
-        {canvasComp.component.pins.map(pin => (
+        {/* Pins drawn LAST and on top of wires: terminals break the wire
+            visually (KiCad convention) instead of the wire burying under the
+            symbol edge. Ring marks the armed wire start. */}
+        {canvasComp.component.pins.map(pin => {
+          const armed = wireStart?.componentId === canvasComp.id && wireStart?.pinId === pin.id
+          return (
           <Circle
             key={pin.id}
             x={pin.x}
             y={pin.y}
-            radius={3}
-            fill={palette.pinFill}
-            stroke={wireStart?.componentId === canvasComp.id && wireStart?.pinId === pin.id ? palette.selectedStroke : palette.pinStroke}
-            strokeWidth={wireStart?.componentId === canvasComp.id && wireStart?.pinId === pin.id ? 2 : 1}
+            radius={armed ? 6 : 4}
+            fill={palette.wire}
+            stroke={armed ? palette.selectedStroke : palette.sheet}
+            strokeWidth={armed ? 2 : 1}
             hitStrokeWidth={12}
             onClick={(event) => {
               event.cancelBubble = true
               handleComponentClick(canvasComp.id, pin.id)
             }}
+            onMouseDown={(event) => {
+              if (activeTool === 'wire') {
+                event.cancelBubble = true
+                handleComponentClick(canvasComp.id, pin.id)
+              } else {
+                event.cancelBubble = true
+              }
+            }}
+            onMouseEnter={() => {
+              setHoveredPart(null)
+              setHoveredPin({ id: canvasComp.id, ref: canvasComp.reference, name: canvasComp.component.name, pin, at: pinWorldCoord(canvasComp, pin) })
+              setCursorFromEvent()
+            }}
+            onMouseMove={() => {
+              setHoveredPin({ id: canvasComp.id, ref: canvasComp.reference, name: canvasComp.component.name, pin, at: pinWorldCoord(canvasComp, pin) })
+              setCursorFromEvent()
+            }}
+            onMouseLeave={() => setHoveredPin(null)}
           />
-        ))}
+          )
+        })}
+
       </Group>
     )
   }
 
+  /* Terminal landing dots: the pins themselves ARE the dots (drawn last in
+     the part group). This layer only marks untouched pins as open rings —
+     touched pins already render filled, so drawing here would double them. */
+  const terminals = useMemo(() => {
+    const out: Array<{ x: number; y: number; open: boolean }> = [];
+    const seen = new Set<string>();
+    for (const comp of canvasComponents) {
+      for (const pin of comp.component.pins) {
+        const touched = wires.some((w) =>
+          w.connectedPins?.some((cp) => cp.componentId === comp.id && cp.pinId === pin.id),
+        );
+        if (touched) continue;
+        const rotated = rotatePinCoord(pin, comp.rotation);
+        const at = { x: comp.x + rotated.x, y: comp.y + rotated.y };
+        const key = Math.round(at.x) + ':' + Math.round(at.y);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ x: at.x, y: at.y, open: true });
+      }
+    }
+    return out;
+  }, [canvasComponents, wires]);
+
+  /* Axis-aligned segments of every wire, for junction + crossing checks. */
+  const segments = useMemo(() => {
+    const out: Array<{ x1: number; y1: number; x2: number; y2: number; wireId: string }> = []
+    for (const wire of wires) {
+      for (let k = 0; k + 1 < wire.points.length; k++) {
+        out.push({ x1: wire.points[k].x, y1: wire.points[k].y,
+          x2: wire.points[k + 1].x, y2: wire.points[k + 1].y, wireId: wire.id })
+      }
+    }
+    return out
+  }, [wires])
+
+  /* Endpoint of one wire touching another wire (first/last point only):
+     filled junction dot — same net only. A stub end landing anywhere on a
+     same-net segment (rail midpoint, T corner) is a genuine joint and gets
+     the dot; a touch across different nets never does. */
+  const junctions = useMemo(() => {
+    const dots: Array<{ x: number; y: number }> = []
+    const seen = new Set<string>()
+    for (const wire of wires) {
+      const ends = [wire.points[0], wire.points[wire.points.length - 1]]
+      for (const end of ends) {
+        if (!end) continue
+        for (const g of segments) {
+          if (g.wireId === wire.id) continue
+          const on = Math.min(g.x1, g.x2) - 0.5 <= end.x
+            && end.x <= Math.max(g.x1, g.x2) + 0.5
+            && Math.min(g.y1, g.y2) - 0.5 <= end.y
+            && end.y <= Math.max(g.y1, g.y2) + 0.5
+          if (!on) continue
+          // Same net only: the other wire must declare the SAME net name.
+          // Different-net touches (a pass over an unrelated rail) never dot.
+          const other = wires.find((w) => w.id === g.wireId)
+          if (!wire.netName || other?.netName !== wire.netName) continue
+          const key = Math.round(end.x) + String(":") + Math.round(end.y)
+          if (seen.has(key)) continue
+          seen.add(key)
+          dots.push({ x: end.x, y: end.y })
+        }
+      }
+    }
+    return dots
+  }, [wires, segments])
+
+  /* Wires crossing without shared pins: hop bow on the crossing. Same-net
+     crossings are already one node — hopping them would fake a disconnect,
+     so only different nets jump. */
+  const crossings = useMemo(() => {
+    const hops: Array<{ x: number; y: number }> = []
+    const byId = new Map(wires.map((w) => [w.id, w.netName ?? '']))
+    for (let a = 0; a < segments.length; a++) {
+      for (let b = a + 1; b < segments.length; b++) {
+        const s1 = segments[a]
+        const s2 = segments[b]
+        if (s1.wireId === s2.wireId) continue
+        // Same NAMED net: already one node, hopping would fake a disconnect.
+        // Unnamed user wires (netName '') stay hoppable — each is its own net
+        // until pins or names join them.
+        const n1 = byId.get(s1.wireId) ?? ''
+        const n2 = byId.get(s2.wireId) ?? ''
+        if (n1 !== '' && n1 === n2) continue
+        const h1 = Math.abs(s1.y1 - s1.y2) < 0.5
+        const h2 = Math.abs(s2.y1 - s2.y2) < 0.5
+        if (h1 === h2) continue
+        const h = h1 ? s1 : s2
+        const v = h1 ? s2 : s1
+        const x = v.x1
+        const y = h.y1
+        const inH = Math.min(h.x1, h.x2) + 0.5 < x && x < Math.max(h.x1, h.x2) - 0.5
+        const inV = Math.min(v.y1, v.y2) + 0.5 < y && y < Math.max(v.y1, v.y2) - 0.5
+        if (!inH || !inV) continue
+        if (junctions.some((d) => Math.abs(d.x - x) < 1 && Math.abs(d.y - y) < 1)) continue
+        hops.push({ x, y })
+      }
+    }
+    return hops
+  }, [segments, junctions, wires])
   const renderWires = () => {
-    return wires.map(wire => {
-      // Live current: a conducting net glows brighter + thicker.
-      const netGlow = liveFrame && wire.netName
-        ? (liveFrame.glow[wire.netName.toUpperCase()] ?? 0)
-        : 0
-      const live = netGlow > 0.5
-      return (
-        <Line
-          key={wire.id}
-          points={wire.points.flatMap(p => [p.x, p.y])}
-          stroke={wire.style?.color || palette.wire}
-          strokeWidth={(wire.style?.width || 2) + (live ? 1.5 : 0)}
-          opacity={liveFrame ? 0.55 + netGlow * 0.45 : 1}
-          lineCap="round"
-          lineJoin="round"
-          shadowBlur={live ? 8 : 0}
-          shadowColor={live ? palette.wire : 'transparent'}
-        />
-      )
-    })
+    return (
+      <>
+        {wires.map(wire => {
+          return (
+            <Line
+              key={wire.id}
+              points={wire.points.flatMap(pt => [pt.x, pt.y])}
+              stroke={palette.wire}
+              strokeWidth={2}
+              opacity={1}
+              lineCap="round"
+              lineJoin="round"
+              hitStrokeWidth={12}
+              onMouseEnter={() => {
+                setHoveredPin(null)
+                setHoveredPart(null)
+                setHoveredWire({ id: wire.id, netName: wire.netName || '—', pins: wire.connectedPins?.length ?? 0 })
+                setCursorFromEvent()
+              }}
+              onMouseMove={() => setCursorFromEvent()}
+              onMouseLeave={() => setHoveredWire(null)}
+            />
+          )
+        })}
+        {junctions.map((d, k) => (
+          <Circle key={"j" + k} x={d.x} y={d.y} radius={4.5}
+            fill={palette.wire} stroke={palette.sheet} strokeWidth={1} listening={false} />
+        ))}
+        {terminals.map((t, k) => (
+          <Circle key={"t" + k} x={t.x} y={t.y} radius={3.5}
+            fill="transparent"
+            stroke={palette.pinStroke} strokeWidth={1.5}
+            listening={false} />
+        ))}
+        {crossings.map((h, k) => (
+          <Line
+            key={'hg' + k}
+            points={[h.x - 8, h.y, h.x + 8, h.y]}
+            stroke={palette.sheet}
+            strokeWidth={6}
+            lineCap="butt"
+            listening={false}
+          />
+        ))}
+        {crossings.map((h, k) => (
+          <Path
+            key={'ha' + k}
+            data={'M ' + (h.x - 7) + ',' + h.y + ' A 7,7 0 0,1 ' + (h.x + 7) + ',' + h.y}
+            stroke={palette.wire}
+            strokeWidth={2}
+            fillEnabled={false}
+            lineCap="round"
+            listening={false}
+          />
+        ))}
+      </>
+    )
   }
 
   /* Pending first-pin marker while wiring: the exact pin the wire starts from. */
@@ -673,7 +920,7 @@ export default function SchematicCanvas({
     const comp = canvasComponents.find((c) => c.id === wireStart.componentId)
     const pin = comp?.component.pins.find((p) => p.id === wireStart.pinId)
     if (!comp || !pin) return null
-    const at = pinWorld(comp, pin)
+    const at = pinWorldCoord(comp, pin)
     return (
       <Circle
         x={at.x}
@@ -776,11 +1023,15 @@ export default function SchematicCanvas({
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
       onMouseDown={(e) => {
-        // Middle button starts a clamped pan; left button never pans.
-        if (e.button !== 1) return
-        e.preventDefault()
-        const { pan } = useAppStore.getState().viewport
-        setPanning({ startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y })
+        // Middle button always starts a clamped pan (applied by
+        // handleMouseMove while `panning` is set). Left-drag pan on empty
+        // sheet starts from the Konva stage handler, which knows whether the
+        // press landed on empty sheet or on a part.
+        if (e.button === 1) {
+          e.preventDefault()
+          const { pan } = useAppStore.getState().viewport
+          setPanning({ startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y })
+        }
       }}
       onMouseUp={() => setPanning(null)}
     >
@@ -792,15 +1043,18 @@ export default function SchematicCanvas({
         scaleY={viewport.zoom}
         x={viewport.pan.x}
         y={viewport.pan.y}
+        draggable={false}
         onWheel={handleWheel}
         onClick={handleStageClick}
-        /*
-         * The sheet itself is NEVER draggable: dragging empty canvas used to
-         * throw the whole grid off-screen with no way back. Pan with the
-         * middle mouse button, space+drag, or the Fit button instead —
-         * the KiCad convention.
-         */
-        draggable={false}
+        onMouseDown={(e) => {
+          // Left press on EMPTY sheet with the select tool starts a pan
+          // candidate (confirmed vs click on mouse-up by distance moved).
+          // Part presses never reach here — the part Group consumes them.
+          if (e.evt.button === 0 && activeTool === 'select' && !pendingComponent && e.target === e.target.getStage()) {
+            const { pan } = useAppStore.getState().viewport
+            setPanning({ startX: e.evt.clientX, startY: e.evt.clientY, panX: pan.x, panY: pan.y })
+          }
+        }}
       >
         <Layer>
           {/* Grid */}
@@ -873,6 +1127,43 @@ export default function SchematicCanvas({
           />
         </>
       )}
+
+      {(cursor && hoveredPin && (
+        <div
+          className="cad-tip"
+          style={{ transform: `translate(${Math.round(cursor.x + 14)}px, ${Math.round(cursor.y + 14)}px)` }}
+          role="status"
+        >
+          <span className="font-semibold">{hoveredPin.ref}</span>
+          <span className="text-muted-foreground">{hoveredPin.name} · {hoveredPin.pin.name}</span>
+          <span className="cad-readout">net {hoveredPin.pin.id === 'gnd' ? 'GND' : (netOfPin(hoveredPin.id, hoveredPin.pin.id) === '—' ? hoveredPin.id : netOfPin(hoveredPin.id, hoveredPin.pin.id))}</span>
+        </div>
+      ))}
+      {(cursor && !hoveredPin && !hoveredWire && hoveredPart && (() => {
+        const value = hoveredPart.props.value ?? hoveredPart.props.voltage ?? hoveredPart.props.type ?? ''
+        const fp = hoveredPart.props.footprint ? String(hoveredPart.props.footprint) : ''
+        return (
+          <div
+            className="cad-tip"
+            style={{ transform: `translate(${Math.round(cursor.x + 14)}px, ${Math.round(cursor.y + 14)}px)` }}
+            role="status"
+          >
+            <span className="font-semibold">{hoveredPart.ref}</span>
+            <span className="text-muted-foreground">{hoveredPart.name}{value ? ` · ${String(value)}` : ''}{fp ? ` · ${fp}` : ''}</span>
+          </div>
+        )
+      })())}
+
+      {(cursor && !hoveredPin && hoveredWire && (
+        <div
+          className="cad-tip"
+          style={{ transform: `translate(${Math.round(cursor.x + 14)}px, ${Math.round(cursor.y + 14)}px)` }}
+          role="status"
+        >
+          <span className="font-semibold">net {hoveredWire.netName}</span>
+          <span className="text-muted-foreground">{hoveredWire.pins} pin{hoveredWire.pins === 1 ? '' : 's'}</span>
+        </div>
+      ))}
 
       {/* Crosshair */}
       {cursor && (

@@ -24,6 +24,55 @@ describe('demo board — full e-CAD loop on one canvas', () => {
     expect(board.components).toHaveLength(9);
     expect(board.summary.nets).toEqual(['VCC', 'GND', 'GPIO', 'BASE', 'LED_A', 'LED_K']);
   });
+  it('lands every wire endpoint exactly on a real pin (no open joints)', () => {
+    const board = buildDemoBoard();
+    const rotate = (px: number, py: number, deg: number) => {
+      const r = ((deg % 360) * Math.PI) / 180;
+      return { x: px * Math.cos(r) - py * Math.sin(r), y: px * Math.sin(r) + py * Math.cos(r) };
+    };
+    const pinAt = new Map<string, { x: number; y: number }>();
+    for (const c of board.components) {
+      for (const pin of c.component.pins) {
+        const rotated = rotate(pin.x, pin.y, c.rotation);
+        pinAt.set(`${c.id}:${pin.id}`, { x: Math.round(c.x + rotated.x), y: Math.round(c.y + rotated.y) });
+      }
+    }
+    const targets = new Set<string>();
+    for (const w of board.wires) {
+      for (const pt of w.points) targets.add(`${pt.x},${pt.y}`);
+    }
+    // No dangling ends: every wire point must sit on a pin, a corner, or a
+    // declared rail joint (VCC shelf / GND bus / BASE elbow / LED corners).
+    const joints = new Set([
+      '150,60', '220,60', '345,60',
+      '90,440', '180,440', '150,440', '270,440', '280,440', '500,440', '540,440', '560,440',
+      '150,300', '310,300', '310,215', '410,215', '455,215', '455,320', '480,320',
+      '420,320', '345,175', '520,190', '520,205', '180,360',
+    ]);
+    for (const key of targets) {
+      const onPin = [...pinAt.values()].some((p) => `${p.x},${p.y}` === key);
+      expect(onPin || joints.has(key), `wire point ${key} floats`).toBe(true);
+    }
+    // Every declared pin connection lands its pin coordinate on a wire of
+    // the same net (taps join the rail at a dot; the netlister unions all
+    // wires sharing a pin OR a net name into one node).
+    const ptsByNet = new Map<string, Set<string>>();
+    for (const w of board.wires) {
+      const net = w.netName ?? '';
+      const set = ptsByNet.get(net) ?? new Set<string>();
+      for (const p of w.points) set.add(`${p.x},${p.y}`);
+      ptsByNet.set(net, set);
+    }
+    for (const w of board.wires) {
+      const pts = ptsByNet.get(w.netName ?? '')!;
+      for (const cp of w.connectedPins) {
+        const at = pinAt.get(`${cp.componentId}:${cp.pinId}`);
+        expect(at, `${cp.componentId}:${cp.pinId} missing`).toBeDefined();
+        expect(pts.has(`${at!.x},${at!.y}`),
+          `${cp.componentId}:${cp.pinId} at (${at!.x},${at!.y}) not on net ${w.netName}`).toBe(true);
+      }
+    }
+  });
   it('simulates: saturated when GPIO high, cut off when low', async () => {
     const board = buildDemoBoard();
     const dc = buildCircuitNetlist('demo dc', board.components, board.wires, { type: 'dc' });
@@ -58,7 +107,7 @@ describe('demo board — full e-CAD loop on one canvas', () => {
       RC1: { x: 30, y: 25 }, D1: { x: 45, y: 25 },
     };
     for (const p of placedParts) {
-      const g = grid[p.reference];
+      const g: { x: number; y: number } | undefined = grid[p.reference];
       if (g) p.position = { x: g.x, y: g.y };
     }
     const pack = buildFabPackage(placedParts, [], { boardWidth: 60, boardHeight: 53, projectName: 'demo-blinker' });

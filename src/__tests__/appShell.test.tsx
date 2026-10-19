@@ -29,7 +29,8 @@ beforeEach(() => {
   localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
   // Zustand stores are module singletons — never assume the previous test's project or tool.
   useProjectStore.setState({ currentProject: null, currentSchematic: null, components: [], wires: [], isDirty: false })
-  useAppStore.setState({ activeTool: 'select' })
+  useAppStore.setState({ activeTool: 'select', workspaceMode: 'schematic' })
+  window.history.replaceState(null, '', '#/')
 })
 
 describe('App shell', () => {
@@ -113,6 +114,17 @@ describe('App shell', () => {
     fireEvent.click(wire)
     expect(useAppStore.getState().activeTool).toBe('wire')
     expect(screen.getByRole('button', { name: 'Wire tool' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('opens the simulation workspace from its tab and writes a bookmarkable route', async () => {
+    render(<App />)
+    fireEvent.click((await screen.findAllByRole('button', { name: /new project/i }))[0])
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Simulation' }))
+
+    expect(await screen.findByText('Circuit Simulation')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Simulation' })).toHaveAttribute('aria-current', 'page')
+    expect(window.location.hash.startsWith('#/simulation')).toBe(true)
   })
 
   it('toggles the color theme from the header', async () => {

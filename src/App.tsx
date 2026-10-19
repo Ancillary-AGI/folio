@@ -232,7 +232,7 @@ function App() {
       examples: ['switch to pcb', 'open siem', 'go to robotics'],
       handler: async (entities) => {
         const mode = String(entities.mode || '').toLowerCase()
-        const validModes: WorkspaceMode[] = ['schematic', 'convert', 'pcb', 'mechanical', 'preview3d', 'embedded', 'fpga', 'hil', 'robotics', 'twin', 'siem', 'marketplace', 'dashboard', 'bom']
+        const validModes: WorkspaceMode[] = ['schematic', 'simulation', 'convert', 'pcb', 'mechanical', 'preview3d', 'embedded', 'fpga', 'hil', 'robotics', 'twin', 'siem', 'marketplace', 'dashboard', 'bom']
         const workspaceMode = validModes.find(candidate => candidate === mode)
         if (workspaceMode) useAppStore.getState().setWorkspaceMode(workspaceMode)
         return { action: 'switch_workspace', mode }
@@ -334,16 +334,18 @@ function App() {
     const source = makeComponent('standard-dc-source', 'V1', sourceDefinition, 170, 100, { type: 'DC', voltage: '5V' })
     const upperResistor = makeComponent('standard-resistor', 'R1', resistorDefinition, 360, 85, { value: '1k' })
     const lowerResistor = makeComponent('standard-resistor', 'R2', resistorDefinition, 550, 85, { value: '1k' })
+    // Pin map (rotation 0): V1+ (200,100) V1- (200,160) | R1 p1 (360,100)
+    // p2 (440,100) | R2 p1 (550,100) p2 (630,100).
     const sampleWires: CanvasWire[] = [
-      { id: 'sample-vin', points: [], netName: 'VIN', connectedPins: [
+      { id: 'sample-vin', points: [{ x: 200, y: 100 }, { x: 360, y: 100 }], netName: 'VIN', connectedPins: [
         { componentId: source.id, pinId: 'positive' },
         { componentId: upperResistor.id, pinId: 'p1' },
       ] },
-      { id: 'sample-output', points: [], netName: 'OUT', connectedPins: [
+      { id: 'sample-output', points: [{ x: 440, y: 100 }, { x: 550, y: 100 }], netName: 'OUT', connectedPins: [
         { componentId: upperResistor.id, pinId: 'p2' },
         { componentId: lowerResistor.id, pinId: 'p1' },
       ] },
-      { id: 'sample-ground', points: [], netName: 'GND', connectedPins: [
+      { id: 'sample-ground', points: [{ x: 200, y: 160 }, { x: 200, y: 220 }, { x: 630, y: 220 }, { x: 630, y: 100 }], netName: 'GND', connectedPins: [
         { componentId: source.id, pinId: 'negative' },
         { componentId: lowerResistor.id, pinId: 'p2' },
       ] },
@@ -757,7 +759,7 @@ function App() {
             <Bot className="w-4 h-4" />
           </Button>
           <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-          <Button variant="ghost" size="icon" onClick={toggleSimulationPanel} title="Simulation" aria-label="Simulation">
+          <Button variant="ghost" size="icon" onClick={() => useAppStore.getState().setWorkspaceMode('simulation')} title="Open simulation workspace" aria-label="Open simulation workspace">
             <BarChart3 className="w-4 h-4" />
           </Button>
           <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} title="Settings" aria-label="Settings">

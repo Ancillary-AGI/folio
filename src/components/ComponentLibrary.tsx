@@ -102,9 +102,18 @@ export default function ComponentLibrary({ components, onSelectComponent, select
                     onDragStart={(e) => startDrag(e, component)}
                     onClick={() => onSelectComponent(component)}
                     title={
-                      component.description
-                        ? `${component.name} — ${component.description}`
-                        : component.name
+                      [
+                        component.name,
+                        component.description,
+                        component.pins.length > 0
+                          ? `pins: ${component.pins.map((p) => `${p.name}@(${p.x},${p.y})`).join(' ')}`
+                          : 'no pins',
+                        component.default_properties && Object.keys(component.default_properties).length > 0
+                          ? `defaults: ${Object.entries(component.default_properties).map(([k, v]) => `${k}=${String(v)}`).join(' ')}`
+                          : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' — ')
                     }
                     className={`cad-lib-row ${armed ? 'cad-lib-row-armed' : ''}`}
                   >

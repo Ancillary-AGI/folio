@@ -30,6 +30,7 @@ const SIEMDashboard = lazy(() => import('../siem/SIEMDashboard'))
 const MarketplacePanel = lazy(() => import('../marketplace/MarketplacePanel'))
 const SystemDashboard = lazy(() => import('../SystemDashboard'))
 const BOMPanel = lazy(() => import('../bom/BOMPanel'))
+const SimulationPanel = lazy(() => import('../simulation/SimulationPanel'))
 
 interface DomainWorkspaceProps {
   libraryComponents: Component[]
@@ -38,6 +39,7 @@ interface DomainWorkspaceProps {
 
 const MODES: Array<{ id: WorkspaceMode; label: string }> = [
   { id: 'schematic', label: 'Schematic' },
+  { id: 'simulation', label: 'Simulation' },
   { id: 'convert', label: 'Schematic→PCB' },
   { id: 'pcb', label: 'PCB' },
   { id: 'mechanical', label: 'CAD' },
@@ -297,6 +299,11 @@ export default function DomainWorkspace({ libraryComponents, onSave }: DomainWor
           )}
           {workspaceMode === 'mechanical' && <MechanicalDesignPanel onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'pcb' && <PCBDesignPanel onClose={() => setWorkspaceMode('schematic')} />}
+          {workspaceMode === 'simulation' && (
+            <div className="h-full overflow-auto p-4">
+              <SimulationPanel onClose={() => setWorkspaceMode('schematic')} />
+            </div>
+          )}
           {workspaceMode === 'convert' && (
             <div className="h-full overflow-auto p-4">
               <SchematicToPcbPanel schematic={schematic} />

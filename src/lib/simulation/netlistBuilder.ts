@@ -73,6 +73,37 @@ export function buildCircuitNetlist(
     else wiresByName.set(name, wire.id)
   }
 
+  // Geometry joins: a stub END landing on another wire's segment is the same
+  // node the canvas draws a junction dot for. Without this, a T-tap (stub
+  // end on a rail midpoint) would simulate open while the sheet shows a
+  // connected dot — the exact lie your screenshot caught.
+  const pointOnSegment = (
+    end: { x: number; y: number },
+    a: { x: number; y: number },
+    b: { x: number; y: number },
+  ): boolean =>
+    Math.min(a.x, b.x) - 0.5 <= end.x
+    && end.x <= Math.max(a.x, b.x) + 0.5
+    && Math.min(a.y, b.y) - 0.5 <= end.y
+    && end.y <= Math.max(a.y, b.y) + 0.5
+  for (let i = 0; i < wires.length; i++) {
+    const wire = wires[i]
+    const ends = [wire.points[0], wire.points[wire.points.length - 1]]
+    for (const end of ends) {
+      if (!end) continue
+      for (let j = 0; j < wires.length; j++) {
+        if (i === j) continue
+        const other = wires[j]
+        for (let k = 0; k + 1 < other.points.length; k++) {
+          if (pointOnSegment(end, other.points[k], other.points[k + 1])) {
+            union(wire.id, other.id)
+            break
+          }
+        }
+      }
+    }
+  }
+
   const namesByRoot = new Map<string, Set<string>>()
   for (const wire of wires) {
     if (!wire.netName?.trim()) continue

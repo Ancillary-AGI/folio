@@ -113,7 +113,11 @@ const CLASSIFIERS: ReadonlyArray<{ kind: DeviceKind | 'ground'; matches: (type: 
   },
   { kind: 'capacitor', matches: (type, name) => type.includes('capacit') || /^c\d/i.test(name) },
   { kind: 'inductor', matches: (type, name) => type.includes('induct') || /^l\d/i.test(name) },
-  { kind: 'diode', matches: (type, name) => type.includes('diode') || type.includes('rectifier') || /^d\d/i.test(name) },
+  {
+    kind: 'diode',
+    matches: (type, name) =>
+      type.includes('diode') || type.includes('led') || type.includes('rectifier') || /^d\d/i.test(name),
+  },
   {
     kind: 'resistor',
     matches: (type, name) =>

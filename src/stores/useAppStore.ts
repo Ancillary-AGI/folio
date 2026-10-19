@@ -5,6 +5,7 @@ import type { ThemePreference } from '../lib/theme/tokens'
 
 export type WorkspaceMode =
   | 'schematic'
+  | 'simulation'
   | 'mechanical'
   | 'pcb'
   | 'convert'

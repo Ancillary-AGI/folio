@@ -292,7 +292,7 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       height: 60,
       paths: [
         'M 30,0 L 30,15',
-        'M 30,30 A 15,15 0 1,1 30,30',
+        'M 30,15 L 40.6,19.4 L 45,30 L 40.6,40.6 L 30,45 L 19.4,40.6 L 15,30 L 19.4,19.4 Z',
         'M 30,45 L 30,60',
         'M 25,20 L 35,20',
         'M 30,38 L 30,42'
@@ -316,7 +316,7 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       height: 60,
       paths: [
         'M 30,0 L 30,15',
-        'M 30,30 A 15,15 0 1,1 30,30',
+        'M 30,15 L 40.6,19.4 L 45,30 L 40.6,40.6 L 30,45 L 19.4,40.6 L 15,30 L 19.4,19.4 Z',
         'M 30,45 L 30,60',
         'M 18,30 L 18,38 L 27,38 L 27,22 L 36,22 L 36,38 L 42,38',
       ],
@@ -345,7 +345,7 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       height: 60,
       paths: [
         'M 30,0 L 30,15',
-        'M 30,30 A 15,15 0 1,1 30,30',
+        'M 30,15 L 40.6,19.4 L 45,30 L 40.6,40.6 L 30,45 L 19.4,40.6 L 15,30 L 19.4,19.4 Z',
         'M 30,45 L 30,60',
         'M 19,30 Q 24,19 30,30 T 41,30',
       ],
@@ -373,7 +373,7 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       height: 60,
       paths: [
         'M 30,0 L 30,15',
-        'M 30,30 A 15,15 0 1,1 30,30',
+        'M 30,15 L 40.6,19.4 L 45,30 L 40.6,40.6 L 30,45 L 19.4,40.6 L 15,30 L 19.4,19.4 Z',
         'M 30,45 L 30,60',
         'M 18,38 Q 24,38 27,26 Q 30,18 36,22 L 42,22',
       ],
@@ -401,7 +401,7 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       height: 60,
       paths: [
         'M 30,0 L 30,15',
-        'M 30,30 A 15,15 0 1,1 30,30',
+        'M 30,15 L 40.6,19.4 L 45,30 L 40.6,40.6 L 30,45 L 19.4,40.6 L 15,30 L 19.4,19.4 Z',
         'M 30,45 L 30,60',
         'M 19,30 Q 22,20 26,30 T 34,30 T 41,30',
       ],
@@ -428,7 +428,7 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       height: 60,
       paths: [
         'M 30,0 L 30,15',
-        'M 30,30 A 15,15 0 1,1 30,30',
+        'M 30,15 L 40.6,19.4 L 45,30 L 40.6,40.6 L 30,45 L 19.4,40.6 L 15,30 L 19.4,19.4 Z',
         'M 30,45 L 30,60',
         'M 18,38 L 24,38 L 30,22 L 36,30 L 42,30',
       ],
