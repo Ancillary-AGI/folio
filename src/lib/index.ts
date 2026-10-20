@@ -6,6 +6,8 @@
 // Hardware Interfaces
 export * from './hardware/hardwareInterfaces';
 export { hardwareInterfaceManager } from './hardware/hardwareInterfaces';
+export * from './marketplace/designMarketplace';
+export * from './marketplace/marketplaceService';
 
 // Robotics Simulation
 export { roboticsSimulationService } from './robotics/roboticsSimulation';

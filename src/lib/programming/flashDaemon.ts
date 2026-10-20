@@ -80,6 +80,8 @@ export class FlashDaemon {
       case 'bye':
         this.closed = true;
         return { kind: 'error', message: 'bye' };
+      case 'list-devices':
+        return { kind: 'ready', devices: [...this.devices.values()].map((d) => d.info) };
       case 'write': {
         const entry = this.devices.get(request.device);
         if (!entry) return { kind: 'error', message: `unknown device ${request.device}` };

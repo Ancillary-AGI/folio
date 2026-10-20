@@ -44,10 +44,9 @@ describe('demo board — full e-CAD loop on one canvas', () => {
     // No dangling ends: every wire point must sit on a pin, a corner, or a
     // declared rail joint (VCC shelf / GND bus / BASE elbow / LED corners).
     const joints = new Set([
-      '150,60', '220,60', '345,60',
-      '90,440', '180,440', '150,440', '270,440', '280,440', '500,440', '540,440', '560,440',
-      '150,300', '310,300', '310,215', '410,215', '455,215', '455,320', '480,320',
-      '420,320', '345,175', '520,190', '520,205', '180,360',
+      '110,80', '200,80', '70,420', '300,420', '480,420',
+      '70,160', '110,300', '280,300', '280,250', '110,420',
+      '400,250', '405,190', '480,190', '400,420', '260,420',
     ]);
     for (const key of targets) {
       const onPin = [...pinAt.values()].some((p) => `${p.x},${p.y}` === key);

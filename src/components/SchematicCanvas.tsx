@@ -650,16 +650,22 @@ export default function SchematicCanvas({
         onClick={() => handleComponentClick(canvasComp.id)}
         onContextMenu={(event) => handleComponentContextMenu(event, canvasComp.id)}
         onMouseEnter={() => {
+          setHoveredWire(null)
           setHoveredPin(null)
           setHoveredPart({ id: canvasComp.id, ref: canvasComp.reference, name: canvasComp.component.name, props: canvasComp.properties })
           setCursorFromEvent()
         }}
-        onMouseMove={() => setCursorFromEvent()}
+        onMouseMove={() => {
+          setHoveredWire(null)
+          if (!hoveredPart || hoveredPart.id !== canvasComp.id) {
+            setHoveredPin(null)
+            setHoveredPart({ id: canvasComp.id, ref: canvasComp.reference, name: canvasComp.component.name, props: canvasComp.properties })
+          }
+          setCursorFromEvent()
+        }}
         onMouseLeave={() => setHoveredPart(null)}
       >
-        {/* Selection outline only — never a box behind the symbol. Real CAD
-            sheets show bare symbols; a filled rect here is what made every
-            part read as a chip and buried wire ends under its edge. */}
+        {/* Selection outline */}
         <Rect
           width={canvasComp.component.symbol_data.width}
           height={canvasComp.component.symbol_data.height}
@@ -670,7 +676,7 @@ export default function SchematicCanvas({
           shadowColor={lit ? palette.selectedStroke : 'transparent'}
         />
 
-        {/* Component symbol - full SVG path (circles/arcs kept). */}
+        {/* Symbol paths */}
         {canvasComp.component.symbol_data.paths.map((path, index) => (
         <Path
         key={index}
@@ -682,8 +688,7 @@ export default function SchematicCanvas({
         lineJoin="round"
         />
         ))}
-        {/* Sources carry their circle inside symbol_data; no overlay here —
-            a second circle used to sit off-centre and read as an open loop. */}
+        {/* Source circle lives in symbol_data */}
 
         {/* Component label */}
         <Text
@@ -697,21 +702,19 @@ export default function SchematicCanvas({
         />
 
         {/* Component value */}
-        {canvasComp.properties.value && (
+        {(canvasComp.properties.value ?? canvasComp.properties.voltage ?? canvasComp.properties.type) && (
           <Text
-            text={String(canvasComp.properties.value)}
+            text={String(canvasComp.properties.value ?? canvasComp.properties.voltage ?? canvasComp.properties.type)}
             x={canvasComp.component.symbol_data.width / 2}
             y={canvasComp.component.symbol_data.height + 5}
             fontSize={10}
             fill={palette.value}
             align="center"
-            offsetX={String(canvasComp.properties.value).length * 2.5}
+            offsetX={String(canvasComp.properties.value ?? canvasComp.properties.voltage ?? canvasComp.properties.type).length * 2.5}
           />
         )}
 
-        {/* Pins drawn LAST and on top of wires: terminals break the wire
-            visually (KiCad convention) instead of the wire burying under the
-            symbol edge. Ring marks the armed wire start. */}
+        {/* Pins on top; ring marks wire start */}
         {canvasComp.component.pins.map(pin => {
           const armed = wireStart?.componentId === canvasComp.id && wireStart?.pinId === pin.id
           return (
@@ -745,7 +748,11 @@ export default function SchematicCanvas({
               setHoveredPin({ id: canvasComp.id, ref: canvasComp.reference, name: canvasComp.component.name, pin, at: pinWorldCoord(canvasComp, pin) })
               setCursorFromEvent()
             }}
-            onMouseLeave={() => setHoveredPin(null)}
+            onMouseLeave={() => {
+              // Restore part readout when leaving pin for body
+              setHoveredPin(null)
+              setHoveredPart({ id: canvasComp.id, ref: canvasComp.reference, name: canvasComp.component.name, props: canvasComp.properties })
+            }}
           />
           )
         })}
@@ -777,7 +784,7 @@ export default function SchematicCanvas({
     return out;
   }, [canvasComponents, wires]);
 
-  /* Axis-aligned segments of every wire, for junction + crossing checks. */
+  /* Wire segments */
   const segments = useMemo(() => {
     const out: Array<{ x1: number; y1: number; x2: number; y2: number; wireId: string }> = []
     for (const wire of wires) {
@@ -797,25 +804,21 @@ export default function SchematicCanvas({
     const dots: Array<{ x: number; y: number }> = []
     const seen = new Set<string>()
     for (const wire of wires) {
-      const ends = [wire.points[0], wire.points[wire.points.length - 1]]
-      for (const end of ends) {
-        if (!end) continue
-        for (const g of segments) {
-          if (g.wireId === wire.id) continue
-          const on = Math.min(g.x1, g.x2) - 0.5 <= end.x
-            && end.x <= Math.max(g.x1, g.x2) + 0.5
-            && Math.min(g.y1, g.y2) - 0.5 <= end.y
-            && end.y <= Math.max(g.y1, g.y2) + 0.5
-          if (!on) continue
-          // Same net only: the other wire must declare the SAME net name.
-          // Different-net touches (a pass over an unrelated rail) never dot.
-          const other = wires.find((w) => w.id === g.wireId)
-          if (!wire.netName || other?.netName !== wire.netName) continue
-          const key = Math.round(end.x) + String(":") + Math.round(end.y)
-          if (seen.has(key)) continue
-          seen.add(key)
-          dots.push({ x: end.x, y: end.y })
-        }
+      for (const pt of wire.points) {
+        const key = Math.round(pt.x) + ':' + Math.round(pt.y);
+        if (seen.has(key)) continue;
+        const onOther = segments.some((g) => {
+          if (g.wireId === wire.id) return false;
+          const other = wires.find((w) => w.id === g.wireId);
+          if (!wire.netName || other?.netName !== wire.netName) return false;
+          return Math.min(g.x1, g.x2) - 0.5 <= pt.x
+            && pt.x <= Math.max(g.x1, g.x2) + 0.5
+            && Math.min(g.y1, g.y2) - 0.5 <= pt.y
+            && pt.y <= Math.max(g.y1, g.y2) + 0.5;
+        });
+        if (!onOther) continue;
+        seen.add(key);
+        dots.push({ x: pt.x, y: pt.y });
       }
     }
     return dots
@@ -826,15 +829,14 @@ export default function SchematicCanvas({
      so only different nets jump. */
   const crossings = useMemo(() => {
     const hops: Array<{ x: number; y: number }> = []
+    const seenHop = new Set<string>()
     const byId = new Map(wires.map((w) => [w.id, w.netName ?? '']))
     for (let a = 0; a < segments.length; a++) {
       for (let b = a + 1; b < segments.length; b++) {
         const s1 = segments[a]
         const s2 = segments[b]
         if (s1.wireId === s2.wireId) continue
-        // Same NAMED net: already one node, hopping would fake a disconnect.
-        // Unnamed user wires (netName '') stay hoppable — each is its own net
-        // until pins or names join them.
+        // Same named net skips hop
         const n1 = byId.get(s1.wireId) ?? ''
         const n2 = byId.get(s2.wireId) ?? ''
         if (n1 !== '' && n1 === n2) continue
@@ -848,7 +850,13 @@ export default function SchematicCanvas({
         const inH = Math.min(h.x1, h.x2) + 0.5 < x && x < Math.max(h.x1, h.x2) - 0.5
         const inV = Math.min(v.y1, v.y2) + 0.5 < y && y < Math.max(v.y1, v.y2) - 0.5
         if (!inH || !inV) continue
-        if (junctions.some((d) => Math.abs(d.x - x) < 1 && Math.abs(d.y - y) < 1)) continue
+        if (junctions.some((d) => Math.abs(d.x - x) < 4 && Math.abs(d.y - y) < 4)) continue
+        let nearEnd = false
+        for (const w of wires) { for (const pt of w.points) { if (Math.abs(pt.x - x) < 8 && Math.abs(pt.y - y) < 8) { nearEnd = true; break } } if (nearEnd) break }
+        if (nearEnd) continue
+        const hopKey = Math.round(x) + ':' + Math.round(y)
+        if (seenHop.has(hopKey)) continue
+        seenHop.add(hopKey)
         hops.push({ x, y })
       }
     }
@@ -863,8 +871,10 @@ export default function SchematicCanvas({
               key={wire.id}
               points={wire.points.flatMap(pt => [pt.x, pt.y])}
               stroke={palette.wire}
+              // Single 2px wire
               strokeWidth={2}
               opacity={1}
+              shadowBlur={0}
               lineCap="round"
               lineJoin="round"
               hitStrokeWidth={12}
@@ -880,7 +890,7 @@ export default function SchematicCanvas({
           )
         })}
         {junctions.map((d, k) => (
-          <Circle key={"j" + k} x={d.x} y={d.y} radius={4.5}
+          <Circle key={"j" + k} x={d.x} y={d.y} radius={4}
             fill={palette.wire} stroke={palette.sheet} strokeWidth={1} listening={false} />
         ))}
         {terminals.map((t, k) => (
@@ -890,31 +900,29 @@ export default function SchematicCanvas({
             listening={false} />
         ))}
         {crossings.map((h, k) => (
-          <Line
-            key={'hg' + k}
-            points={[h.x - 8, h.y, h.x + 8, h.y]}
-            stroke={palette.sheet}
-            strokeWidth={6}
-            lineCap="butt"
-            listening={false}
-          />
-        ))}
-        {crossings.map((h, k) => (
-          <Path
-            key={'ha' + k}
-            data={'M ' + (h.x - 7) + ',' + h.y + ' A 7,7 0 0,1 ' + (h.x + 7) + ',' + h.y}
+          <Group key={'hj' + k} listening={false}>
+            <Line
+              points={[h.x - 8, h.y, h.x + 8, h.y]}
+              stroke={palette.sheet}
+              strokeWidth={6}
+              lineCap="butt"
+              listening={false}
+            />
+            <Path
+              data={'M ' + (h.x - 8) + ',' + h.y + ' L ' + (h.x - 7) + ',' + h.y + ' A 7,7 0 0,1 ' + (h.x + 7) + ',' + h.y + ' L ' + (h.x + 8) + ',' + h.y}
             stroke={palette.wire}
             strokeWidth={2}
             fillEnabled={false}
             lineCap="round"
             listening={false}
           />
+          </Group>
         ))}
       </>
     )
   }
 
-  /* Pending first-pin marker while wiring: the exact pin the wire starts from. */
+  /* Wire-start marker */
   const renderWireStart = () => {
     if (activeTool !== 'wire' || !wireStart) return null
     const comp = canvasComponents.find((c) => c.id === wireStart.componentId)

@@ -36,7 +36,8 @@ export type DaemonRequest =
   | { kind: 'hello' }
   | { kind: 'write'; device: string; offset: number; dataHex: string; sha256: string }
   | { kind: 'read'; device: string; offset: number; length: number }
-  | { kind: 'bye' };
+  | { kind: 'bye' }
+  | { kind: 'list-devices' };
 
 export type DaemonReply =
   | { kind: 'ready'; devices: FlashDevice[] }

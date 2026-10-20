@@ -9,6 +9,8 @@ export interface PluginManifest {
   enabled: boolean
   permissions: string[]
   entry: string
+  category?: string
+  apiVersion?: string
   dependencies?: PluginDependency[]
   minAppVersion?: string
   maxAppVersion?: string
