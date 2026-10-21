@@ -126,12 +126,24 @@ describe('demo board — full e-CAD loop on one canvas', () => {
     const peak = Math.max(...(wave?.data ?? []).map((p) => p.y));
     expect(peak).toBeGreaterThan(3);
   });
-  it('transient survives the panel defaults (1.2 s run, 1 ms step) on the 1 kHz sine', async () => {
+  it('transient survives the panel defaults (20 ms run, 20 us step) on the 1 kHz sine', async () => {
     const board = buildDemoBoard();
-    const tran = buildCircuitNetlist('demo tran panel defaults', board.components, board.wires, { type: 'transient', stopTime: 1.2, stepTime: 1e-3 });
+    const tran = buildCircuitNetlist('demo tran panel defaults', board.components, board.wires, { type: 'transient', stopTime: 20e-3, stepTime: 20e-6 });
     const result = await spiceEngine.simulate(tran);
     expect(result.success).toBe(true);
     expect(result.waveforms.length).toBeGreaterThan(0);
+    // The default window must actually resolve the 1 kHz source, not alias it.
+    const out = result.waveforms.find((w) => w.name === 'V(OUT)');
+    const peak = Math.max(...(out?.data ?? []).map((p) => p.y));
+    expect(peak).toBeGreaterThan(3);
+  });
+  it('warns when the step undersamples the source instead of showing an aliased flat line', async () => {
+    const board = buildDemoBoard();
+    // 1 ms step on a 1 kHz sine samples every zero crossing: the plot reads
+    // as a flat 0 V line, which is an artefact, not a result.
+    const tran = buildCircuitNetlist('demo tran aliased', board.components, board.wires, { type: 'transient', stopTime: 1.2, stepTime: 1e-3 });
+    const result = await spiceEngine.simulate(tran);
+    expect((result.notes ?? []).some((note) => note.toLowerCase().includes('alias'))).toBe(true);
   });
   it('exports a shippable fab package (Gerber + Excellon + PnP + BOM)', () => {
     const board = buildDemoBoard();

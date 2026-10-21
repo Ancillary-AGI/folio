@@ -77,7 +77,11 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
   const [simulationResults, setSimulationResults] = useState<SimulationResult | null>(null)
   const [selectedAnalysis, setSelectedAnalysis] = useState<AnalysisType>('transient')
   const [error, setError] = useState<string | null>(null)
-  const [parameters, setParameters] = useState<SimulationParameters>({ type: 'transient', stopTime: 1.2, stepTime: 1e-3 })
+  // Transient opens on a 20 ms window of the demo's 1 kHz source: 20 cycles
+  // at a 20 µs step resolves the waveform (Nyquist) inside the 2000-point
+  // budget. A 1 ms step would sample every zero crossing and alias to a flat
+  // line — the solver warns about that, but the default should not need it.
+  const [parameters, setParameters] = useState<SimulationParameters>({ type: 'transient', stopTime: 20e-3, stepTime: 20e-6 })
   const [selectedWaveforms, setSelectedWaveforms] = useState<string[]>([])
   // Live playback: playhead time + clock. The frame is derived (never
   // stored), so 2D/3D views always agree on the circuit's state.

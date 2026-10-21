@@ -617,6 +617,29 @@ function smallestSourceEdge(model: CircuitModel): number {
   return Number.isFinite(edge) ? edge : 1e-6
 }
 
+/**
+ * Shortest period any source waveform repeats on, seconds. A step longer than
+ * half this period samples the waveform faster than Nyquist allows and the
+ * result aliases — a 1 kHz sine sampled every 1 ms lands on zero crossings
+ * forever and reads as a flat 0 V line.
+ */
+function fastestSourcePeriod(model: CircuitModel): number {
+  let period = Number.POSITIVE_INFINITY
+  for (const device of model.devices) {
+    if (device.kind !== 'voltage-source' && device.kind !== 'current-source') continue
+    const waveform = device.waveform
+    if (!waveform) continue
+    if (waveform.kind === 'sine' && waveform.freq > 0) period = Math.min(period, 1 / waveform.freq)
+    if (waveform.kind === 'pulse' && waveform.per > 0) period = Math.min(period, waveform.per)
+    if (waveform.kind === 'sffm') {
+      // SFFM names its two rates `fc` (carrier) and `fs` (signal).
+      if (waveform.fc > 0) period = Math.min(period, 1 / waveform.fc)
+      if (waveform.fs > 0) period = Math.min(period, 1 / waveform.fs)
+    }
+  }
+  return period
+}
+
 export interface TransientOptions {
   temperatureCelsius: number
   stopTime: number
@@ -667,6 +690,17 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
     notes.push(
       `Step time was widened to ${(dt * 1e6).toFixed(3)} µs to stay within the ${maxPoints}-point display ` +
         'budget. Reduce the stop time for finer resolution.',
+    )
+  }
+  // A step longer than half the fastest period undersamples the source: the
+  // plot shows an aliased artefact, not the circuit. Say so instead of letting
+  // a flat line pass as a result.
+  const period = fastestSourcePeriod(model)
+  if (Number.isFinite(period) && dt > period / 2) {
+    notes.push(
+      `Step time (${(dt * 1e6).toFixed(3)} µs) is longer than half the source period ` +
+        `(${(period * 1e6).toFixed(3)} µs), so the waveform is undersampled and will alias. ` +
+        `Use a step under ${(period / 2 * 1e6).toFixed(3)} µs to resolve it.`,
     )
   }
 
