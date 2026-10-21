@@ -1,11 +1,11 @@
 /**
- * Demo HIL + twin: the blinker board closes its own loop (no hardware needed).
+ * Demo HIL + twin: the rectifier board closes its own loop (no hardware needed).
  *
  * HIL `applyTestInputs`/`measureOutputs` need real bench hardware — but the
  * suite VALIDATION (`setupHILTest`) is pure logic and already tested, so the
- * demo proves the blinker suite is coherent: LED + GPIO cases against
- * enabled digital I/O. The twin half is fully provable: Monte Carlo
- * envelope over the blinker netlist + synthetic bench samples at the band
+ * demo proves the rectifier suite is coherent: OUT-rail cases against
+ * enabled analog I/O. The twin half is fully provable: Monte Carlo
+ * envelope over the rectifier netlist + synthetic bench samples at the band
  * centre verify, drifted ones fail. Proven by `demoHilTwin.test.ts`.
  */
 import { ArduinoIDEIntegration } from '../programming/boardProgrammer';
@@ -29,39 +29,39 @@ const operatingPointOf = (perturbed: CircuitModel): AnalysisOutcome =>
   runOperatingPoint(perturbed, { temperatureCelsius: 27 }).outcome;
 
 /**
- * The blinker HIL suite — single source shared by the demo proof and the
+ * The rectifier HIL suite — single source shared by the demo proof and the
  * panel, so the UI can never drift back to fixture data.
  */
-export const BLINKER_HIL_SUITE = {
-  hardwareInterfaces: { digital: true },
+export const RECTIFIER_HIL_SUITE = {
+  hardwareInterfaces: { analog: true },
   testCases: [
     {
-      id: 'blinker-led-on', name: 'LED on at GPIO high',
-      inputs: { digital: { GPIO: true } }, expectedOutputs: { digital: { LED_K: false } },
+      id: 'rectifier-out-high', name: 'OUT charges on positive half-cycle',
+      inputs: { analog: { SRC: 5 } }, expectedOutputs: { analog: { OUT: 4.5 } },
       settlingTime: 20,
     },
     {
-      id: 'blinker-led-off', name: 'LED off at GPIO low',
-      inputs: { digital: { GPIO: false } }, expectedOutputs: { digital: { LED_K: true } },
+      id: 'rectifier-out-blocked', name: 'OUT holds at zero on negative half-cycle',
+      inputs: { analog: { SRC: -5 } }, expectedOutputs: { analog: { OUT: 0 } },
       settlingTime: 20,
     },
   ],
 } as const;
 
 export async function buildDemoHilTwin(): Promise<DemoHilTwin> {
-  // HIL suite coherence: LED drive + GPIO cases on enabled digital lines.
+  // HIL suite coherence: SRC drive + OUT measurement on enabled analog lines.
   const session = await ArduinoIDEIntegration.setupHILTest({
-    hardwareInterfaces: { ...BLINKER_HIL_SUITE.hardwareInterfaces },
-    testCases: [...BLINKER_HIL_SUITE.testCases],
+    hardwareInterfaces: { ...RECTIFIER_HIL_SUITE.hardwareInterfaces },
+    testCases: [...RECTIFIER_HIL_SUITE.testCases],
   });
-  // Twin envelope over the REAL blinker netlist (not a divider fixture).
+  // Twin envelope over the REAL rectifier netlist (not a divider fixture).
   const board = buildDemoBoard();
-  const netlist = buildCircuitNetlist('blinker twin', board.components, board.wires, { type: 'dc' });
+  const netlist = buildCircuitNetlist('rectifier twin', board.components, board.wires, { type: 'dc' });
   const { model, errors } = buildCircuitModel(netlist);
-  if (errors.length > 0) throw new Error(`Blinker twin model failed: ${errors.join('; ')}`);
+  if (errors.length > 0) throw new Error(`Rectifier twin model failed: ${errors.join('; ')}`);
   const { bands } = toleranceEnvelope(model, operatingPointOf, { iterations: 40, tolerance: 0.05, seed: 7 });
-  const target = bands.find((b) => b.signal === 'V(LED_K)') ?? bands[0];
-  if (!target) throw new Error('Blinker twin produced no envelope bands.');
+  const target = bands.find((b) => b.signal === 'V(OUT)') ?? bands[0];
+  if (!target) throw new Error('Rectifier twin produced no envelope bands.');
   const centre = (target.points[0].low + target.points[0].high) / 2;
   const good = correlateBench(bands, [{ signal: target.signal, x: target.points[0].x, value: centre }]);
   const drifted = correlateBench(bands, [{ signal: target.signal, x: target.points[0].x, value: centre + 2 }]);

@@ -41,6 +41,26 @@ const ANALYSIS_SUMMARY: Record<AnalysisType, string> = {
 /** Component types whose value a DC sweep can step, by normalised symbol name. */
 const SWEEPABLE_TYPES = new Set(['voltage_source', 'current_source', 'resistor'])
 
+/**
+ * Default scope probes: input-like nets first, then output-like, then the
+ * rest — so a transient opens on SRC vs OUT, not on the first
+ * alphabetical node. MATLAB-style: the stimulus and the answer, labelled.
+ */
+function pickDefaultWaveforms(names: string[]): string[] {
+  if (names.length === 0) return []
+  const score = (name: string): number => {
+    const upper = name.toUpperCase()
+    if (/GPIO|IN\b|INPUT|VIN|CLOCK|CLK|SOURCE|DRIVE/.test(upper)) return 0
+    if (/OUT\b|OUTPUT|LED|LOAD|SINK|DRAIN|COLLECT/.test(upper)) return 1
+    if (/VCC|VDD|VSS|GND|^V\(0\)/.test(upper)) return 3
+    return 2
+  }
+  const voltages = names.filter((name) => !/^I\(/.test(name))
+  const pool = voltages.length > 0 ? voltages : names
+  const ranked = [...pool].sort((a, b) => score(a) - score(b) || (a < b ? -1 : 1))
+  return ranked.slice(0, 2)
+}
+
 /** A ready-to-run digital deck so the timing card is useful on first open. */
 const DIGITAL_EXAMPLE = [
   '# 2-bit ripple counter: CLOCK drives two T flip-flops, Q0 toggles every rising edge.',
@@ -55,9 +75,9 @@ const DIGITAL_EXAMPLE = [
 export default function SimulationPanel({ onClose }: SimulationPanelProps) {
   const [isSimulating, setIsSimulating] = useState(false)
   const [simulationResults, setSimulationResults] = useState<SimulationResult | null>(null)
-  const [selectedAnalysis, setSelectedAnalysis] = useState<AnalysisType>('dc')
+  const [selectedAnalysis, setSelectedAnalysis] = useState<AnalysisType>('transient')
   const [error, setError] = useState<string | null>(null)
-  const [parameters, setParameters] = useState<SimulationParameters>({ type: 'dc' })
+  const [parameters, setParameters] = useState<SimulationParameters>({ type: 'transient', stopTime: 1.2, stepTime: 1e-3 })
   const [selectedWaveforms, setSelectedWaveforms] = useState<string[]>([])
   // Live playback: playhead time + clock. The frame is derived (never
   // stored), so 2D/3D views always agree on the circuit's state.
@@ -134,7 +154,7 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
       const netlist = buildCircuitNetlist('Circuit Simulation', components, wires, parameters)
       const result = await spiceEngine.simulate(netlist)
       setSimulationResults(result)
-      setSelectedWaveforms(result.waveforms.length > 0 ? [result.waveforms[0].name] : [])
+      setSelectedWaveforms(pickDefaultWaveforms(result.waveforms.map((w) => w.name)))
       // Persist the run into the design so it survives save/load and VCS commits.
       addSimulationRun({
         name: `${ANALYSIS_LABELS[selectedAnalysis]} — ${new Date().toLocaleString()}`,

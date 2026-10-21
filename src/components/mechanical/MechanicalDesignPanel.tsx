@@ -431,7 +431,7 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
                   className="w-full flex items-center gap-2"
                 >
                   <Zap className="w-4 h-4" />
-                  Load blinker enclosure ({enclosureVerdict})
+                  Load rectifier enclosure ({enclosureVerdict})
                 </Button>
                 
                 {analysisResult && (

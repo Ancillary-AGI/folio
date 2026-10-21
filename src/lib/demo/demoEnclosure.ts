@@ -1,13 +1,13 @@
 /**
- * Demo enclosure: the blinker board's thermal + mechanical home (mm-accurate).
+ * Demo enclosure: the rectifier board's thermal + mechanical home (mm-accurate).
  *
  * The e-CAD demo proves schematic → sim → fab. This proves the NEXT link:
  * the 60×53 mm board lives in a real walled enclosure whose lid temperature
  * is computed by the tested `analyseConduction` engine (R = L/(kA), SI units),
  * and whose STEP export is the same `enclosureStep` the fab flow uses.
- * Hand-verifiable: LED + transistor + resistors dissipate ~0.25 W; the FR-4
- * floor + air gap drop is P·R with R from real wall/clearance dimensions.
- * Proven by `demoEnclosure.test.ts`.
+ * Hand-verifiable: the Schottky diode and the 100 Ω load dissipate ~0.25 W;
+ * the FR-4 floor + air gap drop is P·R with R from real wall/clearance
+ * dimensions. Proven by `demoEnclosure.test.ts`.
  */
 import { analyseConduction, type ConductiveResult } from '../mechanical/mechanicalAnalysis';
 import { enclosureStep, type EnclosureSpec, type StepExport } from '../manufacturing/enclosureStep';
@@ -24,7 +24,7 @@ export interface DemoEnclosure {
 const FR4_K = 0.3;
 const AIR_K = 0.026;
 
-/** Dissipation budget of the blinker at 5 V, from the simulated branch currents. */
+/** Dissipation budget of the rectifier, from the simulated branch currents. */
 export const DEMO_DISSIPATION_W = 0.25;
 export const DEMO_AMBIENT_C = 25;
 

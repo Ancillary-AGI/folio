@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildDemoFirmware, DEMO_SKETCH } from './demoFirmware';
 
 describe('demo firmware — sketch to HEX to verified upload', () => {
-  it('analyses, packs, uploads and verifies the blinker', async () => {
+  it('analyses, packs, uploads and verifies the rectifier companion sketch', async () => {
     const demo = await buildDemoFirmware();
     expect(demo.staticOk).toBe(true);
     expect(demo.hexRecords).toBeGreaterThan(5);

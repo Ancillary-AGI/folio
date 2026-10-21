@@ -52,7 +52,7 @@ export default function MarketplacePanel() {
       <Card>
         <CardContent className="space-y-2 p-4 text-sm">
           <p className="text-muted-foreground">
-            Publish the proven blinker bundle (schematic + fab data + firmware) as a versioned listing.
+            Publish the proven rectifier bundle (schematic + fab data + firmware) as a versioned listing.
           </p>
           <Button
             size="sm"
@@ -61,12 +61,12 @@ export default function MarketplacePanel() {
               void import('../../lib/demo/demoMarketplace').then((m) => {
                 m.buildDemoMarketplaceBundle(designMarketplace);
                 setInstalled(designMarketplace.getInstalled());
-                setQuery('blinker');
-                setItems(designMarketplace.search('blinker'));
+                setQuery('rectifier');
+                setItems(designMarketplace.search('rectifier'));
               });
             }}
           >
-            Publish blinker bundle
+            Publish rectifier bundle
           </Button>
         </CardContent>
       </Card>

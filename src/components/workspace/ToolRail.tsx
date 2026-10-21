@@ -170,10 +170,10 @@ export default function ToolRail({ onSave }: ToolRailProps) {
       {/* Undo/redo operate on the project store's snapshot stack. */}
       <UndoRedoRailButtons />
 
-      {/* One-click proof: load the tested 9-part blinker onto the sheet. */}
+      {/* One-click proof: load the tested 6-part rectifier onto the sheet. */}
       <RailButton
-        title="Load demo blinker board (tested: sim + fab)"
-        ariaLabel="Load demo blinker board"
+        title="Load demo rectifier board (tested: sim + fab)"
+        ariaLabel="Load demo rectifier board"
         onClick={() => {
           const board = buildDemoBoard();
           // Same reset as the divider loader: clear selection/live state so the

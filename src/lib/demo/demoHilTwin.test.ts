@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildDemoHilTwin } from './demoHilTwin';
 
-describe('demo HIL + twin — blinker closes its own loop', () => {
+describe('demo HIL + twin — rectifier closes its own loop', () => {
   it('validates the HIL suite and verifies the twin envelope', async () => {
     const demo = await buildDemoHilTwin();
     expect(demo.hilTests).toBe(2);

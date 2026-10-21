@@ -245,7 +245,7 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
                 });
               }}
             >
-              <Package className="w-3 h-3 mr-1" />Load blinker
+              <Package className="w-3 h-3 mr-1" />Load rectifier
             </Button>
           )}
           {onClose && <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close BOM panel"><X className="w-4 h-4" /></Button>}

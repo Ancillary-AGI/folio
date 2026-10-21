@@ -356,8 +356,8 @@ function App() {
     useAppStore.getState().setWorkspaceMode('schematic')
   }
 
-  const handleLoadDemoBlinker = async () => {
-    if (!confirmReplace('tested LED blinker board')) return
+  const handleLoadDemoBoard = async () => {
+    if (!confirmReplace('tested half-wave rectifier board')) return
     if (!(await ensureProject())) return
     const board = buildDemoBoard()
     useProjectStore.setState({ components: board.components, wires: board.wires, isDirty: true })
@@ -687,7 +687,7 @@ function App() {
             onClose={closeOnboarding}
             onCreateProject={() => { void handleNewProject() }}
             onLoadSampleCircuit={() => { void handleLoadSampleCircuit() }}
-            onLoadDemoBlinker={() => { void handleLoadDemoBlinker() }}
+            onLoadDemoBoard={() => { void handleLoadDemoBoard() }}
             hasProject={Boolean(currentProject)}
             stepIndex={onboardingStep}
             setStepIndex={setOnboardingStep}
@@ -987,7 +987,7 @@ function App() {
           onClose={closeOnboarding}
           onCreateProject={() => { void handleNewProject() }}
           onLoadSampleCircuit={() => { void handleLoadSampleCircuit() }}
-          onLoadDemoBlinker={() => { void handleLoadDemoBlinker() }}
+          onLoadDemoBoard={() => { void handleLoadDemoBoard() }}
           hasProject
           stepIndex={onboardingStep}
           setStepIndex={setOnboardingStep}

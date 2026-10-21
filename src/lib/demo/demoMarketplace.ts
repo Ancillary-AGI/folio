@@ -1,9 +1,9 @@
 /**
- * Demo marketplace bundle: the blinker project as an installable listing.
+ * Demo marketplace bundle: the rectifier project as an installable listing.
  *
  * The marketplace engine (publish/search/install) is real but seeded with
  * sample data — nothing proves YOUR designs can round-trip through it. This
- * demo publishes the blinker bundle (schematic canvas + fab summary +
+ * demo publishes the rectifier bundle (schematic canvas + fab summary +
  * firmware sketch id) as a versioned listing, then installs it back and
  * verifies the payload survives byte-for-byte. Proven by
  * `demoMarketplace.test.ts`.
@@ -33,13 +33,13 @@ export function buildDemoMarketplaceBundle(marketplace = new DesignMarketplace()
     firmwareSketchBytes: new TextEncoder().encode(DEMO_SKETCH).length,
   };
   const listing = marketplace.publish({
-    title: 'Blinker Starter Kit (tested)',
+    title: 'Half-Wave Rectifier Kit (tested)',
     author: 'Folio Demos',
     category: 'pcb',
-    description: '2N2222 low-side LED blinker: schematic, fab-ready layout data, firmware sketch.',
+    description: '1N5817 half-wave rectifier with 10 uF filter: schematic, fab-ready layout data, firmware sketch.',
     version: '1.0.0',
     license: 'CERN-OHL-S',
-    tags: ['blinker', 'demo', 'tested'],
+    tags: ['rectifier', 'demo', 'tested'],
     rating: 5,
     payload,
   });

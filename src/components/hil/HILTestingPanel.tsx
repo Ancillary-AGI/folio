@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ArduinoIDEIntegration, type HILTestSession, type HILTestSummary } from '../../lib/programming/boardProgrammer';
-import { BLINKER_HIL_SUITE } from '../../lib/demo/demoHilTwin';
+import { RECTIFIER_HIL_SUITE } from '../../lib/demo/demoHilTwin';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
@@ -15,10 +15,10 @@ export default function HILTestingPanel() {
     setBusy(true);
     setError('');
     try {
-      // The proven blinker suite — not fixture data: same cases the demo test validates.
+      // The proven rectifier suite — not fixture data: same cases the demo test validates.
       const setup = await ArduinoIDEIntegration.setupHILTest({
-        hardwareInterfaces: { ...BLINKER_HIL_SUITE.hardwareInterfaces },
-        testCases: [...BLINKER_HIL_SUITE.testCases],
+        hardwareInterfaces: { ...RECTIFIER_HIL_SUITE.hardwareInterfaces },
+        testCases: [...RECTIFIER_HIL_SUITE.testCases],
       });
       setSession(setup);
       const result = await ArduinoIDEIntegration.runHILTest(setup);
@@ -56,7 +56,7 @@ export default function HILTestingPanel() {
             </div>
           ))}
           <p className="text-xs text-muted-foreground">
-            No hardware attached: drive/measure refuses closed. The blinker suite above validates coherently,
+            No hardware attached: drive/measure refuses closed. The rectifier suite above validates coherently,
             and the twin envelope (Monte Carlo ±3σ) verifies centre samples while refusing drift — see the
             Twin panel.
           </p>

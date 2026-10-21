@@ -215,50 +215,78 @@ export default function SchematicCanvas({
     onSave(saveData)
   }, [canvasComponents, wires, viewport, onSave])
 
+  const pinch = useRef<{ dist: number; mid: { x: number; y: number }; scale: number } | null>(null)
+  const lastWheelZoom = useRef(0)
+
   const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault()
-
-    // Ctrl/Cmd + wheel (or pinch): zoom at the cursor like KiCad/Altium.
-    // Plain wheel: vertical scroll pans; Shift + wheel: horizontal scroll.
     if (!e.evt.ctrlKey && !e.evt.metaKey) {
       const factor = 1.1
       const dx = e.evt.shiftKey ? e.evt.deltaY : e.evt.deltaX
       const dy = e.evt.shiftKey ? 0 : e.evt.deltaY
-      const { zoom, pan } = useAppStore.getState().viewport
-      const margin = 200
+      const { pan } = useAppStore.getState().viewport
+      const margin = 200000
       setPan({
-        x: Math.min(margin, Math.max(stageSize.width - 2000 * zoom - margin, pan.x - dx * factor)),
-        y: Math.min(margin, Math.max(stageSize.height - 1500 * zoom - margin, pan.y - dy * factor)),
+        x: Math.min(margin, Math.max(-margin, pan.x - dx * factor)),
+        y: Math.min(margin, Math.max(-margin, pan.y - dy * factor)),
       })
       return
     }
-    
-    const scaleBy = 1.1
+    if (pinch.current !== null) return
+    const now = performance.now()
+    if (now - lastWheelZoom.current < 16) return
+    lastWheelZoom.current = now
+    const scaleBy = Math.pow(1.0015, -Math.max(-200, Math.min(200, e.evt.deltaY)))
     const stage = e.target.getStage()
     if (!stage) return
-    
     const oldScale = stage.scaleX()
     const pointer = stage.getPointerPosition()
     if (!pointer) return
-    
     const mousePointTo = {
       x: (pointer.x - stage.x()) / oldScale,
       y: (pointer.y - stage.y()) / oldScale,
     }
-    
-    const newScale = e.evt.deltaY > 0 ? oldScale * scaleBy : oldScale / scaleBy
-    const clampedScale = Math.max(0.1, Math.min(5, newScale))
-    
+    const clampedScale = Math.max(0.1, Math.min(5, oldScale * scaleBy))
     setZoom(clampedScale)
-    
     const newPos = {
       x: pointer.x - mousePointTo.x * clampedScale,
       y: pointer.y - mousePointTo.y * clampedScale,
     }
-    
     setPan(newPos)
     stage.scale({ x: clampedScale, y: clampedScale })
     stage.position(newPos)
+  }
+
+  const handleTouchMove = (e: Konva.KonvaEventObject<TouchEvent>) => {
+    const touches = e.evt.touches
+    if (touches.length !== 2) { pinch.current = null; return }
+    e.evt.preventDefault()
+    e.evt.stopPropagation()
+    const stage = e.target.getStage()
+    if (!stage) return
+    const t0 = touches[0]; const t1 = touches[1]
+    const rect = stage.container().getBoundingClientRect()
+    const p0 = { x: t0.clientX - rect.left, y: t0.clientY - rect.top }
+    const p1 = { x: t1.clientX - rect.left, y: t1.clientY - rect.top }
+    const dist = Math.hypot(p1.x - p0.x, p1.y - p0.y)
+    const mid = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 }
+    const prev = pinch.current
+    if (!prev || prev.dist === 0) { pinch.current = { dist, mid, scale: stage.scaleX() }; return }
+    if (Math.abs(dist - prev.dist) < 1) return
+    const clampedRatio = Math.max(0.9, Math.min(1.1, dist / prev.dist))
+    const next = Math.max(0.1, Math.min(5, prev.scale * clampedRatio))
+    const world = { x: (mid.x - stage.x()) / stage.scaleX(), y: (mid.y - stage.y()) / stage.scaleX() }
+    pinch.current = { dist, mid, scale: next }
+    setZoom(next)
+    const pos = { x: mid.x - world.x * next, y: mid.y - world.y * next }
+    setPan(pos)
+    stage.scale({ x: next, y: next })
+    stage.position(pos)
+  }
+
+  const handleTouchEnd = () => {
+    pinch.current = null
+    lastWheelZoom.current = performance.now()
   }
 
   const handleDragStart = () => {
@@ -577,7 +605,7 @@ export default function SchematicCanvas({
   const renderGrid = () => {
     if (!settings.showGrid) return null
 
-    const { zoom, pan } = viewport
+    const { pan, zoom } = viewport
     const gridSize = settings.gridSize
 
     // Keep grid density readable when zoomed far out.
@@ -634,8 +662,8 @@ export default function SchematicCanvas({
 
   const renderComponent = (canvasComp: typeof canvasComponents[0]) => {
     const isSelected = selectedComponents.includes(canvasComp.id)
-    // Live state: a lit branch (diode current > 0) glows its body.
     const lit = liveFrame?.lit[canvasComp.reference.toUpperCase()] ?? false
+    const { zoom } = viewport
 
     return (
       <Group
@@ -676,20 +704,17 @@ export default function SchematicCanvas({
           shadowColor={lit ? palette.selectedStroke : 'transparent'}
         />
 
-        {/* Symbol paths */}
         {canvasComp.component.symbol_data.paths.map((path, index) => (
-        <Path
-        key={index}
-        data={path}
-        stroke={palette.line}
-        strokeWidth={2}
-        fillEnabled={false}
-        lineCap="round"
-        lineJoin="round"
-        />
+          <Path
+            key={index}
+            data={path}
+            stroke={palette.line}
+            strokeWidth={1.75 / zoom}
+            fillEnabled={false}
+            lineCap="round"
+            lineJoin="round"
+          />
         ))}
-        {/* Source circle lives in symbol_data */}
-
         {/* Component label */}
         <Text
           text={canvasComp.reference}
@@ -863,6 +888,7 @@ export default function SchematicCanvas({
     return hops
   }, [segments, junctions, wires])
   const renderWires = () => {
+    const { zoom } = viewport
     return (
       <>
         {wires.map(wire => {
@@ -871,16 +897,12 @@ export default function SchematicCanvas({
               key={wire.id}
               points={wire.points.flatMap(pt => [pt.x, pt.y])}
               stroke={palette.wire}
-              // Single 2px wire
-              strokeWidth={2}
-              opacity={1}
-              shadowBlur={0}
+              strokeWidth={2 / zoom}
               lineCap="round"
               lineJoin="round"
               hitStrokeWidth={12}
               onMouseEnter={() => {
                 setHoveredPin(null)
-                setHoveredPart(null)
                 setHoveredWire({ id: wire.id, netName: wire.netName || '—', pins: wire.connectedPins?.length ?? 0 })
                 setCursorFromEvent()
               }}
@@ -946,11 +968,10 @@ export default function SchematicCanvas({
     // Active middle-button pan: viewport follows the pointer, clamped so the
     // sheet origin can never leave the visible area entirely.
     if (panning) {
-      const { zoom } = useAppStore.getState().viewport
-      const margin = 200
+      const margin = 200000
       setPan({
-        x: Math.min(margin, Math.max(stageSize.width - 2000 * zoom - margin, panning.panX + (e.clientX - panning.startX))),
-        y: Math.min(margin, Math.max(stageSize.height - 1500 * zoom - margin, panning.panY + (e.clientY - panning.startY))),
+        x: Math.min(margin, Math.max(-margin, panning.panX + (e.clientX - panning.startX))),
+        y: Math.min(margin, Math.max(-margin, panning.panY + (e.clientY - panning.startY))),
       })
     }
     pendingCursor.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
@@ -983,7 +1004,7 @@ export default function SchematicCanvas({
   /* Ruler ticks in screen space; a major tick with a label every fifth step. */
   const xTicks = useMemo(() => {
     if (!settings.showRulers) return []
-    const { zoom, pan } = viewport
+    const { pan, zoom } = viewport
     const majorStep = RULER_STEPS.find((candidate) => candidate * zoom >= 64) ?? 100000
     const minorStep = majorStep / 5
     const first = Math.ceil(-pan.x / zoom / minorStep)
@@ -1002,7 +1023,7 @@ export default function SchematicCanvas({
 
   const yTicks = useMemo(() => {
     if (!settings.showRulers) return []
-    const { zoom, pan } = viewport
+    const { pan, zoom } = viewport
     const majorStep = RULER_STEPS.find((candidate) => candidate * zoom >= 64) ?? 100000
     const minorStep = majorStep / 5
     const first = Math.ceil(-pan.y / zoom / minorStep)
@@ -1053,6 +1074,8 @@ export default function SchematicCanvas({
         y={viewport.pan.y}
         draggable={false}
         onWheel={handleWheel}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
         onClick={handleStageClick}
         onMouseDown={(e) => {
           // Left press on EMPTY sheet with the select tool starts a pan

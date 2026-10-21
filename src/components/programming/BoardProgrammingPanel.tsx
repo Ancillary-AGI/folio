@@ -94,6 +94,15 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
 
   const handleTemplateChange = (template: string) => {
     setSelectedTemplate(template);
+    // The rectifier companion is a real, proven sketch — pull it from the
+    // demo module rather than shipping a second copy here.
+    if (template === 'demo_rectifier') {
+      void import('../../lib/demo/demoFirmware').then((m) => {
+        handleCodeChange(m.DEMO_SKETCH);
+        setToolchainError(null);
+      });
+      return;
+    }
     const next = CODE_TEMPLATES[template as keyof typeof CODE_TEMPLATES] || CODE_TEMPLATES.basic
     setCode(next);
     setFirmwareCode(next);
@@ -342,7 +351,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                 className="px-3 py-1 text-sm border border-input rounded bg-background"
               >
                 <option value="basic">Basic Blink</option>
-                <option value="demo_blinker">Demo blinker (tested)</option>
+                <option value="demo_rectifier">Demo rectifier companion (tested)</option>
                 <option value="sensor_reading">Sensor Reading</option>
                 <option value="servo_control">Servo Control</option>
                 <option value="wifi_connection">WiFi Connection</option>
@@ -353,7 +362,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                 onClick={() => {
                   void import('../../lib/demo/demoFirmware').then((m) => {
                     handleCodeChange(m.DEMO_SKETCH);
-                    setSelectedTemplate('demo_blinker');
+                    setSelectedTemplate('demo_rectifier');
                     setToolchainError(null);
                   });
                 }}
@@ -363,14 +372,35 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
             </div>
           </div>
 
-          {/* Code Editor */}
-          <div className="flex-1 p-4">
+          <div className="flex min-h-0 flex-1 gap-0 p-4">
+            <div
+              aria-hidden="true"
+              className="cad-code-gutter select-none overflow-hidden rounded-l-md border border-r-0 border-input bg-muted/40 px-2 py-4 text-right font-mono text-xs leading-6 text-muted-foreground"
+            >
+              {code.split('\n').map((_, i) => (
+                <div key={i}>{i + 1}</div>
+              ))}
+            </div>
             <textarea
               value={code}
               onChange={(e) => handleCodeChange(e.target.value)}
-              className="w-full h-full font-mono text-sm border border-input rounded-md p-4 bg-background resize-none focus:ring-2 focus:ring-ring focus:border-transparent"
+              onKeyDown={(e) => {
+                if (e.key === 'Tab') {
+                  e.preventDefault();
+                  const el = e.currentTarget;
+                  const start = el.selectionStart;
+                  const end = el.selectionEnd;
+                  handleCodeChange(code.slice(0, start) + '  ' + code.slice(end));
+                  requestAnimationFrame(() => {
+                    el.selectionStart = el.selectionEnd = start + 2;
+                  });
+                }
+              }}
+              wrap="off"
+              className="cad-code-area max-h-72 min-h-72 w-full flex-1 resize-y overflow-auto rounded-r-md border border-input bg-background p-4 font-mono text-sm leading-6 text-foreground focus:border-transparent focus:ring-2 focus:ring-ring"
               placeholder="Enter your Arduino code here..."
               spellCheck={false}
+              aria-label="Firmware source code"
             />
           </div>
 

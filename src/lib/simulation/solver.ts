@@ -587,11 +587,41 @@ export function runDcSweep(model: CircuitModel, options: DcSweepOptions): DcSwee
  * Transient
  * ──────────────────────────────────────────────────────────────────────────── */
 
+/**
+ * Fastest transition any source waveform demands, seconds. A 10 ns PULSE edge
+ * straddled by a 1 ms step is a 5 V discontinuity in one Newton solve —
+ * uncrossable. The retry controller subdivides down to a fraction of this
+ * edge, not to an arbitrary fraction of the display step.
+ */
+function smallestSourceEdge(model: CircuitModel): number {
+  let edge = Number.POSITIVE_INFINITY
+  for (const device of model.devices) {
+    if (device.kind !== 'voltage-source' && device.kind !== 'current-source') continue
+    const waveform = device.waveform
+    if (!waveform) continue
+    if (waveform.kind === 'pulse') {
+      if (waveform.tr > 0) edge = Math.min(edge, waveform.tr)
+      if (waveform.tf > 0) edge = Math.min(edge, waveform.tf)
+    } else if (waveform.kind === 'sine') {
+      if (waveform.freq > 0) edge = Math.min(edge, 1 / (waveform.freq * 20))
+    } else if (waveform.kind === 'exp') {
+      if (waveform.tau1 > 0) edge = Math.min(edge, waveform.tau1 / 5)
+      if (waveform.tau2 > 0) edge = Math.min(edge, waveform.tau2 / 5)
+    } else if (waveform.kind === 'pwl' && waveform.points.length > 1) {
+      for (let index = 1; index < waveform.points.length; index += 1) {
+        const span = waveform.points[index].time - waveform.points[index - 1].time
+        if (span > 0) edge = Math.min(edge, span)
+      }
+    }
+  }
+  return Number.isFinite(edge) ? edge : 1e-6
+}
+
 export interface TransientOptions {
   temperatureCelsius: number
   stopTime: number
   stepTime: number
-  /**
+  /** See `smallestSourceEdge` below for why the retry floor tracks edges.
    * `false` (the default, matching SPICE) starts from the DC operating point, so
    * a capacitor charged at DC begins charged. `true` starts from zero stored
    * energy — what you want when watching an RC circuit charge.
@@ -600,6 +630,8 @@ export interface TransientOptions {
   gmin?: number
   /** Upper bound on internal steps, to keep the UI responsive. */
   maxPoints?: number
+  /** Smallest step the retry controller may shrink to before giving up. */
+  minStepTime?: number
 }
 
 /**
@@ -626,6 +658,8 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
   const requestedSteps = Math.max(1, Math.ceil(stopTime / stepTime))
   const steps = Math.min(requestedSteps, maxPoints)
   const dt = stopTime / steps
+  const edgeFloor = smallestSourceEdge(model)
+  const minStep = Math.min(options.minStepTime ?? stepTime / 1024, edgeFloor / 4)
 
   const state: TransientState = createTransientState()
   const notes: string[] = []
@@ -672,13 +706,11 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
   let warmStart = initialSolution
 
   for (let step = 1; step <= steps; step += 1) {
-    // Sources with a PULSE or SINE waveform are evaluated at the step's time.
     const time = step * dt
     const newton = solveNewton(
       model,
       (system) => {
         stampTransient(system, model, dt, state, time)
-        // Junction, gate and op-amp stage capacitances take the same step.
         stampSemiconductorLinear(system, model, { dt, state })
       },
       {
@@ -688,6 +720,87 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
         time,
       },
     )
+
+    if ((!newton || !newton.converged) && dt > minStep) {
+      const stepStart = time - dt
+      const savedCaps = new Map(state.capacitorVoltages)
+      const savedInds = new Map(state.inductorCurrents)
+      const savedBjt = new Map(state.bjtJunctions)
+      const savedMos = new Map(state.mosfetBias)
+      const savedJfet = new Map(state.jfetBias)
+      const savedOp = new Map(state.opAmpStages)
+      const restore = (): void => {
+        state.capacitorVoltages = new Map(savedCaps)
+        state.inductorCurrents = new Map(savedInds)
+        state.bjtJunctions = new Map(savedBjt)
+        state.mosfetBias = new Map(savedMos)
+        state.jfetBias = new Map(savedJfet)
+        state.opAmpStages = new Map(savedOp)
+      }
+      let subDt = dt / 2
+      let sub = warmStart
+      let subSolution: number[] | undefined
+      let subbed = false
+      while (subDt >= minStep) {
+        restore()
+        let cursor = stepStart
+        let cursorStart = sub
+        let failed = false
+        while (cursor < time - subDt / 2) {
+          cursor += subDt
+          const attempt = solveNewton(
+            model,
+            (system) => {
+              stampTransient(system, model, subDt, state, cursor)
+              stampSemiconductorLinear(system, model, { dt: subDt, state })
+            },
+            { temperatureCelsius, gmin: options.gmin, initial: cursorStart, time: cursor },
+          )
+          if (!attempt || !attempt.converged) {
+            failed = true
+            break
+          }
+          const attemptVoltages = readNodeVoltages(model, attempt.solution)
+          const attemptCurrents = readBranchCurrents(model, attempt.solution)
+          for (const device of model.devices) {
+            if (device.kind === 'capacitor') {
+              state.capacitorVoltages.set(device.name, (attemptVoltages.get(device.p) ?? 0) - (attemptVoltages.get(device.n) ?? 0))
+            }
+            if (device.kind === 'inductor') {
+              state.inductorCurrents.set(device.name, attemptCurrents.get(device.name) ?? 0)
+            }
+          }
+          updateTransientState(model, state, attemptVoltages, thermal)
+          cursorStart = attempt.solution
+        }
+        if (!failed) {
+          subbed = true
+          subSolution = cursorStart
+          break
+        }
+        subDt /= 2
+        sub = warmStart
+      }
+      if (!subbed) {
+        restore()
+      }
+      if (subbed) {
+        // The subdivision already converged THROUGH `time`: its state is the
+        // answer. Re-solving the full step from scratch re-crosses the edge
+        // and re-fails — instead accept the subdivided solution directly.
+        const voltages = readNodeVoltages(model, subSolution as number[])
+        const currents = readBranchCurrents(model, subSolution as number[])
+        warmStart = subSolution
+        iterations += 1
+        notes.push(`Step subdivided near t = ${(time * 1e3).toFixed(4)} ms to cross a fast edge.`)
+        for (const node of model.nodeNames) {
+          if (isInternalNode(node)) continue
+          voltageSeries.get(node)?.push({ x: time, y: voltages.get(node) ?? 0 })
+        }
+        void currents
+        continue
+      }
+    }
 
     if (!newton) {
       notes.push(`The transient solve failed at t = ${(time * 1e3).toFixed(4)} ms (singular matrix).`)

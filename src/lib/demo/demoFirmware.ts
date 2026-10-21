@@ -1,9 +1,10 @@
 /**
- * Demo firmware: the blinker board's Arduino sketch, end to end, no hardware.
+ * Demo firmware: the rectifier board's companion Arduino sketch, end to end,
+ * no hardware.
  *
  * The embedded domain is honest about hardware: compile needs arduino-cli,
  * upload needs a granted serial port. What IS provable without either:
- * the 1 Hz blinker sketch for the demo board passes static analysis, packs
+ * the companion sketch for the demo board passes static analysis, packs
  * to a checksummed Intel HEX image, and uploads through the real STK500v1
  * session against a scripted loopback transport with read-back verify.
  * That is the entire browser-side path, proven byte-for-byte. Proven by
@@ -13,15 +14,25 @@ import { boardProgrammer } from '../programming/boardProgrammer';
 import { bytesToIntelHex, parseIntelHex, textToBytes } from '../compilation/intelHex';
 import { STK_INSYNC, STK_OK, uploadHexImage } from '../programming/uploadSession';
 
-export const DEMO_SKETCH = `// Folio demo blinker — drives the 2N2222 low-side LED on D13.
+export const DEMO_SKETCH = `// Folio demo rectifier companion — samples the rectified output on A0 and
+// lights D13 whenever OUT rises above the 3.0 V threshold.
+const int OUT_PIN = A0;
+const int LED_PIN = 13;
+const int THRESHOLD_MV = 3000;
+
 void setup() {
-  pinMode(13, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
+  analogReference(AVCC);
 }
+
 void loop() {
-  digitalWrite(13, HIGH);
-  delay(500);
-  digitalWrite(13, LOW);
-  delay(500);
+  int outMv = analogRead(OUT_PIN) * 5000L / 1023L;
+  if (outMv > THRESHOLD_MV) {
+    digitalWrite(LED_PIN, HIGH);
+  } else {
+    digitalWrite(LED_PIN, LOW);
+  }
+  delay(50);
 }
 `;
 
@@ -93,6 +104,6 @@ export async function buildDemoFirmware(): Promise<DemoFirmware> {
     hexBytes: parsedBytes,
     uploadOk: session.success,
     verifiedBytes: session.bytesVerified,
-    verdict: `PASS: blinker sketch analyses clean, packs to ${records} HEX records, uploads + verifies ${session.bytesVerified} B over STK500v1.`,
+    verdict: `PASS: rectifier companion sketch analyses clean, packs to ${records} HEX records, uploads + verifies ${session.bytesVerified} B over STK500v1.`,
   };
 }

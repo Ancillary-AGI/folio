@@ -9,7 +9,7 @@ export interface OnboardingTourProps {
   onClose: () => void
   onCreateProject: () => void
   onLoadSampleCircuit: () => void
-  onLoadDemoBlinker: () => void
+  onLoadDemoBoard: () => void
   hasProject: boolean
   stepIndex: number
   setStepIndex: (step: number | ((current: number) => number)) => void
@@ -19,7 +19,7 @@ export default function OnboardingTour({
   onClose,
   onCreateProject,
   onLoadSampleCircuit,
-  onLoadDemoBlinker,
+  onLoadDemoBoard,
   hasProject,
   stepIndex,
   setStepIndex,
@@ -188,11 +188,12 @@ export default function OnboardingTour({
                 <div className="mt-6 rounded-md border border-primary/40 bg-primary/5 p-4">
                   <h3 className="text-sm font-semibold text-card-foreground">Run a known circuit</h3>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    Loads the tested 2N2222 LED blinker (9 parts, 6 nets): DC operating point parks the
-                    collector near 5 V with GPIO low, and the fab export ships with zero DRC violations.
+                    Loads the tested 1N5817 half-wave rectifier (6 parts, 4 nets): the transient run shows OUT
+                    riding the positive half-cycle and never swinging negative, and the fab export ships with
+                    zero DRC violations.
                   </p>
                   <div className="mt-3 grid grid-cols-2 items-stretch gap-2">
-                    <Button variant="outline" size="sm" className="h-9 justify-center whitespace-nowrap" onClick={onLoadDemoBlinker}>Load blinker</Button>
+                    <Button variant="outline" size="sm" className="h-9 justify-center whitespace-nowrap" onClick={onLoadDemoBoard}>Load rectifier</Button>
                     <Button variant="outline" size="sm" className="h-9 justify-center whitespace-nowrap" onClick={onLoadSampleCircuit}>Load divider</Button>
                   </div>
                 </div>

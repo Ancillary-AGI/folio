@@ -84,7 +84,7 @@ describe('App shell', () => {
         onClose={() => {}}
         onCreateProject={() => {}}
         onLoadSampleCircuit={() => {}}
-        onLoadDemoBlinker={() => {}}
+        onLoadDemoBoard={() => {}}
         hasProject={false}
         stepIndex={0}
         setStepIndex={() => {}}

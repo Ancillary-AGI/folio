@@ -1,15 +1,14 @@
 /**
- * Demo board: 2N2222 low-side LED blinker (2-layer, 60 x 53 mm).
+ * Demo board: half-wave rectifier with filter (2-layer, 60 x 53 mm).
  *
- * Every part is BOTH simulatable (DC/PULSE sources, R, C, NPN, LED-as-diode)
- * AND stocked with a real IPC footprint (0805/0603/SOT-23), so the SAME
+ * Every part is BOTH simulatable (SINE source, R, C, Schottky diode)
+ * AND stocked with a real IPC footprint (0805/1206/SMC), so the SAME
  * canvas data flows schematic -> simulate -> DRC-gated fab export -> 3D
  * viewer with nothing invented. Proven by `demoBoard.test.ts`.
  *
- * Circuit: 5 V rail, 100 nF decoupling, 1 Hz PULSE GPIO through a 4.7 k
- * base resistor into a 2N2222; 10 k base pulldown; low-side red LED with
- * a 330 ohm collector resistor. Hand-verifiable: GPIO high saturates Q1
- * (Vce < 0.3 V, LED on); GPIO low cuts Q1 off (collector at ~5 V).
+ * Circuit: 6 Vpk 1 kHz sine into 10 ohm source resistance, 1N5817
+ * Schottky, 10 uF filter across a 100 ohm load. Hand-verifiable: OUT
+ * rides the positive half-cycle minus ~0.3 V and never swings negative.
  */
 import type { CanvasComponent, CanvasWire } from '../../stores/useProjectStore';
 import type { Component } from '../supabase';
@@ -43,45 +42,38 @@ const wire = (id: string, netName: string, pins: Array<{ componentId: string; pi
 });
 
 export function buildDemoBoard(): DemoBoard {
-  // Closed low-side LED switcher. Rails run full-width; every tap lands on
-  // its rail at a junction dot. Exactly one crossing (GPIO x GND drop) uses
-  // a jump-over hop. Pin worlds: V1 (80,100), V2 (80,300), C1 (200,120),
-  // RB (300,235), RPD (415,300) rot90, Q1 (420,220), RC1 (360,80) rot90,
-  // D1 (345,170), G1 (280,420).
+  // Half-wave rectifier with filter — CircuitLab-clean: one straight top
+  // rail (y=180), one ground rail, zero crossings, zero jumps.
+  // V1 SINE 6 Vpk 1 kHz -> R_SRC 10 -> D1 1N5817 -> C1 10 uF || R_LOAD 100.
+  // Pin worlds: V1 (70,180)/(70,240), R_SRC (100,180)/(180,180),
+  // D1 (190,180)/(250,180), C1 rot90 (260,180)/(260,240),
+  // R_LOAD rot90 (325,180)/(325,260), G1 (200,240),
+  // TP_IN (100,180), TP_OUT (300,180).
   const components: CanvasComponent[] = [
-    placed('V1', 'DC Voltage Source', 80, 100, { voltage: '5V', type: 'DC', footprint: '0805' }),
-    placed('C1', 'Capacitor', 200, 120, { value: '100nF', footprint: '0603' }),
-    placed('V2', 'Pulse Voltage Source', 80, 300, { type: 'PULSE', v1: '0V', v2: '5V', td: '10u', tr: '10n', tf: '10n', pw: '0.5s', per: '1s', footprint: '0805' }),
-    placed('RB', 'Resistor', 300, 235, { value: '4.7k', footprint: '0805' }),
-    placed('RPD', 'Resistor', 415, 300, { value: '10k', footprint: '0805' }, 90),
-    placed('Q1', 'NPN Transistor', 420, 220, { type: '2N2222', footprint: 'SOT-23' }),
-    placed('RC1', 'Resistor', 360, 80, { value: '330', footprint: '0805' }, 90),
-    placed('D1', 'Diode', 345, 170, { is: '1e-14', n: '1.8', footprint: '0805' }),
-    placed('G1', 'Ground', 280, 420, {}),
+    placed('V1', 'Sine Voltage Source', 40, 180, { type: 'SINE', vo: '0V', va: '6V', freq: '1kHz', phase: '0', footprint: '0805' }),
+    placed('RSRC', 'Resistor', 100, 165, { value: '10', footprint: '0805' }),
+    placed('D1', 'Diode', 190, 160, { type: '1N5817', is: '1e-8', n: '1.1', footprint: 'SMC' }),
+    placed('C1', 'Capacitor', 280, 180, { value: '10uF', footprint: '1206' }, 90),
+    placed('RLOAD', 'Resistor', 340, 180, { value: '100', footprint: '1206' }, 90),
+    placed('G1', 'Ground', 180, 240, {}),
   ];
   const P = (ref: string, ...pinIds: string[]): Array<{ componentId: string; pinId: string }> =>
     pinIds.map((pinId) => ({ componentId: `demo-${ref}`, pinId }));
   const wires: CanvasWire[] = [
-    wire('vcc-rail', 'VCC', [...P('RC1', 'p1')], [{ x: 110, y: 80 }, { x: 345, y: 80 }]),
-    wire('vcc-v1', 'VCC', [...P('V1', 'positive')], [{ x: 110, y: 100 }, { x: 110, y: 80 }]),
-    wire('vcc-c1', 'VCC', [...P('C1', 'p1')], [{ x: 200, y: 140 }, { x: 200, y: 80 }]),
-    wire('gnd-rail', 'GND', [...P('G1', 'gnd')], [{ x: 70, y: 420 }, { x: 300, y: 420 }, { x: 480, y: 420 }]),
-    wire('gnd-v1', 'GND', [...P('V1', 'negative')], [{ x: 110, y: 160 }, { x: 70, y: 160 }, { x: 70, y: 420 }]),
-    wire('gnd-c1', 'GND', [...P('C1', 'p2')], [{ x: 260, y: 140 }, { x: 260, y: 420 }]),
-    wire('gnd-v2', 'GND', [...P('V2', 'negative')], [{ x: 110, y: 360 }, { x: 110, y: 420 }]),
-    wire('gnd-rpd', 'GND', [...P('RPD', 'p2')], [{ x: 400, y: 380 }, { x: 400, y: 420 }]),
-    wire('gnd-q1', 'GND', [...P('Q1', 'emitter')], [{ x: 480, y: 275 }, { x: 480, y: 420 }]),
-    wire('gpio', 'GPIO', [...P('V2', 'positive'), ...P('RB', 'p1')],
-      [{ x: 110, y: 300 }, { x: 280, y: 300 }, { x: 280, y: 250 }, { x: 300, y: 250 }]),
-    wire('base', 'BASE', [...P('RB', 'p2'), ...P('Q1', 'base')], [{ x: 380, y: 250 }, { x: 420, y: 250 }]),
-    wire('base-pd', 'BASE', [...P('RPD', 'p1')], [{ x: 400, y: 300 }, { x: 400, y: 250 }]),
-    wire('led-a', 'LED_A', [...P('RC1', 'p2'), ...P('D1', 'anode')], [{ x: 345, y: 160 }, { x: 345, y: 190 }]),
-    wire('led-k', 'LED_K', [...P('D1', 'cathode'), ...P('Q1', 'collector')],
-      [{ x: 405, y: 190 }, { x: 480, y: 190 }, { x: 480, y: 225 }]),
+    wire('src-top', 'SRC', [...P('V1', 'positive'), ...P('RSRC', 'p1')],
+      [{ x: 70, y: 180 }, { x: 80, y: 180 }, { x: 90, y: 180 }, { x: 100, y: 180 }]),
+    wire('mid', 'MID', [...P('RSRC', 'p2'), ...P('D1', 'anode')],
+      [{ x: 180, y: 180 }, { x: 190, y: 180 }]),
+    wire('out-rail', 'OUT', [...P('D1', 'cathode'), ...P('C1', 'p1'), ...P('RLOAD', 'p1')],
+      [{ x: 250, y: 180 }, { x: 260, y: 180 }, { x: 320, y: 180 }, { x: 325, y: 180 }]),
+    wire('gnd-rail', 'GND', [...P('V1', 'negative'), ...P('G1', 'gnd'), ...P('C1', 'p2')],
+      [{ x: 70, y: 240 }, { x: 200, y: 240 }, { x: 260, y: 240 }]),
+    wire('gnd-load', 'GND', [...P('RLOAD', 'p2'), ...P('G1', 'gnd')],
+      [{ x: 325, y: 260 }, { x: 325, y: 240 }, { x: 200, y: 240 }]),
   ];
   return {
     components, wires,
-    summary: { parts: components.length, nets: ['VCC', 'GND', 'GPIO', 'BASE', 'LED_A', 'LED_K'], boardMm: { w: 60, h: 53 } },
+    summary: { parts: components.length, nets: ['SRC', 'MID', 'OUT', 'GND'], boardMm: { w: 60, h: 53 } },
   };
 }
 

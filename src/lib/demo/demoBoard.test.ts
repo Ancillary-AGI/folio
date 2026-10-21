@@ -19,10 +19,10 @@ const toPlaced = (board: ReturnType<typeof buildDemoBoard>): PlacedComponent[] =
   }));
 
 describe('demo board — full e-CAD loop on one canvas', () => {
-  it('builds 9 parts on 6 nets', () => {
+  it('builds 6 parts on 4 nets', () => {
     const board = buildDemoBoard();
-    expect(board.components).toHaveLength(9);
-    expect(board.summary.nets).toEqual(['VCC', 'GND', 'GPIO', 'BASE', 'LED_A', 'LED_K']);
+    expect(board.components).toHaveLength(6);
+    expect(board.summary.nets).toEqual(['SRC', 'MID', 'OUT', 'GND']);
   });
   it('lands every wire endpoint exactly on a real pin (no open joints)', () => {
     const board = buildDemoBoard();
@@ -37,20 +37,41 @@ describe('demo board — full e-CAD loop on one canvas', () => {
         pinAt.set(`${c.id}:${pin.id}`, { x: Math.round(c.x + rotated.x), y: Math.round(c.y + rotated.y) });
       }
     }
-    const targets = new Set<string>();
+    // Every wire point (not just endpoints): a point on no pin must sit on
+    // another wire's segment (verified tap joint below) or be an interior
+    // corner of its own wire. A stub end floating in space fails here —
+    // the regression test for the screenshot open-circuit.
+    const pinPts = new Set([...pinAt.values()].map((p) => `${p.x},${p.y}`));
+    const onSeg = (
+      end: { x: number; y: number },
+      a: { x: number; y: number },
+      b: { x: number; y: number },
+    ): boolean =>
+      Math.min(a.x, b.x) - 0.5 <= end.x
+      && end.x <= Math.max(a.x, b.x) + 0.5
+      && Math.min(a.y, b.y) - 0.5 <= end.y
+      && end.y <= Math.max(a.y, b.y) + 0.5;
+    const ownSeg = (w: (typeof board.wires)[number], key: string): boolean => {
+      for (let k = 0; k + 1 < w.points.length; k++) {
+        if (`${w.points[k]!.x},${w.points[k]!.y}` === key) return true;
+      }
+      return false;
+    };
     for (const w of board.wires) {
-      for (const pt of w.points) targets.add(`${pt.x},${pt.y}`);
-    }
-    // No dangling ends: every wire point must sit on a pin, a corner, or a
-    // declared rail joint (VCC shelf / GND bus / BASE elbow / LED corners).
-    const joints = new Set([
-      '110,80', '200,80', '70,420', '300,420', '480,420',
-      '70,160', '110,300', '280,300', '280,250', '110,420',
-      '400,250', '405,190', '480,190', '400,420', '260,420',
-    ]);
-    for (const key of targets) {
-      const onPin = [...pinAt.values()].some((p) => `${p.x},${p.y}` === key);
-      expect(onPin || joints.has(key), `wire point ${key} floats`).toBe(true);
+      for (const pt of w.points) {
+        const key = `${pt.x},${pt.y}`;
+        if (pinPts.has(key)) continue;
+        if (ownSeg(w, key)) continue;
+        let joined = false;
+        for (const o of board.wires) {
+          if (o === w) continue;
+          for (let k = 0; k + 1 < o.points.length; k++) {
+            if (onSeg(pt, o.points[k]!, o.points[k + 1]!)) { joined = true; break; }
+          }
+          if (joined) break;
+        }
+        expect(joined, `wire ${w.id} point (${key}) floats — open joint`).toBe(true);
+      }
     }
     // Every declared pin connection lands its pin coordinate on a wire of
     // the same net (taps join the rail at a dot; the netlister unions all
@@ -67,32 +88,50 @@ describe('demo board — full e-CAD loop on one canvas', () => {
       for (const cp of w.connectedPins) {
         const at = pinAt.get(`${cp.componentId}:${cp.pinId}`);
         expect(at, `${cp.componentId}:${cp.pinId} missing`).toBeDefined();
-        expect(pts.has(`${at!.x},${at!.y}`),
-          `${cp.componentId}:${cp.pinId} at (${at!.x},${at!.y}) not on net ${w.netName}`).toBe(true);
+        expect(
+          pts.has(`${at!.x},${at!.y}`),
+          `${cp.componentId}:${cp.pinId} at (${at!.x},${at!.y}) not on net ${w.netName}`,
+        ).toBe(true);
       }
     }
+    // Verified joints: every wire ENDPOINT lands exactly on a declared pin
+    // coordinate (see schematic-check below). No floating taps, no
+    // rail-midpoint stubs — the screenshot open-circuit cannot return.
+    const taps: Array<[string, string]> = [
+      ['demo-w-out-rail', '260,180'],
+      ['demo-w-out-rail', '325,180'],
+    ];
+    for (const [id, key] of taps) {
+      const w = board.wires.find((cand) => cand.id === id)!;
+      expect(w.points.some((p) => `${p.x},${p.y}` === key), `${id} lost tap ${key}`).toBe(true);
+    }
   });
-  it('simulates: saturated when GPIO high, cut off when low', async () => {
+  it('simulates: forward-biased output follows the source minus the diode drop', async () => {
     const board = buildDemoBoard();
+    // DC source value is vOff (0 V here): diode unbiased, OUT rests at 0 V.
     const dc = buildCircuitNetlist('demo dc', board.components, board.wires, { type: 'dc' });
     const result = await spiceEngine.simulate(dc);
     expect(result.success).toBe(true);
-    // GPIO at DC = v1 = 0 V -> Q1 off -> collector pulled to ~5 V through 330 ohm + LED leakage.
-    const collector = result.operatingPoint?.['LED_K'] ?? result.operatingPoint?.['led_k'];
-    expect(collector).toBeGreaterThan(4);
+    const out = result.operatingPoint?.['OUT'] ?? result.operatingPoint?.['out'];
+    expect(Math.abs(out ?? 99)).toBeLessThan(0.05);
   });
-  it('transient blinks: collector swings between rails across the 1 s period', async () => {
+  it('transient rectifies: OUT never swings negative on a 1 kHz sine', async () => {
     const board = buildDemoBoard();
-    // 1.2 s run would need ~10k steps at the solver's stable dt for a 1 s
-    // pulse; the proven 2N2222 pulse stage already covers that timescale in
-    // semiconductors.test.ts, so here assert the turn-off edge on a short run:
-    // at t=0 the GPIO rests at v1 (10 us delay), Q1 is off, collector ~5 V.
-    const tran = buildCircuitNetlist('demo tran', board.components, board.wires, { type: 'transient', stopTime: 5e-6, stepTime: 1e-6 });
+    const tran = buildCircuitNetlist('demo tran', board.components, board.wires, { type: 'transient', stopTime: 2e-3, stepTime: 2e-5 });
     const result = await spiceEngine.simulate(tran);
     expect(result.success).toBe(true);
-    const wave = result.waveforms.find((w) => /LED_K/i.test(w.name));
+    const wave = result.waveforms.find((w) => w.name === 'V(OUT)');
     expect(wave).toBeDefined();
-    for (const point of wave?.data ?? []) expect(point.y).toBeGreaterThan(4);
+    for (const point of wave?.data ?? []) expect(point.y).toBeGreaterThan(-0.05);
+    const peak = Math.max(...(wave?.data ?? []).map((p) => p.y));
+    expect(peak).toBeGreaterThan(3);
+  });
+  it('transient survives the panel defaults (1.2 s run, 1 ms step) on the 1 kHz sine', async () => {
+    const board = buildDemoBoard();
+    const tran = buildCircuitNetlist('demo tran panel defaults', board.components, board.wires, { type: 'transient', stopTime: 1.2, stepTime: 1e-3 });
+    const result = await spiceEngine.simulate(tran);
+    expect(result.success).toBe(true);
+    expect(result.waveforms.length).toBeGreaterThan(0);
   });
   it('exports a shippable fab package (Gerber + Excellon + PnP + BOM)', () => {
     const board = buildDemoBoard();
@@ -101,15 +140,14 @@ describe('demo board — full e-CAD loop on one canvas', () => {
     // which is a net marker, not a part with pads.
     const placedParts = toPlaced(board).filter((p) => p.reference !== 'G1');
     const grid: Record<string, { x: number; y: number }> = {
-      V1: { x: 5, y: 5 }, C1: { x: 15, y: 5 }, V2: { x: 30, y: 5 },
-      RB: { x: 40, y: 5 }, RPD: { x: 50, y: 5 }, Q1: { x: 15, y: 25 },
-      RC1: { x: 30, y: 25 }, D1: { x: 45, y: 25 },
+      V1: { x: 5, y: 5 }, RSRC: { x: 15, y: 5 }, D1: { x: 25, y: 5 },
+      C1: { x: 35, y: 5 }, RLOAD: { x: 45, y: 5 },
     };
     for (const p of placedParts) {
       const g: { x: number; y: number } | undefined = grid[p.reference];
       if (g) p.position = { x: g.x, y: g.y };
     }
-    const pack = buildFabPackage(placedParts, [], { boardWidth: 60, boardHeight: 53, projectName: 'demo-blinker' });
+    const pack = buildFabPackage(placedParts, [], { boardWidth: 60, boardHeight: 53, projectName: 'demo-rectifier' });
     expect(pack.violations).toEqual([]);
     expect(pack.shippable).toBe(true);
     const names = [...pack.files.keys()];

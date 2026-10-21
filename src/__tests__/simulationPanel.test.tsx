@@ -61,8 +61,8 @@ describe('SimulationPanel', () => {
     render(<SimulationPanel onClose={onClose} />)
 
     expect(screen.getByText('Circuit Simulation')).toBeInTheDocument()
-    // Default analysis: DC operating point, with its honest summary.
-    expect(screen.getByText(/Solves the bias point by modified nodal analysis/)).toBeInTheDocument()
+    // Default analysis: transient, ready to run on first open.
+    expect(screen.getByText(/Integrates capacitors and inductors with backward-Euler/)).toBeInTheDocument()
 
     // Every solver-supported analysis is offered as a menu button.
     for (const label of [
@@ -91,7 +91,6 @@ describe('SimulationPanel', () => {
   it('swaps the parameter form when the analysis changes', () => {
     render(<SimulationPanel onClose={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Transient' }))
     expect(screen.getByText(/Integrates capacitors and inductors with backward-Euler/)).toBeInTheDocument()
     expect(screen.getByLabelText('Stop time (s)')).toBeInTheDocument()
     expect(screen.getByLabelText('Max step (s)')).toBeInTheDocument()
@@ -160,6 +159,8 @@ describe('SimulationPanel', () => {
 
   it('renders solver results and records the run into the design', async () => {
     seedSheet([place('R1', makeSymbol())])
+    render(<SimulationPanel onClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'DC operating point' }))
     const canned: SimulationResult = {
       success: true,
       nodes: [],
@@ -180,7 +181,6 @@ describe('SimulationPanel', () => {
       analysis: 'dc',
     }
     vi.spyOn(spiceEngine, 'simulate').mockResolvedValue(canned)
-    render(<SimulationPanel onClose={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }))
 

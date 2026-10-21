@@ -46,7 +46,7 @@ export default function DigitalTwinFleetPanel() {
     refresh();
   };
 
-  const verifyBlinkerTwin = async () => {
+  const verifyRectifierTwin = async () => {
     const { buildDemoHilTwin } = await import('../../lib/demo/demoHilTwin');
     const demo = await buildDemoHilTwin();
     setTwinVerdict(demo.verdict);
@@ -63,7 +63,7 @@ export default function DigitalTwinFleetPanel() {
         </div>
         <div className="flex items-center gap-2">
           <Button onClick={syncTwin}>Sync twins</Button>
-          <Button variant="outline" onClick={() => { void verifyBlinkerTwin(); }}>Verify blinker twin</Button>
+          <Button variant="outline" onClick={() => { void verifyRectifierTwin(); }}>Verify rectifier twin</Button>
         </div>
       </div>
       <div className="grid grid-cols-4 gap-3">
