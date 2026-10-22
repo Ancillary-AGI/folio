@@ -84,6 +84,8 @@ export interface SimulationResult {
   notes?: string[]
   /** Which analysis produced this result, for the UI to label the plot. */
   analysis?: SimulationParameters['type']
+  /** Probe measurements derived from the solved circuit. */
+  probes?: import('./probes').ProbeResult[]
 }
 
 export interface Component {
@@ -98,6 +100,7 @@ export interface CircuitNetlist {
   components: Component[]
   analyses: SimulationParameters[]
   options?: Record<string, string | number | boolean>
+  probes?: import('./probes').RawProbe[]
 }
 
 const DEFAULT_TEMPERATURE_CELSIUS = 27
@@ -291,6 +294,10 @@ class SPICEEngine {
 
     try {
       const outcome = dispatch(model, parameters)
+      const { measureProbes } = await import('./probes')
+      const voltages = new Map(Object.entries(outcome.operatingPoint ?? {}))
+      const branchCurrents = new Map(Object.entries(outcome.branchCurrents ?? {}))
+      const probeResults = measureProbes(model, model.probes, voltages, branchCurrents)
       return {
         success: outcome.converged,
         error: outcome.converged ? undefined : outcome.notes[0],
@@ -300,6 +307,7 @@ class SPICEEngine {
         convergenceInfo: { iterations: outcome.iterations, converged: outcome.converged },
         notes: [...model.notes, ...outcome.notes],
         analysis: parameters.type,
+        probes: probeResults,
       }
     } catch (error) {
       return {

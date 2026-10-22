@@ -31,6 +31,8 @@ import {
   type SourceWaveform,
 } from './devices'
 import type { CircuitNetlist, Component } from './spiceEngine'
+import { probeFromTestPoint, normalizeProbeRequests } from './probes'
+import type { ProbeRequest, RawProbe } from './probes'
 
 export interface CircuitModel {
   devices: Device[]
@@ -46,6 +48,8 @@ export interface CircuitModel {
   groundNodes: Set<string>
   /** Non-fatal observations worth surfacing to the user. */
   notes: string[]
+  /** Normalized simulation probes / test points. */
+  probes: ProbeRequest[]
 }
 
 export interface BuildModelResult {
@@ -1353,8 +1357,25 @@ export function buildCircuitModel(netlist: CircuitNetlist): BuildModelResult {
     return nodes
   }
 
+  const collectedProbes: ProbeRequest[] = []
+  for (const component of netlist.components) {
+    const typeNorm = (component.type ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '')
+    if (typeNorm.includes('testpoint') || typeNorm === 'test_point') {
+      const probe = probeFromTestPoint({ name: component.name, nodes: component.nodes, parameters: component.parameters })
+      if (probe) collectedProbes.push(probe)
+      continue
+    }
+  }
+
+  if (Array.isArray((netlist as { probes?: unknown }).probes)) {
+    const { probes: normalized, errors: probeErrors } = normalizeProbeRequests((netlist as { probes: RawProbe[] }).probes)
+    collectedProbes.push(...normalized)
+    errors.push(...probeErrors)
+  }
+
   for (const component of netlist.components) {
     const kind = classify(component)
+    if ((component.type ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '').includes('testpoint')) continue
 
     if (kind === 'ground') {
       if (component.nodes.length === 0) {
@@ -1454,6 +1475,7 @@ export function buildCircuitModel(netlist: CircuitNetlist): BuildModelResult {
       size,
       groundNodes,
       notes,
+      probes: collectedProbes,
     },
     errors,
   }

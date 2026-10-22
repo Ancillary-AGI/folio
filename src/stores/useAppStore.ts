@@ -19,6 +19,11 @@ export type WorkspaceMode =
   | 'marketplace'
   | 'dashboard'
   | 'bom'
+  | 'hdl'
+  | 'icdesign'
+  | 'agents'
+  | 'components'
+  | 'plugins'
 
 export interface AppSettings {
   /** `system` follows the OS; every other value is an explicit user choice. */

@@ -31,6 +31,12 @@ const MarketplacePanel = lazy(() => import('../marketplace/MarketplacePanel'))
 const SystemDashboard = lazy(() => import('../SystemDashboard'))
 const BOMPanel = lazy(() => import('../bom/BOMPanel'))
 const SimulationPanel = lazy(() => import('../simulation/SimulationPanel'))
+// New e-CAD panels
+const HDLEditor = lazy(() => import('../ecad/HDLEditor'))
+const ICDesignPanel = lazy(() => import('../ecad/ICDesignPanel'))
+const AgentPanel = lazy(() => import('../ecad/AgentPanel'))
+const DatasheetImporter = lazy(() => import('../ecad/DatasheetImporter'))
+const PluginMarketplace = lazy(() => import('../ecad/PluginMarketplace'))
 
 interface DomainWorkspaceProps {
   libraryComponents: Component[]
@@ -40,8 +46,10 @@ interface DomainWorkspaceProps {
 const MODES: Array<{ id: WorkspaceMode; label: string }> = [
   { id: 'schematic', label: 'Schematic' },
   { id: 'simulation', label: 'Simulation' },
-  { id: 'convert', label: 'Schematic→PCB' },
+  { id: 'convert', label: 'Sch→PCB' },
   { id: 'pcb', label: 'PCB' },
+  { id: 'hdl', label: 'HDL/RTL' },
+  { id: 'icdesign', label: 'IC Design' },
   { id: 'mechanical', label: 'CAD' },
   { id: 'preview3d', label: '3D / AR' },
   { id: 'embedded', label: 'Arduino' },
@@ -49,14 +57,17 @@ const MODES: Array<{ id: WorkspaceMode; label: string }> = [
   { id: 'hil', label: 'HIL' },
   { id: 'robotics', label: 'Robotics' },
   { id: 'twin', label: 'Twin / IIoT' },
+  { id: 'agents', label: 'Agents' },
+  { id: 'components', label: 'Components' },
+  { id: 'plugins', label: 'Plugins' },
   { id: 'siem', label: 'SIEM' },
   { id: 'marketplace', label: 'Marketplace' },
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'bom', label: 'BOM' },
 ]
 
-/** Tab-strip group breaks: before 'embedded' (engineering) and 'siem' (ops). */
-const MODE_GROUP_BREAKS = [5, 10]
+/** Tab-strip group breaks: before 'mechanical' (engineering) and 'agents' (AI/ops). */
+const MODE_GROUP_BREAKS = [6, 13]
 
 export default function DomainWorkspace({ libraryComponents, onSave }: DomainWorkspaceProps) {
   const {
@@ -319,6 +330,28 @@ export default function DomainWorkspace({ libraryComponents, onSave }: DomainWor
           {workspaceMode === 'marketplace' && <MarketplacePanel />}
           {workspaceMode === 'dashboard' && <SystemDashboard />}
           {workspaceMode === 'bom' && <BOMPanel />}
+          {/* New e-CAD panels */}
+          {workspaceMode === 'hdl' && (
+            <HDLEditor onClose={() => setWorkspaceMode('schematic')} />
+          )}
+          {workspaceMode === 'icdesign' && (
+            <ICDesignPanel onClose={() => setWorkspaceMode('schematic')} />
+          )}
+          {workspaceMode === 'agents' && (
+            <AgentPanel onClose={() => setWorkspaceMode('schematic')} />
+          )}
+          {workspaceMode === 'components' && (
+            <DatasheetImporter
+              onPartAdded={(part) => {
+                console.info('Custom part added:', part.name)
+                setWorkspaceMode('schematic')
+              }}
+              onClose={() => setWorkspaceMode('schematic')}
+            />
+          )}
+          {workspaceMode === 'plugins' && (
+            <PluginMarketplace onClose={() => setWorkspaceMode('schematic')} />
+          )}
           </Suspense>
         </div>
 

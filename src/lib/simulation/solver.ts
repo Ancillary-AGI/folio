@@ -49,6 +49,7 @@ export interface AnalysisOutcome {
   nodes: Array<{ name: string; voltage?: number; current?: number }>
   waveforms: Waveform[]
   operatingPoint?: Record<string, number>
+  branchCurrents?: Record<string, number>
   iterations: number
   converged: boolean
   notes: string[]
@@ -350,6 +351,7 @@ export function runOperatingPoint(model: CircuitModel, options: OperatingPointOp
       nodes: [...visible.entries()].map(([name, voltage]) => ({ name, voltage })),
       waveforms: [],
       operatingPoint: Object.fromEntries(visible),
+      branchCurrents: Object.fromEntries(readBranchCurrents(model, newton.solution)),
       iterations: newton.iterations,
       converged: newton.converged,
       notes,

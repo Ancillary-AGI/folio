@@ -211,20 +211,54 @@ export default function PCBDesignPanel({ onClose, components: propComponents, wi
   const [analysisRunning, setAnalysisRunning] = useState(false)
   const [activeTab, setActiveTab] = useState('canvas')
 
-  // ── Auto-route from schematic wires ──────────────────────────────────────────
+  // ── Auto-route from schematic wires (real A* router) ────────────────────────
 
-  const handleAutoRoute = useCallback(() => {
-    const newTraces: PCBTrace[] = wires
-      .filter(w => w.points.length >= 2)
-      .map((w, i) => ({
-        id: `trace_${i}`,
-        layerId: selectedLayerId,
-        width: 0.2,
-        points: w.points,
-        netName: w.netName ?? `NET${i + 1}`,
-      }))
+  const handleAutoRoute = useCallback(async () => {
+    // Import the real autorouter lazily
+    const { autoroute, buildRouterPads } = await import('../../lib/manufacturing/autorouter')
+
+    // Build nets from wires
+    const nets = wires.map((w, i) => ({
+      id: w.netName ?? `NET${i}`,
+      name: w.netName ?? `NET${i}`,
+      connectedPins: w.connectedPins ?? [],
+      wires: [w.id],
+    }))
+
+    const pads = buildRouterPads(components, nets)
+
+    const result = autoroute(pads, nets, {
+      boardWidthMm: boardWidth,
+      boardHeightMm: boardHeight,
+      layers: ['F.Cu', 'B.Cu'],
+      gridMm: 0.5,
+      minTraceWidthMm: 0.2,
+      minSpacingMm: 0.2,
+      viaDrillMm: 0.3,
+      viaPadMm: 0.6,
+      viaPenalty: 8,
+    })
+
+    const newTraces: PCBTrace[] = result.traces.map((t, i) => ({
+      id: `trace_${i}`,
+      layerId: t.layerId === 'B.Cu' ? 'bot-cu' : 'top-cu',
+      width: t.widthMm,
+      points: t.points,
+      netName: t.netId,
+    }))
+
     setTraces(newTraces)
-  }, [wires, selectedLayerId])
+
+    if (result.unrouted.length > 0) {
+      setDrcViolations(result.unrouted.map(netId => ({
+        id: `unrouted_${netId}`,
+        severity: 'warning' as const,
+        rule: 'Unrouted net',
+        message: `Net "${netId}" could not be routed (${result.stats.routedNets}/${result.stats.totalNets} routed)`,
+      })))
+      setDrcRan(true)
+    }
+  }, [wires, components, boardWidth, boardHeight])
 
   // ── DRC ───────────────────────────────────────────────────────────────────────
 

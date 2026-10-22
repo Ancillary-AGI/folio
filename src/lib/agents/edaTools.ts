@@ -111,3 +111,74 @@ export function planEdaRun(goal: string): EdaPlan {
 export function registerEdaTools(harness: AgentHarness): void {
   for (const tool of edaTools()) harness.registerTool(tool);
 }
+
+/**
+ * planEdaFlow — Intent-to-plan: maps a user's natural language goal to an
+ * EdaPlan with pre-filled args from the current design state.
+ *
+ * This is intentionally a simple keyword router; a future version would use
+ * an LLM to decompose arbitrary goals.
+ */
+export function planEdaFlow(
+  goal: string,
+  context: { netlist: string; components: string; wires: string },
+): EdaPlan | null {
+  const g = goal.toLowerCase()
+
+  if (g.includes('simulat') || g.includes('spice') || g.includes('operating') || g.includes('dc') || g.includes('transient') || g.includes('ac sweep')) {
+    return {
+      goal,
+      steps: [{ tool: 'eda.simulate', args: { netlist: context.netlist }, rationale: 'Run SPICE simulation on current schematic.' }],
+      needsApproval: [],
+    }
+  }
+
+  if (g.includes('drc') || g.includes('design rule') || g.includes('check')) {
+    return {
+      goal,
+      steps: [{ tool: 'eda.drc', args: { profile: 'JLCPCB_1oz', components: context.components, wires: context.wires }, rationale: 'Run DRC against JLCPCB profile.' }],
+      needsApproval: [],
+    }
+  }
+
+  if (g.includes('route') || g.includes('layout') || g.includes('pcb')) {
+    return {
+      goal,
+      steps: [
+        { tool: 'eda.simulate', args: { netlist: context.netlist }, rationale: 'Verify schematic before routing.' },
+        { tool: 'eda.route', args: { schematic: context.components }, rationale: 'Auto-route all nets on 2 layers.' },
+        { tool: 'eda.drc', args: { profile: 'JLCPCB_1oz', components: context.components, wires: context.wires }, rationale: 'Gate on DRC.' },
+      ],
+      needsApproval: [],
+    }
+  }
+
+  if (g.includes('export') || g.includes('gerber') || g.includes('fab') || g.includes('manufactur')) {
+    return {
+      goal,
+      steps: [
+        { tool: 'eda.simulate', args: { netlist: context.netlist }, rationale: 'Verify before fab.' },
+        { tool: 'eda.drc', args: { profile: 'JLCPCB_1oz', components: context.components, wires: context.wires }, rationale: 'Check DRC.' },
+        { tool: 'eda.exportFab', args: { project: 'current', components: context.components, wires: context.wires }, rationale: 'Emit fab package.' },
+      ],
+      needsApproval: ['eda.exportFab'],
+    }
+  }
+
+  if (g.includes('signal integrity') || g.includes('impedance') || g.includes('si ')) {
+    return {
+      goal,
+      steps: [
+        { tool: 'eda.drc', args: { profile: 'JLCPCB_1oz', components: context.components, wires: context.wires }, rationale: 'Check trace rules for SI.' },
+      ],
+      needsApproval: [],
+    }
+  }
+
+  // Full flow: simulate → route → DRC → export
+  if (g.includes('full') || g.includes('complete') || g.includes('all') || g.includes('everything')) {
+    return planEdaRun(goal)
+  }
+
+  return null
+}

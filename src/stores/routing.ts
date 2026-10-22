@@ -24,6 +24,11 @@ export const WORKSPACE_ROUTES: Readonly<Record<WorkspaceMode, string>> = {
   marketplace: '/marketplace',
   dashboard: '/dashboard',
   bom: '/bom',
+  hdl: '/hdl',
+  icdesign: '/icdesign',
+  agents: '/agents',
+  components: '/components',
+  plugins: '/plugins',
 };
 
 const ROUTE_TO_MODE: Readonly<Record<string, WorkspaceMode>> = Object.fromEntries(

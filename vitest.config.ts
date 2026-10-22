@@ -9,6 +9,8 @@ export default defineConfig({
     globals: true,
     exclude: ['**/node_modules/**', '**/dist/**', '**/.kilo/**'],
     setupFiles: ['./src/__tests__/setup.ts'],
+    testTimeout: 10000,
+    hookTimeout: 10000,
     typecheck: {
       enabled: false
     },

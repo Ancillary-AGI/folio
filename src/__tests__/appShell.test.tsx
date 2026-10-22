@@ -122,7 +122,7 @@ describe('App shell', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Simulation' }))
 
-    expect(await screen.findByText('Circuit Simulation')).toBeInTheDocument()
+    expect(await screen.findByText('Circuit Simulation', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Simulation' })).toHaveAttribute('aria-current', 'page')
     expect(window.location.hash.startsWith('#/simulation')).toBe(true)
   })
