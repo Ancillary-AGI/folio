@@ -1,5 +1,7 @@
 import { Point, Size } from '../../types';
 import * as THREE from 'three';
+import { OBJExporter, type OBJMesh } from './objExporter';
+import { STLExporter } from './stlExporter';
 
 export interface ThreeDModel {
   id: string;
@@ -7,7 +9,7 @@ export interface ThreeDModel {
   geometry: THREE.BufferGeometry;
   material: THREE.Material;
   mesh: THREE.Mesh;
-  position: Point;
+  position: { x: number; y: number; z: number };
   rotation: { x: number; y: number; z: number };
   scale: { x: number; y: number; z: number };
 }
@@ -154,7 +156,7 @@ export class ThreeManager {
       geometry,
       material,
       mesh,
-      position: { x: 0, y: 0 },
+      position: { x: 0, y: 0, z: 0 },
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 1, y: 1, z: 1 }
     };
@@ -196,7 +198,7 @@ export class ThreeManager {
   }
 
   updateModelTransform(model: ThreeDModel): void {
-    model.mesh.position.set(model.position.x, model.position.y, 0);
+    model.mesh.position.set(model.position.x, model.position.y, model.position.z);
     model.mesh.rotation.set(model.rotation.x, model.rotation.y, model.rotation.z);
     model.mesh.scale.set(model.scale.x, model.scale.y, model.scale.z);
   }
@@ -244,93 +246,64 @@ export class ThreeManager {
 
   // Animation removed - use proper physics-based animations or user-controlled interactions
 
+  /** A mesh whose matrix is the model's world transform, without reparenting it. */
+  private worldProxy(model: ThreeDModel): THREE.Mesh {
+    model.mesh.updateWorldMatrix(true, false);
+    const proxy = new THREE.Mesh(model.geometry, model.material);
+    proxy.matrixAutoUpdate = false;
+    proxy.matrix.copy(model.mesh.matrixWorld);
+    return proxy;
+  }
+
+  /**
+   * Export the scene as ASCII STL through the shared {@link STLExporter}.
+   *
+   * The exporter applies each model's full world matrix (rotation included),
+   * uses the real index buffer and rejects partial or non-finite geometry, so
+   * this path cannot emit the malformed triangles the local writer used to.
+   */
   exportToSTL(sceneId: string): string {
     const scene = this.scenes.get(sceneId);
     if (!scene) return '';
+    if (scene.models.length === 0) throw new Error('Nothing to export: the scene has no models');
 
-    // Enhanced STL export with proper triangulation and normals
-    let stlContent = 'solid Folio_Model\n';
-
-    scene.models.forEach(model => {
-      const geometry = model.geometry as THREE.BufferGeometry;
-      const positions = geometry.attributes.position;
-      const normals = geometry.attributes.normal;
-      const indices = geometry.index;
-
-      if (positions) {
-        if (indices) {
-          // Indexed geometry
-          for (let i = 0; i < indices.count; i += 3) {
-            const a = indices.getX(i);
-            const b = indices.getX(i + 1);
-            const c = indices.getX(i + 2);
-
-            // Calculate face normal
-            // Ensure positions is a BufferAttribute (not InterleavedBufferAttribute)
-            if (!(positions instanceof THREE.BufferAttribute)) {
-              // Skip if interleaved (would need different handling)
-              continue;
-            }
-            const normal = this.calculateFaceNormal(positions, a, b, c);
-
-            stlContent += `  facet normal ${normal.x} ${normal.y} ${normal.z}\n`;
-            stlContent += '    outer loop\n';
-
-            [a, b, c].forEach(vertexIndex => {
-              const x = positions.getX(vertexIndex) * model.scale.x + model.position.x;
-              const y = positions.getY(vertexIndex) * model.scale.y + model.position.y;
-              const z = positions.getZ(vertexIndex) * model.scale.z;
-              stlContent += `      vertex ${x.toFixed(6)} ${y.toFixed(6)} ${z.toFixed(6)}\n`;
-            });
-
-            stlContent += '    endloop\n';
-            stlContent += '  endfacet\n';
-          }
-        } else {
-          // Non-indexed geometry (assume triangles)
-          for (let i = 0; i < positions.count; i += 3) {
-            const normal = normals ? {
-              x: normals.getX(i),
-              y: normals.getY(i),
-              z: normals.getZ(i)
-            } : { x: 0, y: 0, z: 1 };
-
-            stlContent += `  facet normal ${normal.x} ${normal.y} ${normal.z}\n`;
-            stlContent += '    outer loop\n';
-
-            for (let j = 0; j < 3; j++) {
-              const idx = i + j;
-              if (idx < positions.count) {
-                const x = positions.getX(idx) * model.scale.x + model.position.x;
-                const y = positions.getY(idx) * model.scale.y + model.position.y;
-                const z = positions.getZ(idx) * model.scale.z;
-                stlContent += `      vertex ${x.toFixed(6)} ${y.toFixed(6)} ${z.toFixed(6)}\n`;
-              }
-            }
-
-            stlContent += '    endloop\n';
-            stlContent += '  endfacet\n';
-          }
-        }
-      }
-    });
-
-    stlContent += 'endsolid Folio_Model\n';
-    return stlContent;
+    const exportScene = new THREE.Scene();
+    for (const model of scene.models) exportScene.add(this.worldProxy(model));
+    return STLExporter.exportScene(exportScene) as string;
   }
 
-  private calculateFaceNormal(positions: THREE.BufferAttribute, a: number, b: number, c: number): THREE.Vector3 {
-    const vA = new THREE.Vector3(positions.getX(a), positions.getY(a), positions.getZ(a));
-    const vB = new THREE.Vector3(positions.getX(b), positions.getY(b), positions.getZ(b));
-    const vC = new THREE.Vector3(positions.getX(c), positions.getY(c), positions.getZ(c));
+  /** Convert one model to world-space OBJ vertices and triangles. */
+  private worldOBJMesh(model: ThreeDModel): OBJMesh {
+    model.mesh.updateWorldMatrix(true, false);
+    const geometry = model.geometry.clone();
+    try {
+      geometry.applyMatrix4(model.mesh.matrixWorld);
+      const position = geometry.getAttribute('position');
+      if (!position) throw new Error(`Model ${model.name} has no position attribute`);
 
-    const cb = new THREE.Vector3().subVectors(vC, vB);
-    const ab = new THREE.Vector3().subVectors(vA, vB);
+      const vertices = Array.from({ length: position.count }, (_, index) => ({
+        x: position.getX(index),
+        y: position.getY(index),
+        z: position.getZ(index),
+      }));
 
-    cb.cross(ab);
-    cb.normalize();
-
-    return cb;
+      const index = geometry.getIndex();
+      const elementCount = index ? index.count : position.count;
+      if (elementCount % 3 !== 0) {
+        throw new Error(`Model ${model.name} geometry is not made of whole triangles`);
+      }
+      const faces: number[][] = [];
+      for (let i = 0; i < elementCount; i += 3) {
+        faces.push(
+          index
+            ? [index.getX(i), index.getX(i + 1), index.getX(i + 2)]
+            : [i, i + 1, i + 2],
+        );
+      }
+      return { name: model.name, vertices, faces };
+    } finally {
+      geometry.dispose();
+    }
   }
 
   // AR/VR Preview functionality
@@ -517,55 +490,21 @@ export class ThreeManager {
     });
   }
 
+  /**
+   * Export every model as world-space OBJ through the shared {@link OBJExporter}.
+   *
+   * Vertices are baked with each model's full world matrix, faces come from the
+   * real index buffer, and face indices stay correct across multiple meshes —
+   * the local writer emitted untransformed vertices and a single shared `vn`
+   * index space for every model.
+   */
   exportToOBJ(sceneId: string): string {
     const scene = this.scenes.get(sceneId);
     if (!scene) return '';
+    if (scene.models.length === 0) throw new Error('Nothing to export: the scene has no models');
 
-    let objContent = `# Folio 3D Model Export\n# Generated on ${new Date().toISOString()}\n\n`;
-    let vertexOffset = 1;
-
-    scene.models.forEach((model) => {
-      objContent += `o ${model.name}\n`;
-
-      const geometry = model.geometry as THREE.BufferGeometry;
-      const positions = geometry.attributes.position;
-      const normals = geometry.attributes.normal;
-
-      if (positions) {
-        // Write vertices
-        for (let i = 0; i < positions.count; i++) {
-          const x = positions.getX(i) * model.scale.x + model.position.x;
-          const y = positions.getY(i) * model.scale.y + model.position.y;
-          const z = positions.getZ(i) * model.scale.z;
-          objContent += `v ${x} ${y} ${z}\n`;
-        }
-
-        // Write normals if available
-        if (normals) {
-          for (let i = 0; i < normals.count; i++) {
-            const nx = normals.getX(i);
-            const ny = normals.getY(i);
-            const nz = normals.getZ(i);
-            objContent += `vn ${nx} ${ny} ${nz}\n`;
-          }
-        }
-
-        // Write faces (assuming triangular faces)
-        objContent += 's 1\n'; // Smoothing group
-        for (let i = 0; i < positions.count; i += 3) {
-          const v1 = vertexOffset + i;
-          const v2 = vertexOffset + i + 1;
-          const v3 = vertexOffset + i + 2;
-          objContent += `f ${v1}//${v1} ${v2}//${v2} ${v3}//${v3}\n`;
-        }
-
-        vertexOffset += positions.count;
-      }
-
-      objContent += '\n';
-    });
-
-    return objContent;
+    const meshes = scene.models.map((model) => this.worldOBJMesh(model));
+    return new OBJExporter().exportMeshes(meshes, 'folio').obj;
   }
 
   setActiveScene(sceneId: string): void {

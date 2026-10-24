@@ -259,5 +259,15 @@ describe('direct-stiffness axial solver', () => {
     expect(() =>
       solveAxialChain([{ left: 0, right: 4, length: 1, area: 1e-4, modulus: STEEL_E }], 2, [0], [0, 1]),
     ).toThrow(/outside the model/);
+    expect(() =>
+      solveAxialChain([{ left: 5, right: 0, length: 1, area: 1e-4, modulus: STEEL_E }], 2, [0], [0, 1]),
+    ).toThrow(/outside the model/);
+    expect(() =>
+      solveAxialChain([{ left: 0, right: -1, length: 1, area: 1e-4, modulus: STEEL_E }], 2, [0], [0, 1]),
+    ).toThrow(/outside the model/);
+    expect(() =>
+      solveAxialChain([{ left: 0, right: 0, length: 1, area: 1e-4, modulus: STEEL_E }], 2, [0], [0, 1]),
+    ).toThrow(/itself/);
+    expect(() => solveAxialChain([bar(1)], 2, [0], [0, Number.NaN])).toThrow(/finite/);
   });
 });

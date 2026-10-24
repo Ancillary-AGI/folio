@@ -50,23 +50,26 @@ export async function nodeExecFile(file: string, args: string[], cwd?: string): 
 }
 
 export async function nodeSpawnDetached(command: string, args: readonly string[]): Promise<boolean> {
-  const child = await nodeModule<{ spawn: (cmd: string, args: readonly string[], opts: object) => { on: (event: string, cb: (code: unknown) => void) => void; unref: () => void } }>('child_process')
+  const child = await nodeModule<{ spawn: (cmd: string, args: readonly string[], opts: object) => { on: (event: string, cb: () => void) => void; unref: () => void } }>('child_process')
   if (!child) return false
   return new Promise((resolve) => {
     let settled = false
+    const finish = (launched: boolean) => {
+      if (settled) return
+      settled = true
+      resolve(launched)
+    }
     try {
       const proc = child.spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true })
-      proc.on('error', () => {
-        if (!settled) {
-          settled = true
-          resolve(false)
-        }
+      // 'spawn' fires only once the OS actually started the process; resolving
+      // earlier would report ENOENT launches as success.
+      proc.on('spawn', () => {
+        proc.unref()
+        finish(true)
       })
-      proc.unref()
-      settled = true
-      resolve(true)
+      proc.on('error', () => finish(false))
     } catch {
-      if (!settled) resolve(false)
+      finish(false)
     }
   })
 }

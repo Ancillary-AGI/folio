@@ -14,8 +14,18 @@ import { emcSimulationEngine } from '../lib/emc/emcSimulation'
 import type { EMCResult } from '../lib/emc/emcSimulation'
 import { thermalAnalysisEngine } from '../lib/pcb/thermalAnalysis'
 import type { ThermalAnalysisResult } from '../lib/pcb/thermalAnalysis'
-import { signalIntegrityAnalyzer } from '../lib/pcb/signalIntegrity'
-import type { PlacedComponent, Wire } from '../types'
+import { analyzeSignalPath } from '../lib/manufacturing/signalIntegrity'
+import { polylineLength } from '../lib/geometry/distance'
+import {
+  fourLayerStackup,
+  microstripImpedance,
+  nearestPlane,
+  validateStackup,
+} from '../lib/manufacturing/stackup'
+import { planeLoopInductance, stitchingGrid } from '../lib/manufacturing/powerIntegrity'
+import { dogboneFanout, MICROVIA_FANOUT_RULES } from '../lib/manufacturing/bgaFanout'
+import { SOC_256 } from '../lib/electronics/socPackages'
+import type { PlacedComponent, Wire, Net } from '../types'
 
 const exportSpies = vi.hoisted(() => ({
   exportToGerber: vi.fn(() => 'G04 test*'),
@@ -29,6 +39,36 @@ const net = (netName: string, id: string): Wire => ({
   points: [{ x: 10, y: 10 }, { x: 60, y: 45 }],
   netName,
   connectedPins: [],
+})
+
+/** Wire tying two component pins into one net (what the router consumes). */
+const pinNet = (netName: string, id: string, pins: Net['connectedPins']): Wire => ({
+  id,
+  points: [{ x: 10, y: 10 }, { x: 60, y: 45 }],
+  netName,
+  connectedPins: pins,
+})
+
+/** Two-pin part placed at a given mm position on the 100 × 80 board. */
+const partAt = (id: string, x: number, y: number): PlacedComponent => ({
+  id,
+  componentId: `cmp-${id}`,
+  component: {
+    id: `cmp-${id}`,
+    name: id.toUpperCase(),
+    category: 'passive',
+    symbol: { width: 60, height: 40, paths: [] },
+    pins: [
+      { id: '1', name: 'A', x: 0, y: 0, type: 'passive' },
+      { id: '2', name: 'B', x: 0, y: 8, type: 'passive' },
+    ],
+    properties: {},
+  },
+  position: { x, y },
+  rotation: 0,
+  scale: 1,
+  reference: id.toUpperCase(),
+  properties: {},
 })
 
 const part: PlacedComponent = {
@@ -68,7 +108,7 @@ describe('PCBDesignPanel', () => {
     render(<PCBDesignPanel onClose={onClose} />)
 
     expect(screen.getByRole('heading', { name: 'PCB Design' })).toBeInTheDocument()
-    for (const tab of ['Canvas', 'DRC', 'EMC', 'Thermal', 'Signal']) {
+    for (const tab of ['Canvas', 'DRC', 'EMC', 'Thermal', 'Signal', 'Advanced', 'Assembly']) {
       expect(screen.getByRole('tab', { name: tab })).toBeInTheDocument()
     }
     expect(screen.getByRole('tab', { name: 'Canvas' })).toHaveAttribute('data-state', 'active')
@@ -87,7 +127,7 @@ describe('PCBDesignPanel', () => {
     for (const tool of ['select', 'route', 'via', 'move']) {
       expect(screen.getByRole('button', { name: tool })).toBeInTheDocument()
     }
-    expect(screen.getByText(/100 × 80 mm/)).toBeInTheDocument()
+    expect(screen.getAllByText(/100 × 80 mm/)).not.toHaveLength(0)
     expect(screen.getByText('Traces: 0 | Vias: 0')).toBeInTheDocument()
     expect(screen.getByText('min trace width')).toBeInTheDocument()
     expect(screen.getByText('0.05 mm')).toBeInTheDocument()
@@ -137,13 +177,33 @@ describe('PCBDesignPanel', () => {
     expect(screen.getByText(/Layer: Inner 1 \(GND\)/)).toBeInTheDocument()
   })
 
-  it('auto-routes schematic wires into traces and clears DRC', () => {
-    render(<PCBDesignPanel onClose={vi.fn()} wires={[net('GND', 'w1'), net('VCC', 'w2')]} />)
+  it('auto-routes two pin nets through the A* router and clears DRC', () => {
+    const components = [partAt('r1', 10, 10), partAt('r2', 60, 45)]
+    const wires = [
+      pinNet('GND', 'w1', [
+        { componentId: 'r1', pinId: '1' },
+        { componentId: 'r2', pinId: '1' },
+      ]),
+      pinNet('VCC', 'w2', [
+        { componentId: 'r1', pinId: '2' },
+        { componentId: 'r2', pinId: '2' },
+      ]),
+    ]
+    render(<PCBDesignPanel onClose={vi.fn()} components={components} wires={wires} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Auto-Route from Schematic' }))
     expect(screen.getByText('Traces: 2 | Vias: 0')).toBeInTheDocument()
-    // Scope by coordinates — lucide toolbar icons also contain polylines.
-    expect(document.querySelectorAll('polyline[points="10,10 60,45"]')).toHaveLength(2)
+
+    // One trace per net, layer-locked to top copper, endpoint-anchored on the
+    // pad grid cells (the lucide toolbar icons render their own polylines, so
+    // scope to the board svg with the 100 × 80 viewBox).
+    const boardSvg = document.querySelector('svg[viewBox="0 0 100 80"]')
+    expect(boardSvg).not.toBeNull()
+    const traceLines = boardSvg!.querySelectorAll('polyline')
+    expect(traceLines).toHaveLength(2)
+    const pointLists = Array.from(traceLines).map(l => l.getAttribute('points') ?? '')
+    expect(pointLists.some(p => /^10,10 .*60,45$/.test(p))).toBe(true)
+    expect(pointLists.some(p => /^10,18 .*60,53$/.test(p))).toBe(true)
 
     fireEvent.click(screen.getByRole('button', { name: 'Run DRC' }))
     expect(screen.getByRole('tab', { name: 'DRC' })).toHaveAttribute('data-state', 'active')
@@ -163,7 +223,18 @@ describe('PCBDesignPanel', () => {
     expect(screen.queryByText(/DRC passed/)).not.toBeInTheDocument()
   })
 
-  it('runs EMC through the engine and renders the compliance verdict', () => {
+  it('refuses EMC analysis before any trace exists', () => {
+    const simulate = vi.spyOn(emcSimulationEngine, 'simulate')
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run EMC' }))
+
+    expect(simulate).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent('Route at least one trace')
+    expect(screen.getByRole('tab', { name: 'EMC' })).toHaveAttribute('data-state', 'active')
+  })
+
+  it('runs EMC with the declared assumptions and renders the estimate', () => {
     const canned: EMCResult = {
       radiatedDBuVPerM: 34.2,
       radiatedDBuV: 34.2,
@@ -173,26 +244,44 @@ describe('PCBDesignPanel', () => {
       compliant: true,
       hotspots: [],
       recommendations: ['Keep the return plane continuous under the clock trace.'],
+      basis: { traceCount: 2, worstFrequencyHz: 1e7, worstCurrentA: 0.1, worstCommonModeCurrentA: 0.001 },
     }
     const simulate = vi.spyOn(emcSimulationEngine, 'simulate').mockReturnValue(canned)
-    render(<PCBDesignPanel onClose={vi.fn()} />)
+    const components = [partAt('r1', 10, 10), partAt('r2', 60, 45)]
+    const wires = [
+      pinNet('GND', 'w1', [
+        { componentId: 'r1', pinId: '1' },
+        { componentId: 'r2', pinId: '1' },
+      ]),
+      pinNet('VCC', 'w2', [
+        { componentId: 'r1', pinId: '2' },
+        { componentId: 'r2', pinId: '2' },
+      ]),
+    ]
+    render(<PCBDesignPanel onClose={vi.fn()} components={components} wires={wires} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Auto-Route from Schematic' }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Run EMC' }))
 
-    // No traces yet → the engine still receives one default worst-case trace.
-    expect(simulate).toHaveBeenCalledWith(
-      [expect.objectContaining({ id: 'default' })],
-      'CISPR32',
-    )
+    expect(simulate).toHaveBeenCalledTimes(1)
+    const [traces, standard] = simulate.mock.calls[0]
+    expect(standard).toBe('CISPR32')
+    expect(traces).toHaveLength(2)
+    expect(traces[0]).toMatchObject({
+      currentA: 0.1,
+      frequencyHz: 1e7,
+      commonModeCurrentA: 0,
+      cableLengthMm: 0,
+    })
+    expect(traces[0].loopAreaMm2).toBeCloseTo(traces[0].lengthMm * 0.2, 9)
     expect(screen.getByRole('tab', { name: 'EMC' })).toHaveAttribute('data-state', 'active')
     expect(screen.getByText('Radiated Emission')).toBeInTheDocument()
-    expect(screen.getByText('34.2 dBµV')).toBeInTheDocument()
+    expect(screen.getByText('34.2 dBµV/m')).toBeInTheDocument()
     expect(screen.getByText('Conducted Emission')).toBeInTheDocument()
     expect(screen.getByText('31.8 dBµV')).toBeInTheDocument()
-    expect(screen.getByText('Limit')).toBeInTheDocument()
-    expect(screen.getByText('Margin')).toBeInTheDocument()
-    expect(screen.getByText('5.8 dB')).toBeInTheDocument()
-    expect(screen.getByText('✓ CISPR 32 compliant')).toBeInTheDocument()
+    expect(screen.getByText('Radiated limit / margin')).toBeInTheDocument()
+    expect(screen.getByText('40 / 5.8 dB')).toBeInTheDocument()
+    expect(screen.getByText('Estimated below the CISPR 32 Class B radiated limit')).toBeInTheDocument()
     expect(screen.getByText(/Keep the return plane continuous/)).toBeInTheDocument()
   })
 
@@ -201,7 +290,9 @@ describe('PCBDesignPanel', () => {
       nodes: [],
       hotspots: [{ nodeId: 'pc-u1', temperature: 85, severity: 'critical' }],
       thermalGradient: [],
-      steadyStateTemperature: 62.4,
+      maxTemperature: 62.4,
+      converged: true,
+      simulatedTime: 120,
       timeToSteadyState: 120,
       recommendations: ['Add a heatsink over pc-u1.'],
     }
@@ -227,26 +318,70 @@ describe('PCBDesignPanel', () => {
     expect(screen.getByRole('button', { name: 'Run EMC' })).toBeEnabled()
   })
 
-  it('renders signal-integrity metrics for the first trace', async () => {
-    const analyze = vi.spyOn(signalIntegrityAnalyzer, 'analyzeTrace').mockResolvedValue({
-      impedance: 50,
-      propagationDelay: 0.68,
-      riseTime: 0.35,
-      reflectionCoefficient: 0.05,
-    })
+  it('refuses signal integrity before any trace exists', () => {
     render(<PCBDesignPanel onClose={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Run Signal Integrity' }))
 
-    expect(await screen.findByText('Impedance')).toBeInTheDocument()
-    expect(screen.getByText('50.0 Ω')).toBeInTheDocument()
-    expect(screen.getByText('0.68 ns')).toBeInTheDocument()
-    expect(screen.getByText('0.35 ns')).toBeInTheDocument()
-    expect(screen.getByText('5.0%')).toBeInTheDocument()
-    // No traces → a default reference line (50 mm, 0.2 mm wide, FR4).
-    expect(analyze).toHaveBeenCalledWith(
-      expect.objectContaining({ length: 50, width: 0.2, dielectricConstant: 4.5 }),
-    )
+    expect(screen.getByRole('alert')).toHaveTextContent('Route at least one trace')
+    expect(screen.queryByText('Z₀')).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Signal' })).toHaveAttribute('data-state', 'active')
+  })
+
+  it('renders physics-correct signal-integrity metrics for the first routed trace', async () => {
+    const components = [partAt('r1', 10, 10), partAt('r2', 60, 45)]
+    const wires = [
+      pinNet('GND', 'w1', [
+        { componentId: 'r1', pinId: '1' },
+        { componentId: 'r2', pinId: '1' },
+      ]),
+      pinNet('VCC', 'w2', [
+        { componentId: 'r1', pinId: '2' },
+        { componentId: 'r2', pinId: '2' },
+      ]),
+    ]
+    render(<PCBDesignPanel onClose={vi.fn()} components={components} wires={wires} />)
+    // A failed run leaves an error; routing copper must clear it.
+    fireEvent.click(screen.getByRole('button', { name: 'Run Signal Integrity' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Route at least one trace')
+    fireEvent.click(screen.getByRole('button', { name: 'Auto-Route from Schematic' }))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    openTab('Canvas')
+
+    // The panel analyses traces[0], whose length and width are the routed
+    // values — not a fictional reference line.
+    const boardSvg = document.querySelector('svg[viewBox="0 0 100 80"]')
+    expect(boardSvg).not.toBeNull()
+    const polyline = boardSvg!.querySelector('polyline')
+    expect(polyline).not.toBeNull()
+    const points = (polyline!.getAttribute('points') ?? '')
+      .trim()
+      .split(/\s+/)
+      .map((pair) => {
+        const [x, y] = pair.split(',').map(Number)
+        return { x, y }
+      })
+    const lengthMm = polylineLength(points)
+    const widthMm = Number(polyline!.getAttribute('stroke-width'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run Signal Integrity' }))
+
+    const expected = analyzeSignalPath({
+      geometry: { kind: 'microstrip', widthMm, heightMm: 0.2, epsilonR: 4.4, copperThicknessMm: 0.035 },
+      lengthMm,
+      driverImpedanceOhm: 22,
+      loadImpedanceOhm: 1e6,
+      vHigh: 3.3,
+    })
+    expect(expected.success).toBe(true)
+
+    expect(await screen.findByText('Z₀')).toBeInTheDocument()
+    expect(screen.getByText(`${expected.z0Ohm.toFixed(1)} Ω`)).toBeInTheDocument()
+    expect(screen.getByText(`${expected.delayNs.toFixed(2)} ns`)).toBeInTheDocument()
+    expect(screen.getByText(`${expected.overshootVolts.toFixed(2)} V`)).toBeInTheDocument()
+    expect(screen.getByText(expected.gammaLoad.toFixed(2))).toBeInTheDocument()
+    expect(screen.getByText(/Trace trace_0/)).toBeInTheDocument()
+    expect(screen.getByText(/Settles at/)).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Signal' })).toHaveAttribute('data-state', 'active')
   })
 
@@ -288,6 +423,115 @@ describe('PCBDesignPanel', () => {
     } finally {
       spy.mockRestore()
     }
+  })
+
+  it('renders the advanced stackup, power-integrity and BGA analyses', () => {
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+    openTab('Advanced')
+
+    const layers = fourLayerStackup()
+    const { stackup } = validateStackup(layers)
+    expect(screen.getByText('Stackup & controlled impedance')).toBeInTheDocument()
+    expect(screen.getByText(`${stackup.totalThickness.toFixed(2)} mm`)).toBeInTheDocument()
+    expect(screen.getByText(/Symmetric stackup, thickness within/)).toBeInTheDocument()
+
+    const reference = nearestPlane(layers, 0)
+    expect(reference).toBeDefined()
+    const z0 = microstripImpedance(0.2, reference!.distance, 0.035, reference!.er)
+    expect(screen.getByText(new RegExp(`${z0.toFixed(1)} Ω`))).toBeInTheDocument()
+
+    // Plane pair 0.2 mm apart and a 10 mm stitching grid over 100 × 80 mm.
+    const loop = planeLoopInductance(100, 80, 0.2)
+    expect(screen.getByText(`${loop.toFixed(3)} nH`)).toBeInTheDocument()
+    expect(screen.getByText(`${stitchingGrid(100, 80, 10, 1).length} @ 10 mm`)).toBeInTheDocument()
+
+    // Template BGA: power balls tie to planes, every other net gets a via.
+    const balls = SOC_256.balls.map((ball) => ({ ...ball, isPower: ball.kind === 'power' }))
+    const fanout = dogboneFanout(balls, SOC_256, MICROVIA_FANOUT_RULES)
+    expect(screen.getByText(
+      `${SOC_256.partNumber} — ${SOC_256.rows}×${SOC_256.cols} @ ${SOC_256.pitch} mm`,
+    )).toBeInTheDocument()
+    expect(screen.getByText(`${fanout.vias.length} vias, planes: ${fanout.planeNets.join(' / ')}`))
+      .toBeInTheDocument()
+    expect(screen.getByText(/VDDIO ×/)).toBeInTheDocument()
+    expect(screen.getByText(/No routed pairs yet/)).toBeInTheDocument()
+  })
+
+  it('derives DDR lane and fly-by checks from the routed copper', () => {
+    const components = [
+      partAt('r1', 10, 10), partAt('r2', 60, 45),
+      partAt('r3', 20, 20), partAt('r4', 70, 55),
+      partAt('r5', 30, 30), partAt('r6', 80, 60),
+    ]
+    const wires = [
+      pinNet('DQS0', 'w1', [
+        { componentId: 'r1', pinId: '1' }, { componentId: 'r2', pinId: '1' },
+      ]),
+      pinNet('DQ0', 'w2', [
+        { componentId: 'r3', pinId: '1' }, { componentId: 'r4', pinId: '1' },
+      ]),
+      pinNet('CLK', 'w3', [
+        { componentId: 'r5', pinId: '1' }, { componentId: 'r6', pinId: '1' },
+      ]),
+      pinNet('ADDR0', 'w4', [
+        { componentId: 'r2', pinId: '2' }, { componentId: 'r4', pinId: '2' },
+      ]),
+    ]
+    render(<PCBDesignPanel onClose={vi.fn()} components={components} wires={wires} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Auto-Route from Schematic' }))
+    openTab('Advanced')
+
+    expect(screen.getByText(/DQS0 \(lane 0\)/)).toBeInTheDocument()
+    expect(screen.getByText(/1 DQ bit · strobe/)).toBeInTheDocument()
+    expect(screen.getByText(/Fly-by · CLK/)).toBeInTheDocument()
+    expect(screen.getByText(/1 address net/)).toBeInTheDocument()
+  })
+
+  it('shows the DDR empty state before any matching net is routed', () => {
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+    openTab('Advanced')
+    expect(screen.getByText(/No DDR nets on the routed copper/)).toBeInTheDocument()
+  })
+
+  it('validates HDI microvia spans against the copper stack', () => {
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+    openTab('Advanced')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Validate via span' }))
+    expect(screen.getByRole('status')).toHaveTextContent(/top-cu → in1-cu is a legal microvia span/)
+
+    fireEvent.change(screen.getByLabelText('Microvia end layer'), { target: { value: 'in2-cu' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Validate via span' }))
+    expect(screen.getByRole('status')).toHaveTextContent(/spans 2 layers, max microvia span is 1/)
+  })
+
+  it('parses an IBIS file loaded from disk in the advanced tab', async () => {
+    const ibs = [
+      '[IBIS Ver] 3.2',
+      '[File Name] demo.ibs',
+      '[Component] DEMO_QFP',
+      '[Pin] signal_name model_name',
+      '1 DQ0 FAST_IO',
+      '[Model] FAST_IO',
+      'Model_type I/O',
+      'C_comp 2.5pF 2.0pF 3.0pF',
+      '[Pulldown]',
+      '0.0 0.0',
+      '1.0 25m',
+      '[Pullup]',
+      '-3.3 -25m',
+      '-2.3 0.0',
+      '[End]',
+    ].join('\n')
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+    openTab('Advanced')
+
+    const file = new File([ibs], 'demo.ibs', { type: 'text/plain' })
+    fireEvent.change(screen.getByLabelText('Import IBIS file'), { target: { files: [file] } })
+
+    expect(await screen.findByText('FAST_IO')).toBeInTheDocument()
+    expect(screen.getByText(/C_comp 2\.50 pF/)).toBeInTheDocument()
+    expect(screen.getByText(/PU 2 \/ PD 2/)).toBeInTheDocument()
   })
 
   it('disables the engine analyses while a run is in flight', () => {

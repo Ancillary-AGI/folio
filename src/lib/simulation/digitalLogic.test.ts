@@ -101,6 +101,39 @@ describe('flip-flop next-state', () => {
   it('SR is invalid when both asserted', () => {
     expect(flipFlopNextState('SR', { S: 1, R: 1 }, 0).q).toBe('X')
   })
+  it('SR and JK return X for unknown inputs instead of guessing a hold or set', () => {
+    for (const current of [0, 1] as LogicValue[]) {
+      for (const inputs of [
+        { S: 0, R: 'X' },
+        { S: 'X', R: 0 },
+        { S: 1, R: 'X' },
+        { S: 'X', R: 1 },
+        { S: 'Z', R: 0 },
+      ]) {
+        const next = flipFlopNextState('SR', inputs as Record<string, LogicValue>, current)
+        expect(next.q).toBe('X')
+        expect(next.qbar).toBe('X')
+      }
+      for (const inputs of [
+        { J: 1, K: 'X' },
+        { J: 'X', K: 0 },
+        { J: 0, K: 'X' },
+        { J: 'Z', K: 1 },
+      ]) {
+        const next = flipFlopNextState('JK', inputs as Record<string, LogicValue>, current)
+        expect(next.q).toBe('X')
+        expect(next.qbar).toBe('X')
+      }
+      expect(flipFlopNextState('SR', { S: 0, R: 0 }, current)).toEqual({
+        q: current,
+        qbar: notLogic(current),
+      })
+      expect(flipFlopNextState('JK', { J: 0, K: 0 }, current)).toEqual({
+        q: current,
+        qbar: notLogic(current),
+      })
+    }
+  })
 })
 
 
@@ -135,6 +168,42 @@ describe('event-driven simulation', () => {
     expect(valueAt(result, 'n1', 2)).toBe(1)
     expect(valueAt(result, 'n2', 4)).toBe('X')
     expect(valueAt(result, 'n2', 5)).toBe(1)
+  })
+
+  it('swallows an input pulse shorter than the propagation delay', () => {
+    const result = simulateDigital(
+      {
+        gates: [{ id: 'g1', type: 'BUF', inputs: ['a'], output: 'y', delay: 10 }],
+        initialValues: { a: 0, y: 0 },
+        stimuli: [
+          { node: 'a', time: 0, value: 1 },
+          { node: 'a', time: 4, value: 0 },
+        ],
+      },
+      30,
+    )
+    expect(result.success).toBe(true)
+    // The in-flight high transition is withdrawn at t=4; y never glitches.
+    expect(result.transitions.y.map((transition) => transition.value)).toEqual([0])
+    expect(valueAt(result, 'y', 30)).toBe(0)
+  })
+
+  it('passes a pulse that is longer than the propagation delay', () => {
+    const result = simulateDigital(
+      {
+        gates: [{ id: 'g1', type: 'BUF', inputs: ['a'], output: 'y', delay: 10 }],
+        initialValues: { a: 0, y: 0 },
+        stimuli: [
+          { node: 'a', time: 0, value: 1 },
+          { node: 'a', time: 15, value: 0 },
+        ],
+      },
+      40,
+    )
+    expect(valueAt(result, 'y', 9.9)).toBe(0)
+    expect(valueAt(result, 'y', 10)).toBe(1)
+    expect(valueAt(result, 'y', 24.9)).toBe(1)
+    expect(valueAt(result, 'y', 25)).toBe(0)
   })
 
   it('a rising-edge D flip-flop samples data only on the clock edge', () => {
@@ -198,5 +267,96 @@ describe('event-driven simulation', () => {
     )
     expect(valueAt(result, 'y', 10)).toBe('X')
     expect(result.finalValues['y']).toBe('X')
+  })
+})
+
+describe('input validation', () => {
+  const gate = { id: 'g1', type: 'BUF' as const, inputs: ['a'], output: 'y', delay: 1 }
+
+  it('rejects a non-finite or non-positive stop time', () => {
+    for (const stopTime of [Number.NaN, Number.POSITIVE_INFINITY, 0, -5]) {
+      const result = simulateDigital({ gates: [gate] }, stopTime)
+      expect(result.success).toBe(false)
+      expect(result.error).toMatch(/stopTime/)
+    }
+  })
+
+  it('rejects non-finite or negative gate delays', () => {
+    for (const delay of [Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+      const result = simulateDigital({ gates: [{ ...gate, delay }] }, 10)
+      expect(result.success).toBe(false)
+      expect(result.error).toMatch(/gate g1/)
+    }
+  })
+
+  it('rejects non-finite or negative flip-flop delays', () => {
+    const result = simulateDigital(
+      {
+        gates: [],
+        flipFlops: [
+          { id: 'ff1', type: 'D', clock: 'clk', edge: 'rising', delay: Number.NaN, inputs: { D: 'd' }, q: 'q', qbar: 'qb' },
+        ],
+      },
+      10,
+    )
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/flip-flop ff1/)
+  })
+
+  it('rejects stimuli with non-finite or negative times', () => {
+    for (const time of [Number.NaN, -1]) {
+      const result = simulateDigital({ gates: [], stimuli: [{ node: 'a', time, value: 1 }] }, 10)
+      expect(result.success).toBe(false)
+      expect(result.error).toMatch(/stimulus/)
+    }
+  })
+
+  it('rejects a gate with no inputs and a unary gate with extra inputs', () => {
+    expect(simulateDigital({ gates: [{ id: 'g1', type: 'AND', inputs: [], output: 'y', delay: 1 }] }, 10).success).toBe(false)
+    expect(
+      simulateDigital({ gates: [{ id: 'g1', type: 'NOT', inputs: ['a', 'b'], output: 'y', delay: 1 }] }, 10).success,
+    ).toBe(false)
+  })
+
+  it('rejects clock periods and duties that cannot produce a waveform', () => {
+    const netlist = { gates: [], clocks: [{ id: 'c1', output: 'clk', period: Number.POSITIVE_INFINITY }] }
+    expect(simulateDigital(netlist, 10).success).toBe(false)
+    // A duty of 1 has no low phase; the old loop would never advance time.
+    expect(
+      simulateDigital({ gates: [], clocks: [{ id: 'c1', output: 'clk', period: 10, duty: 1 }] }, 10).success,
+    ).toBe(false)
+    expect(
+      simulateDigital({ gates: [], clocks: [{ id: 'c1', output: 'clk', period: 0, duty: 0.5 }] }, 10).success,
+    ).toBe(false)
+  })
+
+  it('rejects a clock that would flood the event queue', () => {
+    const result = simulateDigital(
+      { gates: [], clocks: [{ id: 'c1', output: 'clk', period: 1e-9, duty: 0.5 }] },
+      1e6,
+    )
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/more than/)
+  })
+
+  it('honours a duty cycle by placing edges at the right times', () => {
+    const result = simulateDigital(
+      { gates: [], clocks: [{ id: 'c1', output: 'clk', period: 10, duty: 0.25, startState: 0 }] },
+      20,
+    )
+    expect(result.success).toBe(true)
+    expect(valueAt(result, 'clk', 7.4)).toBe(0)
+    expect(valueAt(result, 'clk', 7.5)).toBe(1) // low phase = 0.75 × period
+    expect(valueAt(result, 'clk', 9.9)).toBe(1)
+    expect(valueAt(result, 'clk', 10)).toBe(0) // high phase = 0.25 × period
+  })
+
+  it('returns X for a time before the recorded history begins', () => {
+    const result = simulateDigital(
+      { gates: [], stimuli: [{ node: 'a', time: 0, value: 1 }] },
+      1,
+    )
+    expect(valueAt(result, 'a', -1)).toBe('X')
+    expect(valueAt(result, 'a', 0)).toBe(1)
   })
 })

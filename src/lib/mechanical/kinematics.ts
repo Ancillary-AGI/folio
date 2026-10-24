@@ -314,6 +314,11 @@ export function solveLinearSystem(a: readonly number[][], b: readonly number[]):
  * Inverse kinematics
  * ------------------------------------------------------------------ */
 
+export interface IkLimits {
+  min: number;
+  max: number;
+}
+
 export interface IkOptions {
   /** Damping on the least-squares step; larger is steadier near singularities. */
   lambda?: number;
@@ -321,6 +326,12 @@ export interface IkOptions {
   maxIterations?: number;
   /** Position error, in length units, at which to stop. */
   tolerance?: number;
+  /**
+   * Per-variable box limits in chain order, in the variable's own unit (radians
+   * for revolute, length for prismatic). Every iterate is projected into the
+   * box; without limits the solver is unconstrained.
+   */
+  limits?: readonly IkLimits[];
 }
 
 export interface IkResult {
@@ -347,6 +358,11 @@ function withVariables(chain: readonly DhJoint[], values: readonly number[]): Dh
  * Damped-least-squares inverse kinematics on position only. Returns the joint
  * variables rather than a rebuilt chain, so callers keep their own joint metadata,
  * and reports the residual it actually reached instead of claiming convergence.
+ *
+ * When `limits` is supplied every iterate is projected into the box, so a
+ * returned solution is mechanically reachable. Projection can stall at a stop,
+ * in which case the residual reports the shortfall (or `converged` is false)
+ * rather than presenting the clamped value as a solution.
  */
 export function solveIk(
   chain: readonly DhJoint[],
@@ -360,8 +376,27 @@ export function solveIk(
   if (chain.length === 0) throw new Error('Cannot solve IK for an empty chain.');
   if (!(lambda >= 0)) throw new Error('lambda must be non-negative.');
   if (!(maxIterations >= 1)) throw new Error('maxIterations must be at least 1.');
+  if (!Number.isFinite(tolerance) || !(tolerance > 0)) {
+    throw new Error('tolerance must be a finite, positive length.');
+  }
+  const limits = options.limits;
+  if (limits) {
+    if (limits.length !== chain.length) {
+      throw new Error(`IK limits must match the chain length (${limits.length} vs ${chain.length}).`);
+    }
+    limits.forEach((limit, index) => {
+      if (!Number.isFinite(limit.min) || !Number.isFinite(limit.max) || limit.max < limit.min) {
+        throw new Error(`IK limit ${index} is invalid: [${limit.min}, ${limit.max}].`);
+      }
+    });
+  }
+  const project = (value: number, index: number): number => {
+    if (!limits) return value;
+    return Math.min(limits[index].max, Math.max(limits[index].min, value));
+  };
 
-  let values = variablesOf(chain);
+  // Project the seed too: a chain may start outside its own box.
+  let values = variablesOf(chain).map(project);
   let iterations = 0;
 
   for (; iterations < maxIterations; iterations += 1) {
@@ -387,7 +422,7 @@ export function solveIk(
     values = values.map((v, i) => {
       let sum = 0;
       for (let r = 0; r < 3; r += 1) sum += linear[r][i] * y[r];
-      return v + sum;
+      return project(v + sum, i);
     });
   }
 
@@ -421,12 +456,25 @@ export function twoLinkIk(
   reachable: boolean;
 } {
   if (!(l1 > 0) || !(l2 > 0)) throw new Error('Link lengths must be positive.');
+  if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('Target coordinates must be finite.');
   const distance = Math.hypot(x, y);
   const reachable =
     distance <= l1 + l2 + 1e-12 && distance >= Math.abs(l1 - l2) - 1e-12;
   if (!reachable) {
     const unreachable = { shoulder: Number.NaN, elbow: Number.NaN };
     return { elbowUp: unreachable, elbowDown: unreachable, reachable: false };
+  }
+  /*
+   * A target on the shoulder is the law of cosines' singular point: both
+   * shoulder-offset terms divide by the distance. Equal links can fold exactly
+   * onto the origin, so return that configuration instead of NaN angles.
+   */
+  if (distance === 0) {
+    return {
+      elbowUp: { shoulder: 0, elbow: Math.PI },
+      elbowDown: { shoulder: 0, elbow: -Math.PI },
+      reachable: true,
+    };
   }
   const clamp = (v: number): number => Math.min(1, Math.max(-1, v));
   const phi = Math.atan2(y, x);

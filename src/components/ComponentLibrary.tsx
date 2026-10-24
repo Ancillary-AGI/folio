@@ -1,5 +1,5 @@
 ﻿import { useMemo, useState } from 'react'
-import { Search } from 'lucide-react'
+import { Search, X } from 'lucide-react'
 import type { DragEvent } from 'react'
 import { Component } from '../lib/supabase';
 
@@ -7,6 +7,7 @@ interface ComponentLibraryProps {
   components: Component[];
   onSelectComponent: (component: Component) => void;
   selectedComponent?: Component | null;
+  onClose?: () => void;
 }
 
 /**
@@ -14,7 +15,7 @@ interface ComponentLibraryProps {
  * alphabetical list with sticky category headers. Rows are draggable onto
  * the sheet; clicking arms the part for click-to-place.
  */
-export default function ComponentLibrary({ components, onSelectComponent, selectedComponent }: ComponentLibraryProps) {
+export default function ComponentLibrary({ components, onSelectComponent, selectedComponent, onClose }: ComponentLibraryProps) {
   const [searchTerm, setSearchTerm] = useState('');
 
   /** Filter by search, then group by category (A–Z), sorted within each group. */
@@ -62,8 +63,21 @@ export default function ComponentLibrary({ components, onSelectComponent, select
       {/* Palette title */}
       <div className="cad-palette-title">
         <span>Library</span>
-        <span className="font-mono tabular-nums normal-case tracking-normal">
-          {shownCount}/{components.length}
+        <span className="flex items-center gap-1.5">
+          <span className="font-mono tabular-nums normal-case tracking-normal">
+            {shownCount}/{components.length}
+          </span>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close component library"
+              title="Close component library"
+              className="flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          )}
         </span>
       </div>
 

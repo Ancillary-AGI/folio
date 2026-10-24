@@ -25,8 +25,9 @@
  */
 
 import type { CircuitModel } from './circuitModel'
-import type { RealSystem, ComplexSystem, TransientState } from './stamping'
-import { complex, cAdd, cSub, type Complex } from './numeric'
+import type { RealSystem, ComplexSystem, TransientState, TransientIntegration } from './stamping'
+import { companionHistory, integrationFactor } from './stamping'
+import { complex, cAdd, type Complex } from './numeric'
 
 export interface CoupledInductorPair {
   name: string            // K reference (K1, K2 …)
@@ -41,10 +42,6 @@ export interface CoupledInductorPair {
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
-
-function vRow(model: CircuitModel, node: string): number | undefined {
-  return model.nodeIndex.get(node)
-}
 
 function branchRow(model: CircuitModel, name: string): number | undefined {
   const idx = model.branchRows.get(name)
@@ -62,16 +59,6 @@ function addRhs(sys: RealSystem, i: number, v: number) {
 function addComplexM(sys: ComplexSystem, i: number, j: number, v: Complex) {
   if (i !== undefined && j !== undefined)
     sys.matrix[i][j] = cAdd(sys.matrix[i][j], v)
-}
-
-// ─── DC stamp ────────────────────────────────────────────────────────────────
-/**
- * At DC both inductors are shorted — nothing to add for coupling.
- * This function exists so the circuit model builder can call it without
- * branching.
- */
-export function stampMutualInductanceDc(_sys: RealSystem, _pair: CoupledInductorPair, _model: CircuitModel): void {
-  // inductors already stamp their v=0 constraint on their own branch rows
 }
 
 // ─── Transient stamp ─────────────────────────────────────────────────────────
@@ -94,7 +81,10 @@ export function stampMutualInductanceDc(_sys: RealSystem, _pair: CoupledInductor
  *
  * These are added to the two existing inductor branch rows by subtracting
  * the M/h cross-coupling terms (the L/h self terms are already stamped by
- * the uncoupled inductor stamp in stamping.ts).
+ * the uncoupled inductor stamp in stamping.ts). Trapezoidal doubles every L/h
+ * and M/h coefficient; Gear/BDF2 uses 1.5× and the two-step current history.
+ * Each winding's own previous terminal voltage is already carried by the
+ * uncoupled stamp.
  */
 export function stampMutualInductanceTransient(
   sys: RealSystem,
@@ -102,6 +92,7 @@ export function stampMutualInductanceTransient(
   model: CircuitModel,
   state: TransientState,
   dt: number,
+  method: TransientIntegration = 'backward-euler',
 ): void {
   const M = pair.k * Math.sqrt(pair.l1Value * pair.l2Value)
   if (M === 0) return
@@ -110,18 +101,28 @@ export function stampMutualInductanceTransient(
   const row2 = branchRow(model, pair.l2Name)
   if (row1 === undefined || row2 === undefined) return
 
-  const MH = M / dt
+  const MH = (integrationFactor(method) * M) / dt
 
-  // Cross-coupling in the branch rows
-  // L1 row: + (M/h)·iL2 term → add M/h to [row1, row2] and subtract M/h · iL2_prev from rhs
-  addM(sys, row1, row2, MH)
-  const iL2Prev = state.inductorCurrents.get(pair.l2Name) ?? 0
-  addRhs(sys, row1, MH * iL2Prev)
+  /*
+   * The uncoupled inductor stamp already writes
+   *   v1 − (L1/h)·i1 = −(L1/h)·i1_prev
+   * so coupling contributes the negative cross terms on both sides.
+   */
+  addM(sys, row1, row2, -MH)
+  const iL2History = companionHistory(
+    method,
+    state.inductorCurrents.get(pair.l2Name) ?? 0,
+    state.inductorCurrents2.get(pair.l2Name) ?? 0,
+  )
+  addRhs(sys, row1, -MH * iL2History)
 
-  // L2 row: + (M/h)·iL1 term
-  addM(sys, row2, row1, MH)
-  const iL1Prev = state.inductorCurrents.get(pair.l1Name) ?? 0
-  addRhs(sys, row2, MH * iL1Prev)
+  addM(sys, row2, row1, -MH)
+  const iL1History = companionHistory(
+    method,
+    state.inductorCurrents.get(pair.l1Name) ?? 0,
+    state.inductorCurrents2.get(pair.l1Name) ?? 0,
+  )
+  addRhs(sys, row2, -MH * iL1History)
 }
 
 // ─── AC stamp ────────────────────────────────────────────────────────────────
@@ -145,8 +146,8 @@ export function stampMutualInductanceAc(
   const row2 = branchRow(model, pair.l2Name)
   if (row1 === undefined || row2 === undefined) return
 
-  // jωM cross entries in both branch rows
-  const jwM = complex(0, omega * M)
+  // Branch constraint is v − jωL·i per winding, so cross-coupling is −jωM.
+  const jwM = complex(0, -omega * M)
   addComplexM(sys, row1, row2, jwM)
   addComplexM(sys, row2, row1, jwM)
 }

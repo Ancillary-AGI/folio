@@ -28,7 +28,15 @@ import { cAbs, cSub, complex, solveComplexSystem, type Complex } from './numeric
 import { BOLTZMANN, ELEMENTARY_CHARGE, thermalVoltage } from './devices'
 import type { CircuitModel } from './circuitModel'
 import { createComplexSystem, stampAc } from './stamping'
-import { runOperatingPoint, readBranchCurrents, readNodeVoltages, type AnalysisOutcome, type Waveform } from './solver'
+import {
+  buildFrequencyGrid,
+  isBiasIndependent,
+  runOperatingPoint,
+  readBranchCurrents,
+  readNodeVoltages,
+  type AnalysisOutcome,
+  type Waveform,
+} from './solver'
 import { stampSemiconductorSmallSignal } from './semiconductors'
 
 export interface NoiseOptions {
@@ -70,12 +78,9 @@ function transpose(matrix: Complex[][]): Complex[][] {
   return result
 }
 
-/** Logarithmic frequency grid (shared shape with the AC sweep). */
+/** Logarithmic frequency grid (shared with the AC sweep). */
 export function buildLogFrequencyGrid(start: number, stop: number, pointsPerDecade: number): number[] {
-  const decades = Math.log10(stop / start)
-  const count = Math.min(Math.max(2, Math.round(decades * pointsPerDecade) + 1), 2000)
-  const ratio = Math.pow(stop / start, 1 / (count - 1))
-  return Array.from({ length: count }, (_, index) => start * Math.pow(ratio, index))
+  return buildFrequencyGrid({ startFrequency: start, stopFrequency: stop, pointsPerDecade })
 }
 
 /**
@@ -95,6 +100,18 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
     integratedRmsNoise: 0,
   }
 
+  if (!Number.isFinite(temperatureCelsius) || temperatureCelsius <= -273.15) {
+    return { ...empty, notes: ['Noise analysis needs a finite temperature above absolute zero.'] }
+  }
+  if (!Number.isFinite(pointsPerDecade) || pointsPerDecade < 1) {
+    return { ...empty, notes: ['Noise analysis needs at least one frequency point per decade.'] }
+  }
+  if (gmin !== undefined && (!Number.isFinite(gmin) || gmin < 0)) {
+    return { ...empty, notes: ['Noise analysis needs a finite, non-negative gmin.'] }
+  }
+  if (!Number.isFinite(startFrequency) || !Number.isFinite(stopFrequency)) {
+    return { ...empty, notes: ['Noise analysis needs finite start and stop frequencies.'] }
+  }
   if (!(startFrequency > 0) || !(stopFrequency > startFrequency)) {
     return { ...empty, notes: ['Noise analysis needs 0 < start frequency < stop frequency.'] }
   }
@@ -117,6 +134,32 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
 
   const operatingPoint = runOperatingPoint(model, { temperatureCelsius, gmin, time: 0 })
   const notes = [...operatingPoint.outcome.notes]
+  const biasSolved =
+    !operatingPoint.failure &&
+    operatingPoint.outcome.converged &&
+    operatingPoint.solution.length > 0
+  if (!biasSolved && (operatingPoint.failure !== 'singular' || !isBiasIndependent(model))) {
+    // Shot noise depends on the bias current, so there is nothing to linearise
+    // about when the bias solve failed. Report that, not a zero-noise circuit.
+    notes.push(
+      'Noise analysis needs a converged DC operating point; the bias solve failed, so no noise spectrum was computed.',
+    )
+    return {
+      ...empty,
+      notes,
+      iterations: operatingPoint.outcome.iterations,
+    }
+  }
+  if (!biasSolved) {
+    notes.push(
+      'The DC operating point is indeterminate (for example an ideal source directly across an ideal ' +
+        'inductor); this circuit is linear, so the noise spectrum was computed about zero bias.',
+    )
+  }
+  const biasSolution = biasSolved
+    ? operatingPoint.solution
+    : new Array<number>(model.size).fill(0)
+  const biasDiodeConductances = biasSolved ? operatingPoint.diodeConductances : new Map<string, number>()
   const fourKT = 4 * BOLTZMANN * (temperatureCelsius + 273.15)
 
   const frequencies = buildLogFrequencyGrid(startFrequency, stopFrequency, pointsPerDecade)
@@ -134,15 +177,15 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
     const frequency = frequencies[index]
     const omega = 2 * Math.PI * frequency
     const system = createComplexSystem(model)
-    stampAc(system, model, omega, operatingPoint.diodeConductances, gmin ?? 1e-12)
+    stampAc(system, model, omega, biasDiodeConductances, gmin ?? 1e-12)
     stampSemiconductorSmallSignal(
       system,
       model,
       operatingPoint.semiconductor,
       thermalVoltage(temperatureCelsius),
       omega,
-      readNodeVoltages(model, operatingPoint.solution),
-      { currents: readBranchCurrents(model, operatingPoint.solution), time: 0 },
+      readNodeVoltages(model, biasSolution),
+      { currents: readBranchCurrents(model, biasSolution), time: 0 },
     )
 
     // Adjoint solve: Aᵀ·x = e_out, i.e. a unit current injected at the output.
@@ -210,9 +253,17 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
   }
   const integratedRmsNoise = Math.sqrt(Math.max(integrated, 0))
 
+  const formatHz = (value: number): string => (
+    value >= 1e6 ? `${(value / 1e6).toFixed(3)} MHz`
+      : value >= 1e3 ? `${(value / 1e3).toFixed(3)} kHz`
+        : `${value.toFixed(1)} Hz`
+  )
+  const bandStart = frequencies[0] ?? startFrequency
+  const bandStop = frequencies[frequencies.length - 1] ?? stopFrequency
   notes.push(
     `Bias: ${thermalVoltage(temperatureCelsius).toFixed(4)} V thermal voltage at ${temperatureCelsius} °C. ` +
-      `Integrated output noise 0→band is ${(integratedRmsNoise * 1e6).toFixed(3)} µV RMS at ${outputNode}.`,
+      `Integrated output noise ${formatHz(bandStart)}–${formatHz(bandStop)} is ` +
+      `${(integratedRmsNoise * 1e6).toFixed(3)} µV RMS at ${outputNode}.`,
   )
 
   return {

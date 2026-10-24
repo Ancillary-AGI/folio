@@ -30,6 +30,30 @@ export const IC_74HC595: MemorySpec = {
   description: 'Serial-in, parallel-out with output latch: shift on SRCLK, copy to outputs on RCLK.',
 };
 
+export const IC_74HC165: MemorySpec = {
+  id: 'hc165', partNumber: '74HC165', name: '8-bit parallel-in, serial-out shift register',
+  kind: 'shift-register', pinCount: 16,
+  pins: [p(1,'PL','input'),p(2,'CP','input'),p(3,'D4','input'),p(4,'D5','input'),p(5,'D6','input'),p(6,'D7','input'),p(7,'QH','output'),p(8,'GND','power'),p(9,'QH_BAR','output'),p(10,'SER','input'),p(11,'D0','input'),p(12,'D1','input'),p(13,'D2','input'),p(14,'D3','input'),p(15,'CE','input'),p(16,'VCC','power')],
+  maxClockHz: 25_000_000, interface: 'parallel-in-serial-out', supplyVolts: 5,
+  description: 'Loads eight parallel bits on PL, then shifts them out on CP with CE low.',
+};
+
+export const IC_74HC138: MemorySpec = {
+  id: 'hc138', partNumber: '74HC138', name: '3-to-8 inverting decoder',
+  kind: 'decoder', pinCount: 16,
+  pins: [p(1,'A','input'),p(2,'B','input'),p(3,'C','input'),p(4,'G2A','input'),p(5,'G2B','input'),p(6,'G1','input'),p(7,'Y7','output'),p(8,'GND','power'),p(9,'Y6','output'),p(10,'Y5','output'),p(11,'Y4','output'),p(12,'Y3','output'),p(13,'Y2','output'),p(14,'Y1','output'),p(15,'Y0','output'),p(16,'VCC','power')],
+  maxClockHz: 25_000_000, interface: 'parallel', supplyVolts: 5,
+  description: 'One of eight outputs goes low for the selected address when G1=1, G2A=G2B=0.',
+};
+
+export const IC_23LC1024: MemorySpec = {
+  id: 'sram-23lc1024', partNumber: '23LC1024', name: '1Mbit SPI SRAM',
+  kind: 'sram', pinCount: 8,
+  pins: [p(1,'CS','input'),p(2,'SO','output'),p(3,'SIO2','bidirectional'),p(4,'VSS','power'),p(5,'SI','input'),p(6,'SCK','input'),p(7,'HOLD','input'),p(8,'VCC','power')],
+  capacityBits: 1_048_576, maxClockHz: 20_000_000, interface: 'SPI', supplyVolts: 3.3,
+  description: '128KB SPI SRAM, unlimited write endurance, 20 MHz clock.',
+};
+
 export const IC_24LC256: MemorySpec = {
   id: 'eeprom-24lc256', partNumber: '24LC256', name: '256Kbit I2C EEPROM',
   kind: 'eeprom', pinCount: 8,
@@ -46,7 +70,14 @@ export const IC_W25Q128: MemorySpec = {
   description: '16MB SPI NOR flash, 4KB sectors, QSPI capable.',
 };
 
-export const STANDARD_MEMORY: readonly MemorySpec[] = [IC_74HC595, IC_24LC256, IC_W25Q128];
+export const STANDARD_MEMORY: readonly MemorySpec[] = [
+  IC_74HC595,
+  IC_74HC165,
+  IC_74HC138,
+  IC_23LC1024,
+  IC_24LC256,
+  IC_W25Q128,
+];
 
 export function memoryByPartNumber(partNumber: string): MemorySpec {
   const found = STANDARD_MEMORY.find((m) => m.partNumber === partNumber);

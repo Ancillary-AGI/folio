@@ -1,11 +1,20 @@
 import { Point, Size } from '../../types';
-import { analyseBeam, analyseConduction } from './mechanicalAnalysis';
+import {
+  analyseBeam,
+  analyseConduction,
+  analyseEmc,
+  type ElectricalProperties,
+} from './mechanicalAnalysis';
+import { getMaterial, requireMaterial } from './materials';
+import { boxFaces, stepAssemblyDocument } from '../manufacturing/stepGeometry';
 
 export interface MechanicalComponent {
   id: string;
   name: string;
   type: 'structural' | 'fastener' | 'bearing' | 'motor' | 'gear' | 'shaft' | 'enclosure' | 'sensor' | 'actuator' | 'connector';
   dimensions: Size;
+  /** Extrusion thickness, metres. Drives weight and every export solid. */
+  thickness: number;
   material: string;
   weight: number;
   position: Point;
@@ -16,11 +25,7 @@ export interface MechanicalComponent {
     specificHeat: number;
     emissivity: number;
   };
-  electricalProperties?: {
-    resistance: number;
-    capacitance: number;
-    inductance: number;
-  };
+  electricalProperties?: ElectricalProperties;
 }
 
 export interface MechanicalConstraint {
@@ -54,12 +59,19 @@ export class MechanicalDesignEngine {
     if (!Number.isFinite(thickness) || thickness <= 0) {
       throw new Error(`thickness must be a positive finite number, got ${thickness}.`);
     }
+    if (!Number.isFinite(dimensions.width) || dimensions.width <= 0 ||
+      !Number.isFinite(dimensions.height) || dimensions.height <= 0) {
+      throw new Error(
+        `component dimensions must be positive and finite, got ${dimensions.width} × ${dimensions.height}.`,
+      );
+    }
     this.idSeq += 1;
     return {
       id: `mech_${Date.now()}_${this.idSeq}`,
       name: `${type}_${this.idSeq}`,
       type,
       dimensions,
+      thickness,
       material,
       weight: this.calculateWeight(dimensions, thickness, material),
       position: { x: 0, y: 0 },
@@ -69,24 +81,10 @@ export class MechanicalDesignEngine {
   }
 
   private calculateWeight(dimensions: Size, thickness: number, material: string): number {
-    const densities: Record<string, number> = {
-      'steel': 7850,
-      'aluminum': 2700,
-      'plastic': 1200,
-      'titanium': 4500,
-      'copper': 8960,
-      'brass': 8500,
-      'ABS': 1050,
-      'PLA': 1240,
-      'nylon': 1150
-    };
     // `Size` carries only width and height, so the extrusion thickness is an
     // explicit argument validated by `createComponent`. Guessing 10 mm here
     // silently mis-weighed every part whose real thickness differs.
-    const density = densities[material];
-    if (density === undefined) {
-      throw new Error(`Unknown material "${material}". Known materials: ${Object.keys(densities).join(', ')}.`);
-    }
+    const density = requireMaterial(material).density;
     // Caller guarantees SI metres throughout; no unit conversion here.
     const volume = dimensions.width * dimensions.height * thickness;
     return volume * density; // Weight in kg
@@ -139,12 +137,13 @@ export class MechanicalDesignEngine {
    *
    * The bending axis is the part's height and the section is width × thickness, both
    * taken from the arguments rather than the fixed 10 mm and 5 mm the previous version
-   * assumed. `safetyFactor` is `null` when nothing is loaded instead of `Infinity`.
+   * assumed. `force` is axial: it contributes stress but not transverse deflection.
+   * `safetyFactor` is `null` when nothing is loaded instead of `Infinity`.
    */
   analyzeStructuralIntegrity(
     component: MechanicalComponent,
     loads: { force?: number; moment?: number },
-    thickness = 0.01,
+    thickness = component.thickness,
   ): {
     normalStress: number;
     bendingStress: number;
@@ -177,39 +176,34 @@ export class MechanicalDesignEngine {
     };
   }
 
+  /**
+   * Lumped impedance and EMI metrics at one frequency.
+   *
+   * Delegates to the tested `analyseEmc`: `R + jωL − j/(ωC)`, resonance
+   * `1/(2π√(LC))`, and skin depth from the material conductivity. `skinDepth`
+   * and shielding are `null` when the part does not declare a conductivity —
+   * a fabricated copper value for a plastic bracket would be meaningless.
+   * Power loss assumes a 1 V excitation across the lumped model.
+   */
   analyzeElectromagneticCompatibility(component: MechanicalComponent, frequency: number): {
     impedance: number;
     resonanceFrequency: number;
-    skinDepth: number;
-    shieldingEffectiveness: number;
+    skinDepth: number | null;
+    shieldingEffectiveness: number | null;
     powerLoss: number;
   } {
-    const electricalProps = component.electricalProperties || {
+    const electricalProps = component.electricalProperties ?? {
       resistance: 0.1,
       capacitance: 1e-9,
-      inductance: 1e-6
+      inductance: 1e-6,
     };
-
-    // Calculate impedance at given frequency
-    const angularFreq = 2 * Math.PI * frequency;
-    const capacitiveReactance = 1 / (angularFreq * electricalProps.capacitance);
-    const inductiveReactance = angularFreq * electricalProps.inductance;
-
-    const totalImpedance = Math.sqrt(
-      Math.pow(electricalProps.resistance, 2) +
-      Math.pow(inductiveReactance - capacitiveReactance, 2)
-    );
-
-    // EMI analysis
-    const skinDepth = Math.sqrt(2 * electricalProps.resistance / (angularFreq * 4 * Math.PI * 1e-7)); // Copper permeability
-    const shieldingEffectiveness = 20 * Math.log10(component.dimensions.width / skinDepth);
-
+    const emc = analyseEmc(electricalProps, frequency, component.thickness);
     return {
-      impedance: totalImpedance,
-      resonanceFrequency: 1 / (2 * Math.PI * Math.sqrt(electricalProps.inductance * electricalProps.capacitance)),
-      skinDepth,
-      shieldingEffectiveness,
-      powerLoss: Math.pow(electricalProps.resistance, 2) / totalImpedance
+      impedance: emc.impedance,
+      resonanceFrequency: emc.resonanceFrequency,
+      skinDepth: emc.skinDepth,
+      shieldingEffectiveness: emc.shieldingEffectiveness,
+      powerLoss: (1 / emc.impedance ** 2) * electricalProps.resistance,
     };
   }
 
@@ -218,14 +212,8 @@ export class MechanicalDesignEngine {
     yieldStrength: number;
     density: number;
   } {
-    const properties: Record<string, { youngsModulus: number; yieldStrength: number; density: number }> = {
-      'steel': { youngsModulus: 200e9, yieldStrength: 250e6, density: 7850 },
-      'aluminum': { youngsModulus: 70e9, yieldStrength: 100e6, density: 2700 },
-      'plastic': { youngsModulus: 2e9, yieldStrength: 50e6, density: 1200 },
-      'titanium': { youngsModulus: 110e9, yieldStrength: 400e6, density: 4500 },
-      'copper': { youngsModulus: 120e9, yieldStrength: 70e6, density: 8960 }
-    };
-    return properties[material] || properties['steel'];
+    const { youngsModulus, yieldStrength, density } = getMaterial(material);
+    return { youngsModulus, yieldStrength, density };
   }
 
   createAssembly(name: string): MechanicalAssembly {
@@ -270,10 +258,16 @@ export class MechanicalDesignEngine {
       centerX += comp.position.x * comp.weight;
       centerY += comp.position.y * comp.weight;
 
-      minX = Math.min(minX, comp.position.x - comp.dimensions.width / 2);
-      minY = Math.min(minY, comp.position.y - comp.dimensions.height / 2);
-      maxX = Math.max(maxX, comp.position.x + comp.dimensions.width / 2);
-      maxY = Math.max(maxY, comp.position.y + comp.dimensions.height / 2);
+      // The assembly box must contain the rotated part, not the unrotated
+      // footprint: a 2 m beam turned 90° reaches along y, not x.
+      const halfWidth = Math.abs((comp.dimensions.width / 2) * Math.cos(comp.rotation)) +
+        Math.abs((comp.dimensions.height / 2) * Math.sin(comp.rotation));
+      const halfHeight = Math.abs((comp.dimensions.width / 2) * Math.sin(comp.rotation)) +
+        Math.abs((comp.dimensions.height / 2) * Math.cos(comp.rotation));
+      minX = Math.min(minX, comp.position.x - halfWidth);
+      minY = Math.min(minY, comp.position.y - halfHeight);
+      maxX = Math.max(maxX, comp.position.x + halfWidth);
+      maxY = Math.max(maxY, comp.position.y + halfHeight);
     });
 
     assembly.metadata.totalWeight = totalWeight;
@@ -309,24 +303,35 @@ export class MechanicalDesignEngine {
     return true;
   }
 
+  /**
+   * AP214 STEP assembly: one faceted closed shell per component, positioned and
+   * rotated in assembly coordinates. Emitted through the shared
+   * `stepGeometry` writer so the dialect matches the enclosure and mechanism
+   * exporters. Coordinates stay in this engine's metres; the writer emits no
+   * unit context, so downstream tools must not assume millimetres.
+   */
   exportToSTEP(assemblyId: string): string {
     const assembly = this.assemblies.get(assemblyId);
     if (!assembly) return '';
 
-    let stepContent = 'ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((\'Mechanical Assembly\'), \'2;1\');\nENDSEC;\nDATA;\n';
-
-    assembly.components.forEach((comp, index) => {
-      stepContent += `#${index + 1}=PRODUCT('${comp.name}','${comp.name}','',(#${index + 2}));\n`;
-      stepContent += `#${index + 2}=PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('design','',#${index + 1},.NOT_KNOWN.);\n`;
-      // Add geometric representation (simplified)
-      stepContent += `#${index + 3}=CARTESIAN_POINT('origin',(${comp.position.x},${comp.position.y},0));\n`;
-      stepContent += `#${index + 4}=DIRECTION('z_dir',(0,0,1));\n`;
-      stepContent += `#${index + 5}=AXIS2_PLACEMENT_3D('placement',#${index + 3},#${index + 4},$);\n`;
-      stepContent += `#${index + 6}=BLOCK('block',#${index + 5},${comp.dimensions.width},${comp.dimensions.height},10);\n`;
+    const solids = assembly.components.map(comp => {
+      const halfWidth = comp.dimensions.width / 2;
+      const halfHeight = comp.dimensions.height / 2;
+      const halfThickness = comp.thickness / 2;
+      const cos = Math.cos(comp.rotation);
+      const sin = Math.sin(comp.rotation);
+      const faces = boxFaces(
+        -halfWidth, -halfHeight, -halfThickness,
+        halfWidth, halfHeight, halfThickness,
+      ).map(face => face.map(([x, y, z]) => [
+        comp.position.x + x * cos - y * sin,
+        comp.position.y + x * sin + y * cos,
+        z,
+      ]));
+      return { name: comp.name, faces };
     });
 
-    stepContent += 'ENDSEC;\nEND-ISO-10303-21;\n';
-    return stepContent;
+    return stepAssemblyDocument(solids, 'folio-mechanical-assembly');
   }
 
   exportToSTL(assemblyId: string): string {
@@ -336,27 +341,33 @@ export class MechanicalDesignEngine {
     let stlContent = 'solid mechanical_assembly\n';
 
     assembly.components.forEach((comp) => {
-      // Generate triangular mesh for each component (simplified box)
-      const triangles = this.generateBoxTriangles(comp);
-      stlContent += triangles;
+      stlContent += this.generateBoxTriangles(comp);
     });
 
     stlContent += 'endsolid mechanical_assembly\n';
     return stlContent;
   }
 
+  /** Box mesh in assembly coordinates: real thickness, rotation and position. */
   private generateBoxTriangles(comp: MechanicalComponent): string {
     const w = comp.dimensions.width / 2;
     const h = comp.dimensions.height / 2;
-    const d = 5; // Default depth
+    const d = comp.thickness / 2;
+    const cos = Math.cos(comp.rotation);
+    const sin = Math.sin(comp.rotation);
+    const place = (x: number, y: number, z: number): number[] => [
+      comp.position.x + x * cos - y * sin,
+      comp.position.y + x * sin + y * cos,
+      z,
+    ];
 
     const vertices = [
       [-w, -h, -d], [w, -h, -d], [w, h, -d], [-w, h, -d], // Bottom
       [-w, -h, d], [w, -h, d], [w, h, d], [-w, h, d]     // Top
-    ];
+    ].map(([x, y, z]) => place(x, y, z));
 
     const faces = [
-      [0, 1, 2], [0, 2, 3], // Bottom
+      [0, 2, 1], [0, 3, 2], // Bottom (wound so the normal points −z)
       [4, 5, 6], [4, 6, 7], // Top
       [0, 1, 5], [0, 5, 4], // Front
       [1, 2, 6], [1, 6, 5], // Right

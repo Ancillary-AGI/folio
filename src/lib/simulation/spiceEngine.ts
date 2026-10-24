@@ -19,9 +19,12 @@
  */
 
 import { buildCircuitModel, type CircuitModel } from './circuitModel'
+import { deviceNodes, isInternalNode, parseMillimetres, parseSpiceValue } from './devices'
 import { resolveOutputNode, runNoiseAnalysis } from './noise'
 import { runMonteCarlo } from './monteCarlo'
 import { runAcSweep, runDcSweep, runOperatingPoint, runTransient, type AnalysisOutcome } from './solver'
+import { microstripEffectiveEr, tdFromGeometry, z0FromGeometry } from './transmissionLine'
+import { normalizeModelCards, resolveModelCard, type SpiceModelCard } from './modelLibrary'
 
 export interface SimulationParameters {
   type: 'dc' | 'dc-sweep' | 'transient' | 'ac' | 'noise' | 'montecarlo'
@@ -38,6 +41,13 @@ export interface SimulationParameters {
    * `false` matches SPICE (`.tran` without `UIC`).
    */
   useInitialConditions?: boolean
+  /**
+   * Transient companion-model integration rule. `backward-euler` (default) is
+   * unconditionally stable and monotone; `trapezoidal` is second-order accurate
+   * and preserves LC oscillation; `bdf2` (Gear order 2) is also second-order
+   * and A-stable but damps high-frequency numerical ringing.
+   */
+  integrationMethod?: 'backward-euler' | 'trapezoidal' | 'bdf2'
   /** Net whose voltage noise is measured, for `noise` analysis. */
   outputNode?: string
   /** Number of perturbed runs, for `montecarlo`. */
@@ -101,6 +111,13 @@ export interface CircuitNetlist {
   analyses: SimulationParameters[]
   options?: Record<string, string | number | boolean>
   probes?: import('./probes').RawProbe[]
+  /**
+   * SPICE `.model` cards, keyed by name. A semiconductor component references
+   * one through its `model`/`part`/`mpn`/`type` property; the card's values
+   * override the stock part-number card, and a value typed on the symbol still
+   * wins over both.
+   */
+  models?: Record<string, SpiceModelCard>
 }
 
 const DEFAULT_TEMPERATURE_CELSIUS = 27
@@ -113,7 +130,7 @@ const DEFAULT_TEMPERATURE_CELSIUS = 27
  * expression — so the exported deck is the circuit that was simulated, not a
  * bare reference designator with a value appended.
  */
-function renderSpiceElement(component: Component): string {
+function renderSpiceElement(component: Component, modelCards = new Map<string, SpiceModelCard>()): string {
   const parameters = component.parameters
   const first = (value: unknown): string | undefined => (value === undefined ? undefined : String(value))
   const parameter = (...keys: string[]): string | undefined => {
@@ -136,8 +153,91 @@ function renderSpiceElement(component: Component): string {
   const type = `${parameter('type', 'part', 'model') ?? ''}`.toLowerCase()
   const nodes = component.nodes.join(' ')
   const model = parameter('part', 'model', 'type', 'mpn') ?? type.split(/[^a-z0-9]+/)[0] ?? 'DEFAULT'
+  if (/transformer|coupledinductor/.test(`${component.type} ${type}`.toLowerCase())) {
+    const l1 = parameter('l1', 'primaryInductance', 'inductance', 'value') ?? '1'
+    const l2 = parameter('l2', 'secondaryInductance') ?? l1
+    const k = parameter('k', 'coupling') ?? '1'
+    const [p1, n1, p2, n2] = component.nodes
+    return (
+      `L${component.name}_P ${p1} ${n1} ${l1}\n` +
+      `L${component.name}_S ${p2} ${n2} ${l2}\n` +
+      `K${component.name} L${component.name}_P L${component.name}_S ${k}`
+    )
+  }
+  if (component.nodes.length === 0 && /mutual|coupl/.test(`${component.type} ${type}`.toLowerCase())) {
+    const l1 = parameter('l1', 'primary') ?? ''
+    const l2 = parameter('l2', 'secondary') ?? ''
+    const k = parameter('k', 'coupling') ?? '1'
+    return `K${component.name} ${l1} ${l2} ${k}`.trim()
+  }
+  if (/transmissionline|delayline|tline/.test(`${component.type} ${type}`.toLowerCase()) || /^tl?\d/i.test(component.name)) {
+    const [p1, n1, p2, n2] = component.nodes
+    if (!p1 || !n1 || !p2 || !n2) {
+      return `* ${component.name}: a transmission line needs four terminals (p1 n1 p2 n2)`
+    }
+    const width = parseMillimetres(parameter('widthMm', 'traceWidth', 'width', 'w'), `${component.name} trace width`)
+    const height = parseMillimetres(
+      parameter('heightMm', 'substrateHeight', 'height', 'h'),
+      `${component.name} substrate height`,
+    )
+    const erRaw = parameter('er', 'epsilonR', 'dielectricConstant', 'dk')
+    const epsilonR = erRaw === undefined ? undefined : parseSpiceValue(erRaw, `${component.name} relative permittivity (er)`)
+    const z0Parameter = parameter('z0', 'characteristicImpedance', 'impedance', 'zo')
+    const z0 =
+      z0Parameter ??
+      (width !== undefined && height !== undefined && epsilonR !== undefined
+        ? String(z0FromGeometry(width, height, epsilonR))
+        : '50')
+
+    const length = parseMillimetres(parameter('lengthMm', 'length', 'len'), `${component.name} length`)
+    const erEffRaw = parameter('erEff', 'effectiveEr', 'epsilonReff')
+    const erEff = erEffRaw === undefined ? undefined : parseSpiceValue(erEffRaw, `${component.name} effective er (erEff)`)
+    let td = parameter('td', 'delay', 'delayTime', 'propagationDelay')
+    if (td === undefined && length !== undefined && erEff !== undefined) {
+      td = String(tdFromGeometry(length, erEff))
+    } else if (td === undefined && length !== undefined && epsilonR !== undefined) {
+      const effective =
+        width !== undefined && height !== undefined ? microstripEffectiveEr(width, height, epsilonR) : epsilonR
+      td = String(tdFromGeometry(length, effective))
+    }
+    if (td === undefined) {
+      return `* ${component.name}: a transmission line needs TD, or length with er/erEff`
+    }
+    const reference = /^t/i.test(component.name) ? component.name : `T${component.name}`
+    return `${reference} ${p1} ${n1} ${p2} ${n2} Z0=${z0} TD=${td}`
+  }
   if (/jfet|^j\d/i.test(`${component.type} ${component.name} ${type}`)) {
     return `${component.name} ${nodes} ${model}`.trim()
+  }
+
+  /*
+   * Transistor and diode element lines carry a model name; without one the
+   * exported deck is not valid SPICE (`Q1 c b e` is missing its fourth token).
+   * A resolved `.model` card names the element exactly as the card is written,
+   * so a deck exported from a sheet with custom cards refers to them.
+   */
+  const kindText = `${component.type} ${type} ${component.name}`.toLowerCase()
+  const shadow = /^(npn|pnp|bjt|transistor|mosfet|nmos|pmos|jfet|diode)([_ -]|$)/
+  const declaredModel = parameter('model', 'part', 'mpn', 'type')
+  const cleanModel = declaredModel && !shadow.test(declaredModel.toLowerCase()) ? declaredModel : undefined
+  const resolvedCard = resolveModelCard(component, modelCards)
+  const cardModel = resolvedCard?.name ?? cleanModel
+
+  if (/mosfet|nmos|pmos|^m\d/i.test(kindText)) {
+    const [drain, gate, source, bulk] = component.nodes
+    if (!drain || !gate || !source) {
+      return `* ${component.name}: a MOSFET needs drain, gate and source terminals`
+    }
+    // The solver ties bulk to source implicitly; the exported M line says so.
+    const polarity = /pmos|p[_-]?channel/.test(kindText) && !/nmos|n[_-]?channel/.test(kindText)
+    return `${component.name} ${drain} ${gate} ${source} ${bulk ?? source} ${cardModel ?? (polarity ? 'PMOS' : 'NMOS')}`
+  }
+  if (/bjt|transistor|npn|pnp|^q\d/i.test(kindText)) {
+    const polarity = /pnp/i.test(kindText) && !/npn/i.test(kindText)
+    return `${component.name} ${nodes} ${cardModel ?? (polarity ? 'PNP' : 'NPN')}`.trim()
+  }
+  if (/diode|^d\d/i.test(kindText)) {
+    return `${component.name} ${nodes} ${cardModel ?? 'D'}`.trim()
   }
   if (/voltageswitch|voltagecontrolledswitch/.test(type) || /^s\d/i.test(component.name)) {
     return `${component.name} ${nodes} ${model}`.trim()
@@ -193,6 +293,9 @@ function renderSpiceElement(component: Component): string {
 /** Run the analysis requested by `parameters` against `model`. */
 function dispatch(model: CircuitModel, parameters: SimulationParameters): AnalysisOutcome {
   const temperatureCelsius = parameters.temperature ?? DEFAULT_TEMPERATURE_CELSIUS
+  if (!Number.isFinite(temperatureCelsius) || temperatureCelsius <= -273.15) {
+    throw new Error('Temperature must be a finite value above absolute zero (-273.15 °C).')
+  }
 
   switch (parameters.type) {
     case 'dc':
@@ -220,6 +323,7 @@ function dispatch(model: CircuitModel, parameters: SimulationParameters): Analys
         stopTime: parameters.stopTime ?? 1e-3,
         stepTime: parameters.stepTime ?? 1e-6,
         useInitialConditions: parameters.useInitialConditions ?? false,
+        integrationMethod: parameters.integrationMethod ?? 'backward-euler',
       })
 
     case 'ac':
@@ -241,9 +345,10 @@ function dispatch(model: CircuitModel, parameters: SimulationParameters): Analys
 
     case 'montecarlo': {
       /*
-       * A tolerance sweep has to sweep a measurement, so it repeats the *parent*
-       * analysis. Without an explicit parent we sweep the operating point, which
-       * is the common case: "how far does my bias move over tolerance?".
+       * The tolerance sweep measures the DC operating point: "how far does my
+       * bias move over tolerance?". Every run is a full bias solve; the panel
+       * exposes no waveform parent for this analysis, so claiming to repeat one
+       * would misdescribe the result.
        */
       const parent: SimulationParameters = { ...parameters, type: 'dc' }
       return runMonteCarlo(model, (perturbed) => dispatch(perturbed, parent), {
@@ -327,12 +432,21 @@ class SPICEEngine {
    */
   generateSPICENetlist(netlist: CircuitNetlist): string {
     const lines: string[] = [`* ${netlist.title || 'Untitled circuit'}`, '* Generated by Folio', '']
+    const modelCards = normalizeModelCards(netlist.models)
 
     for (const component of netlist.components) {
-      lines.push(renderSpiceElement(component))
+      lines.push(renderSpiceElement(component, modelCards))
     }
 
     lines.push('')
+    for (const card of new Set(modelCards.values())) {
+      const parameters = Object.entries(card.parameters)
+        .filter(([, value]) => Number.isFinite(value))
+        .map(([key, value]) => `${key}=${value}`)
+        .join(' ')
+      lines.push(`.model ${card.name} ${card.type} (${parameters})`)
+    }
+    if (modelCards.size > 0) lines.push('')
     for (const analysis of netlist.analyses) {
       switch (analysis.type) {
         case 'dc':
@@ -350,9 +464,23 @@ class SPICEEngine {
           )
           break
         }
-        case 'transient':
-          lines.push(`.tran ${analysis.stepTime ?? 1e-6} ${analysis.stopTime ?? 1e-3}`)
+        case 'transient': {
+          // `.tran Tstep Tstop [Tstart [Tmax]] [UIC]`
+          const uic = analysis.useInitialConditions ? ' UIC' : ''
+          lines.push(`.tran ${analysis.stepTime ?? 1e-6} ${analysis.stopTime ?? 1e-3}${uic}`)
+          if (analysis.integrationMethod === 'trapezoidal') {
+            lines.push('.options method=trap')
+          } else if (analysis.integrationMethod === 'bdf2') {
+            // Gear order 2 is BDF2; SPICE defaults to a lower order on startup
+            // and may adapt it, so this pins the exported rule.
+            lines.push('.options method=gear maxord=2')
+          } else {
+            // SPICE has no backward-Euler switch; say so rather than let a
+            // cross-check against ngspice silently compare different rules.
+            lines.push('* Folio integrates this run with backward Euler; SPICE .tran defaults to trapezoidal.')
+          }
           break
+        }
         case 'ac':
           lines.push(
             `.ac dec ${analysis.pointsPerDecade ?? 20} ${analysis.startFreq ?? 10} ${analysis.stopFreq ?? 1e6}`,
@@ -408,7 +536,10 @@ class SPICEEngine {
 
     const nodeConnections = new Map<string, number>()
     for (const device of model.devices) {
-      for (const node of [device.p, device.n]) {
+      // Every real terminal counts, including both ports of a line and the
+      // base/gate of a transistor; model-internal taps are not schematic nets.
+      for (const node of deviceNodes(device)) {
+        if (isInternalNode(node)) continue
         nodeConnections.set(node, (nodeConnections.get(node) ?? 0) + 1)
       }
     }
@@ -427,6 +558,11 @@ class SPICEEngine {
     }
 
     const analysis = netlist.analyses[0]
+    if (analysis?.temperature !== undefined) {
+      if (!Number.isFinite(analysis.temperature) || analysis.temperature <= -273.15) {
+        errors.push('Temperature must be a finite value above absolute zero (-273.15 °C).')
+      }
+    }
     if (analysis?.type === 'noise' && !resolveOutputNode(model, analysis.outputNode)) {
       errors.push(
         analysis.outputNode

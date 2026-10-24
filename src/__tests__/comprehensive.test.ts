@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 
 // Import types
-import type { Component, Wire, Net, Schematic } from '../types/domain';
+import type { Component, Wire, Net, Schematic } from '../types';
 import type { ThermalNode } from '../lib/pcb/thermalAnalysis';
 
 // Import actual services
@@ -14,7 +14,6 @@ import { aiService } from '../lib/ai/aiService';
 import { roboticsSimulationService } from '../lib/robotics/roboticsSimulation';
 import { evolutionaryOptimizer } from '../lib/optimization/evolutionaryOptimization';
 import { thermalAnalysisEngine } from '../lib/pcb/thermalAnalysis';
-import { signalIntegrityAnalyzer } from '../lib/pcb/signalIntegrity';
 import { solveBarConduction, solveTruss } from '../lib/simulation/multiphysics';
 import { MATERIAL_LIBRARY } from '../lib/simulation/materials';
 import { hardwareInterfaceManager } from '../lib/hardware/hardwareInterfaces';
@@ -144,26 +143,6 @@ describe('2. Circuit & PCB Design - Functional Tests', () => {
     expect(result.hotspots).toBeDefined();
     expect(result.maxTemperature).toBeGreaterThan(25);
     expect(result.steadyStateReached).toBeDefined();
-  });
-
-  it('should calculate signal integrity parameters correctly', async () => {
-    const trace = {
-      length: 100, // mm
-      width: 0.2, // mm
-      thickness: 0.035, // mm
-      dielectricHeight: 1.6, // mm
-      dielectricConstant: 4.5,
-      frequency: 1e9 // 1 GHz
-    };
-
-    const result = await signalIntegrityAnalyzer.analyzeTrace(trace);
-    
-    expect(result).toBeDefined();
-    expect(result.impedance).toBeGreaterThan(0);
-    expect(result.impedance).toBeLessThan(200);
-    expect(result.propagationDelay).toBeGreaterThan(0);
-    expect(result.riseTime).toBeGreaterThan(0);
-    expect(result.reflectionCoefficient).toBeDefined();
   });
 
   it('should convert schematic to PCB layout', async () => {
@@ -584,11 +563,11 @@ describe('7. Performance & Scalability Tests', () => {
       timeStep: 0.1
     };
 
-    const result = thermalAnalysisEngine.simulateThermal(nodes, [], config);
+    const result = await thermalAnalysisEngine.simulateThermal(nodes, [], config);
     
     const duration = Date.now() - startTime;
     
-    expect(result).toBeDefined();
+    expect(result.nodes).toHaveLength(100);
     expect(duration).toBeLessThan(5000); // Should complete in less than 5 seconds
   });
 

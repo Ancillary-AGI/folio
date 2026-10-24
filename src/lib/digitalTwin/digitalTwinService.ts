@@ -1,4 +1,7 @@
 import { Component, Wire, Net, SimulationResult } from '../../types';
+import type { CanvasComponent, CanvasWire } from '../../stores/useProjectStore';
+import { buildCircuitNetlist } from '../simulation/netlistBuilder';
+import { spiceEngine } from '../simulation/spiceEngine';
 
 export interface DigitalTwin {
   id: string;
@@ -146,8 +149,8 @@ export class DigitalTwinService {
         sensors: [],
         actuators: [],
         synchronizationRules: [],
-        lastSync: Date.now(),
-        status: 'online',
+        lastSync: 0,
+        status: 'offline',
         healthScore: 100
       };
 
@@ -174,12 +177,8 @@ export class DigitalTwinService {
           samplingRate: 100,
           accuracy: 0.01,
           range: { min: 0, max: 100 },
-          lastReading: {
-            timestamp: Date.now(),
-            value: 25,
-            unit: s.unit,
-            quality: 'good'
-          }
+          // No reading until the twin synchronizes; a canned 25 would be
+          // indistinguishable from a real measurement.
         })),
         actuators: config.actuators.map(a => ({
           id: a.id,
@@ -195,8 +194,8 @@ export class DigitalTwinService {
           }
         })),
         synchronizationRules: [],
-        lastSync: Date.now(),
-        status: 'online',
+        lastSync: 0,
+        status: 'offline',
         healthScore: 100
       };
 
@@ -406,8 +405,8 @@ export class DigitalTwinService {
     const twin = this.twins.get(twinId);
     if (!twin) throw new Error('Digital twin not found');
 
-    // Run predictive models
-    const predictions = await this.runPredictiveModels();
+    // Run predictive models against the telemetry the twin actually holds
+    const predictions = await this.runPredictiveModels(twin);
 
     return {
       twinId,
@@ -518,18 +517,26 @@ export class DigitalTwinService {
   private async assessTwinHealth(twin: DigitalTwin): Promise<number> {
     let healthScore = 100;
 
-    // Check sensor health
-    const sensorHealth = twin.sensors.filter(s => s.lastReading?.quality === 'good').length / twin.sensors.length;
+    // An empty sensor/actuator set is no evidence of failure: it must not
+    // divide by zero and turn the whole score into NaN.
+    const sensorHealth = twin.sensors.length === 0
+      ? 1
+      : twin.sensors.filter(s => s.lastReading?.quality === 'good').length / twin.sensors.length;
     healthScore -= (1 - sensorHealth) * 20;
 
-    // Check synchronization timeliness
-    const timeSinceLastSync = Date.now() - twin.lastSync;
-    if (timeSinceLastSync > 10000) { // 10 seconds
-      healthScore -= Math.min(30, (timeSinceLastSync - 10000) / 1000);
+    // Check synchronization timeliness. A never-synced twin has no history to
+    // be late against; the first sync must not start at a 30-point deficit.
+    if (twin.lastSync > 0) {
+      const timeSinceLastSync = Date.now() - twin.lastSync;
+      if (timeSinceLastSync > 10000) { // 10 seconds
+        healthScore -= Math.min(30, (timeSinceLastSync - 10000) / 1000);
+      }
     }
 
     // Check actuator responsiveness
-    const actuatorHealth = twin.actuators.filter(a => a.lastCommand?.executed !== false).length / twin.actuators.length;
+    const actuatorHealth = twin.actuators.length === 0
+      ? 1
+      : twin.actuators.filter(a => a.lastCommand?.executed !== false).length / twin.actuators.length;
     healthScore -= (1 - actuatorHealth) * 15;
 
     return Math.max(0, Math.min(100, healthScore));
@@ -545,57 +552,145 @@ export class DigitalTwinService {
     throw new Error('No IoT transport is configured. Register an endpoint and send through it.');
   }
 
+  /**
+   * Solve one DC operating point of the twin's stored circuit. The twin model
+   * carries real components and wires, so the same solver used by the
+   * simulation panel produces the step instead of a canned "converged" result.
+   */
   private async runSimulationStep(twin: DigitalTwin): Promise<SimulationResult> {
-    // Run a single simulation step
-    const inputs = this.extractSimulationInputs(twin);
-    const result = await this.runTwinSimulation(twin.virtualModel, inputs);
-
-    return {
-      id: `sim_${Date.now()}`,
-      timestamp: Date.now(),
-      type: 'transient',
-      success: true,
-      nodes: [],
-      waveforms: [],
-      operatingPoint: result as Record<string, number>,
-      convergenceInfo: {
-        iterations: 1,
-        converged: true,
-        error: 0.001
+    const startedAt = Date.now();
+    const components: CanvasComponent[] = twin.virtualModel.components.map(component => ({
+      id: component.id,
+      componentId: component.id,
+      // The twin stores the domain symbol; the canvas/SPICE bridge expects the
+      // persisted shape, so map it explicitly instead of casting.
+      component: {
+        id: component.id,
+        name: component.name,
+        category: component.category,
+        description: component.description,
+        is_standard: true,
+        symbol_data: component.symbol,
+        pins: component.pins,
+        default_properties: component.properties,
+        datasheet_url: component.datasheet,
+        manufacturer: component.manufacturer,
+        part_number: component.partNumber,
+        tags: component.tags,
       },
-      statistics: {
-        simulationTime: 100,
-        memoryUsage: 50,
-        nodeCount: 0,
-        elementCount: 0
-      }
-    };
+      x: 0,
+      y: 0,
+      rotation: 0,
+      reference: component.name,
+      properties: component.properties,
+    }));
+    const wires: CanvasWire[] = twin.virtualModel.wires.map(wire => ({
+      id: wire.id,
+      points: wire.points,
+      netName: wire.netName,
+      connectedPins: wire.connectedPins,
+      style: wire.style,
+    }));
+
+    try {
+      const netlist = buildCircuitNetlist(twin.name, components, wires, { type: 'dc' });
+      const result = await spiceEngine.simulate(netlist);
+      return {
+        id: this.nextId('sim'),
+        timestamp: Date.now(),
+        type: 'dc',
+        success: result.success,
+        error: result.error,
+        nodes: result.nodes,
+        waveforms: result.waveforms,
+        operatingPoint: result.operatingPoint,
+        convergenceInfo: result.convergenceInfo
+          ? { ...result.convergenceInfo }
+          : undefined,
+        statistics: {
+          simulationTime: Date.now() - startedAt,
+          memoryUsage: 0,
+          nodeCount: result.nodes.length,
+          elementCount: netlist.components.length,
+        },
+      };
+    } catch (error) {
+      // Report the solver's failure instead of a fabricated convergence.
+      return {
+        id: this.nextId('sim'),
+        timestamp: Date.now(),
+        type: 'dc',
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        nodes: [],
+        waveforms: [],
+        statistics: {
+          simulationTime: Date.now() - startedAt,
+          memoryUsage: 0,
+          nodeCount: 0,
+          elementCount: components.length,
+        },
+      };
+    }
   }
 
-  private async runPredictiveModels(): Promise<Record<string, { current: number | number[]; predicted: number; confidence: number } | number>> {
-    // Baseline predictor: persistence forecast (predicted = current) with a
-    // documented low confidence. A real deployment fits a model on telemetry.
-    const predictions = {
-      temperature: {
-        current: 25,
-        predicted: 25,
-        confidence: 0.5
-      },
-      efficiency: {
-        current: 0.85,
-        predicted: 0.85,
-        confidence: 0.5
-      },
-      failure_probability: 0
+  /**
+   * Persistence forecast over the twin's current telemetry: the predicted
+   * value equals the latest reading, with confidence taken from reading
+   * quality. No model is fitted and no value is invented when no reading
+   * exists.
+   */
+  private async runPredictiveModels(twin: DigitalTwin): Promise<Record<string, unknown>> {
+    const qualityConfidence: Record<SensorReading['quality'], number> = {
+      good: 0.9,
+      fair: 0.6,
+      poor: 0.3,
     };
+    const readings = twin.sensors
+      .map(sensor => sensor.lastReading)
+      .filter((reading): reading is SensorReading =>
+        !!reading && typeof reading.value === 'number');
+    const confidence = readings.length === 0
+      ? 0
+      : readings.reduce((sum, reading) => sum + qualityConfidence[reading.quality], 0) / readings.length;
+
+    const averageOf = (type: Sensor['type']): number | null => {
+      const values = twin.sensors
+        .filter(sensor => sensor.type === type && typeof sensor.lastReading?.value === 'number')
+        .map(sensor => sensor.lastReading!.value as number);
+      return values.length === 0
+        ? null
+        : values.reduce((sum, value) => sum + value, 0) / values.length;
+    };
+
+    const predictions: Record<string, unknown> = {
+      failure_probability: (100 - twin.healthScore) / 100,
+    };
+
+    const temperature = averageOf('temperature');
+    if (temperature !== null) {
+      predictions.temperature = { current: temperature, predicted: temperature, confidence };
+    }
+
+    const voltage = averageOf('voltage');
+    const current = averageOf('current');
+    if (voltage !== null && current !== null) {
+      const power = voltage * current;
+      predictions.power = { current: power, predicted: power, confidence };
+    }
 
     return predictions;
   }
 
   private calculatePredictionConfidence(predictions: unknown): number {
-    // Calculate overall prediction confidence
-    const confidences = Object.values(predictions as Record<string, { confidence?: number }>).map((p) => p.confidence || 0);
-    return confidences.reduce((sum, conf) => sum + conf, 0) / confidences.length;
+    if (!predictions || typeof predictions !== 'object') return 0;
+    const confidences = Object.values(predictions as Record<string, unknown>)
+      .map(value => (value && typeof value === 'object' && 'confidence' in value
+        ? (value as { confidence?: unknown }).confidence
+        : undefined))
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+    if (confidences.length === 0) return 0;
+    return confidences.reduce((sum, value) => sum + value, 0) / confidences.length;
   }
 
   // Utility methods

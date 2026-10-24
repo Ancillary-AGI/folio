@@ -21,4 +21,10 @@ describe('live playback', () => {
   it('measures run duration from the grid', () => {
     expect(playbackDuration([VOUT, ID1])).toBe(2);
   });
+  it('reports neutral glow for a node with no samples instead of NaN', () => {
+    const empty = { name: 'V(EMPTY)', unit: 'V', data: [] };
+    const frame = playbackFrame([VOUT, empty], 1);
+    expect(frame.voltages.EMPTY).toBe(0);
+    expect(frame.glow.EMPTY).toBe(0.5);
+  });
 });

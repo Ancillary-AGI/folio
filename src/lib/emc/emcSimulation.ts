@@ -1,33 +1,29 @@
 /**
  * EMC pre-compliance estimation.
  *
- * This is a *design-rule estimator*, not a field solver: it combines three
- * closed-form mechanisms that dominate board-level failures, each derived from
- * textbook electromagnetics (not fitted constants):
+ * This is a *closed-form design-rule estimator*, not a field solver and not a
+ * measurement. It evaluates the two radiation mechanisms that dominate
+ * board-level failures, each from textbook electromagnetics (no fitted
+ * constants):
  *
  *  1. Differential-mode loop radiation — a small loop is a magnetic dipole.
- *     Far-field E ≈ 1.316e-14 · I · f² · A / r (A in m², r = 3 m, f in Hz),
- *     from the standard small-loop far-field E = μ₀·π·I·A·f²/(c²·r)·sin θ.
- *     The 1.316e-14 factor is μ₀·π/(c²·r) with μ₀ = 4πe-7, c = 3e8, r = 3.
+ *     Far-field E = η₀·π·I·A·f²/(c²·r) = 1.316e-14·I·A·f²/r (A in m²,
+ *     f in Hz, E in V/m), the textbook small-loop result
+ *     E = η₀·k²·I·A/(4πr) with k = 2πf/c, η₀ = 120π, sinθ = 1.
  *  2. Common-mode cable radiation — a cable driven against the board is an
- *     electric dipole. E ≈ 6.283e-7 · Icm · L · f / r (L in m, r = 3 m),
- *     i.e. 60·π/(c·r), from the Hertzian-dipole far field
- *     E = η·I·L·k/(4·π·r) with η = 120·π and k = 2·π·f/c. Common-mode current defaults to 1 % of the trace
- *     current (the usual PCB rule of thumb: Icm/Idm ≈ 0.01 for an unfiltered
- *     interface); the caller can override it per trace.
- *  3. Crosstalk — capacitive + inductive forward coupling between aggressor
- *     and victim over their parallel length, with the victim terminated.
- *     Coefficients are evaluated per-unit-length from the microstrip geometry
- *     (Hammerstad–Jansen Z₀, parallel-plate C, loop L) at the caller's height
- *     above the reference plane, then scaled by parallel length. The result is
- *     what a scope on the victim's near end would show for a step on the
- *     aggressor, before any mitigation.
+ *     electric dipole. E = 60·π·Icm·L·f/(c·r) = 2.094e-7·Icm·L·f/r (L in m,
+ *     r = 3 m), from the Hertzian-dipole far field E = η₀·I·L·k/(4πr).
+ *     Common-mode current defaults to 1 % of the trace current (the usual PCB
+ *     rule of thumb for an unfiltered interface); the caller can override it.
  *
- * Every quantity is derived from the trace geometry and current the caller
- * passes in — nothing is fabricated, and every intermediate (field strength,
- * limit, margin, coupling model) is exposed so a reviewer can check the math.
- * Limits follow CISPR 32 Class B / FCC Part 15 at 3 m by band; IEC 61000-6-3
- * shares the CISPR radiated limits with a tighter conducted mask.
+ * Crosstalk is deliberately *not* estimated here: doing it credibly needs the
+ * coupled-line geometry and terminations, which this input does not carry.
+ * Signal-integrity crosstalk belongs in the transmission-line path.
+ *
+ * Every emitted field is derived from the values the caller passes in. Invalid
+ * or empty trace sets are rejected with an exception rather than turned into a
+ * NaN or a vacuous "compliant" verdict. Limits follow CISPR 32 Class B /
+ * FCC Part 15 at 3 m by band; IEC 61000-6-3 shares the CISPR radiated limits.
  */
 
 export interface EMCTrace {
@@ -70,6 +66,13 @@ export interface EMCResult {
   compliant: boolean
   hotspots: EMCHotspot[]
   recommendations: string[]
+  /** Worst-case inputs this estimate is based on, so a reviewer can check it. */
+  basis: {
+    traceCount: number
+    worstFrequencyHz: number
+    worstCurrentA: number
+    worstCommonModeCurrentA: number
+  }
 }
 /** Pre-compliance radiated/conducted emission estimate for a set of PCB traces. */
 export class EMCSimulationEngine {
@@ -108,13 +111,52 @@ export class EMCSimulationEngine {
     return frequencyHz < 230e6 ? 40 : 47
   }
 
+  /**
+   * Reject invalid trace data instead of silently dropping it or propagating
+   * NaN into the field, limit, margin and compliance verdict.
+   */
+  private static validateTraces(traces: EMCTrace[]): void {
+    if (traces.length === 0) {
+      throw new Error('EMC analysis needs at least one trace input.')
+    }
+    const problems: string[] = []
+    for (const trace of traces) {
+      const label = trace.id?.trim() || '(unnamed trace)'
+      if (!Number.isFinite(trace.lengthMm) || trace.lengthMm <= 0) {
+        problems.push(`${label}: lengthMm must be positive and finite`)
+      }
+      if (!Number.isFinite(trace.currentA) || trace.currentA < 0) {
+        problems.push(`${label}: currentA must be zero or positive and finite`)
+      }
+      if (!Number.isFinite(trace.frequencyHz) || trace.frequencyHz <= 0) {
+        problems.push(`${label}: frequencyHz must be positive and finite`)
+      }
+      if (!Number.isFinite(trace.loopAreaMm2) || trace.loopAreaMm2 < 0) {
+        problems.push(`${label}: loopAreaMm2 must be zero or positive and finite`)
+      }
+      if (
+        trace.commonModeCurrentA !== undefined &&
+        (!Number.isFinite(trace.commonModeCurrentA) || trace.commonModeCurrentA < 0)
+      ) {
+        problems.push(`${label}: commonModeCurrentA must be zero or positive and finite`)
+      }
+      if (
+        trace.cableLengthMm !== undefined &&
+        (!Number.isFinite(trace.cableLengthMm) || trace.cableLengthMm < 0)
+      ) {
+        problems.push(`${label}: cableLengthMm must be zero or positive and finite`)
+      }
+    }
+    if (problems.length > 0) {
+      throw new Error(`EMC analysis rejected invalid trace input — ${problems.join('; ')}.`)
+    }
+  }
+
   simulate(traces: EMCTrace[], standard: 'CISPR32' | 'FCC15' | 'IEC61000' = 'CISPR32'): EMCResult {
-    const safe = traces.filter((t) =>
-      Number.isFinite(t.currentA) && Number.isFinite(t.frequencyHz) &&
-      Number.isFinite(t.loopAreaMm2) && Number.isFinite(t.lengthMm))
-    const evaluated = safe.length > 0 ? safe : traces
-    const worstFrequencyHz = evaluated.reduce((max, t) => Math.max(max, t.frequencyHz || 0), 30e6)
-    const limit = EMCSimulationEngine.radiatedLimit(Math.max(worstFrequencyHz, 30e6), standard)
+    EMCSimulationEngine.validateTraces(traces)
+    const evaluated = traces
+    const worstFrequencyHz = evaluated.reduce((max, t) => Math.max(max, t.frequencyHz), 0)
+    const limit = EMCSimulationEngine.radiatedLimit(worstFrequencyHz, standard)
 
     const hotspots: EMCHotspot[] = evaluated.map((trace) => {
       const current = Math.max(trace.currentA, 0)
@@ -171,6 +213,12 @@ export class EMCSimulationEngine {
       compliant: margin >= 0,
       hotspots: hotspots.sort((a, b) => b.contribution - a.contribution),
       recommendations,
+      basis: {
+        traceCount: evaluated.length,
+        worstFrequencyHz,
+        worstCurrentA: evaluated.reduce((max, trace) => Math.max(max, trace.currentA), 0),
+        worstCommonModeCurrentA: worstIcm,
+      },
     }
   }
 }

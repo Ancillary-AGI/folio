@@ -30,4 +30,19 @@ describe('Silicon Die Floorplanning & PDN', () => {
   it('rejects floorplan with invalid cell area', () => {
     expect(() => generateDieFloorplan('bad', 0, { inputs: [], outputs: [] })).toThrow(/positive/);
   });
+
+  it('rejects options that would divide by zero or produce no die', () => {
+    expect(() =>
+      generateDieFloorplan('bad', 500, { inputs: [], outputs: [] }, { aspectRatio: 0 }),
+    ).toThrow(/Aspect ratio/);
+    expect(() =>
+      generateDieFloorplan('bad', 500, { inputs: [], outputs: [] }, { targetUtilizationPercent: 0 }),
+    ).toThrow(/utilization/);
+    expect(() =>
+      generateDieFloorplan('bad', 500, { inputs: [], outputs: [] }, { padPitchUm: Number.NaN }),
+    ).toThrow(/Pad pitch/);
+    expect(() =>
+      generateDieFloorplan('bad', 500, { inputs: [], outputs: [] }, { coreToDieMarginUm: -1 }),
+    ).toThrow(/margin/);
+  });
 });

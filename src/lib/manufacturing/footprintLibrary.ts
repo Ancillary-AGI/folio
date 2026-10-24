@@ -313,6 +313,20 @@ export class FootprintLibrary {
       metadata: { ipcStandard: 'IPC-7351', thermalPad: false },
     });
 
+    // DO-214AB / SMC — the 1N5817-class rectifier package used by the demo board.
+    this.addFootprint({
+      id: 'smc_do214ab',
+      name: 'SMC',
+      description: 'SMC / DO-214AB 2-pad SMD diode',
+      category: 'semiconductor',
+      pads: [
+        { id: 'pad1', shape: 'rectangle', position: { x: -3.4, y: 0 }, size: { width: 2.4, height: 3.4 }, layers: ['top_copper'] },
+        { id: 'pad2', shape: 'rectangle', position: { x: 3.4, y: 0 }, size: { width: 2.4, height: 3.4 }, layers: ['top_copper'] },
+      ],
+      dimensions: { width: 7.9, height: 5.9 },
+      metadata: { ipcStandard: 'IPC-7351', thermalPad: false },
+    });
+
     // Connector footprints
     ['header_2x1', 'header_2x2', 'header_2x3', 'header_2x4'].forEach(type => {
       const match = type.match(/header_2x(\d+)/);

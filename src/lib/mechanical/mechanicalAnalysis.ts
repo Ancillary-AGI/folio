@@ -17,6 +17,7 @@ import {
   axialStress,
   bendingStress,
   cantileverTipDeflection,
+  cantileverUniformDeflection,
   circleInertia,
   rectangleInertia,
   sectionModulus,
@@ -113,12 +114,26 @@ export function analyseConduction(
   };
 }
 
+/**
+ * Support condition for `analyseBeam`.
+ *
+ * `cantilever` is fixed at the root and free at the tip. `simply-supported` rests
+ * on a pin and a roller, so the point load acts at midspan and the distributed
+ * load may run the full span. Other boundary conditions are rejected rather than
+ * silently approximated by the nearest of these two.
+ */
+export type BeamSupport = 'cantilever' | 'simply-supported';
+
 export interface BeamLoad {
-  /** Axial force, newtons. */
+  /** Axial force, newtons. Changes axial stress only, never transverse deflection. */
   force?: number;
-  /** Bending moment at the root, newton-metres. */
+  /** Transverse load at the free end (cantilever) or midspan (simply supported), newtons. */
+  transverseForce?: number;
+  /** Uniformly distributed transverse load, newtons per metre. */
+  distributedLoad?: number;
+  /** Applied end moment, newton-metres. Bends the beam without axial stress. */
   moment?: number;
-  /** Unsupported span for the cantilever deflection, metres. Defaults to the height. */
+  /** Unsupported span, metres. Defaults to the height. */
   span?: number;
 }
 
@@ -131,12 +146,14 @@ export interface BeamResult {
   extremeFibre: number;
   /** Elastic section modulus `I/c`, metres³. */
   sectionModulus: number;
+  /** Peak bending moment used for the section stress, N·m (signed). */
+  bendingMoment: number;
   axialStress: number;
   bendingStress: number;
   totalStress: number;
   /** `yield / |total|`, or `null` when nothing is loaded. */
   safetyFactor: number | null;
-  /** Tip deflection of a cantilever of `span` under `force`, metres. */
+  /** Peak transverse deflection of the span, metres. */
   deflection: number;
   /** True when the total stress exceeds yield. */
   yields: boolean;
@@ -155,17 +172,86 @@ export function cylinderSectionInertia(dimensions: CylinderDimensions): number {
   return circleInertia(dimensions.diameter);
 }
 
+/** Peak |M| of a simply supported span under an end moment, a midspan point load, and a uniform load. */
+function simplySupportedPeakMoment(
+  moment: number,
+  pointLoad: number,
+  distributedLoad: number,
+  span: number,
+): number {
+  const momentAt = (x: number): number =>
+    moment * (1 - x / span) +
+    (pointLoad / 2) * Math.min(x, span - x) +
+    (distributedLoad / 2) * x * (span - x);
+
+  const candidates = [0, span / 2, span];
+  if (distributedLoad !== 0) {
+    // Stationary points of the two parabolic halves of the moment diagram.
+    const left = (-moment / span + pointLoad / 2 + (distributedLoad * span) / 2) / distributedLoad;
+    const right = (-moment / span - pointLoad / 2 + (distributedLoad * span) / 2) / distributedLoad;
+    if (left > 0 && left < span / 2) candidates.push(left);
+    if (right > span / 2 && right < span) candidates.push(right);
+  }
+
+  let peak = 0;
+  for (const x of candidates) {
+    const value = momentAt(x);
+    if (Math.abs(value) > Math.abs(peak)) peak = value;
+  }
+  return peak;
+}
+
+function simplySupportedDeflection(
+  moment: number,
+  pointLoad: number,
+  distributedLoad: number,
+  span: number,
+  modulus: number,
+  inertia: number,
+): number {
+  // Each term is the peak of that load case. The point and uniform peaks both
+  // occur at midspan, so their sum is exact; the end-moment peak sits elsewhere,
+  // making the combined value a conservative upper bound.
+  return (
+    (pointLoad * span ** 3) / (48 * modulus * inertia) +
+    (5 * distributedLoad * span ** 4) / (384 * modulus * inertia) +
+    (moment * span ** 2) / (9 * Math.sqrt(3) * modulus * inertia)
+  );
+}
+
+function cantileverDeflection(
+  moment: number,
+  pointLoad: number,
+  distributedLoad: number,
+  span: number,
+  modulus: number,
+  inertia: number,
+): number {
+  return (
+    (pointLoad === 0 ? 0 : cantileverTipDeflection(pointLoad, span, modulus, inertia)) +
+    (distributedLoad === 0
+      ? 0
+      : cantileverUniformDeflection(distributedLoad, span, modulus, inertia)) +
+    (moment === 0 ? 0 : (moment * span ** 2) / (2 * modulus * inertia))
+  );
+}
+
 /**
- * Axial plus bending analysis of a rectangular section carrying `force` and `moment`.
+ * Axial plus bending analysis of a rectangular section.
  *
- * `σ_axial = P/A`, `σ_bending = Mc/I`, and the tip deflection is the cantilever result
- * `PL³/(3EI)` over the real span. `safetyFactor` is `null` rather than `Infinity` when
- * nothing is loaded, because dividing by a zero stress is not a safety factor.
+ * `σ_axial = P/A` and `σ_bending = Mc/I` with the peak bending moment of the chosen
+ * support condition. Axial force never contributes to transverse deflection. The
+ * deflection is the textbook peak of each modelled load case; when an end moment is
+ * combined with transverse loads, the reported peak is a conservative superposition
+ * (it never understates the deflection). `safetyFactor` is `null` rather than
+ * `Infinity` when nothing is loaded, because dividing by a zero stress is not a
+ * safety factor.
  */
 export function analyseBeam(
   dimensions: PrismDimensions,
   material: StructuralMaterial,
   loads: BeamLoad,
+  options: { support?: BeamSupport } = {},
 ): BeamResult {
   positive(dimensions.width, 'width');
   positive(dimensions.depth, 'depth');
@@ -176,36 +262,125 @@ export function analyseBeam(
   if (loads.force !== undefined && !Number.isFinite(loads.force)) {
     throw new Error(`force must be finite, got ${loads.force}.`);
   }
+  if (loads.transverseForce !== undefined && !Number.isFinite(loads.transverseForce)) {
+    throw new Error(`transverseForce must be finite, got ${loads.transverseForce}.`);
+  }
+  if (loads.distributedLoad !== undefined && !Number.isFinite(loads.distributedLoad)) {
+    throw new Error(`distributedLoad must be finite, got ${loads.distributedLoad}.`);
+  }
   if (loads.moment !== undefined && !Number.isFinite(loads.moment)) {
     throw new Error(`moment must be finite, got ${loads.moment}.`);
   }
   if (loads.span !== undefined) positive(loads.span, 'span');
+  const support = options.support ?? 'cantilever';
+  if (support !== 'cantilever' && support !== 'simply-supported') {
+    throw new Error(`Unsupported beam support "${String(support)}".`);
+  }
 
   const area = dimensions.width * dimensions.depth;
   const inertia = prismInertia(dimensions);
   const extremeFibre = dimensions.depth / 2;
-  const force = loads.force ?? 0;
+  const axialForce = loads.force ?? 0;
+  const transverseForce = loads.transverseForce ?? 0;
+  const distributedLoad = loads.distributedLoad ?? 0;
   const moment = loads.moment ?? 0;
-  const axial = force === 0 ? 0 : axialStress(force, area);
-  const bending = moment === 0 ? 0 : bendingStress(moment, extremeFibre, inertia);
-  const total = axial + bending;
   const span = loads.span ?? dimensions.height;
+  const axial = axialForce === 0 ? 0 : axialStress(axialForce, area);
+  const bendingMoment =
+    support === 'cantilever'
+      ? moment + transverseForce * span + (distributedLoad * span * span) / 2
+      : simplySupportedPeakMoment(moment, transverseForce, distributedLoad, span);
+  const bending = bendingMoment === 0 ? 0 : bendingStress(bendingMoment, extremeFibre, inertia);
+  const total = axial + bending;
+  const deflection =
+    support === 'cantilever'
+      ? cantileverDeflection(
+          moment,
+          transverseForce,
+          distributedLoad,
+          span,
+          material.youngsModulus,
+          inertia,
+        )
+      : simplySupportedDeflection(
+          moment,
+          transverseForce,
+          distributedLoad,
+          span,
+          material.youngsModulus,
+          inertia,
+        );
 
   return {
     area,
     inertia,
     extremeFibre,
     sectionModulus: sectionModulus(inertia, extremeFibre),
+    bendingMoment,
     axialStress: axial,
     bendingStress: bending,
     totalStress: total,
     safetyFactor: total === 0 ? null : material.yieldStrength / Math.abs(total),
-    deflection:
-      force === 0
-        ? 0
-        : cantileverTipDeflection(force, span, material.youngsModulus, inertia),
+    deflection,
     yields: Math.abs(total) > material.yieldStrength,
   };
+}
+
+/**
+ * First four Euler–Bernoulli natural frequencies of a uniform rectangular beam,
+ * hertz. `β₁` is 1.875104… for a cantilever and π for a simply supported span;
+ * `f_n = β_n² / (2π L²) · √(EI / ρA)`.
+ */
+export function beamNaturalFrequencies(
+  dimensions: PrismDimensions,
+  material: StructuralMaterial,
+  support: BeamSupport = 'cantilever',
+  span?: number,
+): number[] {
+  positive(dimensions.width, 'width');
+  positive(dimensions.depth, 'depth');
+  positive(material.youngsModulus, 'youngsModulus');
+  positive(material.density, 'density');
+  const length = span ?? dimensions.height;
+  positive(length, 'span');
+  if (support !== 'cantilever' && support !== 'simply-supported') {
+    throw new Error(`Unsupported beam support "${String(support)}".`);
+  }
+
+  const inertia = prismInertia(dimensions);
+  const massPerLength = material.density * dimensions.width * dimensions.depth;
+  const beta1 = support === 'cantilever' ? 1.875104068711961 : Math.PI;
+  const ratios = support === 'cantilever' ? [1, 6.2669, 17.547, 34.386] : [1, 4, 9, 16];
+  const fundamental =
+    (beta1 ** 2 / (2 * Math.PI * length ** 2)) *
+    Math.sqrt((material.youngsModulus * inertia) / massPerLength);
+  return ratios.map(ratio => fundamental * ratio);
+}
+
+/**
+ * Euler buckling load of a uniform rectangular column, newtons, with the standard
+ * effective-length factor: `K = 2` fixed–free, `K = 1` pinned–pinned.
+ */
+export function beamBucklingLoad(
+  dimensions: PrismDimensions,
+  material: StructuralMaterial,
+  support: BeamSupport = 'cantilever',
+  span?: number,
+): number {
+  positive(dimensions.width, 'width');
+  positive(dimensions.depth, 'depth');
+  positive(material.youngsModulus, 'youngsModulus');
+  const length = span ?? dimensions.height;
+  positive(length, 'span');
+  if (support !== 'cantilever' && support !== 'simply-supported') {
+    throw new Error(`Unsupported beam support "${String(support)}".`);
+  }
+
+  const effectiveLengthFactor = support === 'cantilever' ? 2 : 1;
+  return (
+    (Math.PI ** 2 * material.youngsModulus * prismInertia(dimensions)) /
+    (effectiveLengthFactor * length) ** 2
+  );
 }
 
 /** Principal inertia of a solid prism about its centre, kilogram-metres². */

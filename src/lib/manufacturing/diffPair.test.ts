@@ -60,4 +60,19 @@ describe('differential pairs', () => {
     expect(meander.total - 5).toBeLessThan(meander.lobeLength)
     expect(meanderForSkew(0, 1, 3).lobes).toBe(0)
   })
+
+  it('rejects a degenerate meander geometry instead of returning Infinity', () => {
+    expect(() => meanderForSkew(5, 0, 3)).toThrow(/amplitude/)
+    expect(() => meanderForSkew(5, -1, 3)).toThrow(/amplitude/)
+    expect(() => meanderForSkew(5, Number.NaN, 3)).toThrow(/amplitude/)
+    expect(() => meanderForSkew(5, 1, 0)).toThrow(/period/)
+    expect(() => meanderForSkew(Number.NaN, 1, 3)).toThrow(/skew/)
+  })
+
+  it('rejects non-finite routed lengths instead of silently passing', () => {
+    expect(() => checkPair(usb({ lengthP: Number.NaN }))).toThrow(/lengthP/)
+    expect(() => checkPair(usb({ skewBudgetPs: Number.POSITIVE_INFINITY }))).toThrow(/skew budget/)
+    expect(() => checkGroup([usb({ lengthN: Number.NaN })], 2)).toThrow(/lengthN/)
+    expect(() => checkGroup([usb(), usb()], Number.NaN)).toThrow(/match window/)
+  })
 })

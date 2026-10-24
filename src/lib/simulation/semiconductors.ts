@@ -12,7 +12,8 @@
  *    non-ideal junction currents, series RB/RC/RE and the SPICE depletion
  *    capacitance law including the `fc` blend above the built-in potential.
  *  • MOSFET — level-1 Shichman–Hodges with body effect, channel-length
- *    modulation, the bulk diode and the gate overlap capacitances.
+ *    modulation, symmetric reverse-mode operation, both bulk junctions
+ *    (source–bulk and drain–bulk) and the gate overlap capacitances.
  *  • Op-amp — three-stage macromodel: differential input resistance, a
  *    transconductance first stage with a slew-rate current limit, a dominant
  *    pole set by the GBW product, and an output stage that saturates at
@@ -40,8 +41,11 @@ import {
   addConductance,
   addCurrentInjection,
   addVoltageConstraint,
+  companionHistory,
+  integrationFactor,
   type ComplexSystem,
   type RealSystem,
+  type TransientIntegration,
   type TransientState,
 } from './stamping'
 
@@ -90,11 +94,13 @@ function addSource(system: RealSystem, model: CircuitModel, node: string, value:
 }
 
 /**
- * Backward-Euler companion of a capacitance across (p, n).
+ * Companion of a capacitance across (p, n), matching the integration rule used
+ * by the linear capacitor stamp in `stamping.ts` so a BJT junction capacitance
+ * and a discrete capacitor of the same value follow the same discrete waveform.
  *
- * Identical discretisation to the linear capacitor stamp in `stamping.ts`, so a
- * BJT junction capacitance and a discrete capacitor of the same value produce
- * exactly the same discrete waveform.
+ * Backward Euler: `i = (C/dt)(v − v_prev)`.
+ * Trapezoidal: `i = (2C/dt)(v − v_prev) − i_prev`.
+ * Gear/BDF2: `i = (C/dt)(1.5·v − 2·v_prev + 0.5·v_prev2)`.
  */
 export function addCapacitorCompanion(
   system: RealSystem,
@@ -104,12 +110,17 @@ export function addCapacitorCompanion(
   capacitance: number,
   dt: number,
   previousVoltage: number,
+  companion?: { method: TransientIntegration; previousCurrent: number; previous2Voltage?: number },
 ): void {
-  const g = capacitance / dt
+  const method = companion?.method ?? 'backward-euler'
+  const factor = integrationFactor(method)
+  const g = (factor * capacitance) / dt
   if (!Number.isFinite(g) || g <= 0) return
+  const history = companionHistory(method, previousVoltage, companion?.previous2Voltage ?? 0)
+  const source = g * history + (method === 'trapezoidal' ? companion?.previousCurrent ?? 0 : 0)
   addConductance(system, model, p, n, g)
-  addSource(system, model, p, g * previousVoltage)
-  addSource(system, model, n, -g * previousVoltage)
+  addSource(system, model, p, source)
+  addSource(system, model, n, -source)
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -354,13 +365,24 @@ export function stampBjtCharges(
   device: BjtDevice,
   state: TransientState,
   dt: number,
+  method: TransientIntegration = 'backward-euler',
 ): void {
-  const previous = state.bjtJunctions.get(device.name) ?? { vbe: 0, vbc: 0, cPi: 0, cMu: 0 }
+  const previous = state.bjtJunctions.get(device.name)
+  const cPi = previous?.cPi ?? 0
+  const cMu = previous?.cMu ?? 0
   const s = device.polarity === 'npn' ? 1 : -1
   // The stored bias is forward-positive; the capacitor sees the physical node
   // difference, hence the `s`.
-  addCapacitorCompanion(system, model, device.bInt, device.eInt, previous.cPi, dt, s * previous.vbe)
-  addCapacitorCompanion(system, model, device.bInt, device.cInt, previous.cMu, dt, s * previous.vbc)
+  addCapacitorCompanion(system, model, device.bInt, device.eInt, cPi, dt, s * (previous?.vbe ?? 0), {
+    method,
+    previousCurrent: previous?.cPiCurrent ?? 0,
+    previous2Voltage: s * (previous?.vbe2 ?? 0),
+  })
+  addCapacitorCompanion(system, model, device.bInt, device.cInt, cMu, dt, s * (previous?.vbc ?? 0), {
+    method,
+    previousCurrent: previous?.cMuCurrent ?? 0,
+    previous2Voltage: s * (previous?.vbc2 ?? 0),
+  })
 }
 
 /**
@@ -484,7 +506,12 @@ export interface MosfetBias {
   /** Forward-positive biases, mirror-corrected for a P-channel part. */
   vgs: number
   vds: number
+  /** Bulk–source voltage used by the diode model (limited to 1 V). */
   vbs: number
+  /** Bulk–drain voltage, forward-positive and limited to 1 V (`v_b − v_d`). */
+  vbd: number
+  /** True when the channel was evaluated with drain and source swapped (vds < 0). */
+  reverse: boolean
   /** Drain current in the N-channel sense, A. */
   id: number
   /** Channel Jacobian, S: ∂id/∂vgs, ∂id/∂vds, ∂id/∂vbs. */
@@ -496,6 +523,9 @@ export interface MosfetBias {
   /** Body diode current into the bulk, A, and its conductance, S. */
   ibs: number
   gbs: number
+  /** Drain–bulk diode current into the bulk, A, and its conductance, S. */
+  ibd: number
+  gbd: number
   /** Gate overlap capacitances, F. */
   cgs: number
   cgd: number
@@ -513,6 +543,17 @@ export type MosfetRegion = 'cutoff' | 'triode' | 'saturation'
  * positive value: a strongly forward-biased bulk is clamped by the bulk diode,
  * which is stamped separately, so the square root is never asked for a negative
  * number.
+ *
+ * The channel is symmetric. When `vds < 0` the roles of drain and source swap,
+ * exactly as in SPICE's `mode` handling: evaluating `vgs = vgs − vds`,
+ * `vds = −vds`, `vbs = vbs − vds` and negating the current gives the correct
+ * (positive) conductances instead of the negative `gm` a one-sided evaluation
+ * would produce for a reversed device.
+ *
+ * Both bulk junctions are modelled (source–bulk and drain–bulk), as MOS1 does.
+ * The drain–bulk diode is what clamps a switching node driven below the
+ * substrate; omitting it leaves the drain free to swing to any negative
+ * voltage without body conduction.
  */
 export function mosfetBias(
   device: MosfetDevice,
@@ -529,35 +570,105 @@ export function mosfetBias(
    * +2 V. Everything else (KP, gamma, phi, lambda) is already polarity-neutral.
    */
   const vto = device.polarity === 'p' ? -m.vto : m.vto
-  const arg = Math.max(m.phi - vbs, Math.abs(m.phi) * 1e-6 + 1e-12)
-  const sarg = Math.sqrt(arg)
-  const von = vto + m.gamma * (sarg - Math.sqrt(Math.max(m.phi, 0)))
-  const dvonDVbs = -m.gamma / (2 * sarg)
-  const vgst = vgs - von
+  const sqrtPhi = Math.sqrt(Math.max(m.phi, 0))
 
-  let id = 0
-  let gm = 0
-  let gds = 0
-  if (vgst > 0) {
-    const factor = 1 + m.lambda * vds
-    if (vds < vgst) {
-      id = m.kp * (vgst * vds - (vds * vds) / 2) * factor
-      gm = m.kp * vds * factor
-      gds = m.kp * ((vgst - vds) * factor + m.lambda * (vgst * vds - (vds * vds) / 2))
-    } else {
-      id = (m.kp / 2) * vgst * vgst * factor
-      gm = m.kp * vgst * factor
-      gds = (m.kp / 2) * vgst * vgst * m.lambda
+  /*
+   * Both bulk junctions are clamped at 1 V for evaluation, the same way SPICE
+   * limits a forward-biased junction. The NMOS body diode turns on hard once
+   * the drain falls below the substrate; without the clamp the first Newton
+   * iterate sees exp(50) and the solve oscillates instead of reaching the
+   * ~0.7 V clamp point.
+   */
+  const DIODE_LIMIT = 1
+  const vbsDiode = Math.min(vbs, DIODE_LIMIT)
+  const vbdDiode = Math.min(vbs - vds, DIODE_LIMIT)
+
+  const bodyThreshold = (bulkToSource: number): { von: number; dvon: number } => {
+    // The depletion square root only has meaning for a reverse-biased bulk;
+    // flooring the argument keeps the derivative bounded when it is forward.
+    const arg = Math.max(m.phi - bulkToSource, Math.max(Math.abs(m.phi), 0.1) * 0.1)
+    const sarg = Math.sqrt(arg)
+    return {
+      von: vto + m.gamma * (sarg - sqrtPhi),
+      dvon: -m.gamma / (2 * sarg),
     }
   }
-  // ∂id/∂vbs = ∂id/∂vgst · (−∂von/∂vbs), which is positive when gamma > 0.
-  const gmb = -gm * dvonDVbs
 
-  const bodyExp = safeExp(vbs / (m.n * thermal))
+  /* Forward-direction channel: drain at or above the source. */
+  const channel = (
+    gate: number,
+    drain: number,
+    bulk: number,
+  ): { id: number; gm: number; gds: number; gmb: number; von: number } => {
+    const { von, dvon } = bodyThreshold(bulk)
+    const vgst = gate - von
+    let id = 0
+    let gm = 0
+    let gds = 0
+    if (vgst > 0) {
+      const factor = 1 + m.lambda * drain
+      if (drain < vgst) {
+        id = m.kp * (vgst * drain - (drain * drain) / 2) * factor
+        gm = m.kp * drain * factor
+        gds = m.kp * ((vgst - drain) * factor + m.lambda * (vgst * drain - (drain * drain) / 2))
+      } else {
+        id = (m.kp / 2) * vgst * vgst * factor
+        gm = m.kp * vgst * factor
+        gds = (m.kp / 2) * vgst * vgst * m.lambda
+      }
+    }
+    // ∂id/∂vbs = ∂id/∂vgst · (−∂von/∂vbs), which is positive when gamma > 0.
+    return { id, gm, gds, gmb: -gm * dvon, von }
+  }
+
+  const reverse = vds < 0
+  let id: number
+  let gm: number
+  let gds: number
+  let gmb: number
+  let von: number
+  if (reverse) {
+    // With drain and source swapped the bulk reference is the drain.
+    const swapped = channel(vgs - vds, -vds, vbdDiode)
+    id = -swapped.id
+    gm = -swapped.gm
+    gds = swapped.gm + swapped.gds + swapped.gmb
+    gmb = -swapped.gmb
+    von = swapped.von
+  } else {
+    const forward = channel(vgs, vds, vbsDiode)
+    id = forward.id
+    gm = forward.gm
+    gds = forward.gds
+    gmb = forward.gmb
+    von = forward.von
+  }
+
+  const bodyExp = safeExp(vbsDiode / (m.n * thermal))
   const ibs = m.is * (bodyExp - 1)
   const gbs = (m.is * bodyExp) / (m.n * thermal)
+  const drainExp = safeExp(vbdDiode / (m.n * thermal))
+  const ibd = m.is * (drainExp - 1)
+  const gbd = (m.is * drainExp) / (m.n * thermal)
 
-  return { vgs, vds, vbs, id, gm, gds, gmb, von, ibs, gbs, cgs: m.cgs, cgd: m.cgd }
+  return {
+    vgs,
+    vds,
+    vbs: vbsDiode,
+    vbd: vbdDiode,
+    reverse,
+    id,
+    gm,
+    gds,
+    gmb,
+    von,
+    ibs,
+    gbs,
+    ibd,
+    gbd,
+    cgs: m.cgs,
+    cgd: m.cgd,
+  }
 }
 
 /** Region of operation at a bias point (for notes, tests and reports). */
@@ -618,11 +729,24 @@ export function stampJfetCharges(
   device: JfetDevice,
   state: TransientState,
   dt: number,
+  method: TransientIntegration = 'backward-euler',
 ): void {
-  const previous = state.jfetBias.get(device.name) ?? { vgs: 0, vds: 0, cgs: device.model.cgs, cgd: device.model.cgd }
+  const previous = state.jfetBias.get(device.name)
+  const cgs = previous?.cgs ?? device.model.cgs
+  const cgd = previous?.cgd ?? device.model.cgd
   const s = device.polarity === 'n' ? 1 : -1
-  addCapacitorCompanion(system, model, device.g, device.s, previous.cgs, dt, s * previous.vgs)
-  addCapacitorCompanion(system, model, device.g, device.d, previous.cgd, dt, s * (previous.vgs - previous.vds))
+  const vgs = previous?.vgs ?? 0
+  const vds = previous?.vds ?? 0
+  addCapacitorCompanion(system, model, device.g, device.s, cgs, dt, s * vgs, {
+    method,
+    previousCurrent: previous?.cgsCurrent ?? 0,
+    previous2Voltage: s * (previous?.vgs2 ?? 0),
+  })
+  addCapacitorCompanion(system, model, device.g, device.d, cgd, dt, s * (vgs - vds), {
+    method,
+    previousCurrent: previous?.cgdCurrent ?? 0,
+    previous2Voltage: s * ((previous?.vgs2 ?? 0) - (previous?.vds2 ?? 0)),
+  })
 }
 
 /** Small-signal JFET at the DC bias point. */
@@ -648,9 +772,12 @@ export function stampJfetSmallSignal(
 
 /** Region of operation at a bias point (for notes, tests and reports). */
 export function mosfetRegion(bias: MosfetBias): MosfetRegion {
-  const vgst = bias.vgs - bias.von
+  // In reverse mode the channel is classified at its swapped terminals.
+  const gate = bias.reverse ? bias.vgs - bias.vds : bias.vgs
+  const drain = bias.reverse ? -bias.vds : bias.vds
+  const vgst = gate - bias.von
   if (vgst <= 0) return 'cutoff'
-  return bias.vds < vgst ? 'triode' : 'saturation'
+  return drain < vgst ? 'triode' : 'saturation'
 }
 
 /**
@@ -694,6 +821,16 @@ export function stampMosfet(
   addSource(system, model, device.b, -bodyConstant)
   addSource(system, model, source, bodyConstant)
 
+  // Drain–bulk diode, the other half of the MOS1 body model. Without it a
+  // switching node pulled below the substrate never clamps.
+  const drainBodyConstant = s * (bias.ibd - bias.gbd * bias.vbd)
+  addEntry(system, model, device.b, device.b, bias.gbd)
+  addEntry(system, model, device.b, d, -bias.gbd)
+  addEntry(system, model, d, device.b, -bias.gbd)
+  addEntry(system, model, d, d, bias.gbd)
+  addSource(system, model, device.b, -drainBodyConstant)
+  addSource(system, model, d, drainBodyConstant)
+
   // gmin from drain to source keeps an off transistor from isolating nodes.
   addConductance(system, model, d, source, gmin)
 }
@@ -705,17 +842,25 @@ export function stampMosfetCharges(
   device: MosfetDevice,
   state: TransientState,
   dt: number,
+  method: TransientIntegration = 'backward-euler',
 ): void {
-  const previous = state.mosfetBias.get(device.name) ?? {
-    vgs: 0,
-    vds: 0,
-    vbs: 0,
-    cgs: device.model.cgs,
-    cgd: device.model.cgd,
-  }
+  const previous = state.mosfetBias.get(device.name)
+  const cgs = previous?.cgs ?? device.model.cgs
+  const cgd = previous?.cgd ?? device.model.cgd
   const s = device.polarity === 'n' ? 1 : -1
-  addCapacitorCompanion(system, model, device.g, device.s, previous.cgs, dt, s * previous.vgs)
-  addCapacitorCompanion(system, model, device.g, device.d, previous.cgd, dt, s * previous.vds)
+  const vgs = previous?.vgs ?? 0
+  const vds = previous?.vds ?? 0
+  addCapacitorCompanion(system, model, device.g, device.s, cgs, dt, s * vgs, {
+    method,
+    previousCurrent: previous?.cgsCurrent ?? 0,
+    previous2Voltage: s * (previous?.vgs2 ?? 0),
+  })
+  // Cgd spans gate–drain, so its physical voltage is vgs − vds, not vds.
+  addCapacitorCompanion(system, model, device.g, device.d, cgd, dt, s * (vgs - vds), {
+    method,
+    previousCurrent: previous?.cgdCurrent ?? 0,
+    previous2Voltage: s * ((previous?.vgs2 ?? 0) - (previous?.vds2 ?? 0)),
+  })
 }
 
 /**
@@ -745,6 +890,10 @@ export function stampMosfetSmallSignal(
   addComplexEntry(system, model, device.b, source, complex(-bias.gbs))
   addComplexEntry(system, model, source, device.b, complex(-bias.gbs))
   addComplexEntry(system, model, source, source, complex(bias.gbs))
+  addComplexEntry(system, model, device.b, device.b, complex(bias.gbd))
+  addComplexEntry(system, model, device.b, d, complex(-bias.gbd))
+  addComplexEntry(system, model, d, device.b, complex(-bias.gbd))
+  addComplexEntry(system, model, d, d, complex(bias.gbd))
   addComplexAdmittance(system, model, device.g, source, complex(0, omega * bias.cgs))
   addComplexAdmittance(system, model, device.g, d, complex(0, omega * bias.cgd))
 }
@@ -877,7 +1026,7 @@ export function stampOpAmpLinear(
   system: RealSystem,
   model: CircuitModel,
   device: OpAmpDevice,
-  companion?: { dt: number; state: TransientState },
+  companion?: { dt: number; state: TransientState; method?: TransientIntegration },
 ): void {
   addConductance(system, model, device.inP, device.inN, 1 / device.rin)
   addConductance(system, model, device.internal, GROUND_NODE, 1 / OPAMP_STAGE_RESISTANCE)
@@ -892,6 +1041,11 @@ export function stampOpAmpLinear(
     internalCapacitance,
     companion.dt,
     previous,
+    {
+      method: companion.method ?? 'backward-euler',
+      previousCurrent: companion.state.opAmpCurrents.get(device.name) ?? 0,
+      previous2Voltage: companion.state.opAmpStages2.get(device.name) ?? 0,
+    },
   )
 }
 
@@ -1109,7 +1263,7 @@ export function readSemiconductorState(
 export function stampSemiconductorLinear(
   system: RealSystem,
   model: CircuitModel,
-  companion?: { dt: number; state: TransientState },
+  companion?: { dt: number; state: TransientState; method?: TransientIntegration },
 ): void {
   for (const device of model.devices) {
     switch (device.kind) {
@@ -1128,12 +1282,13 @@ export function stampSemiconductorLinear(
     }
   }
   // Junction and gate capacitances are charge companions, so they take the same
-  // backward-Euler step as every other capacitor in the circuit.
+  // integration step as every other capacitor in the circuit.
   if (!companion) return
+  const method = companion.method ?? 'backward-euler'
   for (const device of model.devices) {
-    if (device.kind === 'bjt') stampBjtCharges(system, model, device, companion.state, companion.dt)
-    if (device.kind === 'mosfet') stampMosfetCharges(system, model, device, companion.state, companion.dt)
-    if (device.kind === 'jfet') stampJfetCharges(system, model, device, companion.state, companion.dt)
+    if (device.kind === 'bjt') stampBjtCharges(system, model, device, companion.state, companion.dt, method)
+    if (device.kind === 'mosfet') stampMosfetCharges(system, model, device, companion.state, companion.dt, method)
+    if (device.kind === 'jfet') stampJfetCharges(system, model, device, companion.state, companion.dt, method)
   }
 }
 
@@ -1149,31 +1304,134 @@ export function updateTransientState(
   state: TransientState,
   voltages: ReadonlyMap<string, number>,
   thermal: number,
+  companion?: { dt: number; method?: TransientIntegration },
 ): void {
+  const method = companion?.method ?? 'backward-euler'
+  const factor = integrationFactor(method)
+  const dt = companion?.dt ?? 0
+  /*
+   * Current consistent with the companion that was just stamped:
+   *   BE:  (C/dt)(v_new − v_prev)
+   *   trap:(2C/dt)(v_new − v_prev) − i_prev
+   *   BDF2:(1.5C/dt)(v_new − (4·v_prev − v_prev2)/3)
+   * The capacitance is the previous step's value because that is what the
+   * conductance in the matrix used.
+   */
+  const chargeCurrent = (
+    cPrevious: number,
+    vPrevious: number,
+    vPrevious2: number,
+    vNew: number,
+    iPrevious: number,
+  ): number => {
+    if (!(dt > 0) || !(cPrevious > 0)) return 0
+    const history = companionHistory(method, vPrevious, vPrevious2)
+    return ((factor * cPrevious) / dt) * (vNew - history)
+      - (method === 'trapezoidal' ? iPrevious : 0)
+  }
+
   for (const device of model.devices) {
     if (device.kind === 'bjt') {
+      const previous = state.bjtJunctions.get(device.name)
       const junctions = bjtJunctionsAt(device, voltages)
       const bias = bjtBias(device, junctions.vbe, junctions.vbc, thermal)
+      const s = device.polarity === 'npn' ? 1 : -1
       state.bjtJunctions.set(device.name, {
         vbe: junctions.vbe,
         vbc: junctions.vbc,
+        vbe2: previous?.vbe ?? 0,
+        vbc2: previous?.vbc ?? 0,
         cPi: bias.cPi,
         cMu: bias.cMu,
+        cPiCurrent: chargeCurrent(
+          previous?.cPi ?? 0,
+          s * (previous?.vbe ?? 0),
+          s * (previous?.vbe2 ?? 0),
+          s * junctions.vbe,
+          previous?.cPiCurrent ?? 0,
+        ),
+        cMuCurrent: chargeCurrent(
+          previous?.cMu ?? 0,
+          s * (previous?.vbc ?? 0),
+          s * (previous?.vbc2 ?? 0),
+          s * junctions.vbc,
+          previous?.cMuCurrent ?? 0,
+        ),
       })
     } else if (device.kind === 'mosfet') {
+      const previous = state.mosfetBias.get(device.name)
       const bias = mosfetBiasAt(device, voltages, thermal)
+      const s = device.polarity === 'n' ? 1 : -1
+      const vgsPrevious = s * (previous?.vgs ?? 0)
+      const vgdPrevious = vgsPrevious - s * (previous?.vds ?? 0)
+      const vgs2Physical = s * (previous?.vgs2 ?? 0)
+      const vgd2Physical = vgs2Physical - s * (previous?.vds2 ?? 0)
       state.mosfetBias.set(device.name, {
         vgs: bias.vgs,
         vds: bias.vds,
         vbs: bias.vbs,
+        vgs2: previous?.vgs ?? 0,
+        vds2: previous?.vds ?? 0,
         cgs: bias.cgs,
         cgd: bias.cgd,
+        cgsCurrent: chargeCurrent(
+          previous?.cgs ?? 0,
+          vgsPrevious,
+          vgs2Physical,
+          s * bias.vgs,
+          previous?.cgsCurrent ?? 0,
+        ),
+        cgdCurrent: chargeCurrent(
+          previous?.cgd ?? 0,
+          vgdPrevious,
+          vgd2Physical,
+          s * (bias.vgs - bias.vds),
+          previous?.cgdCurrent ?? 0,
+        ),
       })
     } else if (device.kind === 'jfet') {
+      const previous = state.jfetBias.get(device.name)
       const bias = jfetBiasAt(device, voltages, thermal)
-      state.jfetBias.set(device.name, { vgs: bias.vgs, vds: bias.vds, cgs: device.model.cgs, cgd: device.model.cgd })
+      const s = device.polarity === 'n' ? 1 : -1
+      const vgsPrevious = s * (previous?.vgs ?? 0)
+      const vgdPrevious = vgsPrevious - s * (previous?.vds ?? 0)
+      const vgs2Physical = s * (previous?.vgs2 ?? 0)
+      const vgd2Physical = vgs2Physical - s * (previous?.vds2 ?? 0)
+      const cgs = previous?.cgs ?? device.model.cgs
+      const cgd = previous?.cgd ?? device.model.cgd
+      state.jfetBias.set(device.name, {
+        vgs: bias.vgs,
+        vds: bias.vds,
+        vgs2: previous?.vgs ?? 0,
+        vds2: previous?.vds ?? 0,
+        cgs,
+        cgd,
+        cgsCurrent: chargeCurrent(cgs, vgsPrevious, vgs2Physical, s * bias.vgs, previous?.cgsCurrent ?? 0),
+        cgdCurrent: chargeCurrent(
+          cgd,
+          vgdPrevious,
+          vgd2Physical,
+          s * (bias.vgs - bias.vds),
+          previous?.cgdCurrent ?? 0,
+        ),
+      })
     } else if (device.kind === 'op-amp') {
-      state.opAmpStages.set(device.name, voltageAt(voltages, device.internal))
+      const previousStage = state.opAmpStages.get(device.name) ?? 0
+      const previousStage2 = state.opAmpStages2.get(device.name) ?? 0
+      const stage = voltageAt(voltages, device.internal)
+      const { internalCapacitance } = opAmpParameters(device)
+      state.opAmpStages2.set(device.name, previousStage)
+      state.opAmpStages.set(device.name, stage)
+      state.opAmpCurrents.set(
+        device.name,
+        chargeCurrent(
+          internalCapacitance,
+          previousStage,
+          previousStage2,
+          stage,
+          state.opAmpCurrents.get(device.name) ?? 0,
+        ),
+      )
     }
   }
 }

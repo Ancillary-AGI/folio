@@ -185,6 +185,33 @@ describe('fab package — DRC gates the order (fail-loud)', () => {
     expect(pkg.violations.some((v) => v.rule === 'trace-spacing')).toBe(true)
   })
 
+  it('detects crossing traces whose vertices are far apart', () => {
+    const pkg = buildFabPackage([resistor('R1', 10)], [
+      wire('w1', [{ x: 0, y: 5 }, { x: 10, y: 5 }]),
+      wire('w2', [{ x: 5, y: 0 }, { x: 5, y: 10 }]),
+    ])
+    expect(pkg.shippable).toBe(false)
+    expect(pkg.violations.some((v) => v.rule === 'trace-spacing')).toBe(true)
+  })
+
+  it('does not flag copper of the same net for touching', () => {
+    const pkg = buildFabPackage([resistor('R1', 10)], [
+      { ...wire('w1', [{ x: 0, y: 0 }, { x: 10, y: 0 }]), netName: 'VCC' },
+      { ...wire('w2', [{ x: 0, y: 0.1 }, { x: 10, y: 0.1 }]), netName: 'VCC' },
+    ])
+    expect(pkg.violations.filter((v) => v.rule === 'trace-spacing')).toEqual([])
+  })
+
+  it('keeps top-side SMD pads off the bottom copper and mask', () => {
+    const pkg = buildFabPackage([resistor('R1', 10), dip8('U1', 50)], [])
+    const flashes = (name: string): number =>
+      (pkg.files.get(name) ?? '').split('\n').filter((line) => line.includes('D03*')).length
+    expect(flashes('folio-pcb-F_Cu.gtl')).toBe(10) // 2 SMD pads + 8 through-hole
+    expect(flashes('folio-pcb-B_Cu.gbl')).toBe(8)
+    expect(flashes('folio-pcb-F_Mask.gts')).toBe(10)
+    expect(flashes('folio-pcb-B_Mask.gbs')).toBe(8)
+  })
+
   it('refuses to invent pads for an unknown footprint', () => {
     const bad = resistor('R9', 10, { footprint: 'no-such-footprint' })
     bad.component.category = 'unobtainium'

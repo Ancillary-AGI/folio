@@ -50,12 +50,24 @@ export interface AuditEntry {
 
 // ── Crypto helpers ────────────────────────────────────────────────────────────
 
-/** Convert an ArrayBuffer (or any ArrayBuffer view) to a Base64 string */
+/**
+ * Convert an ArrayBuffer (or any ArrayBuffer view) to a Base64 string.
+ *
+ * `instanceof ArrayBuffer` is realm-dependent — WebCrypto results from another
+ * realm (iframes, Workers, test environments) fail it and would be encoded as
+ * an empty string. `ArrayBuffer.isView` is the reliable discriminator. The
+ * chunked conversion avoids the argument limit of `String.fromCharCode`.
+ */
 function bufToB64(buf: ArrayBuffer | ArrayBufferView): string {
-  const bytes = buf instanceof ArrayBuffer
-    ? new Uint8Array(buf)
-    : new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
-  return btoa(String.fromCharCode(...bytes))
+  const bytes = ArrayBuffer.isView(buf)
+    ? new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
+    : new Uint8Array(buf)
+  let binary = ''
+  const CHUNK = 0x8000
+  for (let offset = 0; offset < bytes.length; offset += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + CHUNK))
+  }
+  return btoa(binary)
 }
 
 /** Convert a Base64 string back to a Uint8Array */

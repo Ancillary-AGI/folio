@@ -1,316 +1,266 @@
-import { Component, Wire, Net } from '../../types';
+import type { Component, Net, Pin, Schematic, Wire } from '../../types'
+
+export type ERCViolationType =
+  | 'unconnected_pin'
+  | 'floating_input'
+  | 'multiple_drivers'
+  | 'power_ground_short'
+  | 'supply_output_unconnected'
 
 export interface ERCViolation {
-  type: 'unconnected_pin' | 'short_circuit' | 'power_ground' | 'input_floating' | 'output_conflict' | 'power_supply';
-  severity: 'error' | 'warning' | 'info';
-  message: string;
-  componentId?: string;
-  pinId?: string;
-  netId?: string;
-  location?: { x: number; y: number };
-  suggestion?: string;
+  type: ERCViolationType
+  severity: 'error' | 'warning' | 'info'
+  message: string
+  componentId?: string
+  pinId?: string
+  netId?: string
+  location?: { x: number; y: number }
+  suggestion?: string
 }
 
 export interface ERCResult {
-  isValid: boolean;
-  violations: ERCViolation[];
+  isValid: boolean
+  violations: ERCViolation[]
   summary: {
-    errors: number;
-    warnings: number;
-    info: number;
-    totalViolations: number;
-  };
+    errors: number
+    warnings: number
+    info: number
+    totalViolations: number
+  }
 }
 
+const POWER_SUPPLY = /power|supply|regulator|battery|ldo|dc-dc|converter|charger/
+
+function isPowerSupply(component: Component): boolean {
+  return POWER_SUPPLY.test(`${component.category} ${component.name}`.toLowerCase())
+}
+
+function connectionKey(componentId: string, pinId: string): string {
+  return `${componentId}\u0000${pinId}`
+}
+
+interface ResolvedPin {
+  connection: { componentId: string; pinId: string }
+  component: Component
+  pin: Pin
+}
+
+/**
+ * Electrical rule check over a flat component/wire/net graph.
+ *
+ * Compared with the earlier implementation this reports each physical problem
+ * exactly once: unconnected pins are classified by `Pin.type` (the `nc` type
+ * is skipped), multiple drivers and power/ground shorts are one net-level
+ * violation each, and wire-only schematics — where `nets` is empty but wires
+ * carry `connectedPins` — are analysed by deriving nets from the wires.
+ */
 export class ElectricalRuleChecker {
-  private components: Component[];
-  private wires: Wire[];
-  private nets: Net[];
+  private readonly components: Component[]
+  private readonly wires: Wire[]
+  private readonly nets: Net[]
 
   constructor(components: Component[], wires: Wire[], nets: Net[]) {
-    this.components = components;
-    this.wires = wires;
-    this.nets = nets;
+    this.components = components
+    this.wires = wires
+    this.nets = nets
   }
 
   runERC(): ERCResult {
-    const violations: ERCViolation[] = [];
+    const connected = this.collectConnectedPins()
+    const violations: ERCViolation[] = [
+      ...this.checkUnconnectedPins(connected),
+      ...this.checkNetConflicts(),
+    ]
 
-    // Check for unconnected pins
-    violations.push(...this.checkUnconnectedPins());
-
-    // Check for short circuits
-    violations.push(...this.checkShortCircuits());
-
-    // Check power and ground connections
-    violations.push(...this.checkPowerGroundConnections());
-
-    // Check for floating inputs
-    violations.push(...this.checkFloatingInputs());
-
-    // Check for output conflicts
-    violations.push(...this.checkOutputConflicts());
-
-    // Check power supply connections
-    violations.push(...this.checkPowerSupplyConnections());
-
-    const errors = violations.filter(v => v.severity === 'error').length;
-    const warnings = violations.filter(v => v.severity === 'warning').length;
-    const info = violations.filter(v => v.severity === 'info').length;
+    const errors = violations.filter(v => v.severity === 'error').length
+    const warnings = violations.filter(v => v.severity === 'warning').length
+    const info = violations.filter(v => v.severity === 'info').length
 
     return {
       isValid: errors === 0,
       violations,
-      summary: {
-        errors,
-        warnings,
-        info,
-        totalViolations: violations.length
-      }
-    };
+      summary: { errors, warnings, info, totalViolations: violations.length },
+    }
   }
 
-  private checkUnconnectedPins(): ERCViolation[] {
-    const violations: ERCViolation[] = [];
-
-    this.components.forEach(component => {
-      component.pins.forEach(pin => {
-        const isConnected = this.isPinConnected(component.id, pin.id);
-
-        if (!isConnected) {
-          let severity: 'error' | 'warning' | 'info' = 'warning';
-          let message = `Pin "${pin.name}" of ${component.name} is not connected`;
-          let suggestion = 'Connect this pin to a net or leave it unconnected if intentional';
-
-          // Special handling for different pin types
-           switch (pin.type) {
-             case 'power':
-               severity = 'error';
-               message = `Power pin "${pin.name}" of ${component.name} is not connected`;
-               suggestion = 'Connect this power pin to the appropriate power net';
-               break;
-             case 'ground':
-               severity = 'error';
-               message = `Ground pin "${pin.name}" of ${component.name} is not connected`;
-               suggestion = 'Connect this ground pin to the ground net';
-               break;
-             case 'input':
-               severity = 'warning';
-               message = `Input pin "${pin.name}" of ${component.name} is not connected`;
-               suggestion = 'Connect this input pin to a signal source or pull it up/down if unused';
-               break;
-             case 'output':
-               severity = 'info';
-               message = `Output pin "${pin.name}" of ${component.name} is not connected`;
-               suggestion = 'This is acceptable for unused outputs';
-               break;
-           }
-
-          violations.push({
-            type: 'unconnected_pin',
-            severity,
-            message,
-            componentId: component.id,
-            pinId: pin.id,
-            suggestion
-          });
-        }
-      });
-    });
-
-    return violations;
+  private collectConnectedPins(): Set<string> {
+    const connected = new Set<string>()
+    for (const wire of this.wires) {
+      for (const connection of wire.connectedPins) {
+        connected.add(connectionKey(connection.componentId, connection.pinId))
+      }
+    }
+    for (const net of this.nets) {
+      for (const connection of net.connectedPins) {
+        connected.add(connectionKey(connection.componentId, connection.pinId))
+      }
+    }
+    return connected
   }
 
-  private checkShortCircuits(): ERCViolation[] {
-    const violations: ERCViolation[] = [];
+  private findPin(componentId: string, pinId: string): { component: Component; pin: Pin } | undefined {
+    const component = this.components.find(candidate => candidate.id === componentId)
+    const pin = component?.pins.find(candidate => candidate.id === pinId)
+    return component && pin ? { component, pin } : undefined
+  }
 
-    // Check for multiple outputs connected to the same net
-    this.nets.forEach(net => {
-      const connectedOutputs: Array<{ componentId: string; pinId: string }> = [];
+  private checkUnconnectedPins(connected: Set<string>): ERCViolation[] {
+    const violations: ERCViolation[] = []
 
-      net.connectedPins.forEach(connection => {
-        const component = this.components.find(c => c.id === connection.componentId);
-        const pin = component?.pins.find(p => p.id === connection.pinId);
+    for (const component of this.components) {
+      for (const pin of component.pins) {
+        if (pin.type === 'nc') continue
+        if (connected.has(connectionKey(component.id, pin.id))) continue
 
-        if (pin?.type === 'output') {
-          connectedOutputs.push(connection);
+        const base = {
+          componentId: component.id,
+          pinId: pin.id,
+          location: { x: pin.x, y: pin.y },
         }
-      });
 
-      if (connectedOutputs.length > 1) {
-        connectedOutputs.forEach(connection => {
-          violations.push({
-            type: 'short_circuit',
-            severity: 'error',
-            message: `Multiple output pins connected to net "${net.name}"`,
-            componentId: connection.componentId,
-            pinId: connection.pinId,
-            netId: net.id,
-            suggestion: 'Separate outputs or use proper bus/multiplexing logic'
-          });
-        });
+        switch (pin.type) {
+          case 'power':
+            violations.push({
+              ...base,
+              type: 'unconnected_pin',
+              severity: 'error',
+              message: `Power pin "${pin.name}" of ${component.name} is not connected`,
+              suggestion: 'Connect this power pin to the appropriate power net',
+            })
+            break
+          case 'ground':
+            violations.push({
+              ...base,
+              type: 'unconnected_pin',
+              severity: 'error',
+              message: `Ground pin "${pin.name}" of ${component.name} is not connected`,
+              suggestion: 'Connect this ground pin to the ground net',
+            })
+            break
+          case 'input':
+            violations.push({
+              ...base,
+              type: 'floating_input',
+              severity: 'warning',
+              message: `Input pin "${pin.name}" of ${component.name} is floating`,
+              suggestion: 'Connect the input to a source or add a pull-up/pull-down resistor',
+            })
+            break
+          case 'output':
+            if (isPowerSupply(component)) {
+              violations.push({
+                ...base,
+                type: 'supply_output_unconnected',
+                severity: 'warning',
+                message: `Power supply output "${pin.name}" of ${component.name} is not connected`,
+                suggestion: 'Connect the supply output to its load circuit',
+              })
+            } else {
+              violations.push({
+                ...base,
+                type: 'unconnected_pin',
+                severity: 'info',
+                message: `Output pin "${pin.name}" of ${component.name} is not connected`,
+                suggestion: 'Acceptable for an unused output',
+              })
+            }
+            break
+          default:
+            violations.push({
+              ...base,
+              type: 'unconnected_pin',
+              severity: 'info',
+              message: `Pin "${pin.name}" of ${component.name} is not connected`,
+              suggestion: 'Leave unconnected only if intentional',
+            })
+        }
       }
-    });
+    }
 
-    // Check for power and ground short circuits
-    this.nets.forEach(net => {
-      const powerPins = net.connectedPins.filter(connection => {
-        const component = this.components.find(c => c.id === connection.componentId);
-        const pin = component?.pins.find(p => p.id === connection.pinId);
-        return pin?.electricalType === 'power';
-      });
+    return violations
+  }
 
-      const groundPins = net.connectedPins.filter(connection => {
-        const component = this.components.find(c => c.id === connection.componentId);
-        const pin = component?.pins.find(p => p.id === connection.pinId);
-        return pin?.electricalType === 'ground';
-      });
+  /**
+   * Merge declared nets and wire-carried connectivity into one net list.
+   * A wire without a `netName` is its own anonymous net, so two drivers on
+   * the same unnamed wire are still detected.
+   */
+  private effectiveNets(): Array<{ id: string; name: string; connectedPins: Net['connectedPins'] }> {
+    const byName = new Map<string, { id: string; name: string; connectedPins: Net['connectedPins'] }>()
 
+    for (const net of this.nets) {
+      const key = net.name || net.id
+      const existing = byName.get(key)
+      if (existing) {
+        existing.connectedPins.push(...net.connectedPins)
+      } else {
+        byName.set(key, { id: net.id, name: key, connectedPins: [...net.connectedPins] })
+      }
+    }
+
+    for (const wire of this.wires) {
+      const key = wire.netName || `wire:${wire.id}`
+      const existing = byName.get(key)
+      if (existing) {
+        existing.connectedPins.push(...wire.connectedPins)
+      } else {
+        byName.set(key, { id: key, name: key, connectedPins: [...wire.connectedPins] })
+      }
+    }
+
+    for (const net of byName.values()) {
+      const seen = new Set<string>()
+      net.connectedPins = net.connectedPins.filter(connection => {
+        const key = connectionKey(connection.componentId, connection.pinId)
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+    }
+
+    return Array.from(byName.values())
+  }
+
+  private checkNetConflicts(): ERCViolation[] {
+    const violations: ERCViolation[] = []
+
+    for (const net of this.effectiveNets()) {
+      const resolved: ResolvedPin[] = []
+      for (const connection of net.connectedPins) {
+        const found = this.findPin(connection.componentId, connection.pinId)
+        if (found) resolved.push({ connection, ...found })
+      }
+
+      const outputs = resolved.filter(entry => entry.pin.type === 'output')
+      if (outputs.length > 1) {
+        const drivers = outputs
+          .map(entry => `${entry.component.name}.${entry.pin.name}`)
+          .join(', ')
+        violations.push({
+          type: 'multiple_drivers',
+          severity: 'error',
+          message: `Net "${net.name}" is driven by ${outputs.length} outputs (${drivers})`,
+          netId: net.id,
+          suggestion: 'Separate the outputs or use tri-state buffers / multiplexing',
+        })
+      }
+
+      const powerPins = resolved.filter(entry => entry.pin.type === 'power')
+      const groundPins = resolved.filter(entry => entry.pin.type === 'ground')
       if (powerPins.length > 0 && groundPins.length > 0) {
+        const supplies = powerPins.map(entry => `${entry.component.name}.${entry.pin.name}`).join(', ')
+        const returns = groundPins.map(entry => `${entry.component.name}.${entry.pin.name}`).join(', ')
         violations.push({
-          type: 'short_circuit',
+          type: 'power_ground_short',
           severity: 'error',
-          message: `Power and ground pins shorted on net "${net.name}"`,
+          message: `Net "${net.name}" shorts power (${supplies}) to ground (${returns})`,
           netId: net.id,
-          suggestion: 'Separate power and ground nets'
-        });
+          suggestion: 'Separate the power and ground nets',
+        })
       }
-    });
+    }
 
-    return violations;
-  }
-
-  private checkPowerGroundConnections(): ERCViolation[] {
-    const violations: ERCViolation[] = [];
-
-    this.components.forEach(component => {
-      const powerPins = component.pins.filter(pin => pin.electricalType === 'power');
-      const groundPins = component.pins.filter(pin => pin.electricalType === 'ground');
-
-      // Check if component has required power/ground connections
-      if (powerPins.length > 0) {
-        const connectedPowerPins = powerPins.filter(pin => this.isPinConnected(component.id, pin.id));
-        if (connectedPowerPins.length === 0) {
-          violations.push({
-            type: 'power_ground',
-            severity: 'error',
-            message: `${component.name} has unconnected power pins`,
-            componentId: component.id,
-            suggestion: 'Connect all power pins to appropriate power nets'
-          });
-        }
-      }
-
-      if (groundPins.length > 0) {
-        const connectedGroundPins = groundPins.filter(pin => this.isPinConnected(component.id, pin.id));
-        if (connectedGroundPins.length === 0) {
-          violations.push({
-            type: 'power_ground',
-            severity: 'error',
-            message: `${component.name} has unconnected ground pins`,
-            componentId: component.id,
-            suggestion: 'Connect all ground pins to ground net'
-          });
-        }
-      }
-    });
-
-    return violations;
-  }
-
-  private checkFloatingInputs(): ERCViolation[] {
-    const violations: ERCViolation[] = [];
-
-    this.components.forEach(component => {
-      const inputPins = component.pins.filter(pin => pin.type === 'input');
-
-      inputPins.forEach(pin => {
-        if (!this.isPinConnected(component.id, pin.id)) {
-          violations.push({
-            type: 'input_floating',
-            severity: 'warning',
-            message: `Input pin "${pin.name}" of ${component.name} is floating`,
-            componentId: component.id,
-            pinId: pin.id,
-            suggestion: 'Connect input to a signal source or add pull-up/pull-down resistor'
-          });
-        }
-      });
-    });
-
-    return violations;
-  }
-
-  private checkOutputConflicts(): ERCViolation[] {
-    const violations: ERCViolation[] = [];
-
-    // Check for outputs connected to outputs (already covered in short circuit check)
-    // Additional checks for tri-state conflicts, etc. could be added here
-
-    this.nets.forEach(net => {
-      const connectedOutputs = net.connectedPins.filter(connection => {
-        const component = this.components.find(c => c.id === connection.componentId);
-        const pin = component?.pins.find(p => p.id === connection.pinId);
-        return pin?.type === 'output';
-      });
-
-      if (connectedOutputs.length > 1) {
-        // This is already caught by short circuit check, but we can add more specific messaging
-        violations.push({
-          type: 'output_conflict',
-          severity: 'error',
-          message: `Multiple outputs driving net "${net.name}" simultaneously`,
-          netId: net.id,
-          suggestion: 'Use tri-state buffers or separate the outputs'
-        });
-      }
-    });
-
-    return violations;
-  }
-
-  private checkPowerSupplyConnections(): ERCViolation[] {
-    const violations: ERCViolation[] = [];
-
-    // Find power supply components (like voltage regulators, batteries)
-    const powerSupplies = this.components.filter(comp =>
-      comp.category.toLowerCase().includes('power') ||
-      comp.category.toLowerCase().includes('supply') ||
-      comp.name.toLowerCase().includes('regulator') ||
-      comp.name.toLowerCase().includes('battery')
-    );
-
-    powerSupplies.forEach(supply => {
-      const outputPins = supply.pins.filter(pin => pin.type === 'output');
-
-      outputPins.forEach(pin => {
-        if (!this.isPinConnected(supply.id, pin.id)) {
-          violations.push({
-            type: 'power_supply',
-            severity: 'warning',
-            message: `Power supply output "${pin.name}" of ${supply.name} is not connected`,
-            componentId: supply.id,
-            pinId: pin.id,
-            suggestion: 'Connect power supply output to load circuit'
-          });
-        }
-      });
-    });
-
-    return violations;
-  }
-
-  private isPinConnected(componentId: string, pinId: string): boolean {
-    // Check if pin is connected to any wire/net
-    return this.wires.some(wire =>
-      wire.connectedPins.some(connection =>
-        connection.componentId === componentId && connection.pinId === pinId
-      )
-    ) || this.nets.some(net =>
-      net.connectedPins.some(connection =>
-        connection.componentId === componentId && connection.pinId === pinId
-      )
-    );
+    return violations
   }
 
   getConnectedNet(componentId: string, pinId: string): Net | null {
@@ -318,40 +268,44 @@ export class ElectricalRuleChecker {
       if (net.connectedPins.some(connection =>
         connection.componentId === componentId && connection.pinId === pinId
       )) {
-        return net;
+        return net
       }
     }
-    return null;
+    return null
   }
 
   getPinConnections(componentId: string, pinId: string): Array<{ componentId: string; pinId: string }> {
-    const connections: Array<{ componentId: string; pinId: string }> = [];
+    const connections: Array<{ componentId: string; pinId: string }> = []
 
-    this.wires.forEach(wire => {
-      wire.connectedPins.forEach(connection => {
-        if (connection.componentId === componentId && connection.pinId === pinId) {
-          // Add all other connections on this wire
-          wire.connectedPins.forEach(otherConnection => {
-            if (otherConnection.componentId !== componentId || otherConnection.pinId !== pinId) {
-              connections.push(otherConnection);
-            }
-          });
+    for (const wire of this.wires) {
+      const ownsPin = wire.connectedPins.some(connection =>
+        connection.componentId === componentId && connection.pinId === pinId
+      )
+      if (!ownsPin) continue
+      for (const connection of wire.connectedPins) {
+        if (connection.componentId !== componentId || connection.pinId !== pinId) {
+          connections.push(connection)
         }
-      });
-    });
+      }
+    }
 
-    return connections;
+    return connections
   }
+}
 
-  updateComponents(components: Component[]): void {
-    this.components = components;
-  }
+/**
+ * Run ERC on a schematic. Placed instances become components with their
+ * instance id, because wires and nets reference the instance rather than the
+ * library part; connection checks would otherwise silently miss everything.
+ */
+export function runSchematicERC(schematic: Schematic): ERCResult {
+  const components: Component[] = schematic.components.map(placed => ({
+    ...placed.component,
+    id: placed.id,
+    name: placed.reference
+      ? `${placed.component.name} (${placed.reference})`
+      : placed.component.name,
+  }))
 
-  updateWires(wires: Wire[]): void {
-    this.wires = wires;
-  }
-
-  updateNets(nets: Net[]): void {
-    this.nets = nets;
-  }
+  return new ElectricalRuleChecker(components, schematic.wires, schematic.nets).runERC()
 }

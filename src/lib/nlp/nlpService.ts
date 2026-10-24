@@ -122,10 +122,13 @@ function extractEntity(tokens: string[], triggers: string[]): string | undefined
 
 const WORKSPACE_ALIASES: Record<string, WorkspaceMode> = {
   schematic: 'schematic', circuit: 'schematic', wiring: 'schematic',
+  control: 'control', pid: 'control', bode: 'control', controller: 'control',
+  motor: 'machines', motors: 'machines', generator: 'machines', machine: 'machines', stepper: 'machines', bldc: 'machines',
   pcb: 'pcb', board: 'pcb', layout: 'pcb',
   mechanical: 'mechanical', cad: 'mechanical', '3d': 'mechanical',
   preview: 'preview3d', view: 'preview3d', ar: 'preview3d', vr: 'preview3d',
   arduino: 'embedded', embedded: 'embedded', programming: 'embedded', code: 'embedded',
+  imaging: 'imaging', image: 'imaging', flash: 'imaging', sd: 'imaging', raspberry: 'imaging',
   fpga: 'fpga', hdl: 'fpga', verilog: 'fpga', vhdl: 'fpga',
   hil: 'hil', hardware: 'hil', testing: 'hil',
   robotics: 'robotics', robot: 'robotics', arm: 'robotics', kinematics: 'robotics',
@@ -641,62 +644,71 @@ export class NLPService {
     budget?: number
     requirements?: string[]
   }): Promise<PredictiveInsight[]> {
-    const { components, budget = 100, requirements = [] } = projectData
+    const { components, budget } = projectData
 
-    const powerW = components.reduce((sum, c) => {
-      const p = typeof c.properties?.power === 'number' ? c.properties.power : 0
-      return sum + p + 0.05 // 50 mW quiescent baseline per component
-    }, 0)
+    const insights: PredictiveInsight[] = []
+    if (components.length === 0) return insights
 
-    const costUsd = components.reduce((sum, c) => {
-      const p = typeof c.properties?.cost === 'number' ? c.properties.cost : 0.5
-      return sum + p
-    }, 0)
-
-    const mtbfH = 50000 / Math.max(1, Math.sqrt(components.length))
-
-    return [
-      {
+    // Confidence below reports data coverage, not a model probability. An
+    // insight is omitted entirely when no component supplies its number.
+    const withPower = components.filter(c => typeof c.properties?.power === 'number')
+    if (withPower.length > 0) {
+      const powerW = withPower.reduce((sum, c) => sum + (c.properties.power as number), 0)
+      insights.push({
         id: `insight_perf_${Date.now()}`,
         type: 'performance',
-        title: 'Performance Forecast',
-        description: `Estimated power draw: ${powerW.toFixed(2)} W — ${powerW > 5 ? 'consider active cooling' : 'passive cooling adequate'}.`,
-        confidence: 0.78,
+        title: 'Declared Power Draw',
+        description: `Declared power totals ${powerW.toFixed(2)} W across ${withPower.length} of ${components.length} components.`,
+        confidence: withPower.length / components.length,
         impact: powerW > 5 ? 'high' : 'low',
-        recommendation: powerW > 5 ? 'Add heatsink or reduce clock frequency to lower thermal output.' : 'Design is thermally safe.',
-        data: { powerW },
-      },
-      {
+        recommendation: powerW > 5
+          ? 'Add heatsink or reduce clock frequency to lower thermal output.'
+          : 'No thermal action indicated by the declared power.',
+        data: { powerW, declaredComponents: withPower.length, totalComponents: components.length },
+      })
+    }
+
+    const withCost = components.filter(c => typeof c.properties?.cost === 'number')
+    if (withCost.length > 0) {
+      const costUsd = withCost.reduce((sum, c) => sum + (c.properties.cost as number), 0)
+      const overBudget = typeof budget === 'number' && costUsd > budget
+      insights.push({
         id: `insight_cost_${Date.now()}`,
         type: 'cost',
-        title: 'Cost Estimate',
-        description: `BOM cost: ~$${costUsd.toFixed(2)} — ${costUsd > budget ? 'OVER budget' : 'within budget'}.`,
-        confidence: 0.72,
-        impact: costUsd > budget ? 'high' : 'low',
-        recommendation: costUsd > budget ? 'Swap premium components for commodity equivalents.' : 'Cost is acceptable.',
-        data: { costUsd, budget },
-      },
-      {
+        title: 'Declared BOM Cost',
+        description: `Declared component cost totals $${costUsd.toFixed(2)} across ${withCost.length} of ${components.length} components${
+          typeof budget === 'number' ? ` (budget $${budget.toFixed(2)})` : ''
+        }.`,
+        confidence: withCost.length / components.length,
+        impact: overBudget ? 'high' : 'low',
+        recommendation: overBudget
+          ? 'Swap premium components for commodity equivalents or raise the budget.'
+          : 'Declared cost is within budget.',
+        data: { costUsd, budget: budget ?? null, declaredComponents: withCost.length },
+      })
+    }
+
+    const withMtbf = components.filter(
+      c => typeof c.properties?.mtbfHours === 'number' && (c.properties.mtbfHours as number) > 0,
+    )
+    if (withMtbf.length === components.length) {
+      const failureRate = withMtbf.reduce((sum, c) => sum + 1 / (c.properties.mtbfHours as number), 0)
+      const mtbfH = 1 / failureRate
+      insights.push({
         id: `insight_reliability_${Date.now()}`,
         type: 'reliability',
-        title: 'Reliability Prediction',
-        description: `Estimated MTBF: ${Math.round(mtbfH).toLocaleString()} h (${Math.round(mtbfH / 8760)} yr).`,
-        confidence: 0.65,
+        title: 'Series Reliability Estimate',
+        description: `Series constant-failure-rate estimate: ${Math.round(mtbfH).toLocaleString()} h from every component's declared MTBF.`,
+        confidence: 1,
         impact: mtbfH < 10000 ? 'high' : 'low',
-        recommendation: mtbfH < 10000 ? 'Derate high-stress components to improve MTBF.' : 'Reliability is acceptable.',
-        data: { mtbfH },
-      },
-      {
-        id: `insight_timeline_${Date.now()}`,
-        type: 'timeline',
-        title: 'Timeline Estimate',
-        description: `Complexity suggests ${Math.round(components.length * 1.5 + (requirements.length * 3))} dev-days.`,
-        confidence: 0.60,
-        impact: components.length > 50 ? 'high' : 'medium',
-        recommendation: components.length > 50 ? 'Break design into modules for parallel development.' : 'Timeline is manageable.',
-        data: { componentCount: components.length, requirementCount: requirements.length },
-      },
-    ]
+        recommendation: mtbfH < 10000
+          ? 'Derate high-stress components or add redundancy to improve MTBF.'
+          : 'Declared failure rates are acceptable.',
+        data: { mtbfH, model: 'series-constant-failure-rate', declaredComponents: withMtbf.length },
+      })
+    }
+
+    return insights
   }
 
   // ─── Accessors ───────────────────────────────────────────────────────────────

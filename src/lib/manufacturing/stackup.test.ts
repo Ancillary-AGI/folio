@@ -30,6 +30,23 @@ describe('stackup and impedance', () => {
     expect(validateStackup(layers).violations.some((v) => v.rule === 'symmetry')).toBe(true)
   })
 
+  it('reports non-physical layer values instead of accepting NaN', () => {
+    const layers = fourLayerStackup()
+    layers[1] = { name: 'Prepreg', kind: 'dielectric', thickness: Number.NaN, er: 4.4 }
+    const badThickness = validateStackup(layers)
+    expect(badThickness.violations.some((v) => /dielectric thickness/.test(v.message))).toBe(true)
+    // A partial sum would silently understate the board, so report NaN instead.
+    expect(badThickness.stackup.totalThickness).toBeNaN()
+
+    const lowEr = fourLayerStackup()
+    lowEr[1] = { name: 'Prepreg', kind: 'dielectric', thickness: 0.2, er: 0.5 }
+    expect(validateStackup(lowEr).violations.some((v) => /dielectric constant/.test(v.message))).toBe(true)
+
+    const copper = fourLayerStackup()
+    copper[0] = { name: 'Top', kind: 'signal', thickness: -1 }
+    expect(validateStackup(copper).violations.some((v) => /copper weight/.test(v.message))).toBe(true)
+  })
+
   it('finds the reference plane for the top signal layer', () => {
     const layers = fourLayerStackup()
     const plane = nearestPlane(layers, 0)

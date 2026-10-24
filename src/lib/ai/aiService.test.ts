@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { AIService } from './aiService';
-import type { Component } from '../../types/domain';
+import type { Component } from '../../types';
 
 const makeComponent = (
   id: string,
@@ -84,6 +84,24 @@ describe('AIService', () => {
       expect(result).toBeDefined();
       expect(result.optimizedDesign).toBeDefined();
     });
+
+    it('bases the thermal estimate on declared dissipation', async () => {
+      const hot = makeComponent('r1', 'Power resistor', 'passive', [], { power: 10 });
+      const result = await service.optimizeDesign({
+        components: [hot], constraints: {}, objectives: [],
+        currentDesign: { powerConsumption: 10 },
+      });
+      expect(result.optimizedDesign.thermalOptimized).toBe(true);
+      expect(result.reasoning).toContain('thermal');
+    });
+
+    it('does not report improvements without a baseline design', async () => {
+      const result = await service.optimizeDesign({
+        components: mockComponents, constraints: {}, objectives: ['power', 'cost'],
+      });
+      expect(result.improvements).toEqual([]);
+      expect(result.reasoning).not.toContain('Improvements');
+    });
   });
 
   describe('Circuit Analysis', () => {
@@ -106,6 +124,58 @@ describe('AIService', () => {
       const analysis = await service.analyzeCircuit(components, [], []);
 
       expect(analysis.issues.length).toBeGreaterThan(0);
+    });
+
+    it('does not print Infinity for an empty canvas', async () => {
+      const analysis = await service.analyzeCircuit([], [], []);
+      expect(analysis.analysis).not.toMatch(/Infinity|NaN/);
+    });
+
+    it('estimates power as I·V, not by adding amperes to watts', async () => {      const components: Component[] = [
+        makeComponent('load', 'Load', 'passive', [], { current: 0.5, voltage: 5 }),
+      ];
+      const analysis = await service.analyzeCircuit(components, [], []);
+      expect(analysis.analysis).toContain('Estimated Power Consumption: 2.5W');
+    });
+
+    it('flags a net tying a power pin to a ground pin', async () => {
+      const components: Component[] = [makeComponent('ic1', 'Regulator', 'ic', [
+        { id: 'vin', name: 'VIN', x: 0, y: 0, type: 'power' },
+        { id: 'gnd', name: 'GND', x: 0, y: 10, type: 'ground' },
+      ], {})];
+      const nets = [{
+        id: 'net-short', name: 'VCC', wires: [],
+        connectedPins: [
+          { componentId: 'ic1', pinId: 'vin' },
+          { componentId: 'ic1', pinId: 'gnd' },
+        ],
+      }];
+      const analysis = await service.analyzeCircuit(components, [], nets);
+      expect(analysis.issues.some(issue => issue.severity === 'error' && issue.message.includes('short circuit'))).toBe(true);
+    });
+
+    it('does not flag a multi-pin ground net as a short', async () => {
+      const components: Component[] = [
+        makeComponent('ic1', 'MCU', 'ic', [
+          { id: 'gnd', name: 'GND', x: 0, y: 0, type: 'ground' },
+        ], {}),
+        makeComponent('c1', 'Capacitor', 'passive', [
+          { id: 'gnd', name: 'GND', x: 0, y: 0, type: 'ground' },
+        ], {}),
+        makeComponent('c2', 'Capacitor', 'passive', [
+          { id: 'gnd', name: 'GND', x: 0, y: 0, type: 'ground' },
+        ], {}),
+      ];
+      const nets = [{
+        id: 'net-gnd', name: 'GND', wires: [],
+        connectedPins: [
+          { componentId: 'ic1', pinId: 'gnd' },
+          { componentId: 'c1', pinId: 'gnd' },
+          { componentId: 'c2', pinId: 'gnd' },
+        ],
+      }];
+      const analysis = await service.analyzeCircuit(components, [], nets);
+      expect(analysis.issues.some(issue => issue.message.includes('short circuit'))).toBe(false);
     });
   });
 

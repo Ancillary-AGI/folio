@@ -5,6 +5,7 @@
  */
 
 import { AgentHarness, type AgentBudget, type AgentCall } from './agentHarness';
+import { generateId } from '../utils';
 
 export type AgentRole = 'architect' | 'schematic' | 'layout' | 'simulation' | 'dfm';
 
@@ -38,11 +39,15 @@ export class MetaHarness {
 
   createPlan(goal: string, tasks: MetaAgentTask[]): MetaExecutionPlan {
     if (tasks.length === 0) throw new Error('MetaExecutionPlan requires at least one task.');
-    // Validate DAG dependencies exist
-    const taskIds = new Set(tasks.map((t) => t.id));
+    // Validate DAG dependencies exist and are unique, self-consistent and acyclic.
+    const byId = new Map<string, MetaAgentTask>();
+    for (const task of tasks) {
+      if (byId.has(task.id)) throw new Error(`Duplicate task ID: ${task.id}`);
+      byId.set(task.id, task);
+    }
     for (const task of tasks) {
       for (const dep of task.dependencies) {
-        if (!taskIds.has(dep)) {
+        if (!byId.has(dep)) {
           throw new Error(`Task ${task.id} has unknown dependency: ${dep}`);
         }
         if (dep === task.id) {
@@ -50,8 +55,19 @@ export class MetaHarness {
         }
       }
     }
+    const visited = new Set<string>();
+    const visiting = new Set<string>();
+    const visit = (id: string): void => {
+      if (visited.has(id)) return;
+      if (visiting.has(id)) throw new Error(`Dependency cycle detected at task: ${id}`);
+      visiting.add(id);
+      for (const dep of byId.get(id)!.dependencies) visit(dep);
+      visiting.delete(id);
+      visited.add(id);
+    };
+    for (const task of tasks) visit(task.id);
 
-    const planId = `plan-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const planId = generateId('plan');
     const plan: MetaExecutionPlan = {
       planId,
       goal,

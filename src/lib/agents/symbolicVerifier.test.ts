@@ -41,6 +41,29 @@ describe('Symbolic Verifier for AI Agents', () => {
     expect(result.errors.some((e) => e.code === 'ERC_BUS_CONTENTION')).toBe(true);
   });
 
+  it('treats a passive pull-up as a driver and still flags a truly floating input', () => {
+    const pulledUp = verifyCircuitTopology([
+      {
+        id: 'node-pullup',
+        netName: 'CS_N',
+        pins: [
+          { componentId: 'u1', pinId: 'CS', pinKind: 'input' },
+          { componentId: 'r1', pinId: '2', pinKind: 'passive' },
+        ],
+      },
+    ]);
+    expect(pulledUp.warnings.some((w) => w.code === 'ERC_FLOATING_INPUT')).toBe(false);
+
+    const floating = verifyCircuitTopology([
+      {
+        id: 'node-floating',
+        netName: 'EN',
+        pins: [{ componentId: 'u1', pinId: 'EN', pinKind: 'input' }],
+      },
+    ]);
+    expect(floating.warnings.some((w) => w.code === 'ERC_FLOATING_INPUT')).toBe(true);
+  });
+
   it('formally proves boolean equivalence between Demorgan transformed expressions', () => {
     // Demorgan's Law: !(A & B) == (!A | !B)
     const nandExpr = (inps: Record<string, boolean>) => !(inps.A && inps.B);

@@ -1,32 +1,24 @@
-import { useState, useRef } from 'react';
+import { useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Box, Cylinder, Sphere } from '@react-three/drei';
 import * as THREE from 'three';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import {
-  Play,
-  Pause,
-  RotateCcw,
-  Settings,
-  Zap,
-  Cpu,
-  Gauge,
-  X,
-  Download,
-  Upload
-} from 'lucide-react';
+import { Play, Pause, RotateCcw, Settings, Zap, Cpu, X, Download, Upload } from 'lucide-react';
+import { stepJointDynamics } from '../../lib/robotics/jointDynamics';
 
 interface RoboticsToolboxProps {
   onClose: () => void;
 }
 
+type JointAxis = 'x' | 'y' | 'z';
+
 interface RobotJoint {
   id: string;
   name: string;
-  type: 'revolute' | 'prismatic' | 'fixed';
-  position: [number, number, number];
-  rotation: [number, number, number];
+  type: 'revolute' | 'prismatic';
+  axis: JointAxis;
+  /** Radians for revolute joints, metres for prismatic joints. */
   limits: { min: number; max: number };
   currentValue: number;
   velocity: number;
@@ -36,11 +28,10 @@ interface RobotJoint {
 interface RobotLink {
   id: string;
   name: string;
+  /** Length along the joint frame's +Y axis, metres. */
   length: number;
   mass: number;
   inertia: [number, number, number];
-  position: [number, number, number];
-  rotation: [number, number, number];
 }
 
 interface Sensor {
@@ -59,101 +50,238 @@ interface RobotConfiguration {
   joints: RobotJoint[];
   links: RobotLink[];
   sensors: Sensor[];
-  endEffector: {
-    position: [number, number, number];
-    orientation: [number, number, number];
-  };
 }
 
-// Robot arm component
-function RobotArm({ config }: {
-  config: RobotConfiguration;
-}) {
-  const groupRef = useRef<THREE.Group>(null);
+/** Serial 6R arm: every joint drives the link (and everything after it). */
+const DEFAULT_ROBOT: RobotConfiguration = {
+  name: '6-DOF Robot Arm',
+  joints: [
+    { id: 'j1', name: 'Base', type: 'revolute', axis: 'y', limits: { min: -Math.PI, max: Math.PI }, currentValue: 0, velocity: 0, torque: 0 },
+    { id: 'j2', name: 'Shoulder', type: 'revolute', axis: 'x', limits: { min: -Math.PI / 2, max: Math.PI / 2 }, currentValue: 0, velocity: 0, torque: 0 },
+    { id: 'j3', name: 'Elbow', type: 'revolute', axis: 'x', limits: { min: -Math.PI / 2, max: Math.PI / 2 }, currentValue: 0, velocity: 0, torque: 0 },
+    { id: 'j4', name: 'Wrist pitch', type: 'revolute', axis: 'x', limits: { min: -Math.PI / 2, max: Math.PI / 2 }, currentValue: 0, velocity: 0, torque: 0 },
+    { id: 'j5', name: 'Wrist roll', type: 'revolute', axis: 'y', limits: { min: -Math.PI, max: Math.PI }, currentValue: 0, velocity: 0, torque: 0 },
+    { id: 'j6', name: 'Tool flange', type: 'revolute', axis: 'z', limits: { min: -Math.PI, max: Math.PI }, currentValue: 0, velocity: 0, torque: 0 },
+  ],
+  links: [
+    { id: 'l1', name: 'Base column', length: 0.35, mass: 5, inertia: [0.1, 0.1, 0.1] },
+    { id: 'l2', name: 'Upper arm', length: 0.9, mass: 3, inertia: [0.05, 0.05, 0.05] },
+    { id: 'l3', name: 'Forearm', length: 0.8, mass: 2, inertia: [0.03, 0.03, 0.03] },
+    { id: 'l4', name: 'Wrist link', length: 0.25, mass: 0.8, inertia: [0.01, 0.01, 0.01] },
+    { id: 'l5', name: 'Tool adapter', length: 0.15, mass: 0.4, inertia: [0.005, 0.005, 0.005] },
+    { id: 'l6', name: 'Flange', length: 0.08, mass: 0.2, inertia: [0.002, 0.002, 0.002] },
+  ],
+  sensors: [
+    { id: 's1', name: 'End effector camera', type: 'camera', position: [0, 0.15, 0], range: 5, accuracy: 0.95, value: [640, 480], active: true },
+    { id: 's2', name: 'Joint encoders', type: 'encoder', position: [0, 0, 0], range: 0, accuracy: 0.99, value: 0, active: true },
+    { id: 's3', name: 'Force sensor', type: 'force', position: [0, 0, 0], range: 100, accuracy: 0.98, value: [0, 0, 0], active: true },
+  ],
+};
 
-  useFrame(() => {
-    if (groupRef.current) {
-      // Update joint positions based on configuration
-      config.joints.forEach((joint, index) => {
-        const child = groupRef.current?.children[index];
-        if (child && joint.type === 'revolute') {
-          child.rotation.z = joint.currentValue;
-        }
-      });
+const AXES: JointAxis[] = ['x', 'y', 'z'];
+
+function isFiniteTuple(value: unknown, length: number): value is number[] {
+  return Array.isArray(value) && value.length === length && value.every((v) => typeof v === 'number' && Number.isFinite(v));
+}
+
+/**
+ * Validate a saved configuration before it reaches the scene graph.
+ * A malformed file would otherwise index past `links` and crash the canvas.
+ */
+function parseRobotConfiguration(raw: unknown): RobotConfiguration {
+  if (typeof raw !== 'object' || raw === null) throw new Error('Configuration must be an object.');
+  const candidate = raw as Partial<RobotConfiguration>;
+  if (typeof candidate.name !== 'string' || !candidate.name.trim()) {
+    throw new Error('Configuration needs a non-empty name.');
+  }
+  if (!Array.isArray(candidate.joints) || !Array.isArray(candidate.links)) {
+    throw new Error('Configuration needs joints and links arrays.');
+  }
+  if (candidate.joints.length === 0 || candidate.joints.length !== candidate.links.length) {
+    throw new Error('Every joint must have exactly one link.');
+  }
+  const joints = candidate.joints.map((joint, index) => {
+    if (typeof joint !== 'object' || joint === null) throw new Error(`Joint ${index + 1} is not an object.`);
+    const j = joint as Partial<RobotJoint>;
+    if (typeof j.id !== 'string' || typeof j.name !== 'string') throw new Error(`Joint ${index + 1} needs id and name.`);
+    if (j.type !== 'revolute' && j.type !== 'prismatic') throw new Error(`Joint ${j.id} has unsupported type "${String(j.type)}".`);
+    if (!AXES.includes(j.axis as JointAxis)) throw new Error(`Joint ${j.id} needs axis x, y or z.`);
+    const limits = j.limits;
+    if (!limits || !Number.isFinite(limits.min) || !Number.isFinite(limits.max) || limits.min >= limits.max) {
+      throw new Error(`Joint ${j.id} needs finite limits with min < max.`);
     }
+    const currentValue = Number.isFinite(j.currentValue) ? (j.currentValue as number) : 0;
+    return {
+      id: j.id,
+      name: j.name,
+      type: j.type,
+      axis: j.axis as JointAxis,
+      limits: { min: limits.min, max: limits.max },
+      currentValue: THREE.MathUtils.clamp(currentValue, limits.min, limits.max),
+      velocity: Number.isFinite(j.velocity) ? (j.velocity as number) : 0,
+      torque: Number.isFinite(j.torque) ? (j.torque as number) : 0,
+    } satisfies RobotJoint;
+  });
+  const links = candidate.links.map((link, index) => {
+    if (typeof link !== 'object' || link === null) throw new Error(`Link ${index + 1} is not an object.`);
+    const l = link as Partial<RobotLink>;
+    if (typeof l.id !== 'string' || typeof l.name !== 'string') throw new Error(`Link ${index + 1} needs id and name.`);
+    if (!Number.isFinite(l.length) || (l.length as number) <= 0) throw new Error(`Link ${l.id} needs a positive length.`);
+    if (!Number.isFinite(l.mass) || (l.mass as number) <= 0) throw new Error(`Link ${l.id} needs a positive mass.`);
+    if (!isFiniteTuple(l.inertia, 3)) throw new Error(`Link ${l.id} needs a three-component inertia.`);
+    return {
+      id: l.id,
+      name: l.name,
+      length: l.length as number,
+      mass: l.mass as number,
+      inertia: l.inertia as [number, number, number],
+    } satisfies RobotLink;
+  });
+  const sensors: Sensor[] = Array.isArray(candidate.sensors)
+    ? candidate.sensors.filter((sensor): sensor is Sensor => {
+        if (typeof sensor !== 'object' || sensor === null) return false;
+        const s = sensor as Partial<Sensor>;
+        return typeof s.id === 'string' && typeof s.name === 'string' && isFiniteTuple(s.position, 3);
+      })
+    : [];
+  return { name: candidate.name.trim(), joints, links, sensors };
+}
+
+/**
+ * Serial-chain renderer. Each joint is a pivot whose local +Y carries its link
+ * and the next joint, so rotating a parent moves the whole distal chain.
+ * While running, joints sweep their limits from a shared phase; `valuesRef`
+ * exposes the live angles so pausing can commit them back to state.
+ */
+function RobotArm({
+  config,
+  isSimulating,
+  simulationSpeed,
+  dynamics,
+  valuesRef,
+  velocitiesRef,
+}: {
+  config: RobotConfiguration;
+  isSimulating: boolean;
+  simulationSpeed: number;
+  dynamics: boolean;
+  valuesRef: MutableRefObject<number[]>;
+  velocitiesRef: MutableRefObject<number[]>;
+}) {
+  const pivots = useRef<Array<THREE.Group | null>>([]);
+  const phase = useRef(0);
+
+  useFrame((_, delta) => {
+    const frameDelta = Math.min(delta, 0.1) * simulationSpeed;
+    if (isSimulating) phase.current += frameDelta;
+    config.joints.forEach((joint, index) => {
+      const pivot = pivots.current[index];
+      if (!pivot) return;
+      let value: number;
+      if (isSimulating && dynamics) {
+        const link = config.links[index];
+        if (joint.type === 'prismatic') {
+          // The pendulum model is angular; a slide keeps its state instead of
+          // being fed radians through a metre-scale equation.
+          value = valuesRef.current[index] ?? joint.currentValue;
+          velocitiesRef.current[index] = 0;
+        } else {
+          const options = {
+            axis: joint.axis,
+            linkLength: Math.max(link.length, 1e-3),
+            mass: Math.max(link.mass, 1e-3),
+            limits: joint.limits,
+            damping: 0.8,
+          };
+          let state = {
+            angle: valuesRef.current[index] ?? joint.currentValue,
+            velocity: velocitiesRef.current[index] ?? 0,
+          };
+          // Speed boosts stretch the frame; fixed substeps keep the explicit
+          // integrator stable when a frame covers many milliseconds.
+          let remaining = Math.max(frameDelta, 1e-4);
+          while (remaining > 1e-9) {
+            const h = Math.min(remaining, 1 / 240);
+            state = stepJointDynamics(state, h, options);
+            remaining -= h;
+          }
+          valuesRef.current[index] = state.angle;
+          velocitiesRef.current[index] = state.velocity;
+          value = state.angle;
+        }
+      } else if (isSimulating) {
+        const mid = (joint.limits.min + joint.limits.max) / 2;
+        const amplitude = (joint.limits.max - joint.limits.min) / 2;
+        value = THREE.MathUtils.clamp(
+          mid + amplitude * 0.8 * Math.sin(phase.current + index * 0.65),
+          joint.limits.min,
+          joint.limits.max,
+        );
+        valuesRef.current[index] = value;
+        velocitiesRef.current[index] = 0;
+      } else {
+        value = joint.currentValue;
+        valuesRef.current[index] = value;
+        velocitiesRef.current[index] = 0;
+      }
+      pivot.rotation.set(0, 0, 0);
+      pivot.position.set(0, 0, 0);
+      if (joint.type === 'revolute') pivot.rotation[joint.axis] = value;
+      else pivot.position[joint.axis] = value;
+    });
   });
 
-  return (
-    <group ref={groupRef}>
-      {config.links.map((link, index) => (
-        <group key={link.id} position={link.position} rotation={link.rotation}>
-          {/* Link representation */}
-          <Cylinder
-            args={[0.1, 0.1, link.length, 8]}
-            position={[0, link.length / 2, 0]}
-          >
-            <meshStandardMaterial color="#4A90E2" />
-          </Cylinder>
-          
-          {/* Joint representation */}
-          {index < config.joints.length && (
-            <Sphere args={[0.15]} position={[0, link.length, 0]}>
-              <meshStandardMaterial color="#E94B3C" />
-            </Sphere>
-          )}
-        </group>
-      ))}
-      
-      {/* End effector */}
-      <Box
-        args={[0.2, 0.2, 0.2]}
-        position={config.endEffector.position}
-        rotation={config.endEffector.orientation}
+  const renderChain = (index: number): ReactNode => {
+    const joint = config.joints[index];
+    const link = config.links[index];
+    const isTip = index === config.joints.length - 1;
+    return (
+      <group
+        key={joint.id}
+        ref={(node) => {
+          pivots.current[index] = node;
+        }}
       >
-        <meshStandardMaterial color="#50C878" />
-      </Box>
-    </group>
-  );
+        <Sphere args={[0.06]} position={[0, 0, 0]}>
+          <meshStandardMaterial color="#E94B3C" />
+        </Sphere>
+        <Cylinder args={[0.055, 0.045, link.length, 12]} position={[0, link.length / 2, 0]}>
+          <meshStandardMaterial color="#4A90E2" />
+        </Cylinder>
+        {isTip ? (
+          <Box args={[0.14, 0.14, 0.14]} position={[0, link.length + 0.07, 0]}>
+            <meshStandardMaterial color="#50C878" />
+          </Box>
+        ) : (
+          <group position={[0, link.length, 0]}>{renderChain(index + 1)}</group>
+        )}
+      </group>
+    );
+  };
+
+  return <group>{config.joints.length > 0 ? renderChain(0) : null}</group>;
 }
 
-// Sensor visualization
-function SensorVisualization({ sensors }: { sensors: Sensor[] }) {
+function SensorVisualization({ sensors, anchor }: { sensors: Sensor[]; anchor?: [number, number, number] }) {
   return (
-    <group>
-      {sensors.map(sensor => (
+    <group position={anchor ?? [0, 0, 0]}>
+      {sensors.map((sensor) => (
         <group key={sensor.id} position={sensor.position}>
-          {/* Sensor body */}
-          <Box args={[0.1, 0.1, 0.1]}>
-            <meshStandardMaterial 
-              color={sensor.active ? "#FFD700" : "#808080"} 
-              transparent
-              opacity={0.8}
-            />
+          <Box args={[0.08, 0.08, 0.08]}>
+            <meshStandardMaterial color={sensor.active ? '#FFD700' : '#808080'} transparent opacity={0.8} />
           </Box>
-          
-          {/* Sensor range visualization */}
           {sensor.type === 'ultrasonic' && sensor.active && (
             <Cylinder
               args={[0, sensor.range * Math.tan(Math.PI / 12), sensor.range, 8]}
               rotation={[-Math.PI / 2, 0, 0]}
+              position={[0, 0, sensor.range / 2]}
             >
-              <meshStandardMaterial 
-                color="#00FF00" 
-                transparent 
-                opacity={0.2} 
-                wireframe
-              />
+              <meshStandardMaterial color="#00FF00" transparent opacity={0.2} wireframe />
             </Cylinder>
           )}
-          
           {sensor.type === 'lidar' && sensor.active && (
-            <Sphere args={[sensor.range]} position={[0, 0, 0]}>
-              <meshStandardMaterial 
-                color="#FF00FF" 
-                transparent 
-                opacity={0.1} 
-                wireframe
-              />
+            <Sphere args={[sensor.range]}>
+              <meshStandardMaterial color="#FF00FF" transparent opacity={0.1} wireframe />
             </Sphere>
           )}
         </group>
@@ -162,28 +290,20 @@ function SensorVisualization({ sensors }: { sensors: Sensor[] }) {
   );
 }
 
-// Environment obstacles
-function Environment() {
-  const obstacles: Array<{ position: [number, number, number]; size: [number, number, number] }> = [
-    { position: [2, 0, 0], size: [0.5, 2, 0.5] },
-    { position: [-1.5, 0, 1], size: [1, 1, 1] },
-    { position: [0, 0, -2], size: [2, 0.1, 2] }
-  ];
+const OBSTACLES: Array<{ position: [number, number, number]; size: [number, number, number] }> = [
+  { position: [2, 0, 0], size: [0.5, 2, 0.5] },
+  { position: [-1.5, 0, 1], size: [1, 1, 1] },
+  { position: [0, 0, -2], size: [2, 0.1, 2] },
+];
 
+function Environment() {
   return (
     <group>
-      {/* Ground plane */}
-      <Box args={[10, 0.1, 10]} position={[0, -0.05, 0]}>
+      <Box args={[20, 0.1, 20]} position={[0, -0.05, 0]}>
         <meshStandardMaterial color="#CCCCCC" />
       </Box>
-      
-      {/* Obstacles */}
-      {obstacles.map((obstacle, index) => (
-        <Box
-          key={index}
-          args={obstacle.size}
-          position={obstacle.position}
-        >
+      {OBSTACLES.map((obstacle, index) => (
+        <Box key={index} args={obstacle.size} position={obstacle.position}>
           <meshStandardMaterial color="#8B4513" />
         </Box>
       ))}
@@ -193,83 +313,74 @@ function Environment() {
 
 export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
   const [isSimulating, setIsSimulating] = useState(false);
-  const [selectedRobot, setSelectedRobot] = useState('6dof_arm');
   const [simulationSpeed, setSimulationSpeed] = useState(1);
+  const [dynamicsMode, setDynamicsMode] = useState(false);
   const [showSensors, setShowSensors] = useState(true);
-  const [showTrajectory, setShowTrajectory] = useState(false);
-  
-  // Default 6-DOF robot arm configuration
-  const [robotConfig, setRobotConfig] = useState<RobotConfiguration>({
-    name: '6-DOF Robot Arm',
-    joints: [
-      { id: 'j1', name: 'Base', type: 'revolute', position: [0, 0, 0], rotation: [0, 0, 0], limits: { min: -Math.PI, max: Math.PI }, currentValue: 0, velocity: 0, torque: 0 },
-      { id: 'j2', name: 'Shoulder', type: 'revolute', position: [0, 1, 0], rotation: [0, 0, 0], limits: { min: -Math.PI/2, max: Math.PI/2 }, currentValue: 0, velocity: 0, torque: 0 },
-      { id: 'j3', name: 'Elbow', type: 'revolute', position: [0, 2, 0], rotation: [0, 0, 0], limits: { min: -Math.PI, max: Math.PI }, currentValue: 0, velocity: 0, torque: 0 },
-      { id: 'j4', name: 'Wrist1', type: 'revolute', position: [0, 3, 0], rotation: [0, 0, 0], limits: { min: -Math.PI, max: Math.PI }, currentValue: 0, velocity: 0, torque: 0 },
-      { id: 'j5', name: 'Wrist2', type: 'revolute', position: [0, 3.5, 0], rotation: [0, 0, 0], limits: { min: -Math.PI/2, max: Math.PI/2 }, currentValue: 0, velocity: 0, torque: 0 },
-      { id: 'j6', name: 'Wrist3', type: 'revolute', position: [0, 4, 0], rotation: [0, 0, 0], limits: { min: -Math.PI, max: Math.PI }, currentValue: 0, velocity: 0, torque: 0 }
-    ],
-    links: [
-      { id: 'l1', name: 'Base Link', length: 1, mass: 5, inertia: [0.1, 0.1, 0.1], position: [0, 0, 0], rotation: [0, 0, 0] },
-      { id: 'l2', name: 'Upper Arm', length: 1, mass: 3, inertia: [0.05, 0.05, 0.05], position: [0, 1, 0], rotation: [0, 0, 0] },
-      { id: 'l3', name: 'Forearm', length: 1, mass: 2, inertia: [0.03, 0.03, 0.03], position: [0, 2, 0], rotation: [0, 0, 0] },
-      { id: 'l4', name: 'Wrist Link', length: 0.5, mass: 1, inertia: [0.01, 0.01, 0.01], position: [0, 3, 0], rotation: [0, 0, 0] }
-    ],
-    sensors: [
-      { id: 's1', name: 'End Effector Camera', type: 'camera', position: [0, 4, 0], range: 5, accuracy: 0.95, value: [640, 480], active: true },
-      { id: 's2', name: 'Joint Encoders', type: 'encoder', position: [0, 0, 0], range: 0, accuracy: 0.99, value: 0, active: true },
-      { id: 's3', name: 'Force Sensor', type: 'force', position: [0, 4, 0], range: 100, accuracy: 0.98, value: [0, 0, 0], active: true }
-    ],
-    endEffector: {
-      position: [0, 4, 0],
-      orientation: [0, 0, 0]
-    }
-  });
+  const [robotConfig, setRobotConfig] = useState<RobotConfiguration>(DEFAULT_ROBOT);
+  const [loadError, setLoadError] = useState('');
+  const liveValues = useRef<number[]>(DEFAULT_ROBOT.joints.map((joint) => joint.currentValue));
+  const liveVelocities = useRef<number[]>(DEFAULT_ROBOT.joints.map(() => 0));
 
   const handleJointChange = (jointId: string, value: number) => {
-    setRobotConfig(prev => ({
+    setRobotConfig((prev) => ({
       ...prev,
-      joints: prev.joints.map(joint =>
-        joint.id === jointId ? { ...joint, currentValue: value } : joint
-      )
+      joints: prev.joints.map((joint) =>
+        joint.id === jointId ? { ...joint, currentValue: value } : joint,
+      ),
     }));
   };
 
   const handleStartSimulation = () => {
+    // Seed from the current pose so starting never jumps the arm.
+    liveValues.current = robotConfig.joints.map((joint) => joint.currentValue);
+    liveVelocities.current = robotConfig.joints.map(() => 0);
     setIsSimulating(true);
-    // Start physics simulation loop
   };
 
   const handleStopSimulation = () => {
     setIsSimulating(false);
+    const paused = liveValues.current;
+    setRobotConfig((prev) => ({
+      ...prev,
+      joints: prev.joints.map((joint, index) => ({
+        ...joint,
+        currentValue: paused[index] ?? joint.currentValue,
+      })),
+    }));
+    liveVelocities.current = robotConfig.joints.map(() => 0);
   };
 
   const handleResetRobot = () => {
-    setRobotConfig(prev => ({
+    setIsSimulating(false);
+    liveValues.current = robotConfig.joints.map(() => 0);
+    liveVelocities.current = robotConfig.joints.map(() => 0);
+    setRobotConfig((prev) => ({
       ...prev,
-      joints: prev.joints.map(joint => ({ ...joint, currentValue: 0, velocity: 0, torque: 0 }))
+      joints: prev.joints.map((joint) => ({ ...joint, currentValue: 0, velocity: 0, torque: 0 })),
     }));
   };
 
   const handleLoadRobotConfig = () => {
-    // Load robot configuration from file
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.json';
-    input.onchange = (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          try {
-            const config = JSON.parse(e.target?.result as string);
-            setRobotConfig(config);
-          } catch (error) {
-            console.error('Failed to load robot configuration:', error);
-          }
-        };
-        reader.readAsText(file);
-      }
+    input.accept = '.json,application/json';
+    input.onchange = (event) => {
+      const file = (event.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const config = parseRobotConfiguration(JSON.parse(String(reader.result)));
+          setRobotConfig(config);
+          liveValues.current = config.joints.map((joint) => joint.currentValue);
+          liveVelocities.current = config.joints.map(() => 0);
+          setLoadError('');
+        } catch (error) {
+          setLoadError(error instanceof Error ? error.message : 'Could not read the configuration.');
+        }
+      };
+      reader.onerror = () => setLoadError('Could not read the file.');
+      reader.readAsText(file);
     };
     input.click();
   };
@@ -287,76 +398,58 @@ export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
 
   return (
     <div className="fixed inset-0 bg-overlay/70 flex items-center justify-center z-50">
-      <div className="bg-card border border-border rounded-lg shadow-xl w-full max-w-7xl h-[90vh] flex">
-        {/* 3D Simulation Viewport */}
-        <div className="flex-1 relative">
+      <div className="bg-card border border-border rounded-lg shadow-xl w-full max-w-7xl h-[90vh] flex flex-col lg:flex-row">
+        <div className="relative min-h-0 min-w-0 flex-1">
           <Canvas
             shadows
-            camera={{ position: [5, 5, 5], fov: 50 }}
+            camera={{ position: [3.2, 2.6, 3.2], fov: 50 }}
             style={{ background: 'linear-gradient(to bottom, #1a1a2e, #16213e)' }}
           >
             <ambientLight intensity={0.4} />
-            <directionalLight 
-              position={[10, 10, 5]} 
-              intensity={1} 
-              castShadow
-            />
+            <directionalLight position={[10, 10, 5]} intensity={1} castShadow />
             <pointLight position={[-10, -10, -10]} intensity={0.3} />
-            
+
             <Environment />
-            <RobotArm config={robotConfig} />
-            {showSensors && <SensorVisualization sensors={robotConfig.sensors} />}
-            
-            <OrbitControls 
-              enablePan={true}
-              enableZoom={true}
-              enableRotate={true}
+            <RobotArm
+              config={robotConfig}
+              isSimulating={isSimulating}
+              simulationSpeed={simulationSpeed}
+              dynamics={dynamicsMode}
+              valuesRef={liveValues}
+              velocitiesRef={liveVelocities}
             />
+            {showSensors && <SensorVisualization sensors={robotConfig.sensors} />}
+
+            <OrbitControls enablePan enableZoom enableRotate />
           </Canvas>
 
-          {/* Simulation Controls Overlay */}
           <div className="absolute top-4 left-4 flex gap-2">
             <Button
               onClick={isSimulating ? handleStopSimulation : handleStartSimulation}
               variant={isSimulating ? 'destructive' : 'default'}
               className="flex items-center gap-2"
             >
-              {isSimulating ? (
-                <>
-                  <Pause className="w-4 h-4" />
-                  Pause
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4" />
-                  Start
-                </>
-              )}
+              {isSimulating ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+              {isSimulating ? 'Pause' : 'Start'}
             </Button>
-            
-            <Button
-              onClick={handleResetRobot}
-              variant="outline"
-              className="flex items-center gap-2"
-            >
+            <Button onClick={handleResetRobot} variant="outline" className="flex items-center gap-2">
               <RotateCcw className="w-4 h-4" />
               Reset
             </Button>
           </div>
 
-          {/* Status Overlay */}
           <div className="absolute bottom-4 left-4 bg-card/90 backdrop-blur-sm p-3 rounded-lg border border-border">
             <div className="text-sm space-y-1">
               <div>Robot: {robotConfig.name}</div>
-              <div>Joints: {robotConfig.joints.length}</div>
+              <div>Joints: {robotConfig.joints.length} revolute</div>
               <div>Status: {isSimulating ? 'Running' : 'Stopped'}</div>
-              <div>Speed: {simulationSpeed}x</div>
+              <div>Mode: {dynamicsMode ? 'Gravity dynamics' : 'Kinematic sweep'}</div>
+              <div>Speed: {simulationSpeed.toFixed(1)}×</div>
             </div>
           </div>
         </div>
 
-        {/* Control Panel */}
-        <div className="w-96 bg-card border-l border-border flex flex-col">
+        <div className="flex max-h-[45%] w-full flex-shrink-0 flex-col border-t border-border bg-card lg:max-h-none lg:w-96 lg:border-l lg:border-t-0">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold text-foreground">Robotics Toolbox</h3>
             <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close robotics toolbox">
@@ -365,47 +458,28 @@ export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {/* Robot Selection */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm">Robot Configuration</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <select
-                  value={selectedRobot}
-                  onChange={(e) => setSelectedRobot(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-input rounded-md bg-background"
-                >
-                  <option value="6dof_arm">6-DOF Robot Arm</option>
-                  <option value="scara">SCARA Robot</option>
-                  <option value="delta">Delta Robot</option>
-                  <option value="mobile">Mobile Robot</option>
-                </select>
-                
+                <p className="text-xs text-muted-foreground">
+                  {robotConfig.name} · {robotConfig.links.reduce((sum, link) => sum + link.length, 0).toFixed(2)} m reach
+                </p>
                 <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleLoadRobotConfig}
-                    className="flex-1 flex items-center gap-2"
-                  >
+                  <Button variant="outline" size="sm" onClick={handleLoadRobotConfig} className="flex-1 flex items-center gap-2">
                     <Upload className="w-3 h-3" />
                     Load
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleSaveRobotConfig}
-                    className="flex-1 flex items-center gap-2"
-                  >
+                  <Button variant="outline" size="sm" onClick={handleSaveRobotConfig} className="flex-1 flex items-center gap-2">
                     <Download className="w-3 h-3" />
                     Save
                   </Button>
                 </div>
+                {loadError && <p role="alert" className="text-xs text-destructive">{loadError}</p>}
               </CardContent>
             </Card>
 
-            {/* Joint Control */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm flex items-center gap-2">
@@ -414,7 +488,7 @@ export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {robotConfig.joints.map(joint => (
+                {robotConfig.joints.map((joint) => (
                   <div key={joint.id} className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-medium">{joint.name}</span>
@@ -428,25 +502,19 @@ export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
                       max={joint.limits.max}
                       step={0.01}
                       value={joint.currentValue}
+                      disabled={isSimulating}
+                      aria-label={`${joint.name} angle`}
                       onChange={(e) => handleJointChange(joint.id, parseFloat(e.target.value))}
                       className="w-full"
                     />
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div>
-                        <span className="text-muted-foreground">Velocity: </span>
-                        <span>{joint.velocity.toFixed(2)} rad/s</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Torque: </span>
-                        <span>{joint.torque.toFixed(2)} Nm</span>
-                      </div>
-                    </div>
                   </div>
                 ))}
+                {isSimulating && (
+                  <p className="text-xs text-muted-foreground">Joint sliders resume when the simulation is paused.</p>
+                )}
               </CardContent>
             </Card>
 
-            {/* Sensors */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm flex items-center gap-2">
@@ -456,28 +524,29 @@ export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm">Show Sensors</span>
+                  <span className="text-sm">Show sensors</span>
                   <input
                     type="checkbox"
                     checked={showSensors}
                     onChange={(e) => setShowSensors(e.target.checked)}
                     className="rounded"
+                    aria-label="Show sensors"
                   />
                 </div>
-                
-                {robotConfig.sensors.map(sensor => (
+                {robotConfig.sensors.map((sensor) => (
                   <div key={sensor.id} className="p-2 border border-border rounded">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs font-medium">{sensor.name}</span>
                       <input
                         type="checkbox"
                         checked={sensor.active}
+                        aria-label={`Enable ${sensor.name}`}
                         onChange={(e) => {
-                          setRobotConfig(prev => ({
+                          setRobotConfig((prev) => ({
                             ...prev,
-                            sensors: prev.sensors.map(s =>
-                              s.id === sensor.id ? { ...s, active: e.target.checked } : s
-                            )
+                            sensors: prev.sensors.map((s) =>
+                              s.id === sensor.id ? { ...s, active: e.target.checked } : s,
+                            ),
                           }));
                         }}
                         className="rounded"
@@ -485,7 +554,7 @@ export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
                     </div>
                     <div className="text-xs text-muted-foreground">
                       <div>Type: {sensor.type}</div>
-                      <div>Range: {sensor.range}m</div>
+                      <div>Range: {sensor.range} m</div>
                       <div>Accuracy: {(sensor.accuracy * 100).toFixed(1)}%</div>
                     </div>
                   </div>
@@ -493,7 +562,6 @@ export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
               </CardContent>
             </Card>
 
-            {/* Simulation Settings */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm flex items-center gap-2">
@@ -510,58 +578,27 @@ export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
                     max="5"
                     step="0.1"
                     value={simulationSpeed}
+                    aria-label="Simulation speed"
                     onChange={(e) => setSimulationSpeed(parseFloat(e.target.value))}
                     className="w-full mt-1"
                   />
-                  <div className="text-xs text-muted-foreground">{simulationSpeed}x</div>
+                  <div className="text-xs text-muted-foreground">{simulationSpeed.toFixed(1)}×</div>
                 </div>
-                
                 <div className="flex items-center justify-between">
-                  <span className="text-xs">Show Trajectory</span>
+                  <span className="text-sm">Gravity dynamics</span>
                   <input
                     type="checkbox"
-                    checked={showTrajectory}
-                    onChange={(e) => setShowTrajectory(e.target.checked)}
+                    checked={dynamicsMode}
+                    onChange={(e) => setDynamicsMode(e.target.checked)}
+                    aria-label="Gravity dynamics"
                     className="rounded"
                   />
                 </div>
-                
-                <div className="flex items-center justify-between">
-                  <span className="text-xs">Physics Engine</span>
-                  <select className="px-2 py-1 text-xs border border-input rounded">
-                    <option>Bullet</option>
-                    <option>ODE</option>
-                    <option>Custom</option>
-                  </select>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Performance Metrics */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Gauge className="w-4 h-4" />
-                  Performance
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <div className="flex justify-between text-xs">
-                  <span>FPS:</span>
-                  <span>60</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span>Physics Step:</span>
-                  <span>1ms</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span>Collision Checks:</span>
-                  <span>1,234</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span>Memory Usage:</span>
-                  <span>45MB</span>
-                </div>
+                <p className="text-xs text-muted-foreground">
+                  {dynamicsMode
+                    ? 'Each joint is advanced as a damped pendulum by symplectic Euler; joints spinning about the vertical axis carry no gravitational torque. This is a per-joint model, not a coupled multibody solve.'
+                    : 'Each joint tracks a sinusoidal sweep inside its limits; motion propagates through the serial chain.'}
+                </p>
               </CardContent>
             </Card>
           </div>

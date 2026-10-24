@@ -362,6 +362,273 @@ describe('transient analysis', () => {
   })
 })
 
+describe('trapezoidal transient integration', () => {
+  const rcStep = (
+    integrationMethod: 'backward-euler' | 'trapezoidal',
+  ): CircuitNetlist => ({
+    title: 'RC charge',
+    components: [
+      voltageSource('V1', ['VIN', '0'], 5),
+      resistor('R1', ['VIN', 'OUT'], 1000),
+      capacitor('C1', ['OUT', '0'], '1u'),
+    ],
+    analyses: [
+      {
+        type: 'transient',
+        stopTime: 5e-3,
+        stepTime: 1e-5,
+        useInitialConditions: true,
+        integrationMethod,
+      },
+    ],
+  })
+
+  const sampleAt = (result: { waveforms: Array<{ name: string; data: Array<{ x: number; y: number }> }> }, target: number) => {
+    const waveform = result.waveforms.find((entry) => entry.name === 'V(OUT)')
+    return waveform?.data.reduce((best, point) =>
+      Math.abs(point.x - target) < Math.abs(best.x - target) ? point : best,
+    )
+  }
+
+  it('starts with backward Euler even when trapezoidal is selected', async () => {
+    /*
+     * Trapezoidal needs i_prev, which does not exist at t = 0. SPICE starts with
+     * one backward-Euler step. For this RC network the first sample is therefore
+     * 5/(1 + τ/h) = 5/101 V. A naive trapezoidal start with i_prev = 0 would
+     * instead give 5/(1 + 2τ/h) = 5/201 V, so the two are easy to tell apart.
+     */
+    const result = await spiceEngine.simulate(rcStep('trapezoidal'))
+    expect(result.success).toBe(true)
+    const dt = 1e-5
+    const tau = 1e-3
+    const first = sampleAt(result, dt)?.y ?? 0
+    expect(first).toBeCloseTo(5 / (1 + tau / dt), 6)
+    expect(first).not.toBeCloseTo(5 / (1 + (2 * tau) / dt), 4)
+  })
+
+  it('tracks the RC exponential more closely than backward Euler', async () => {
+    const trapezoidal = await spiceEngine.simulate(rcStep('trapezoidal'))
+    const euler = await spiceEngine.simulate(rcStep('backward-euler'))
+    expect(trapezoidal.success).toBe(true)
+    expect(euler.success).toBe(true)
+
+    const expected = 5 * (1 - Math.exp(-1))
+    const trap = sampleAt(trapezoidal, 1e-3)?.y ?? 0
+    const be = sampleAt(euler, 1e-3)?.y ?? 0
+    // Second order at h = τ/100 puts t = τ within a few tens of microvolts;
+    // backward Euler's first-order lag is an order of magnitude larger.
+    expect(Math.abs(trap - expected)).toBeLessThan(1e-3)
+    expect(Math.abs(trap - expected)).toBeLessThan(Math.abs(be - expected))
+    expect(trap).toBeLessThanOrEqual(5.000001)
+  })
+
+  it('preserves a lossless LC ring that backward Euler damps out', async () => {
+    /*
+     * A 1 V step into an ideal series LC (L = 1 mH, C = 1 µF, f₀ ≈ 5.03 kHz)
+     * leaves V(MID) ringing between 0 V and 2 V for ever. Backward Euler's
+     * numerical damping shrinks that swing noticeably over ten cycles;
+     * trapezoidal integration is neutral, so the late-cycle peak stays near 2 V.
+     */
+    const lcStep = (integrationMethod: 'backward-euler' | 'trapezoidal'): CircuitNetlist => ({
+      title: 'LC ring',
+      components: [
+        voltageSource('V1', ['VIN', '0'], 1),
+        inductor('L1', ['VIN', 'MID'], 1e-3),
+        capacitor('C1', ['MID', '0'], 1e-6),
+      ],
+      analyses: [
+        {
+          type: 'transient',
+          stopTime: 2e-3,
+          stepTime: 1e-6,
+          useInitialConditions: true,
+          integrationMethod,
+        },
+      ],
+    })
+
+    const trapezoidal = await spiceEngine.simulate(lcStep('trapezoidal'))
+    const euler = await spiceEngine.simulate(lcStep('backward-euler'))
+    expect(trapezoidal.success).toBe(true)
+    expect(euler.success).toBe(true)
+
+    const latePeak = (result: Awaited<ReturnType<typeof spiceEngine.simulate>>) => {
+      const data = result.waveforms.find((entry) => entry.name === 'V(MID)')?.data ?? []
+      return data.filter((point) => point.x >= 1.6e-3).reduce((peak, point) => Math.max(peak, point.y), -Infinity)
+    }
+
+    expect(latePeak(trapezoidal)).toBeGreaterThan(1.9)
+    expect(latePeak(euler)).toBeLessThan(1.6)
+    expect(latePeak(trapezoidal) - latePeak(euler)).toBeGreaterThan(0.3)
+  })
+
+  it('defaults to backward Euler', async () => {
+    const explicit = await spiceEngine.simulate(rcStep('backward-euler'))
+    const omitted = await spiceEngine.simulate({
+      ...rcStep('backward-euler'),
+      analyses: [{ type: 'transient', stopTime: 5e-3, stepTime: 1e-5, useInitialConditions: true }],
+    })
+    expect(omitted.waveforms).toEqual(explicit.waveforms)
+    expect(omitted.notes?.join(' ')).not.toContain('trapezoidal')
+  })
+
+  it('exports UIC and the integration rule in the deck', () => {
+    const trapezoidal = spiceEngine.generateSPICENetlist(rcStep('trapezoidal'))
+    expect(trapezoidal).toContain('.tran 0.00001 0.005 UIC')
+    expect(trapezoidal).toContain('.options method=trap')
+
+    const euler = spiceEngine.generateSPICENetlist(rcStep('backward-euler'))
+    expect(euler).toContain('.tran 0.00001 0.005 UIC')
+    expect(euler).toContain('backward Euler')
+    expect(euler).not.toContain('.options method=trap')
+  })
+})
+
+describe('Gear/BDF2 transient integration', () => {
+  type Method = 'backward-euler' | 'trapezoidal' | 'bdf2'
+
+  const rcStep = (integrationMethod: Method): CircuitNetlist => ({
+    title: 'RC charge',
+    components: [
+      voltageSource('V1', ['VIN', '0'], 5),
+      resistor('R1', ['VIN', 'OUT'], 1000),
+      capacitor('C1', ['OUT', '0'], '1u'),
+    ],
+    analyses: [
+      {
+        type: 'transient',
+        stopTime: 5e-3,
+        stepTime: 1e-5,
+        useInitialConditions: true,
+        integrationMethod,
+      },
+    ],
+  })
+
+  const lcStep = (integrationMethod: Method): CircuitNetlist => ({
+    title: 'LC ring',
+    components: [
+      voltageSource('V1', ['VIN', '0'], 1),
+      inductor('L1', ['VIN', 'MID'], 1e-3),
+      capacitor('C1', ['MID', '0'], 1e-6),
+    ],
+    analyses: [
+      {
+        type: 'transient',
+        stopTime: 2e-3,
+        stepTime: 1e-6,
+        useInitialConditions: true,
+        integrationMethod,
+      },
+    ],
+  })
+
+  const sampleAt = (
+    result: Awaited<ReturnType<typeof spiceEngine.simulate>>,
+    target: number,
+  ) => {
+    const waveform = result.waveforms.find((entry) => entry.name === 'V(OUT)')
+    return waveform?.data.reduce((best, point) =>
+      Math.abs(point.x - target) < Math.abs(best.x - target) ? point : best,
+    )
+  }
+
+  it('starts with two backward-Euler steps before BDF2 engages', async () => {
+    /*
+     * BDF2 needs both v_{n-1} and v_{n-2}; at t = 0 neither exists. Two BE
+     * samples build the history at the current dt. The first two BDF2 samples
+     * must therefore be identical to a pure backward-Euler run, and the third
+     * must differ once the second-order rule takes over.
+     */
+    const bdf2 = await spiceEngine.simulate(rcStep('bdf2'))
+    const euler = await spiceEngine.simulate(rcStep('backward-euler'))
+    expect(bdf2.success).toBe(true)
+    expect(euler.success).toBe(true)
+
+    const dt = 1e-5
+    for (const target of [dt, 2 * dt]) {
+      expect(sampleAt(bdf2, target)?.y).toBeCloseTo(sampleAt(euler, target)?.y ?? 0, 12)
+    }
+    expect(sampleAt(bdf2, 3 * dt)?.y).not.toBeCloseTo(sampleAt(euler, 3 * dt)?.y ?? 0, 12)
+    expect(bdf2.notes?.join(' ')).toContain('Gear/BDF2')
+  })
+
+  it('tracks the RC exponential more closely than backward Euler', async () => {
+    const bdf2 = await spiceEngine.simulate(rcStep('bdf2'))
+    const euler = await spiceEngine.simulate(rcStep('backward-euler'))
+    expect(bdf2.success).toBe(true)
+    expect(euler.success).toBe(true)
+
+    const expected = 5 * (1 - Math.exp(-1))
+    const actual = sampleAt(bdf2, 1e-3)?.y ?? 0
+    const be = sampleAt(euler, 1e-3)?.y ?? 0
+    expect(Math.abs(actual - expected)).toBeLessThan(1e-3)
+    expect(Math.abs(actual - expected)).toBeLessThan(Math.abs(be - expected))
+    expect(actual).toBeLessThanOrEqual(5.000001)
+  })
+
+  it('converges at second order as the step is halved', async () => {
+    /*
+     * BDF2 is a second-order rule: its global error at a fixed time scales as
+     * h², so each halving of the step should quarter the error. Sampling at
+     * exactly τ = 1 ms keeps the comparison against 5(1 − 1/e) node-for-node.
+     * The two backward-Euler startup steps are themselves O(h²) globally, so
+     * they do not lower the observed order.
+     */
+    const errorAtTau = async (stepTime: number) => {
+      const result = await spiceEngine.simulate({
+        ...rcStep('bdf2'),
+        analyses: [
+          {
+            type: 'transient',
+            stopTime: 1e-3,
+            stepTime,
+            useInitialConditions: true,
+            integrationMethod: 'bdf2',
+          },
+        ],
+      })
+      expect(result.success).toBe(true)
+      return Math.abs((sampleAt(result, 1e-3)?.y ?? 0) - 5 * (1 - Math.exp(-1)))
+    }
+
+    const coarse = await errorAtTau(1e-4)
+    const medium = await errorAtTau(5e-5)
+    const fine = await errorAtTau(2.5e-5)
+
+    expect(medium).toBeLessThan(coarse)
+    expect(fine).toBeLessThan(medium)
+    expect(coarse / medium).toBeGreaterThan(3)
+    expect(medium / fine).toBeGreaterThan(3)
+  })
+
+  it('preserves a lossless LC ring instead of damping it like backward Euler', async () => {
+    const bdf2 = await spiceEngine.simulate(lcStep('bdf2'))
+    const euler = await spiceEngine.simulate(lcStep('backward-euler'))
+    expect(bdf2.success).toBe(true)
+    expect(euler.success).toBe(true)
+
+    const latePeak = (result: Awaited<ReturnType<typeof spiceEngine.simulate>>) => {
+      const data = result.waveforms.find((entry) => entry.name === 'V(MID)')?.data ?? []
+      return data
+        .filter((point) => point.x >= 1.6e-3)
+        .reduce((peak, point) => Math.max(peak, point.y), -Infinity)
+    }
+
+    expect(latePeak(bdf2)).toBeGreaterThan(1.9)
+    expect(latePeak(bdf2)).toBeLessThanOrEqual(2.000001)
+    expect(latePeak(euler)).toBeLessThan(1.6)
+    expect(latePeak(bdf2) - latePeak(euler)).toBeGreaterThan(0.3)
+  })
+
+  it('exports the Gear rule in the deck', () => {
+    const deck = spiceEngine.generateSPICENetlist(rcStep('bdf2'))
+    expect(deck).toContain('.tran 0.00001 0.005 UIC')
+    expect(deck).toContain('.options method=gear maxord=2')
+    expect(deck).not.toContain('.options method=trap')
+  })
+})
+
 describe('AC analysis', () => {
   it('places the RC low-pass corner at 1/(2πRC)', async () => {
     // R = 1 kΩ, C = 159.155 nF → f_c = 1 kHz exactly.
@@ -440,6 +707,47 @@ describe('AC analysis', () => {
     expect(result.success).toBe(false)
     expect(result.notes?.join(' ')).toContain('stop frequency')
   })
+
+  it('refuses to linearise about a bias that does not exist', async () => {
+    /*
+     * Two ideal sources of different values in parallel make the DC system
+     * singular. A small-signal solve about that "bias" would still return a
+     * smooth curve, so the analysis must report the failure instead.
+     */
+    const result = await spiceEngine.simulate({
+      title: 'unbiasable circuit',
+      components: [
+        voltageSource('V1', ['OUT', '0'], 5),
+        voltageSource('V2', ['OUT', '0'], 3),
+        resistor('R1', ['OUT', '0'], 1000),
+        diode('D1', ['OUT', '0']),
+      ],
+      analyses: [{ type: 'ac', startFreq: 10, stopFreq: 1e4 }],
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.waveforms).toHaveLength(0)
+    expect(result.notes?.join(' ')).toContain('converged DC operating point')
+  })
+
+  it('refuses a contradictory linear topology whose AC system is singular', async () => {
+    // Zero-bias linearisation is only valid when the AC network itself solves;
+    // two ideal sources of different values still leave the complex system
+    // inconsistent and must not yield a curve.
+    const result = await spiceEngine.simulate({
+      title: 'contradictory linear circuit',
+      components: [
+        voltageSource('V1', ['OUT', '0'], 5),
+        voltageSource('V2', ['OUT', '0'], 3),
+        resistor('R1', ['OUT', '0'], 1000),
+      ],
+      analyses: [{ type: 'ac', startFreq: 10, stopFreq: 1e4 }],
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.waveforms).toHaveLength(0)
+    expect(result.notes?.join(' ')).toContain('singular')
+  })
 })
 
 describe('noise analysis', () => {
@@ -512,6 +820,45 @@ describe('noise analysis', () => {
     })
     expect(result.success).toBe(false)
     expect(result.notes?.join(' ')).toContain('output net')
+  })
+
+  it('refuses to linearise about a bias that does not exist', async () => {
+    // Shot noise needs a bias current; a singular DC solve means there is no
+    // bias to linearise, so no spectrum may be reported.
+    const result = await spiceEngine.simulate({
+      title: 'unbiasable noise circuit',
+      components: [
+        voltageSource('V1', ['OUT', '0'], 5),
+        voltageSource('V2', ['OUT', '0'], 3),
+        resistor('R1', ['OUT', '0'], 1000),
+        diode('D1', ['OUT', '0']),
+      ],
+      analyses: [{ type: 'noise', startFreq: 1, stopFreq: 1e3, outputNode: 'OUT' }],
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.waveforms).toHaveLength(0)
+    expect(result.notes?.join(' ')).toContain('converged DC operating point')
+  })
+
+  it('rejects temperatures at or below absolute zero instead of emitting NaNs', async () => {
+    for (const temperature of [-273.15, -300, Number.NaN]) {
+      const result = await spiceEngine.simulate({
+        ...thermalCircuit,
+        analyses: [{ ...thermalCircuit.analyses[0], temperature }],
+      })
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('absolute zero')
+    }
+  })
+
+  it('rejects a frequency grid density that would produce no points', async () => {
+    const result = await spiceEngine.simulate({
+      ...thermalCircuit,
+      analyses: [{ ...thermalCircuit.analyses[0], pointsPerDecade: Number.NaN }],
+    })
+    expect(result.success).toBe(false)
+    expect(result.notes?.join(' ')).toContain('point per decade')
   })
 })
 

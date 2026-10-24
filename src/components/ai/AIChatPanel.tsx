@@ -9,7 +9,7 @@ import { useProjectStore } from '../../stores/useProjectStore'
 import type { CanvasComponent, CanvasWire } from '../../stores/useProjectStore'
 import { useAppStore } from '../../stores/useAppStore'
 import type { AIMessage } from '../../types'
-import type { Component as DomainComponent, DomainWire } from '../../types/domain'
+import type { Component as DomainComponent, DomainWire } from '../../types'
 import { generateId } from '../../lib/utils'
 
 interface AIChatPanelProps {

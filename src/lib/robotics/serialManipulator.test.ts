@@ -61,19 +61,39 @@ describe('roll-pitch-yaw extraction', () => {
 
   it('reports gimbal lock instead of inventing a yaw at pitch ±90°', () => {
     // Ry(+90°) = [0,0,1; 0,1,0; -1,0,0], so R20 = -1 and pitch = asin(1) = +π/2.
-    // Every roll/yaw pair describing this pose is equally valid, so yaw is pinned to 0.
+    // Roll is pinned to zero; at that pitch the residual orientation is a pure yaw.
     const straight = [0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 0, 1];
     const result = rotationToRollPitchYaw(straight);
     expect(result.pitch).toBeCloseTo(Math.PI / 2, 12);
     expect(result.gimbalLock).toBe(true);
     expect(result.roll).toBe(0);
-    expect(Number.isFinite(result.yaw)).toBe(true);
+    expect(result.yaw).toBeCloseTo(0, 12);
 
     // The mirrored case lands on pitch -π/2 and must also be reported.
     const flipped = [0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1];
     const mirrored = rotationToRollPitchYaw(flipped);
     expect(mirrored.pitch).toBeCloseTo(-Math.PI / 2, 12);
     expect(mirrored.gimbalLock).toBe(true);
+  });
+
+  it('preserves the yaw that survives a gimbal-locked pose', () => {
+    const gamma = 0.7;
+    const c = Math.cos(gamma);
+    const s = Math.sin(gamma);
+    // Rz(γ)·Ry(+90°) and Rz(γ)·Ry(-90°): roll pinned to 0 must leave yaw = γ.
+    for (const pitchSign of [1, -1]) {
+      const matrix = [
+        0, -s, pitchSign * c, 0,
+        0, c, pitchSign * s, 0,
+        -pitchSign, 0, 0, 0,
+        0, 0, 0, 1,
+      ];
+      const result = rotationToRollPitchYaw(matrix);
+      expect(result.gimbalLock).toBe(true);
+      expect(result.roll).toBe(0);
+      expect(result.pitch).toBeCloseTo((pitchSign * Math.PI) / 2, 12);
+      expect(result.yaw).toBeCloseTo(gamma, 12);
+    }
   });
 
   it('rejects a matrix that is not a transform', () => {
@@ -303,5 +323,16 @@ describe('timed joint trajectory', () => {
     expect(() =>
       planTimedTrajectory([0], [1], { maxVelocity: 1, maxAcceleration: 1, samples: 1 }),
     ).toThrow(/at least 2/);
+    // An unbounded count would loop forever, and a fractional one misplaces samples.
+    expect(() =>
+      planTimedTrajectory([0], [1], { maxVelocity: 1, maxAcceleration: 1, samples: Infinity }),
+    ).toThrow(/integer/);
+    expect(() =>
+      planTimedTrajectory([0], [1], { maxVelocity: 1, maxAcceleration: 1, samples: 2.5 }),
+    ).toThrow(/integer/);
+    expect(() => planTimedTrajectory([0], [Number.NaN], limits)).toThrow(/non-finite/);
+    expect(() =>
+      planTimedTrajectory([0], [1], { maxVelocity: Infinity, maxAcceleration: 1 }),
+    ).toThrow(/finite/);
   });
 });

@@ -1,23 +1,29 @@
 /**
- * Mixed-signal co-simulation: couple the analog SPICE engine to the digital
- * discrete-event engine so a GPIO can drive an analog load and a comparator can
- * drive logic in one run.
+ * Mixed-signal coupling: drive the analog SPICE engine from the digital
+ * discrete-event engine and sample analog nets back into logic.
  *
- * Strategy — lockstep macro-stepping:
- *   1. A digital node's transition history is rendered as a piecewise-linear
- *      (PWL) voltage source and stamped into the analog net it drives. `0` maps
- *      to 0 V and `1` maps to the digital supply `vdd`; X/Z fall back to the
- *      last stable level so an unknown never becomes a phantom rail.
- *   2. The analog transient runs across the whole window with those sources
- *      embedded, so the analog net sees the real digital waveform — including
- *      the RC/timing effects of the driver and load.
+ * This is a single forward pass, not a fixed-point co-simulation:
+ *   1. The digital deck runs over the window. A digital node's transition
+ *      history becomes a piecewise-linear (PWL) voltage source stamped into the
+ *      analog net it drives. `0` maps to 0 V and `1` to the digital supply
+ *      `vdd`; X/Z hold the last stable level so an unknown never becomes a
+ *      phantom rail.
+ *   2. The analog transient runs across the window with those sources embedded,
+ *      so the analog net sees the real digital waveform including the RC/timing
+ *      effects of the driver and load.
  *   3. Analog probe nodes are sampled across the transient and thresholded at
- *      `vdd/2` back into 0/1, closing the loop: a comparator output then feeds
- *      a logic gate.
+ *      `vdd/2` (or an explicit threshold) into a `probeTimeline` of 0/1.
  *
- * Nothing is invented. An unmodelled coupling is reported in `notes`, and any
- * analog failure surfaces as `success:false` with its own error — the same
- * fail-loud contract as both engines it sits between.
+ * The probes are reported to the caller but are not written back into the
+ * digital deck automatically: a circuit that genuinely needs analog→digital
+ * feedback must run the digital side again with those samples as stimuli (for
+ * example on the next macro-step). That two-pass loop is orchestrated by the
+ * caller; this function never claims a converged closed loop.
+ *
+ * Nothing is invented. A digital failure is returned before the analog run, an
+ * unmodelled coupling is reported in `notes`, and any analog failure surfaces
+ * as `success:false` with its own error — the same fail-loud contract as both
+ * engines it sits between.
  */
 
 import {
@@ -59,6 +65,11 @@ export interface MixedSignalRequest {
   stopTime: number
   /** Analog transient step, in seconds. */
   stepTime: number
+  /**
+   * Seconds per digital time unit. A deck written in nanoseconds uses `1e-9`;
+   * the default `1` treats digital ticks and analog seconds as the same unit.
+   */
+  timeScale?: number
 }
 
 export interface MixedSignalResult {
@@ -74,9 +85,11 @@ export interface MixedSignalResult {
 /**
  * Render a digital node's transitions as a monotonic PWL point list.
  *
- * A transition at t contributes (t, level). The list is forced strictly
- * increasing in time (the analog PWL evaluator requires it) by nudging any
- * zero-width corner forward by a fraction of the step. X/Z never becomes a
+ * A transition at t is not a corner between two period-length plateaus: PWL
+ * interpolates linearly between points, so only emitting (t, level) would turn
+ * every clock into a triangle wave and hide the load's true step response. Each
+ * transition therefore gets a short edge: the old level is held until
+ * `t − edgeTime`, then the new level is reached at `t`. X/Z never becomes a
  * rail: it holds the previous 0/1 so an unknown cannot invent a phantom level.
  */
 function pwlFromTransitions(
@@ -84,18 +97,26 @@ function pwlFromTransitions(
   vdd: number,
   stopTime: number,
   stepTime: number,
+  timeScale: number,
 ): Array<{ time: number; value: number }> {
   const points: Array<{ time: number; value: number }> = [{ time: 0, value: 0 }]
+  const edgeTime = Math.max(Math.abs(stepTime), 1e-15)
   let lastLevel = 0
   for (const transition of transitions) {
-    if (transition.time > stopTime) break
-    if (transition.value === 1) lastLevel = vdd
-    else if (transition.value === 0) lastLevel = 0
+    const transitionTime = transition.time * timeScale
+    if (transitionTime > stopTime) break
+    let nextLevel = lastLevel
+    if (transition.value === 1) nextLevel = vdd
+    else if (transition.value === 0) nextLevel = 0
     // X and Z keep the previous level — an unknown must not invent a rail.
+    if (nextLevel === lastLevel) continue
+
     const previous = points[points.length - 1]
-    let time = transition.time
-    if (time <= previous.time) time = previous.time + Math.abs(stepTime) * 1e-3
-    points.push({ time, value: lastLevel })
+    const edgeStart = Math.max(previous.time, transitionTime - edgeTime)
+    if (edgeStart > previous.time) points.push({ time: edgeStart, value: lastLevel })
+    const settleTime = Math.max(transitionTime, previous.time + edgeTime * 1e-3)
+    points.push({ time: settleTime, value: nextLevel })
+    lastLevel = nextLevel
   }
   return points
 }
@@ -110,10 +131,49 @@ function thresholdToLogic(voltage: number, threshold: number): LogicValue {
  */
 export async function simulateMixedSignal(request: MixedSignalRequest): Promise<MixedSignalResult> {
   const { digital, analog, drives = [], probes = [], stopTime, stepTime } = request
+  const timeScale = request.timeScale ?? 1
+  if (!Number.isFinite(timeScale) || timeScale <= 0) {
+    throw new Error(`mixed-signal timeScale must be a positive number of seconds, got ${timeScale}`)
+  }
+  if (!Number.isFinite(stopTime) || stopTime <= 0) {
+    throw new Error(`mixed-signal stopTime must be a finite, positive number of seconds, got ${stopTime}`)
+  }
+  if (!Number.isFinite(stepTime) || stepTime <= 0) {
+    throw new Error(`mixed-signal stepTime must be a finite, positive number of seconds, got ${stepTime}`)
+  }
+  for (const drive of drives) {
+    if (!Number.isFinite(drive.vdd) || drive.vdd <= 0) {
+      throw new Error(`drive ${drive.digitalNode}->${drive.analogNet} needs a finite, positive vdd`)
+    }
+    if (drive.rDrive !== undefined && (!Number.isFinite(drive.rDrive) || drive.rDrive < 0)) {
+      throw new Error(`drive ${drive.digitalNode}->${drive.analogNet} needs a finite, non-negative rDrive`)
+    }
+  }
+  for (const probe of probes) {
+    if (probe.threshold !== undefined && !Number.isFinite(probe.threshold)) {
+      throw new Error(`probe ${probe.analogNet}->${probe.digitalNode} needs a finite threshold`)
+    }
+  }
   const notes: string[] = []
 
-  // 1. Simulate the digital domain over the window.
-  const digitalResult = simulateDigital(digital, stopTime)
+  // 1. Simulate the digital domain over the window. `stopTime` is in analog
+  //    seconds, so the tick horizon is divided by the tick length.
+  const digitalResult = simulateDigital(digital, stopTime / timeScale)
+  if (!digitalResult.success) {
+    return {
+      success: false,
+      error: `digital simulation failed: ${digitalResult.error}`,
+      digital: digitalResult,
+      analog: {
+        success: false,
+        error: 'The analog simulation was not run because the digital side failed.',
+        nodes: [],
+        waveforms: [],
+      },
+      probeTimeline: [],
+      notes,
+    }
+  }
 
   // 2. Build a copy of the analog netlist with a PWL source per drive, plus a
   //    series resistance if requested (an ideal source would short a rail).
@@ -124,6 +184,7 @@ export async function simulateMixedSignal(request: MixedSignalRequest): Promise<
       drive.vdd,
       stopTime,
       stepTime,
+      timeScale,
     )
     if (pwl.length < 2) {
       notes.push(`drive ${drive.digitalNode}->${drive.analogNet} has no transitions; net held at 0 V`)

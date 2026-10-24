@@ -26,7 +26,9 @@ import {
   CODE_TEMPLATES,
   ArduinoIDEIntegration
 } from '../../lib/programming/boardProgrammer';
+import { compilerManager } from '../../lib/compilation/compiler';
 import { useProjectStore } from '../../stores/useProjectStore';
+import { useDemoRequest } from '../workspace/useDemoRequest';
 
 interface BoardProgrammingPanelProps {
   onClose: () => void;
@@ -47,6 +49,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
   const [installedLibraries, setInstalledLibraries] = useState<Array<{ name: string; version: string; description: string }>>([]);
   const [arduinoIDEVersion, setArduinoIDEVersion] = useState<string | null>(null);
   const [toolchainError, setToolchainError] = useState<string | null>(null);
+  const [schematicNotice, setSchematicNotice] = useState<string | null>(null);
 
   /*
    * Loaders are stable callbacks declared before the effect that uses them, so
@@ -111,6 +114,66 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
   const handleCodeChange = (next: string) => {
     setCode(next);
     setFirmwareCode(next);
+    setSchematicNotice(null);
+  };
+
+  useDemoRequest('embedded-rectifier', () => handleTemplateChange('demo_rectifier'));
+
+  /** Generate a sketch from the schematic netlist into the editor. */
+  const handleGenerateFromSchematic = async () => {
+    setSchematicNotice(null);
+    setToolchainError(null);
+    const { components, wires } = useProjectStore.getState();
+    if (components.length === 0) {
+      setToolchainError('The schematic is empty, so there is nothing to generate firmware from.');
+      return;
+    }
+
+    const target = compilerManager.getTargetsForBoard(selectedBoard)[0];
+    if (!target) {
+      setToolchainError(`No schematic compiler supports the board "${selectedBoard}".`);
+      return;
+    }
+
+    // The canvas stores the library record; the compiler works on the schematic
+    // domain type, so adapt the shape instead of casting across models.
+    const placedComponents = components.map((placed) => {
+      const source = placed.component;
+      return {
+        id: placed.id,
+        name: placed.reference || source.name,
+        category: source.category,
+        symbol: {
+          width: source.symbol_data?.width ?? 0,
+          height: source.symbol_data?.height ?? 0,
+          paths: source.symbol_data?.paths ?? [],
+        },
+        pins: source.pins,
+        properties: placed.properties,
+      };
+    });
+    const result = await compilerManager.compile(placedComponents, wires, [], {
+      target: target.id,
+      optimization: 'balanced',
+      debug: false,
+      warnings: true,
+      includes: [],
+      defines: {},
+      libraries: [],
+    });
+
+    if (!result.success) {
+      const detail = result.errors.map((error) => error.message).join('; ');
+      setToolchainError(`Schematic compilation failed: ${detail || 'unknown error'}`);
+      return;
+    }
+
+    handleCodeChange(result.code);
+    setCompilationResult(null);
+    setUploadResult(null);
+    setSchematicNotice(
+      `Generated ${result.code.length} characters for ${target.name}. Review the pin notes in the sketch before flashing.`,
+    );
   };
 
   const handleCompile = async () => {
@@ -274,9 +337,9 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
 
   return (
     <div className="fixed inset-0 bg-overlay/70 flex items-center justify-center z-50">
-      <div className="app-panel flex h-[90vh] w-full max-w-7xl overflow-hidden rounded-xl border border-border shadow-2xl">
+      <div className="app-panel flex max-h-[92dvh] w-full max-w-7xl flex-col overflow-y-auto rounded-xl border border-border shadow-2xl lg:h-[90vh] lg:flex-row lg:overflow-hidden">
         {/* Code Editor */}
-        <div className="flex flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col">
           <div className="app-panel-header">
             <h3 className="font-semibold text-surface-foreground">Arduino Programming</h3>
             <div className="flex items-center gap-2">
@@ -343,12 +406,13 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
 
           {/* Template Selection */}
           <div className="border-b border-border p-4">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-medium">Template:</span>
               <select
+                aria-label="Firmware template"
                 value={selectedTemplate}
                 onChange={(e) => handleTemplateChange(e.target.value)}
-                className="px-3 py-1 text-sm border border-input rounded bg-background"
+                className="min-w-0 flex-1 basis-40 px-3 py-1 text-sm border border-input rounded bg-background"
               >
                 <option value="basic">Basic Blink</option>
                 <option value="demo_rectifier">Demo rectifier companion (tested)</option>
@@ -369,7 +433,21 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
               >
                 Load demo firmware
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleGenerateFromSchematic()}
+                className="flex items-center gap-2"
+              >
+                <Cpu className="w-3 h-3" />
+                Generate from schematic
+              </Button>
             </div>
+            {schematicNotice && (
+              <p role="status" className="mt-2 text-xs text-muted-foreground">
+                {schematicNotice}
+              </p>
+            )}
           </div>
 
           <div className="flex min-h-0 flex-1 gap-0 p-4">
@@ -397,7 +475,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                 }
               }}
               wrap="off"
-              className="cad-code-area max-h-72 min-h-72 w-full flex-1 resize-y overflow-auto rounded-r-md border border-input bg-background p-4 font-mono text-sm leading-6 text-foreground focus:border-transparent focus:ring-2 focus:ring-ring"
+              className="cad-code-area max-h-72 min-h-56 w-full flex-1 resize-y overflow-auto sm:min-h-72 rounded-r-md border border-input bg-background p-4 font-mono text-sm leading-6 text-foreground focus:border-transparent focus:ring-2 focus:ring-ring"
               placeholder="Enter your Arduino code here..."
               spellCheck={false}
               aria-label="Firmware source code"
@@ -406,7 +484,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
 
           {/* Action Buttons */}
           <div className="p-4 border-t border-border">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 onClick={handleCompile}
                 disabled={isCompiling}
@@ -466,7 +544,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
         </div>
 
         {/* Configuration Panel */}
-        <div className="w-80 bg-card border-l border-border flex flex-col">
+        <div className="flex w-full flex-shrink-0 flex-col border-t border-border bg-card lg:max-h-none lg:w-80 lg:border-l lg:border-t-0">
           <div className="p-4 border-b border-border">
             <h4 className="font-semibold text-foreground">Configuration</h4>
           </div>
@@ -482,6 +560,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
               </CardHeader>
               <CardContent className="space-y-3">
                 <select
+                  aria-label="Target board"
                   value={selectedBoard}
                   onChange={(e) => handleBoardChange(e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-input rounded bg-background"
@@ -516,6 +595,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
               <CardContent className="space-y-3">
                 <div className="flex gap-2">
                   <select
+                    aria-label="Serial port"
                     value={selectedPort}
                     onChange={(e) => setSelectedPort(e.target.value)}
                     className="flex-1 px-3 py-2 text-sm border border-input rounded bg-background"
@@ -720,7 +800,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
 
         {/* Output Panel */}
         {showOutput && (
-          <div className="w-96 bg-card border-l border-border flex flex-col">
+          <div className="flex max-h-[35%] w-full flex-shrink-0 flex-col border-t border-border bg-card lg:max-h-none lg:w-96 lg:border-l lg:border-t-0">
             <div className="flex items-center justify-between p-4 border-b border-border">
               <h4 className="font-semibold text-foreground">Output</h4>
               <Button variant="ghost" size="icon" onClick={() => setShowOutput(false)} aria-label="Close output panel">

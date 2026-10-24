@@ -89,6 +89,127 @@ describe('mixedSignal co-simulation', () => {
     expect(result.probeTimeline[0].digitalNode).toBe('logic_out')
   })
 
+  it('scales digital ticks into analog seconds', async () => {
+    /*
+     * The digital deck's clock has a 2-tick period. At 1 ms per tick it runs
+     * five cycles over the 10 ms analog window, so the first high phase starts
+     * at 1 ms and a 1 ms RC (τ = R·C) reaches about 1.97 V by 1.5 ms. Without
+     * the scale the edges would land at 1 s and 2 s — outside the window.
+     */
+    const result = await simulateMixedSignal({
+      digital: squareWave(),
+      analog: rcLoadNetlist(),
+      drives: [{ digitalNode: 'dio', analogNet: 'out', vdd: 5 }],
+      stopTime: 0.01,
+      stepTime: 5e-5,
+      timeScale: 1e-3,
+    })
+
+    expect(result.success).toBe(true)
+    const mid = result.analog.waveforms.find((w) => w.name === 'V(MID)')
+    expect(mid).toBeDefined()
+    const times = mid!.data.map((p) => p.x)
+    expect(Math.max(...times)).toBeLessThanOrEqual(0.010001)
+    expect(Math.min(...times)).toBeGreaterThanOrEqual(0)
+
+    const atOneAndAHalfMs = mid!.data.reduce((best, point) =>
+      Math.abs(point.x - 1.5e-3) < Math.abs(best.x - 1.5e-3) ? point : best,
+    )
+    expect(atOneAndAHalfMs.y).toBeGreaterThan(1.8)
+    expect(atOneAndAHalfMs.y).toBeLessThan(2.1)
+
+    // A digital edge must be an edge, not a ramp across the whole half period:
+    // the driving PWL source is low just before 1 ms and at the rail at 1 ms.
+    const source = result.analog.waveforms.find((w) => w.name === 'V(OUT)')
+    expect(source).toBeDefined()
+    const nearest = (target: number) =>
+      source!.data.reduce((best, point) =>
+        Math.abs(point.x - target) < Math.abs(best.x - target) ? point : best,
+      )
+    expect(nearest(0.9e-3).y).toBeLessThan(0.5)
+    expect(nearest(1e-3).y).toBeGreaterThan(4.5)
+  })
+
+  it('rejects a non-positive time scale instead of inventing a time base', async () => {
+    await expect(
+      simulateMixedSignal({
+        digital: squareWave(),
+        analog: rcLoadNetlist(),
+        drives: [{ digitalNode: 'dio', analogNet: 'out', vdd: 5 }],
+        stopTime: 10,
+        stepTime: 1e-3,
+        timeScale: 0,
+      }),
+    ).rejects.toThrow(/timeScale/)
+  })
+
+  it('rejects a non-positive window or step instead of simulating nothing', async () => {
+    const base = {
+      digital: squareWave(),
+      analog: rcLoadNetlist(),
+      drives: [{ digitalNode: 'dio', analogNet: 'out', vdd: 5 }],
+    }
+    const cases: Array<[number, number, RegExp]> = [
+      [0, 1e-3, /stopTime/],
+      [Number.NaN, 1e-3, /stopTime/],
+      [10, 0, /stepTime/],
+      [10, Number.NaN, /stepTime/],
+    ]
+    for (const [stopTime, stepTime, expected] of cases) {
+      await expect(simulateMixedSignal({ ...base, stopTime, stepTime })).rejects.toThrow(expected)
+    }
+  })
+
+  it('rejects a drive or probe that cannot be interpreted as a level', async () => {
+    await expect(
+      simulateMixedSignal({
+        digital: squareWave(),
+        analog: rcLoadNetlist(),
+        drives: [{ digitalNode: 'dio', analogNet: 'out', vdd: Number.NaN }],
+        stopTime: 10,
+        stepTime: 1e-3,
+      }),
+    ).rejects.toThrow(/vdd/)
+    await expect(
+      simulateMixedSignal({
+        digital: squareWave(),
+        analog: rcLoadNetlist(),
+        drives: [{ digitalNode: 'dio', analogNet: 'out', vdd: 5, rDrive: -10 }],
+        stopTime: 10,
+        stepTime: 1e-3,
+      }),
+    ).rejects.toThrow(/rDrive/)
+    await expect(
+      simulateMixedSignal({
+        digital: squareWave(),
+        analog: rcLoadNetlist(),
+        drives: [{ digitalNode: 'dio', analogNet: 'out', vdd: 5 }],
+        probes: [{ analogNet: 'out', digitalNode: 'd', threshold: Number.NaN }],
+        stopTime: 10,
+        stepTime: 1e-3,
+      }),
+    ).rejects.toThrow(/threshold/)
+  })
+
+  it('does not run the analog side when the digital simulation fails', async () => {
+    const result = await simulateMixedSignal({
+      digital: {
+        gates: [{ id: 'g1', type: 'BUF', inputs: ['a'], output: 'y', delay: -1 }],
+        stimuli: [{ node: 'a', time: 0, value: 1 }],
+      },
+      analog: rcLoadNetlist(),
+      drives: [{ digitalNode: 'y', analogNet: 'out', vdd: 5 }],
+      stopTime: 10,
+      stepTime: 1e-3,
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/digital simulation failed/)
+    expect(result.digital.success).toBe(false)
+    expect(result.analog.success).toBe(false)
+    expect(result.analog.waveforms).toEqual([])
+  })
+
   it('reports a fail-loud error when the analog engine fails', async () => {
     // Two ideal voltage sources of different value on the same net = singular
     // topology; the analog engine must fail, and the failure must surface.

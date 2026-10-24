@@ -4,6 +4,7 @@ import { RECTIFIER_HIL_SUITE } from '../../lib/demo/demoHilTwin';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
+import { useDemoRequest } from '../workspace/useDemoRequest';
 
 export default function HILTestingPanel() {
   const [session, setSession] = useState<HILTestSession | null>(null);
@@ -13,6 +14,7 @@ export default function HILTestingPanel() {
 
   const run = async () => {
     setBusy(true);
+    setSummary(null);
     setError('');
     try {
       // The proven rectifier suite — not fixture data: same cases the demo test validates.
@@ -29,6 +31,8 @@ export default function HILTestingPanel() {
       setBusy(false);
     }
   };
+
+  useDemoRequest('hil-suite', () => { void run(); });
 
   return (
     <div className="h-full overflow-auto p-4 space-y-4">

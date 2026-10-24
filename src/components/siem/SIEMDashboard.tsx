@@ -136,7 +136,7 @@ export default function SIEMDashboard() {
 
   return (
     <div className="scrollbar-thin h-full space-y-4 overflow-auto p-4">
-      <header className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-xl font-semibold text-foreground">
             <ShieldAlert className="h-5 w-5 text-primary" aria-hidden="true" />
@@ -156,7 +156,7 @@ export default function SIEMDashboard() {
             {checking ? 'Checking…' : 'Run compliance check'}
           </Button>
         </div>
-      </header>
+      </div>
 
       {checkError && (
         <div

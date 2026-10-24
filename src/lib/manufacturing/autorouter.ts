@@ -46,6 +46,12 @@ export interface RouterPad {
   x: number   // mm from board origin
   y: number
   layer: string
+  /**
+   * Copper diameter in mm. Omit for the conservative 1.6 mm through-hole disc;
+   * a real footprint should pass its pad size so adjacent fine-pitch pins are
+   * not over-blocked into an unroutable board.
+   */
+  padDiameterMm?: number
 }
 
 export interface RouterTrace {
@@ -64,11 +70,17 @@ export interface RouterVia {
 }
 
 export interface RouterResult {
+  /**
+   * Copper produced by the search. A net listed in `unrouted` may still have
+   * partial traces here for the MST segments that did succeed; they were
+   * already claimed on the grid, so the geometry matches what blocked later
+   * nets.
+   */
   traces: RouterTrace[]
   vias: RouterVia[]
-  /** Nets that could not be fully routed */
+  /** Nets with at least two pads where any MST segment found no path. */
   unrouted: string[]
-  /** Coverage fraction (0 – 1) */
+  /** Fraction of routeable nets (two or more pads) fully routed, 0 – 1. */
   completionRate: number
   stats: {
     totalNets: number
@@ -80,21 +92,23 @@ export interface RouterResult {
 
 // ─── Grid ────────────────────────────────────────────────────────────────────
 
-type Cell = number  // bit flags: bit 0 = blocked, bits 1-4 = layer index
-
-const BLOCKED = 1
-
 class RoutingGrid {
   readonly cols: number
   readonly rows: number
   readonly layers: string[]
-  private grid: Uint8Array[]   // one typed array per layer
+  /**
+   * One reservation counter per cell. Counts matter rather than bits: pad
+   * keepouts of nearby nets overlap, and releasing one pad's landing area must
+   * not erase the clearance another pad still owns. Claims made by routed
+   * copper are permanent and simply keep incrementing.
+   */
+  private grid: Uint16Array[]
 
   constructor(config: RouterConfig) {
     this.cols = Math.ceil(config.boardWidthMm / config.gridMm) + 1
     this.rows = Math.ceil(config.boardHeightMm / config.gridMm) + 1
     this.layers = config.layers
-    this.grid = config.layers.map(() => new Uint8Array(this.cols * this.rows))
+    this.grid = config.layers.map(() => new Uint16Array(this.cols * this.rows))
   }
 
   private idx(col: number, row: number): number {
@@ -103,19 +117,37 @@ class RoutingGrid {
 
   isBlocked(layer: number, col: number, row: number): boolean {
     if (col < 0 || row < 0 || col >= this.cols || row >= this.rows) return true
-    return (this.grid[layer][this.idx(col, row)] & BLOCKED) !== 0
+    return this.grid[layer][this.idx(col, row)] > 0
   }
 
   block(layer: number, col: number, row: number): void {
     if (col < 0 || row < 0 || col >= this.cols || row >= this.rows) return
-    this.grid[layer][this.idx(col, row)] |= BLOCKED
+    const cell = this.idx(col, row)
+    if (this.grid[layer][cell] < 0xffff) this.grid[layer][cell] += 1
+  }
+
+  unblock(layer: number, col: number, row: number): void {
+    if (col < 0 || row < 0 || col >= this.cols || row >= this.rows) return
+    const cell = this.idx(col, row)
+    if (this.grid[layer][cell] > 0) this.grid[layer][cell] -= 1
   }
 
   /** Block a rectangular region (pad keepout) */
   blockRect(layer: number, x0: number, y0: number, x1: number, y1: number): void {
-    const c0 = Math.max(0, x0), c1 = Math.min(this.cols - 1, x1)
-    const r0 = Math.max(0, y0), r1 = Math.min(this.rows - 1, y1)
-    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) this.block(layer, c, r)
+    forEachCell(this, x0, y0, x1, y1, (c, r) => this.block(layer, c, r))
+  }
+
+}
+
+function forEachCell(
+  grid: RoutingGrid,
+  x0: number, y0: number, x1: number, y1: number,
+  fn: (col: number, row: number) => void,
+): void {
+  const c0 = Math.max(0, x0), c1 = Math.min(grid.cols - 1, x1)
+  const r0 = Math.max(0, y0), r1 = Math.min(grid.rows - 1, y1)
+  for (let row = r0; row <= r1; row += 1) {
+    for (let col = c0; col <= c1; col += 1) fn(col, row)
   }
 }
 
@@ -198,6 +230,9 @@ function astar(
     const current = open.pop()!
     const cn = current.node
 
+    // A cheaper path to this node was already expanded; skip the stale entry.
+    if (visited.get(key(cn)) !== current) continue
+
     if (cn.layer === end.layer && cn.col === end.col && cn.row === end.row) {
       // Reconstruct path
       const path: GridNode[] = []
@@ -261,33 +296,45 @@ function pathToTracesAndVias(
     x: segStart.col * gridMm,
     y: segStart.row * gridMm,
   }]
+  const viaKeys = new Set<string>()
+
+  const pushPoint = (node: GridNode): void => {
+    const point = { x: node.col * gridMm, y: node.row * gridMm }
+    const last = currentPoints[currentPoints.length - 1]
+    // A via chain can revisit the same cell; a repeated vertex is a zero-length
+    // segment and would emit degenerate geometry downstream.
+    if (last && last.x === point.x && last.y === point.y) return
+    currentPoints.push(point)
+  }
 
   for (let i = 1; i < path.length; i++) {
     const prev = path[i - 1]
     const curr = path[i]
 
     if (curr.layer !== prev.layer) {
-      // Finish current segment
-      currentPoints.push({ x: prev.col * gridMm, y: prev.row * gridMm })
+      // Finish current segment at the via location.
+      pushPoint(prev)
       if (currentPoints.length >= 2) {
         traces.push({ netId, layerId: layerNames[segStart.layer], widthMm: traceWidthMm, points: [...currentPoints] })
       }
-      // Place via
-      vias.push({ netId, x: prev.col * gridMm, y: prev.row * gridMm, drillMm: viaDrillMm, padMm: viaPadMm })
+      // A through via covers every layer transition at this coordinate.
+      const viaKey = `${prev.col},${prev.row}`
+      if (!viaKeys.has(viaKey)) {
+        viaKeys.add(viaKey)
+        vias.push({ netId, x: prev.col * gridMm, y: prev.row * gridMm, drillMm: viaDrillMm, padMm: viaPadMm })
+      }
       // Start new segment on new layer
       segStart = curr
       currentPoints.length = 0
       currentPoints.push({ x: curr.col * gridMm, y: curr.row * gridMm })
     } else {
-      currentPoints.push({ x: curr.col * gridMm, y: curr.row * gridMm })
+      pushPoint(curr)
     }
   }
 
   // Final segment
-  const last = path[path.length - 1]
-  currentPoints.push({ x: last.col * gridMm, y: last.row * gridMm })
   if (currentPoints.length >= 2) {
-    traces.push({ netId, layerId: layerNames[segStart.layer], widthMm: traceWidthMm, points: currentPoints })
+    traces.push({ netId, layerId: layerNames[segStart.layer], widthMm: traceWidthMm, points: [...currentPoints] })
   }
 
   return { traces, vias }
@@ -295,26 +342,58 @@ function pathToTracesAndVias(
 
 // ─── Pad blocking ─────────────────────────────────────────────────────────────
 
-function blockPad(
-  grid: RoutingGrid,
-  pad: RouterPad,
-  config: RouterConfig,
-  excludeNet?: string,
-): void {
-  if (pad.netId === excludeNet) return  // don't block own net pads
+interface PadKeepout {
+  layer: number
+  col: number
+  row: number
+  radiusMm: number
+}
+
+/**
+ * Keepout covering the pad plus trace half-width and copper clearance.
+ *
+ * The copper disc comes from `pad.padDiameterMm` when the caller knows the
+ * footprint, otherwise a conservative 1.6 mm through-hole disc
+ * (`max(viaPadMm/2, 0.8 mm)` radius) is assumed. Making the caller state the
+ * pad size matters: the default disc around two 1 mm-pitch SMD pins overlaps
+ * completely and would report a routable footprint as unroutable.
+ */
+function padKeepout(grid: RoutingGrid, pad: RouterPad, config: RouterConfig): PadKeepout | null {
+  const layer = grid.layers.indexOf(pad.layer)
+  if (layer < 0) return null
 
   const clearanceMm = config.minSpacingMm + config.minTraceWidthMm / 2
-  const padRadiusMm = Math.max(config.viaPadMm / 2, 0.8)
-  const totalMm = padRadiusMm + clearanceMm
+  const padRadiusMm = pad.padDiameterMm !== undefined
+    ? pad.padDiameterMm / 2
+    : Math.max(config.viaPadMm / 2, 0.8)
+  return {
+    layer,
+    col: Math.round(pad.x / config.gridMm),
+    row: Math.round(pad.y / config.gridMm),
+    radiusMm: padRadiusMm + clearanceMm,
+  }
+}
 
-  const cx = Math.round(pad.x / config.gridMm)
-  const cy = Math.round(pad.y / config.gridMm)
-  const radiusCells = Math.ceil(totalMm / config.gridMm)
-
-  const layerIndex = grid.layers.indexOf(pad.layer)
-  if (layerIndex < 0) return
-
-  grid.blockRect(layerIndex, cx - radiusCells, cy - radiusCells, cx + radiusCells, cy + radiusCells)
+/**
+ * Reserve or release a pad's disc. Cells are tested by their centre distance,
+ * not by the disc's bounding square: the square would reach 41 % further at the
+ * corners and make two legally spaced pads permanently block each other's
+ * landing cells once keepouts are reference-counted.
+ */
+function setPadKeepout(grid: RoutingGrid, pad: RouterPad, config: RouterConfig, blocked: boolean): void {
+  const keepout = padKeepout(grid, pad, config)
+  if (!keepout) return
+  const radiusCells = Math.ceil(keepout.radiusMm / config.gridMm)
+  const radiusSquared = keepout.radiusMm * keepout.radiusMm
+  for (let row = keepout.row - radiusCells; row <= keepout.row + radiusCells; row += 1) {
+    for (let col = keepout.col - radiusCells; col <= keepout.col + radiusCells; col += 1) {
+      const dx = (col - keepout.col) * config.gridMm
+      const dy = (row - keepout.row) * config.gridMm
+      if (dx * dx + dy * dy > radiusSquared + 1e-12) continue
+      if (blocked) grid.block(keepout.layer, col, row)
+      else grid.unblock(keepout.layer, col, row)
+    }
+  }
 }
 
 // ─── Minimum spanning tree over pads (Prim's algorithm) ──────────────────────
@@ -351,28 +430,83 @@ function buildMST(pads: RouterPad[]): Array<[RouterPad, RouterPad]> {
  * Route all nets on the given board.
  *
  * @param pads    All component pads (from schematic-to-PCB conversion)
- * @param nets    Netlist (component connectivity)
  * @param config  Board + design rule parameters
  */
 export function autoroute(
   pads: RouterPad[],
-  _nets: Net[],
   config: RouterConfig,
 ): RouterResult {
-  const defaultConfig: RouterConfig = {
-    boardWidthMm: 100,
-    boardHeightMm: 80,
-    layers: ['F.Cu', 'B.Cu'],
-    gridMm: 0.5,
-    minTraceWidthMm: 0.2,
-    minSpacingMm: 0.2,
-    viaDrillMm: 0.3,
-    viaPadMm: 0.6,
-    viaPenalty: 8,
-    ...config,
+  const cfg: RouterConfig = {
+    boardWidthMm: config.boardWidthMm ?? 100,
+    boardHeightMm: config.boardHeightMm ?? 80,
+    layers: config.layers ?? ['F.Cu', 'B.Cu'],
+    gridMm: config.gridMm ?? 0.5,
+    minTraceWidthMm: config.minTraceWidthMm ?? 0.2,
+    minSpacingMm: config.minSpacingMm ?? 0.2,
+    viaDrillMm: config.viaDrillMm ?? 0.3,
+    viaPadMm: config.viaPadMm ?? 0.6,
+    viaPenalty: config.viaPenalty ?? 8,
   }
 
-  const grid = new RoutingGrid(defaultConfig)
+  // Reject configs that would otherwise build a zero-sized grid and quietly
+  // report every net as unrouted.
+  const positive = (name: keyof RouterConfig, value: number): void => {
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new Error(`Router ${name} must be a positive finite number (got ${value}).`)
+    }
+  }
+  const nonNegative = (name: keyof RouterConfig, value: number): void => {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error(`Router ${name} must be a non-negative finite number (got ${value}).`)
+    }
+  }
+  positive('boardWidthMm', cfg.boardWidthMm)
+  positive('boardHeightMm', cfg.boardHeightMm)
+  positive('gridMm', cfg.gridMm)
+  positive('minTraceWidthMm', cfg.minTraceWidthMm)
+  positive('viaDrillMm', cfg.viaDrillMm)
+  positive('viaPadMm', cfg.viaPadMm)
+  nonNegative('minSpacingMm', cfg.minSpacingMm)
+  nonNegative('viaPenalty', cfg.viaPenalty)
+  if (cfg.layers.length === 0) throw new Error('Router needs at least one copper layer.')
+  if (cfg.layers.some((layer) => typeof layer !== 'string' || layer.length === 0)) {
+    throw new Error('Router layer names must be non-empty strings.')
+  }
+  if (new Set(cfg.layers).size !== cfg.layers.length) {
+    throw new Error('Router layer names must be unique.')
+  }
+  if (cfg.viaPadMm < cfg.viaDrillMm) {
+    throw new Error(
+      `Router via pad diameter (${cfg.viaPadMm} mm) cannot be smaller than its drill (${cfg.viaDrillMm} mm).`,
+    )
+  }
+
+  for (const pad of pads) {
+    if (!Number.isFinite(pad.x) || !Number.isFinite(pad.y)) {
+      throw new Error(
+        `Pad ${pad.componentId}:${pad.pinId} has non-finite coordinates (${pad.x}, ${pad.y}).`,
+      )
+    }
+    if (!cfg.layers.includes(pad.layer)) {
+      // Silently snapping to layer 0 would route a different board.
+      throw new Error(
+        `Pad ${pad.componentId}:${pad.pinId} is on "${pad.layer}", which is not a routing layer.`,
+      )
+    }
+    if (pad.netId.length === 0) {
+      throw new Error(`Pad ${pad.componentId}:${pad.pinId} has no net id.`)
+    }
+    if (
+      pad.padDiameterMm !== undefined &&
+      !(Number.isFinite(pad.padDiameterMm) && pad.padDiameterMm > 0)
+    ) {
+      throw new Error(
+        `Pad ${pad.componentId}:${pad.pinId} has an invalid copper diameter (${pad.padDiameterMm} mm).`,
+      )
+    }
+  }
+
+  const grid = new RoutingGrid(cfg)
 
   // Group pads by net
   const netPads = new Map<string, RouterPad[]>()
@@ -381,95 +515,96 @@ export function autoroute(
     netPads.get(pad.netId)!.push(pad)
   }
 
-  // Block all pad keepout areas initially
-  for (const pad of pads) {
-    blockPad(grid, pad, defaultConfig)
-  }
+  // Every pad is an obstacle until its own net is routed.
+  for (const pad of pads) setPadKeepout(grid, pad, cfg, true)
 
   const allTraces: RouterTrace[] = []
   const allVias: RouterVia[] = []
   const unrouted: string[] = []
   let totalTraceLength = 0
 
-  // Sort nets by total pad-to-pad distance (shortest first)
-  const netList = Array.from(netPads.entries()).sort((a, b) => {
-    const distA = a[1].reduce((acc, p, i) => i === 0 ? 0 : acc + Math.hypot(p.x - a[1][i-1].x, p.y - a[1][i-1].y), 0)
-    const distB = b[1].reduce((acc, p, i) => i === 0 ? 0 : acc + Math.hypot(p.x - b[1][i-1].x, p.y - b[1][i-1].y), 0)
-    return distA - distB
-  })
+  // Route the shortest nets first — long nets have fewer legal channels once
+  // the short ones claim their copper.
+  const routeableNets = Array.from(netPads.entries())
+    .filter(([, netPadList]) => netPadList.length >= 2)
+    .sort((a, b) => spanOf(a[1]) - spanOf(b[1]))
 
-  for (const [netId, netPadList] of netList) {
-    if (netPadList.length < 2) continue
-
-    // Temporarily unblock own pads so we can connect to them
-    for (const pad of netPadList) {
-      const layerIndex = grid.layers.indexOf(pad.layer)
-      if (layerIndex >= 0) {
-        const cx = Math.round(pad.x / defaultConfig.gridMm)
-        const cy = Math.round(pad.y / defaultConfig.gridMm)
-        const layerArr = (grid as unknown as { grid: Uint8Array[] }).grid
-        if (layerArr) {
-          const idx = cy * grid.cols + cx
-          if (layerArr[layerIndex]) layerArr[layerIndex][idx] = 0
-        }
-      }
-    }
+  for (const [netId, netPadList] of routeableNets) {
+    // Own pads (and their required landing clearance) become reachable.
+    for (const pad of netPadList) setPadKeepout(grid, pad, cfg, false)
 
     const edges = buildMST(netPadList)
     let netRouted = true
+    const netPaths: GridNode[] = []
+    const netVias: RouterVia[] = []
 
     for (const [padA, padB] of edges) {
-      const layerA = Math.max(0, grid.layers.indexOf(padA.layer))
-      const layerB = Math.max(0, grid.layers.indexOf(padB.layer))
       const startNode: GridNode = {
-        layer: layerA,
-        col: Math.round(padA.x / defaultConfig.gridMm),
-        row: Math.round(padA.y / defaultConfig.gridMm),
+        layer: Math.max(0, grid.layers.indexOf(padA.layer)),
+        col: Math.round(padA.x / cfg.gridMm),
+        row: Math.round(padA.y / cfg.gridMm),
       }
       const endNode: GridNode = {
-        layer: layerB,
-        col: Math.round(padB.x / defaultConfig.gridMm),
-        row: Math.round(padB.y / defaultConfig.gridMm),
+        layer: Math.max(0, grid.layers.indexOf(padB.layer)),
+        col: Math.round(padB.x / cfg.gridMm),
+        row: Math.round(padB.y / cfg.gridMm),
       }
 
-      const path = astar(grid, startNode, endNode, defaultConfig.viaPenalty)
+      const path = astar(grid, startNode, endNode, cfg.viaPenalty)
       if (!path) {
         netRouted = false
         continue
       }
+      netPaths.push(...path)
 
       const { traces, vias } = pathToTracesAndVias(
-        path, netId, defaultConfig.gridMm,
-        defaultConfig.minTraceWidthMm,
-        defaultConfig.viaDrillMm,
-        defaultConfig.viaPadMm,
+        path, netId, cfg.gridMm,
+        cfg.minTraceWidthMm,
+        cfg.viaDrillMm,
+        cfg.viaPadMm,
         grid.layers,
       )
 
       allTraces.push(...traces)
       allVias.push(...vias)
+      netVias.push(...vias)
 
-      // Compute trace length
       for (const trace of traces) {
         for (let i = 1; i < trace.points.length; i++) {
-          const dx = trace.points[i].x - trace.points[i-1].x
-          const dy = trace.points[i].y - trace.points[i-1].y
-          totalTraceLength += Math.sqrt(dx*dx + dy*dy)
+          totalTraceLength += Math.hypot(
+            trace.points[i].x - trace.points[i - 1].x,
+            trace.points[i].y - trace.points[i - 1].y,
+          )
         }
       }
+    }
 
-      // Block routed path for subsequent nets
-      for (const node of path) {
-        const clearanceCells = Math.ceil(defaultConfig.minSpacingMm / defaultConfig.gridMm)
-        grid.blockRect(node.layer, node.col - clearanceCells, node.row - clearanceCells,
-          node.col + clearanceCells, node.row + clearanceCells)
+    // Claim the finished net's copper (with clearance) for later nets, then
+    // restore its pad keepouts so no other net can route through them. The
+    // trace claim includes its half-width, and a via additionally claims its
+    // barrel radius; both matter on fine grids where a single cell is smaller
+    // than the copper it is standing in for.
+    const clearanceCells = Math.ceil(
+      (cfg.minSpacingMm + cfg.minTraceWidthMm / 2) / cfg.gridMm,
+    )
+    for (const node of netPaths) {
+      grid.blockRect(node.layer, node.col - clearanceCells, node.row - clearanceCells,
+        node.col + clearanceCells, node.row + clearanceCells)
+    }
+    const viaCells = Math.ceil((cfg.viaPadMm / 2 + cfg.minSpacingMm) / cfg.gridMm)
+    for (const via of netVias) {
+      const col = Math.round(via.x / cfg.gridMm)
+      const row = Math.round(via.y / cfg.gridMm)
+      for (let layer = 0; layer < grid.layers.length; layer += 1) {
+        grid.blockRect(layer, col - viaCells, row - viaCells, col + viaCells, row + viaCells)
       }
     }
+    for (const pad of netPadList) setPadKeepout(grid, pad, cfg, true)
 
     if (!netRouted) unrouted.push(netId)
   }
 
-  const totalNets = netList.length
+  const totalNets = routeableNets.length
   const routedNets = totalNets - unrouted.length
 
   return {
@@ -484,6 +619,18 @@ export function autoroute(
       totalTraceLength: Math.round(totalTraceLength * 100) / 100,
     },
   }
+}
+
+/** Bounding-box diagonal of a net's pads, used for short-first ordering. */
+function spanOf(pads: RouterPad[]): number {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const pad of pads) {
+    if (pad.x < minX) minX = pad.x
+    if (pad.y < minY) minY = pad.y
+    if (pad.x > maxX) maxX = pad.x
+    if (pad.y > maxY) maxY = pad.y
+  }
+  return Math.hypot(maxX - minX, maxY - minY)
 }
 
 // ─── Convert PlacedComponent pads to RouterPad ────────────────────────────────
@@ -505,19 +652,23 @@ export function buildRouterPads(
 
   const pads: RouterPad[] = []
   for (const comp of components) {
+    const radians = (comp.rotation * Math.PI) / 180
+    const cos = Math.cos(radians)
+    const sin = Math.sin(radians)
+    const scale = Number.isFinite(comp.scale) ? comp.scale : 1
     for (const pin of comp.component.pins) {
       const netId = pinToNet.get(`${comp.id}:${pin.id}`)
       if (!netId) continue
 
+      const localX = pin.x * scale
+      const localY = pin.y * scale
       pads.push({
         netId,
         componentId: comp.id,
         pinId: pin.id,
         // Rotate pin position by component rotation and translate to placement
-        x: comp.position.x + pin.x * Math.cos(comp.rotation * Math.PI / 180)
-              - pin.y * Math.sin(comp.rotation * Math.PI / 180),
-        y: comp.position.y + pin.x * Math.sin(comp.rotation * Math.PI / 180)
-              + pin.y * Math.cos(comp.rotation * Math.PI / 180),
+        x: comp.position.x + localX * cos - localY * sin,
+        y: comp.position.y + localX * sin + localY * cos,
         layer: 'F.Cu',  // default to front copper (through-hole goes both sides)
       })
     }

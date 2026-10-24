@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { spiceEngine, type CircuitNetlist, type Component, type SimulationResult } from './spiceEngine'
+import { buildCircuitModel } from './circuitModel'
+import { createRealSystem, createTransientState } from './stamping'
 import {
   bjtBias,
   evaluateBehavioral,
@@ -12,6 +14,7 @@ import {
   opAmpParameters,
   opAmpStage,
   stampBehavioralSource,
+  stampMosfetCharges,
   switchConductance,
   switchOnWithHysteresis,
   type OpAmpOutputRange,
@@ -505,6 +508,214 @@ describe('level-1 MOSFET', () => {
     expect(mosfetRegion(mosfetBias(device, 4, 0.5, 0, thermal))).toBe('triode')
     expect(mosfetRegion(mosfetBias(device, 4, 5, 0, thermal))).toBe('saturation')
   })
+
+  it('mirrors the channel in reverse mode and matches finite-difference conductances', () => {
+    const device: MosfetDevice = {
+      kind: 'mosfet',
+      name: 'M1',
+      p: 'D',
+      n: 'S',
+      polarity: 'n',
+      d: 'D',
+      g: 'G',
+      s: 'S',
+      b: 'B',
+      model: { vto: 2, kp: 1e-3, gamma: 0.5, phi: 0.6, lambda: 0.02, is: 1e-14, n: 1, cgs: 0, cgd: 0 },
+    }
+    const vgs = 4
+    const vds = -0.5
+    const vbs = 0
+    const bias = mosfetBias(device, vgs, vds, vbs, thermal)
+    // The same device evaluated forward with drain and source swapped.
+    const swapped = mosfetBias(device, vgs - vds, -vds, vbs - vds, thermal)
+
+    expect(bias.reverse).toBe(true)
+    expect(bias.id).toBeCloseTo(-swapped.id, 15)
+    expect(bias.gm).toBeCloseTo(-swapped.gm, 15)
+    expect(bias.gds).toBeCloseTo(swapped.gm + swapped.gds + swapped.gmb, 15)
+    expect(bias.gmb).toBeCloseTo(-swapped.gmb, 15)
+    expect(mosfetRegion(bias)).toBe(mosfetRegion(swapped))
+
+    // Every reported Jacobian entry must be the derivative of the current it
+    // claims to differentiate, including the sign-changing cross terms.
+    const h = 1e-8
+    expect((mosfetBias(device, vgs + h, vds, vbs, thermal).id - bias.id) / h).toBeCloseTo(bias.gm, 6)
+    expect((mosfetBias(device, vgs, vds + h, vbs, thermal).id - bias.id) / h).toBeCloseTo(bias.gds, 6)
+    expect((mosfetBias(device, vgs, vds, vbs + h, thermal).id - bias.id) / h).toBeCloseTo(bias.gmb, 6)
+  })
+
+  it('conducts the same current with drain and source swapped in a circuit', async () => {
+    const parameters = { vto: 2, kp: 1e-4, lambda: 0 }
+    const forward = await spiceEngine.simulate(
+      netlist(
+        [
+          dc('VDD', ['VDD', '0'], 10),
+          dc('VG', ['G', '0'], 4),
+          resistor('R', ['VDD', 'D'], '1k'),
+          mosfet('M1', ['D', 'G', '0'], parameters),
+        ],
+        [{ type: 'dc' }],
+      ),
+    )
+    // Drain on ground, source on the resistor: the same channel, reversed.
+    const reverse = await spiceEngine.simulate(
+      netlist(
+        [
+          dc('VDD', ['VDD', '0'], 10),
+          dc('VG', ['G', '0'], 4),
+          resistor('R', ['VDD', 'S'], '1k'),
+          mosfet('M1', ['0', 'G', 'S', '0'], parameters),
+        ],
+        [{ type: 'dc' }],
+      ),
+    )
+    expect(forward.success).toBe(true)
+    expect(reverse.success).toBe(true)
+    // ½·1e-4·(4−2)² = 0.2 mA → 0.2 V across 1 kΩ.
+    expect(voltageAt(forward, 'D')).toBeCloseTo(9.8, 3)
+    expect(voltageAt(reverse, 'S')).toBeCloseTo(9.8, 3)
+  })
+
+  it('clamps a drain pulled below the bulk with the drain–bulk diode', async () => {
+    const result = await spiceEngine.simulate(
+      netlist(
+        [
+          dc('VNEG', ['NEG', '0'], -5),
+          resistor('R', ['NEG', 'D'], '1k'),
+          mosfet('M1', ['D', 'G', '0', '0'], { vto: 2, kp: 1e-3 }),
+        ],
+        [{ type: 'dc' }],
+      ),
+    )
+    expect(result.success).toBe(true)
+    // The body–drain junction conducts and holds the drain near −0.7 V.
+    // Without the diode the drain would sit at −5 V.
+    const drain = voltageAt(result, 'D')
+    expect(drain).toBeGreaterThan(-0.8)
+    expect(drain).toBeLessThan(-0.5)
+  })
+
+  it('charges Cgd from vgs − vds, not from vds alone', () => {
+    /*
+     * Cgd spans gate–drain, so its previous terminal voltage is vg − vd =
+     * vgs − vds. Using vds (the old defect) reverses the companion source and
+     * charges the gate from the wrong terminal. Pin the stamp to the physical
+     * voltage with a bias where the two differ in sign.
+     */
+    const { model, errors } = buildCircuitModel({
+      title: 'Cgd companion',
+      components: [
+        dc('VG', ['G', '0'], 0),
+        dc('VD', ['D', '0'], 0),
+        mosfet('M1', ['D', 'G', '0'], { vto: 1, kp: 1e-3, cgs: 0, cgd: '1n' }),
+      ],
+      analyses: [{ type: 'dc' }],
+    })
+    expect(errors).toEqual([])
+    const device = model.devices.find((entry) => entry.name === 'M1')
+    if (device?.kind !== 'mosfet') throw new Error('M1 did not classify as a MOSFET')
+
+    const state = createTransientState()
+    state.mosfetBias.set('M1', {
+      vgs: 3,
+      vds: 5,
+      vbs: 0,
+      cgs: 0,
+      cgd: 1e-9,
+      cgsCurrent: 0,
+      cgdCurrent: 0,
+    })
+    const system = createRealSystem(model)
+    const dt = 1e-6
+    stampMosfetCharges(system, model, device, state, dt)
+
+    const gate = model.nodeIndex.get('G')
+    const drain = model.nodeIndex.get('D')
+    expect(gate).toBeDefined()
+    expect(drain).toBeDefined()
+    const g = 1e-9 / dt
+    // vgd = 3 − 5 = −2 V; the equivalent source injects g·vgd into the gate.
+    expect(system.rhs[gate as number]).toBeCloseTo(g * (3 - 5), 12)
+    expect(system.rhs[drain as number]).toBeCloseTo(-g * (3 - 5), 12)
+    expect(system.matrix[gate as number][gate as number]).toBeCloseTo(g, 12)
+    expect(system.matrix[gate as number][drain as number]).toBeCloseTo(-g, 12)
+  })
+
+  it('carries the previous gate current in a trapezoidal companion', () => {
+    const { model, errors } = buildCircuitModel({
+      title: 'trapezoidal Cgd companion',
+      components: [
+        dc('VG', ['G', '0'], 0),
+        dc('VD', ['D', '0'], 0),
+        mosfet('M1', ['D', 'G', '0'], { vto: 1, kp: 1e-3, cgs: 0, cgd: '1n' }),
+      ],
+      analyses: [{ type: 'dc' }],
+    })
+    expect(errors).toEqual([])
+    const device = model.devices.find((entry) => entry.name === 'M1')
+    if (device?.kind !== 'mosfet') throw new Error('M1 did not classify as a MOSFET')
+
+    const state = createTransientState()
+    state.mosfetBias.set('M1', {
+      vgs: 3,
+      vds: 5,
+      vbs: 0,
+      cgs: 0,
+      cgd: 1e-9,
+      cgsCurrent: 0,
+      cgdCurrent: 1e-3,
+    })
+    const system = createRealSystem(model)
+    const dt = 1e-6
+    stampMosfetCharges(system, model, device, state, dt, 'trapezoidal')
+
+    const gate = model.nodeIndex.get('G')
+    expect(gate).toBeDefined()
+    const g = (2 * 1e-9) / dt
+    // Trap: i = g·(vgd − vgd,prev) − i_prev, so the source adds i_prev to the
+    // gate injection. Omit it and a gate charge/discharge is under-driven.
+    expect(system.rhs[gate as number]).toBeCloseTo(g * (3 - 5) + 1e-3, 12)
+  })
+
+  it('uses both prior samples in a Gear/BDF2 gate companion', () => {
+    const { model, errors } = buildCircuitModel({
+      title: 'BDF2 Cgd companion',
+      components: [
+        dc('VG', ['G', '0'], 0),
+        dc('VD', ['D', '0'], 0),
+        mosfet('M1', ['D', 'G', '0'], { vto: 1, kp: 1e-3, cgs: 0, cgd: '1n' }),
+      ],
+      analyses: [{ type: 'dc' }],
+    })
+    expect(errors).toEqual([])
+    const device = model.devices.find((entry) => entry.name === 'M1')
+    if (device?.kind !== 'mosfet') throw new Error('M1 did not classify as a MOSFET')
+
+    const state = createTransientState()
+    state.mosfetBias.set('M1', {
+      vgs: 3,
+      vds: 5,
+      vbs: 0,
+      vgs2: 1,
+      vds2: 5,
+      cgs: 0,
+      cgd: 1e-9,
+      cgsCurrent: 0,
+      cgdCurrent: 0,
+    })
+    const system = createRealSystem(model)
+    const dt = 1e-6
+    stampMosfetCharges(system, model, device, state, dt, 'bdf2')
+
+    const gate = model.nodeIndex.get('G')
+    expect(gate).toBeDefined()
+    const g = (1.5 * 1e-9) / dt
+    // vgd,prev = −2 V, vgd,prev2 = −4 V → history = (4·(−2) − (−4))/3 = −4/3 V.
+    const history = (4 * (3 - 5) - (1 - 5)) / 3
+    expect(system.rhs[gate as number]).toBeCloseTo(g * history, 12)
+    expect(system.rhs[gate as number]).not.toBeCloseTo(g * (3 - 5), 12)
+    expect(system.matrix[gate as number][gate as number]).toBeCloseTo(g, 12)
+  })
 })
 
 describe('op-amp macromodel', () => {
@@ -580,35 +791,38 @@ describe('op-amp macromodel', () => {
     expect(voltageAt(result, 'OUT')).toBeLessThan(-3)
   })
 
-  it('limits the slew rate to the part specification', async () => {
-    const result = await spiceEngine.simulate(
-      netlist(
-        [
-          pulse('V1', ['IN', '0'], { v1: 0, v2: 10, td: 0, tr: 1e-9, tf: 1e-9, pw: 1e-3, per: 2e-2 }),
-          opAmp('U1', ['IN', 'OUT', 'OUT'], { slew: 1e6 }),
-        ],
-        [{ type: 'transient', stopTime: 5e-6, stepTime: 1e-8 }],
-      ),
-    )
-    expect(result.success).toBe(true)
-    const output = result.waveforms.find((waveform) => waveform.name === 'V(OUT)')
-    expect(output).toBeDefined()
-    // The step lands on exact multiples of dt, so a nearest sample is enough.
-    const at = (time: number): number => {
-      const point = output?.data.reduce((closest, sample) =>
-        Math.abs(sample.x - time) < Math.abs(closest.x - time) ? sample : closest,
+  it.each(['backward-euler', 'trapezoidal', 'bdf2'] as const)(
+    'limits the slew rate to the part specification (%s)',
+    async (integrationMethod) => {
+      const result = await spiceEngine.simulate(
+        netlist(
+          [
+            pulse('V1', ['IN', '0'], { v1: 0, v2: 10, td: 0, tr: 1e-9, tf: 1e-9, pw: 1e-3, per: 2e-2 }),
+            opAmp('U1', ['IN', 'OUT', 'OUT'], { slew: 1e6 }),
+          ],
+          [{ type: 'transient', stopTime: 5e-6, stepTime: 1e-8, integrationMethod }],
+        ),
       )
-      if (!point) throw new Error('the transient produced no samples')
-      return point.y
-    }
-    /*
-     * A step of 10 V is far beyond the linear input range, so the tail current
-     * is saturated and the internal node ramps at I/C = the slew rate: 1 V/µs.
-     * One microsecond in the output must therefore be about 1 V, not 10 V.
-     */
-    expect(Math.abs(at(1e-6) - 1)).toBeLessThan(0.1)
-    expect(Math.abs(at(5e-6) - 5)).toBeLessThan(0.2)
-  })
+      expect(result.success).toBe(true)
+      const output = result.waveforms.find((waveform) => waveform.name === 'V(OUT)')
+      expect(output).toBeDefined()
+      // The step lands on exact multiples of dt, so a nearest sample is enough.
+      const at = (time: number): number => {
+        const point = output?.data.reduce((closest, sample) =>
+          Math.abs(sample.x - time) < Math.abs(closest.x - time) ? sample : closest,
+        )
+        if (!point) throw new Error('the transient produced no samples')
+        return point.y
+      }
+      /*
+       * A step of 10 V is far beyond the linear input range, so the tail current
+       * is saturated and the internal node ramps at I/C = the slew rate: 1 V/µs.
+       * One microsecond in the output must therefore be about 1 V, not 10 V.
+       */
+      expect(Math.abs(at(1e-6) - 1)).toBeLessThan(0.1)
+      expect(Math.abs(at(5e-6) - 5)).toBeLessThan(0.2)
+    },
+  )
 })
 
 describe('op-amp stage math', () => {
@@ -781,49 +995,52 @@ describe('source waveforms', () => {
     expect(Math.abs(waveformAt(result, 'V(OUT)', 2e-3) - (1 - 1 / (Math.E * Math.E)))).toBeLessThan(0.01)
   })
 
-  it('switches a BJT stage with a PULSE source', async () => {
-    /*
-     * The waveform has to reach the device, not just the linear network. A PULSE
-     * through 10 kΩ of base resistance is 420 µA of base current; a beta of 100
-     * would ask for 42 mA through a 1 kΩ collector load that can only pass 5 mA,
-     * so the stage is a saturated switch: high input ⇒ OUT at Vce,sat, low input
-     * ⇒ OUT at VCC.
-     *
-     * The pulse is delayed by 10 µs on purpose. The transient samples from its
-     * first step (t = dt), so the 0 → 5 V edge would otherwise be in the past by
-     * the first sample and the "off" half of the cycle would never be visible;
-     * a delay also exercises `td` end to end, which is what the PULSE symbol
-     * exposes in its property sheet.
-     */
-    const result = await spiceEngine.simulate(
-      netlist(
-        [
-          dc('VCC', ['VCC', '0'], 5),
-          pulse('V1', ['IN', '0'], {
-            type: 'pulse',
-            v1: 0,
-            v2: 5,
-            td: 1e-5,
-            tr: 1e-8,
-            tf: 1e-8,
-            pw: 1e-5,
-            per: 4e-5,
-          }),
-          resistor('RB', ['IN', 'B'], '10k'),
-          resistor('RC', ['VCC', 'OUT'], '1k'),
-          bjt('Q1', ['OUT', 'B', '0'], { is: '1e-14', bf: 100 }),
-        ],
-        [{ type: 'transient', stopTime: 4e-5, stepTime: 1e-7 }],
-      ),
-    )
-    expect(result.success).toBe(true)
-    // Before the delay elapses the transistor is off, so the collector is at VCC.
-    expect(waveformAt(result, 'V(OUT)', 1e-6)).toBeGreaterThan(4.9)
-    // Mid-pulse it is saturated: Vce,sat is only a small fraction of a volt.
-    expect(waveformAt(result, 'V(OUT)', 2e-5)).toBeLessThan(0.3)
-    // And after the fall the stage returns to the off state.
-    expect(waveformAt(result, 'V(OUT)', 3.5e-5)).toBeGreaterThan(4.5)
-  })
+  it.each(['backward-euler', 'trapezoidal', 'bdf2'] as const)(
+    'switches a BJT stage with a PULSE source (%s)',
+    async (integrationMethod) => {
+      /*
+       * The waveform has to reach the device, not just the linear network. A PULSE
+       * through 10 kΩ of base resistance is 420 µA of base current; a beta of 100
+       * would ask for 42 mA through a 1 kΩ collector load that can only pass 5 mA,
+       * so the stage is a saturated switch: high input ⇒ OUT at Vce,sat, low input
+       * ⇒ OUT at VCC.
+       *
+       * The pulse is delayed by 10 µs on purpose. The transient samples from its
+       * first step (t = dt), so the 0 → 5 V edge would otherwise be in the past by
+       * the first sample and the "off" half of the cycle would never be visible;
+       * a delay also exercises `td` end to end, which is what the PULSE symbol
+       * exposes in its property sheet.
+       */
+      const result = await spiceEngine.simulate(
+        netlist(
+          [
+            dc('VCC', ['VCC', '0'], 5),
+            pulse('V1', ['IN', '0'], {
+              type: 'pulse',
+              v1: 0,
+              v2: 5,
+              td: 1e-5,
+              tr: 1e-8,
+              tf: 1e-8,
+              pw: 1e-5,
+              per: 4e-5,
+            }),
+            resistor('RB', ['IN', 'B'], '10k'),
+            resistor('RC', ['VCC', 'OUT'], '1k'),
+            bjt('Q1', ['OUT', 'B', '0'], { is: '1e-14', bf: 100 }),
+          ],
+          [{ type: 'transient', stopTime: 4e-5, stepTime: 1e-7, integrationMethod }],
+        ),
+      )
+      expect(result.success).toBe(true)
+      // Before the delay elapses the transistor is off, so the collector is at VCC.
+      expect(waveformAt(result, 'V(OUT)', 1e-6)).toBeGreaterThan(4.9)
+      // Mid-pulse it is saturated: Vce,sat is only a small fraction of a volt.
+      expect(waveformAt(result, 'V(OUT)', 2e-5)).toBeLessThan(0.3)
+      // And after the fall the stage returns to the off state.
+      expect(waveformAt(result, 'V(OUT)', 3.5e-5)).toBeGreaterThan(4.5)
+    },
+  )
 
   it('inverts a SINE through a MOSFET common-source stage', async () => {
     /*

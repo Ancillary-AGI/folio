@@ -1,4 +1,10 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Activity, ArrowRightLeft, Box, Bot, Camera, ChevronLeft, ChevronRight, CircuitBoard, Code2, Cpu, FlaskConical,
+  Gauge, GitBranch, Grid3X3, Layers, List, Package, PenTool, Plug, Radio, RadioTower, RotateCw,
+  ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, Terminal, Wrench, Zap,
+  type LucideIcon,
+} from 'lucide-react'
 import SchematicCanvas from '../SchematicCanvas'
 import ComponentLibrary from '../ComponentLibrary'
 import PropertiesPanel from '../PropertiesPanel'
@@ -6,6 +12,12 @@ import ToolRail from './ToolRail'
 import { useAppStore, type WorkspaceMode } from '../../stores/useAppStore'
 import { modeFromHash, projectFromHash, writeHash } from '../../stores/routing'
 import { useProjectStore } from '../../stores/useProjectStore'
+import {
+  WORKSPACE_GROUPS,
+  WORKSPACE_MODES,
+  groupForMode,
+  type WorkspaceGroupId,
+} from '../../lib/workspace/modes'
 import type { Component } from '../../lib/supabase'
 import type { Schematic } from '../../types'
 
@@ -14,7 +26,10 @@ import type { Schematic } from '../../types'
  * (three.js, reactflow, recharts) never reach the initial bundle.
  */
 const MechanicalDesignPanel = lazy(() => import('../mechanical/MechanicalDesignPanel'))
+const ControlSystemsPanel = lazy(() => import('../control/ControlSystemsPanel'))
+const MachineSimulatorPanel = lazy(() => import('../electronics/MachineSimulatorPanel'))
 const PCBDesignPanel = lazy(() => import('../pcb/PCBDesignPanel'))
+const RFDesignPanel = lazy(() => import('../rf/RFDesignPanel'))
 const SchematicToPcbPanel = lazy(() =>
   import('../schematicToPcb/SchematicToPcbPanel').then((m) => ({ default: m.SchematicToPcbPanel })),
 )
@@ -23,6 +38,8 @@ const AdvancedRoboticsPanel = lazy(() =>
   import('../robotics/AdvancedRoboticsPanel').then((m) => ({ default: m.AdvancedRoboticsPanel })),
 )
 const BoardProgrammingPanel = lazy(() => import('../programming/BoardProgrammingPanel'))
+const PiImagingPanel = lazy(() => import('../programming/PiImagingPanel'))
+const VisualProgrammingEditor = lazy(() => import('../visual-programming/VisualProgrammingEditor'))
 const FPGADesignPanel = lazy(() => import('../fpga/FPGADesignPanel'))
 const HILTestingPanel = lazy(() => import('../hil/HILTestingPanel'))
 const DigitalTwinFleetPanel = lazy(() => import('../digitalTwin/DigitalTwinFleetPanel'))
@@ -41,35 +58,45 @@ const PluginMarketplace = lazy(() => import('../ecad/PluginMarketplace'))
 interface DomainWorkspaceProps {
   libraryComponents: Component[]
   onSave: (data: Record<string, unknown>) => void
+  onOpenDemos: () => void
 }
 
-const MODES: Array<{ id: WorkspaceMode; label: string }> = [
-  { id: 'schematic', label: 'Schematic' },
-  { id: 'simulation', label: 'Simulation' },
-  { id: 'convert', label: 'Sch→PCB' },
-  { id: 'pcb', label: 'PCB' },
-  { id: 'hdl', label: 'HDL/RTL' },
-  { id: 'icdesign', label: 'IC Design' },
-  { id: 'mechanical', label: 'CAD' },
-  { id: 'preview3d', label: '3D / AR' },
-  { id: 'embedded', label: 'Arduino' },
-  { id: 'fpga', label: 'FPGA' },
-  { id: 'hil', label: 'HIL' },
-  { id: 'robotics', label: 'Robotics' },
-  { id: 'twin', label: 'Twin / IIoT' },
-  { id: 'agents', label: 'Agents' },
-  { id: 'components', label: 'Components' },
-  { id: 'plugins', label: 'Plugins' },
-  { id: 'siem', label: 'SIEM' },
-  { id: 'marketplace', label: 'Marketplace' },
-  { id: 'dashboard', label: 'Dashboard' },
-  { id: 'bom', label: 'BOM' },
-]
+const MODE_ICONS: Readonly<Record<WorkspaceMode, LucideIcon>> = {
+  schematic: PenTool,
+  simulation: Activity,
+  convert: ArrowRightLeft,
+  pcb: CircuitBoard,
+  preview3d: Box,
+  bom: List,
+  control: SlidersHorizontal,
+  machines: RotateCw,
+  rf: Radio,
+  hdl: Code2,
+  icdesign: Cpu,
+  fpga: Grid3X3,
+  mechanical: Wrench,
+  robotics: Bot,
+  embedded: Terminal,
+  imaging: Camera,
+  visual: GitBranch,
+  hil: FlaskConical,
+  twin: RadioTower,
+  agents: Sparkles,
+  components: Package,
+  plugins: Plug,
+  dashboard: Gauge,
+  siem: ShieldCheck,
+  marketplace: ShoppingBag,
+}
 
-/** Tab-strip group breaks: before 'mechanical' (engineering) and 'agents' (AI/ops). */
-const MODE_GROUP_BREAKS = [6, 13]
+const GROUP_ICONS: Readonly<Record<WorkspaceGroupId, LucideIcon>> = {
+  design: Layers,
+  electrical: Zap,
+  mechanical: Wrench,
+  ops: ShieldCheck,
+}
 
-export default function DomainWorkspace({ libraryComponents, onSave }: DomainWorkspaceProps) {
+export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos }: DomainWorkspaceProps) {
   const {
     workspaceMode,
     setWorkspaceMode,
@@ -77,10 +104,70 @@ export default function DomainWorkspace({ libraryComponents, onSave }: DomainWor
     settings,
     updateSettings,
     sidebarOpen,
+    toggleSidebar,
     selectedComponents,
     clearSelection,
   } = useAppStore()
   const { components, wires, currentProject, updateComponent } = useProjectStore()
+
+  /*
+   * Four workspace families keep 25 domains navigable without a 25-tab ribbon.
+   * The family follows the active mode; clicking another family browses it
+   * without leaving the current document.
+   */
+  const [activeGroup, setActiveGroup] = useState<WorkspaceGroupId>(() => groupForMode(workspaceMode))
+  useEffect(() => setActiveGroup(groupForMode(workspaceMode)), [workspaceMode])
+  const visibleModes = useMemo(
+    () => WORKSPACE_MODES.filter((mode) => mode.group === activeGroup),
+    [activeGroup],
+  )
+
+  /* Keep the active tab visible when a mode is opened from the demo gallery,
+   * the command palette, or a deep link on a narrow screen. */
+  const modeRowRef = useRef<HTMLDivElement>(null)
+  const [modeScroll, setModeScroll] = useState({ left: false, right: false })
+
+  useEffect(() => {
+    const active = modeRowRef.current?.querySelector<HTMLElement>('[aria-current="page"]')
+    active?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+  }, [workspaceMode, activeGroup])
+
+  /* A hidden scrollbar leaves no cue that more domains exist, so the rail
+   * exposes directional buttons only while there is content in that direction. */
+  useEffect(() => {
+    const row = modeRowRef.current
+    if (!row) return
+    const update = () =>
+      setModeScroll({
+        left: row.scrollLeft > 8,
+        right: row.scrollLeft + row.clientWidth < row.scrollWidth - 8,
+      })
+    update()
+    row.addEventListener('scroll', update, { passive: true })
+    window.addEventListener('resize', update)
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null
+    observer?.observe(row)
+    return () => {
+      row.removeEventListener('scroll', update)
+      window.removeEventListener('resize', update)
+      observer?.disconnect()
+    }
+  }, [activeGroup, visibleModes.length])
+
+  const scrollModes = (direction: -1 | 1) => {
+    const row = modeRowRef.current
+    if (!row) return
+    row.scrollBy?.({ left: direction * Math.max(120, row.clientWidth * 0.6), behavior: 'smooth' })
+  }
+
+  /* Below the desktop breakpoint the library is a drawer; open with the sheet
+   * in view instead of covering half of it. The header toggle reopens it. */
+  useEffect(() => {
+    const narrow = window.matchMedia?.('(max-width: 1279px)').matches ?? false
+    if (narrow && useAppStore.getState().sidebarOpen) {
+      useAppStore.setState({ sidebarOpen: false })
+    }
+  }, [])
 
   /**
    * Click-to-place flow: selecting a library part arms it; the next click on
@@ -137,20 +224,30 @@ export default function DomainWorkspace({ libraryComponents, onSave }: DomainWor
     })
   }, [onSave])
 
-  /* Read the mode from the URL on load; follow back/forward afterwards. */
+  /* Read the mode from the URL on load; follow back/forward afterwards.
+   * Re-setting the mode we are already on would clear a pending demo request,
+   * so hash sync only dispatches on a genuine change. */
   useEffect(() => {
-    const mode = modeFromHash()
-    if (mode) useAppStore.getState().setWorkspaceMode(mode)
-    const onHashChange = () => {
+    const syncModeFromHash = () => {
       const next = modeFromHash()
-      if (next) useAppStore.getState().setWorkspaceMode(next)
+      if (!next || next === useAppStore.getState().workspaceMode) return
+      useAppStore.getState().setWorkspaceMode(next)
     }
-    window.addEventListener('hashchange', onHashChange)
-    return () => window.removeEventListener('hashchange', onHashChange)
+    syncModeFromHash()
+    window.addEventListener('hashchange', syncModeFromHash)
+    return () => window.removeEventListener('hashchange', syncModeFromHash)
   }, [])
 
-  /* Keep the URL in step with the active tab (+ project id when present). */
+  /* Keep the URL in step with the active tab (+ project id when present).
+   * The first commit is skipped: on a deep-linked load it still carries the
+   * persisted mode and would overwrite the hash before the sync above has
+   * applied, snapping a reloaded `#/pcb` back to the default workspace. */
+  const hashWriteReady = useRef(false)
   useEffect(() => {
+    if (!hashWriteReady.current) {
+      hashWriteReady.current = true
+      return
+    }
     writeHash(workspaceMode, currentProject?.id ?? projectFromHash())
   }, [workspaceMode, currentProject?.id])
 
@@ -251,34 +348,104 @@ export default function DomainWorkspace({ libraryComponents, onSave }: DomainWor
     : null
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* Workspace document tabs — grouped by design / engineering / ops */}
-      <nav
-        className="app-chrome scrollbar-thin flex flex-shrink-0 items-stretch overflow-x-auto border-b border-border"
-        aria-label="Workspace"
-      >
-        {MODES.map((mode, index) => (
-          <span key={mode.id} className="flex items-stretch">
-            {(index === MODE_GROUP_BREAKS[0] || index === MODE_GROUP_BREAKS[1]) && (
-              <span className="my-1.5 w-px flex-shrink-0 bg-border" aria-hidden="true" />
-            )}
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      {/* Workspace families + the modes inside the selected family */}
+      <nav className="app-chrome flex w-full min-w-0 flex-shrink-0 flex-col overflow-hidden border-b border-border" aria-label="Workspace">
+        <div className="flex min-w-0 items-stretch gap-1 px-2 pt-1">
+          <div className="scrollbar-none flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto" role="group" aria-label="Workspace families">
+            {WORKSPACE_GROUPS.map((group) => {
+              const Icon = GROUP_ICONS[group.id]
+              const active = group.id === activeGroup
+              return (
+                <button
+                  key={group.id}
+                  type="button"
+                  aria-pressed={active}
+                  title={group.description}
+                  onClick={() => setActiveGroup(group.id)}
+                  className={`flex h-7 flex-shrink-0 items-center gap-1.5 rounded-t-sm border-b-2 px-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors ${
+                    active
+                      ? 'border-b-primary bg-background text-foreground'
+                      : 'border-b-transparent text-muted-foreground hover:bg-accent hover:text-foreground'
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                  {group.label}
+                  {active && <span className="cad-readout text-[9px] text-muted-foreground">{visibleModes.length}</span>}
+                </button>
+              )
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={onOpenDemos}
+            className="flex h-7 flex-shrink-0 items-center gap-1.5 rounded-sm border border-primary/40 bg-primary/10 px-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-primary transition-colors hover:bg-primary/20"
+            title="Open the demo gallery (one tested scenario per workspace)"
+          >
+            <FlaskConical className="h-3.5 w-3.5" aria-hidden="true" />
+            Demos
+          </button>
+        </div>
+        <div className="relative min-w-0">
+          <div ref={modeRowRef} className="scrollbar-none flex min-w-0 items-stretch overflow-x-auto" role="group" aria-label={`${activeGroup} workspaces`}>
+            {visibleModes.map((mode) => {
+              const Icon = MODE_ICONS[mode.id]
+              const active = workspaceMode === mode.id
+              return (
+                <button
+                  key={mode.id}
+                  type="button"
+                  title={mode.description}
+                  className={`cad-tab gap-1.5 ${active ? 'cad-tab-active' : ''}`}
+                  aria-current={active ? 'page' : undefined}
+                  onClick={() => {
+                    setPendingComponent(null)
+                    setWorkspaceMode(mode.id)
+                  }}
+                >
+                  <Icon className="h-3 w-3" aria-hidden="true" />
+                  {mode.label}
+                </button>
+              )
+            })}
+          </div>
+          {/* Overflow affordance: the tab rail scrolls without a visible bar. */}
+          {modeScroll.right && (
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-surface to-transparent" aria-hidden="true" />
+          )}
+          {modeScroll.left && (
             <button
               type="button"
-              className={`cad-tab ${workspaceMode === mode.id ? 'cad-tab-active' : ''}`}
-              aria-current={workspaceMode === mode.id ? 'page' : undefined}
-              onClick={() => {
-                setPendingComponent(null)
-                setWorkspaceMode(mode.id)
-              }}
+              onClick={() => scrollModes(-1)}
+              aria-label="Scroll workspaces left"
+              className="absolute inset-y-0 left-0 z-10 flex w-6 items-center justify-center border-r border-border bg-surface/95 text-muted-foreground hover:text-foreground"
             >
-              {mode.label}
+              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
             </button>
-          </span>
-        ))}
+          )}
+          {modeScroll.right && (
+            <button
+              type="button"
+              onClick={() => scrollModes(1)}
+              aria-label="Scroll workspaces right"
+              className="absolute inset-y-0 right-0 z-10 flex w-6 items-center justify-center border-l border-border bg-surface/95 text-muted-foreground hover:text-foreground"
+            >
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
+        </div>
       </nav>
       {/* Workstation row: tool rail | library | sheet | inspector */}
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 min-w-0 flex-1">
         {isSchematic && <ToolRail onSave={saveSnapshot} />}
+
+        {isSchematic && sidebarOpen && (
+          <div
+            className="fixed inset-0 z-20 bg-overlay/40 xl:hidden"
+            onClick={toggleSidebar}
+            aria-hidden="true"
+          />
+        )}
 
         {isSchematic && sidebarOpen && (
           <aside className="cad-dock" aria-label="Component library">
@@ -288,6 +455,7 @@ export default function DomainWorkspace({ libraryComponents, onSave }: DomainWor
               onSelectComponent={(component) =>
                 setPendingComponent((prev) => (prev?.id === component.id ? null : component))
               }
+              onClose={toggleSidebar}
             />
           </aside>
         )}
@@ -308,8 +476,11 @@ export default function DomainWorkspace({ libraryComponents, onSave }: DomainWor
               onPendingPlaced={() => setPendingComponent(null)}
             />
           )}
+          {workspaceMode === 'control' && <ControlSystemsPanel onClose={() => setWorkspaceMode('schematic')} />}
+          {workspaceMode === 'machines' && <MachineSimulatorPanel onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'mechanical' && <MechanicalDesignPanel onClose={() => setWorkspaceMode('schematic')} />}
-          {workspaceMode === 'pcb' && <PCBDesignPanel onClose={() => setWorkspaceMode('schematic')} />}
+          {workspaceMode === 'pcb' && <PCBDesignPanel onClose={() => setWorkspaceMode('schematic')} onPreview3D={() => setWorkspaceMode('preview3d')} />}
+          {workspaceMode === 'rf' && <RFDesignPanel onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'simulation' && (
             <div className="h-full overflow-auto p-4">
               <SimulationPanel onClose={() => setWorkspaceMode('schematic')} />
@@ -323,6 +494,8 @@ export default function DomainWorkspace({ libraryComponents, onSave }: DomainWor
           {workspaceMode === 'preview3d' && <Circuit3DViewer onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'robotics' && <AdvancedRoboticsPanel onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'embedded' && <BoardProgrammingPanel onClose={() => setWorkspaceMode('schematic')} />}
+          {workspaceMode === 'imaging' && <PiImagingPanel onClose={() => setWorkspaceMode('schematic')} />}
+          {workspaceMode === 'visual' && <VisualProgrammingEditor onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'fpga' && <FPGADesignPanel />}
           {workspaceMode === 'hil' && <HILTestingPanel />}
           {workspaceMode === 'twin' && <DigitalTwinFleetPanel />}

@@ -79,7 +79,9 @@ export class FlashDaemon {
         return { kind: 'ready', devices: [...this.devices.values()].map((d) => d.info) };
       case 'bye':
         this.closed = true;
-        return { kind: 'error', message: 'bye' };
+        // A clean shutdown is not an error: the client should not surface it
+        // as a failure.
+        return { kind: 'bye' };
       case 'list-devices':
         return { kind: 'ready', devices: [...this.devices.values()].map((d) => d.info) };
       case 'write': {

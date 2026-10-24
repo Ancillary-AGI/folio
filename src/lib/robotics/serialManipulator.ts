@@ -25,10 +25,12 @@
  */
 
 import {
+  assertMat4,
   forwardKinematics,
   solveIk,
   translationOf,
   type DhJoint,
+  type IkOptions,
   type Vec3,
 } from '../mechanical/kinematics';
 
@@ -45,8 +47,11 @@ export interface Pose {
  * `pitch = asin(-R20)`, `roll = atan2(R21, R22)`, `yaw = atan2(R10, R00)`.
  *
  * At `|R20| → 1` the pitch reaches ±90° and roll and yaw describe the same rotation, so
- * yaw is pinned to zero and roll carries the sum. That is reported through
- * `gimbalLock` rather than silently returning a plausible-looking pair.
+ * roll is pinned to zero. The remaining rotation is then a pure yaw,
+ * `Rz(ψ)Ry(±90°)Rx(φ) = Rz(ψ ∓ φ)Ry(±90°)`, which is read from the first row of the
+ * matrix (`atan2(-R01, R11)`); the ordinary yaw formula would divide zero by zero at
+ * the singularity and discard the orientation. That is reported through `gimbalLock`
+ * rather than silently returning a plausible-looking pair.
  */
 export function rotationToRollPitchYaw(matrix: readonly number[]): {
   roll: number;
@@ -54,12 +59,12 @@ export function rotationToRollPitchYaw(matrix: readonly number[]): {
   yaw: number;
   gimbalLock: boolean;
 } {
-  if (matrix.length !== 16) throw new Error(`Expected a 16-element matrix, got ${matrix.length}.`);
+  assertMat4(matrix);
   const r20 = matrix[8];
   const clamp = (v: number): number => Math.min(1, Math.max(-1, v));
   const pitch = Math.asin(clamp(-r20));
   if (Math.abs(Math.abs(r20) - 1) < 1e-9) {
-    return { roll: 0, pitch, yaw: Math.atan2(-matrix[4], matrix[0]), gimbalLock: true };
+    return { roll: 0, pitch, yaw: Math.atan2(-matrix[1], matrix[5]), gimbalLock: true };
   }
   return {
     roll: Math.atan2(matrix[9], matrix[10]),
@@ -86,7 +91,7 @@ export function manipulatorPose(chain: readonly DhJoint[]): Pose {
 export function solveManipulatorIk(
   chain: readonly DhJoint[],
   target: Vec3,
-  options: { tolerance?: number; maxIterations?: number; lambda?: number } = {},
+  options: IkOptions = {},
 ): { values: number[]; error: number; converged: boolean } {
   const result = solveIk(chain, target, options);
   return { values: result.values, error: result.error, converged: result.converged };
@@ -123,9 +128,11 @@ export function trapezoidalProfile(
   maxAcceleration: number,
 ): VelocityProfile {
   if (!Number.isFinite(distance)) throw new Error(`Distance must be finite, got ${distance}.`);
-  if (!(maxVelocity > 0)) throw new Error(`maxVelocity must be positive, got ${maxVelocity}.`);
-  if (!(maxAcceleration > 0)) {
-    throw new Error(`maxAcceleration must be positive, got ${maxAcceleration}.`);
+  if (!Number.isFinite(maxVelocity) || !(maxVelocity > 0)) {
+    throw new Error(`maxVelocity must be positive and finite, got ${maxVelocity}.`);
+  }
+  if (!Number.isFinite(maxAcceleration) || !(maxAcceleration > 0)) {
+    throw new Error(`maxAcceleration must be positive and finite, got ${maxAcceleration}.`);
   }
   const d = Math.abs(distance);
   if (d === 0) {
@@ -228,10 +235,16 @@ export function planTimedTrajectory(
   if (start.length !== end.length) throw new Error('Start and end must have the same length.');
   if (start.length === 0) throw new Error('A trajectory needs at least one joint.');
   const sampleCount = limits.samples ?? 50;
-  if (!(sampleCount >= 2)) throw new Error(`samples must be at least 2, got ${sampleCount}.`);
+  // An infinite or fractional count would loop forever or emit mis-spaced samples.
+  if (!Number.isInteger(sampleCount) || sampleCount < 2) {
+    throw new Error(`samples must be an integer of at least 2, got ${sampleCount}.`);
+  }
 
   let span = 0;
   for (let i = 0; i < start.length; i += 1) {
+    if (!Number.isFinite(start[i]) || !Number.isFinite(end[i])) {
+      throw new Error(`Joint ${i} has a non-finite start or end value.`);
+    }
     span = Math.max(span, Math.abs(end[i] - start[i]));
   }
   const profile = trapezoidalProfile(span, limits.maxVelocity, limits.maxAcceleration);

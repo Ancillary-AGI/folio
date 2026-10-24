@@ -179,12 +179,17 @@
   }
 
   .status-bar {
-    @apply flex h-7 flex-shrink-0 items-stretch border-t border-border bg-surface text-xs text-muted-foreground;
+    @apply flex h-7 min-w-0 flex-shrink-0 items-stretch overflow-x-auto overflow-y-hidden border-t border-border bg-surface text-xs text-muted-foreground;
+    scrollbar-width: none;
+  }
+
+  .status-bar::-webkit-scrollbar {
+    display: none;
   }
 
   /* One monospace cell of the segmented status bar (CAD-style readouts). */
   .status-segment {
-    @apply inline-flex h-full items-center gap-1.5 whitespace-nowrap border-r border-border px-3 text-[10px] uppercase tracking-[0.08em];
+    @apply inline-flex h-full flex-shrink-0 items-center gap-1.5 whitespace-nowrap border-r border-border px-3 text-[10px] uppercase tracking-[0.08em];
   }
 
   .modal-scrim {
@@ -266,6 +271,19 @@
   /* Inspector dock — same palette anatomy as the library, mirrored border. */
   .cad-inspector {
     @apply flex w-72 min-w-72 min-h-0 max-w-72 flex-shrink-0 flex-col overflow-hidden border-l border-border bg-card text-card-foreground;
+  }
+
+  /* Narrow viewports: docks float over the sheet rather than squeezing it to an
+   * unusable sliver. Both remain dismissible from their own close buttons (the
+   * library also has the header toggle). */
+  @media (max-width: 1279px) {
+    .cad-dock {
+      @apply absolute inset-y-0 left-0 z-30 shadow-2xl;
+    }
+
+    .cad-inspector {
+      @apply absolute inset-y-0 right-0 z-30 shadow-2xl;
+    }
   }
 
   /* Fixed 28px palette title bar shared by every docked panel. */
@@ -392,6 +410,16 @@
   .scrollbar-thin {
     scrollbar-width: thin;
     scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  /* Scrollable ribbons: keep overflow behaviour, hide the scrollbar rail so
+   * the toolbar stays a single clean strip. */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
   }
 
   .scrollbar-thin::-webkit-scrollbar {
@@ -525,4 +553,39 @@
 
 .animate-rise-in {
   animation: rise-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/*
+ * React Flow ships fixed light chrome and loads its stylesheet with the lazy
+ * editor chunk, i.e. after this file. The extra class raises specificity above
+ * its unlayered defaults so the blocks editor follows the active theme.
+ */
+.react-flow .react-flow__controls {
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.2);
+}
+
+.react-flow .react-flow__controls-button {
+  background: hsl(var(--card));
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+}
+
+.react-flow .react-flow__controls-button:hover {
+  background: hsl(var(--accent));
+}
+
+.react-flow .react-flow__controls-button svg {
+  fill: hsl(var(--foreground));
+}
+
+.react-flow .react-flow__attribution {
+  background: hsl(var(--card) / 0.85);
+  color: hsl(var(--muted-foreground));
+}
+
+.react-flow .react-flow__attribution a {
+  color: inherit;
 }

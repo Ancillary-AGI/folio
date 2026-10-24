@@ -52,9 +52,30 @@ export interface PairViolation {
 
 const MIN_COUPLING_RATIO = 0.7
 
+function assertRoutedLengths(pair: RoutedPair): void {
+  for (const [label, value] of [
+    ['lengthP', pair.lengthP],
+    ['lengthN', pair.lengthN],
+  ] as const) {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error(`${pair.name}: ${label} must be zero or positive and finite.`)
+    }
+  }
+}
+
 /** Intra-pair skew, gap sanity, and coupling coverage for one pair. */
 export function checkPair(pair: RoutedPair): { skewPs: number; violations: PairViolation[] } {
   const violations: PairViolation[] = []
+  assertRoutedLengths(pair)
+  if (!Number.isFinite(pair.gap)) {
+    throw new Error(`${pair.name}: gap must be finite.`)
+  }
+  if (!Number.isFinite(pair.coupledLength) || pair.coupledLength < 0) {
+    throw new Error(`${pair.name}: coupled length must be zero or positive and finite.`)
+  }
+  if (!Number.isFinite(pair.skewBudgetPs) || pair.skewBudgetPs < 0) {
+    throw new Error(`${pair.name}: skew budget must be zero or positive and finite.`)
+  }
   const skewPs = pairSkewPs(pair.lengthP, pair.lengthN)
   if (Math.abs(skewPs) > pair.skewBudgetPs) {
     violations.push({
@@ -81,7 +102,11 @@ export function checkPair(pair: RoutedPair): { skewPs: number; violations: PairV
 
 /** Group match: every pair's mean length inside the window, or violations. */
 export function checkGroup(pairs: RoutedPair[], windowMm: number): PairViolation[] {
+  if (!Number.isFinite(windowMm) || windowMm < 0) {
+    throw new Error('group match window must be zero or positive and finite.')
+  }
   const violations: PairViolation[] = []
+  for (const pair of pairs) assertRoutedLengths(pair)
   if (pairs.length < 2) return violations
   const means = pairs.map((pair) => (pair.lengthP + pair.lengthN) / 2)
   const longest = Math.max(...means)
@@ -115,9 +140,13 @@ export interface Meander {
  * than one lobe — the router places them, this sizes them.
  */
 export function meanderForSkew(skewMm: number, amplitude: number, period: number): Meander {
+  if (!Number.isFinite(skewMm)) throw new Error('skew must be finite')
+  if (!Number.isFinite(amplitude) || amplitude <= 0) throw new Error('meander amplitude must be positive and finite')
+  if (!Number.isFinite(period) || period <= 0) throw new Error('meander period must be positive and finite')
   const target = Math.abs(skewMm)
+  // A rectangular trombone replaces a straight run with two legs of `amplitude`,
+  // so each lobe adds 2×amplitude regardless of the horizontal period.
   const lobeLength = 2 * amplitude
   const lobes = target <= 0 ? 0 : Math.max(1, Math.ceil(target / lobeLength))
-  void period
   return { lobeLength, lobes, total: lobes * lobeLength, amplitude, period }
 }

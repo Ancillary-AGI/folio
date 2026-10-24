@@ -74,8 +74,6 @@ export interface SIEMAlert {
 interface SystemSnapshot {
   /** Fraction of actions in the last audit window that required 2+ auth factors */
   mfaEnforcementRate: number
-  /** Number of failed login attempts in the last window */
-  failedLoginAttempts: number
   /** Whether encryption is active for stored assets */
   encryptionActive: boolean
   /** Whether network segments are defined */
@@ -275,6 +273,19 @@ const COMPLIANCE_RULES: ComplianceRule[] = [
 
 // ── Service ───────────────────────────────────────────────────────────────────
 
+/**
+ * Newest-first ordering. Two records can share a millisecond, so fall back to
+ * the monotonic id sequence — otherwise `limit: 1` would return the older of
+ * two simultaneous records.
+ */
+function newestFirst<T extends { id: string; timestamp: number }>(items: T[]): T[] {
+  const sequenceOf = (id: string): number => {
+    const match = /_(\d+)$/.exec(id)
+    return match ? Number(match[1]) : 0
+  }
+  return [...items].sort((a, b) => b.timestamp - a.timestamp || sequenceOf(b.id) - sequenceOf(a.id))
+}
+
 export class SIEMService {
   private events: SIEMEvent[] = []
   private threats: ThreatIntelligence[] = []
@@ -321,7 +332,6 @@ export class SIEMService {
     this.sequence += 1
     return `${prefix}_${this.sequence.toString().padStart(6, '0')}`
   }
-
   // ── Event management ─────────────────────────────────────────────────────────
 
   logEvent(event: Omit<SIEMEvent, 'id' | 'timestamp' | 'resolved'>): void {
@@ -358,7 +368,7 @@ export class SIEMService {
         return true
       })
     }
-    result = [...result].sort((a, b) => b.timestamp - a.timestamp)
+    result = newestFirst(result)
     return filters?.limit ? result.slice(0, filters.limit) : result
   }
 
@@ -382,6 +392,12 @@ export class SIEMService {
     if (systemData.networkTraffic) detected.push(...this.analyzeNetworkTraffic(systemData.networkTraffic))
     if (systemData.componentStates) detected.push(...this.detectAnomalies(systemData.componentStates))
     if (systemData.userActivities) detected.push(...this.analyzeUserBehavior(systemData.userActivities))
+    if (detected.length > 0) {
+      // Detections are intelligence, not just log lines: fold them into the
+      // reportable list so the threat report reflects what was actually found.
+      this.threats = [...detected, ...this.threats].slice(0, 500)
+      this.notify()
+    }
     return detected
   }
 
@@ -401,7 +417,7 @@ export class SIEMService {
     for (const [src, ports] of portsBySource) {
       if (ports.size > 15) {
         threats.push({
-          id: `thr_portscan_${Date.now()}`,
+          id: this.nextId('thr_portscan'),
           type: 'attack_pattern',
           severity: 'medium',
           description: `Port scan detected from ${src} — ${ports.size} distinct ports probed`,
@@ -419,7 +435,7 @@ export class SIEMService {
       const size = typeof pkt.size === 'number' ? pkt.size : 0
       if (size > 1_000_000) {
         threats.push({
-          id: `thr_exfil_${Date.now()}`,
+          id: this.nextId('thr_exfil'),
           type: 'attack_pattern',
           severity: 'high',
           description: `Potential data exfiltration — ${(size / 1e6).toFixed(1)} MB transfer`,
@@ -442,7 +458,7 @@ export class SIEMService {
       const expected = typeof state.expectedPower === 'number' ? state.expectedPower : -1
       if (power > 0 && expected > 0 && power > expected * 1.5) {
         threats.push({
-          id: `thr_power_${id}_${Date.now()}`,
+          id: this.nextId(`thr_power_${id}`),
           type: 'anomaly',
           severity: 'medium',
           description: `Anomalous power on ${id}: ${power.toFixed(1)} W (expected ${expected.toFixed(1)} W)`,
@@ -459,7 +475,7 @@ export class SIEMService {
         const conns = typeof net.connections === 'number' ? net.connections : 0
         if (conns > 100) {
           threats.push({
-            id: `thr_net_${id}_${Date.now()}`,
+            id: this.nextId(`thr_net_${id}`),
             type: 'anomaly',
             severity: 'high',
             description: `Unusual network activity from ${id}: ${conns} simultaneous connections`,
@@ -488,7 +504,7 @@ export class SIEMService {
     for (const [user, count] of failsByUser) {
       if (count > 5) {
         threats.push({
-          id: `thr_brute_${Date.now()}`,
+          id: this.nextId('thr_brute'),
           type: 'attack_pattern',
           severity: 'high',
           description: `Brute-force login attempt: ${count} failures for "${user}"`,
@@ -505,7 +521,7 @@ export class SIEMService {
     const privAttempts = activities.filter(a => a.action === 'privilege_escalation' || a.action === 'sudo_attempt')
     if (privAttempts.length > 3) {
       threats.push({
-        id: `thr_priv_${Date.now()}`,
+        id: this.nextId('thr_priv'),
         type: 'attack_pattern',
         severity: 'high',
         description: `${privAttempts.length} privilege escalation attempts detected`,
@@ -524,7 +540,7 @@ export class SIEMService {
     })
     if (offHours.length > 2) {
       threats.push({
-        id: `thr_offhours_${Date.now()}`,
+        id: this.nextId('thr_offhours'),
         type: 'indicator',
         severity: 'low',
         description: `${offHours.length} off-hours logins detected (22:00–06:00)`,
@@ -597,10 +613,6 @@ export class SIEMService {
     const mfaActions = recentAudit.filter(e => e.action === 'auth:mfa_verified')
     const mfaEnforcementRate = loginActions.length > 0 ? mfaActions.length / loginActions.length : 0
 
-    const failedLogins = this.events.filter(e =>
-      e.type === 'security' && e.message.toLowerCase().includes('brute') && e.timestamp > recentWindow,
-    ).length
-
     const encryptionActive = this.events.some(e => e.metadata?.encrypted === true)
       || recentAudit.some(e => e.action === 'encrypt')
 
@@ -613,8 +625,13 @@ export class SIEMService {
 
     const auditLoggingActive = this.auditTrail.length > 0
 
+    // Health-monitor notices describe other alerts; counting them here made the
+    // monitor alert about its own alert, inflating the count every 30 seconds.
     const unresolvedHighAlerts = this.alerts.filter(
-      a => a.status === 'active' && (a.severity === 'high' || a.severity === 'critical'),
+      a =>
+        a.status === 'active'
+        && (a.severity === 'high' || a.severity === 'critical')
+        && !a.affectedSystems.includes('health_monitor'),
     ).length
 
     // Heuristic: if the page is served over HTTPS (production) TLS is enforced
@@ -637,7 +654,6 @@ export class SIEMService {
 
     return {
       mfaEnforcementRate,
-      failedLoginAttempts: failedLogins,
       encryptionActive,
       networkSegmentationDefined,
       rbacConfigured,
@@ -681,7 +697,7 @@ export class SIEMService {
         return true
       })
     }
-    result = [...result].sort((a, b) => b.timestamp - a.timestamp)
+    result = newestFirst(result)
     return filters?.limit ? result.slice(0, filters.limit) : result
   }
 
@@ -704,7 +720,7 @@ export class SIEMService {
         return true
       })
     }
-    return [...result].sort((a, b) => b.timestamp - a.timestamp)
+    return newestFirst(result)
   }
 
   updateAlertStatus(alertId: string, status: SIEMAlert['status'], assignedTo?: string): void {
@@ -737,19 +753,27 @@ export class SIEMService {
   private performHealthCheck(): void {
     const snap = this.buildSystemSnapshot()
     if (snap.unresolvedHighAlerts > 5) {
-      this.logEvent({
+      this.logHealthEvent({
         type: 'security', severity: 'high', source: 'health_monitor',
         message: `${snap.unresolvedHighAlerts} unresolved high/critical alerts outstanding`,
         metadata: { unresolvedHighAlerts: snap.unresolvedHighAlerts },
       })
     }
     if (!snap.backupExists || snap.secondsSinceLastBackup > 86400) {
-      this.logEvent({
+      this.logHealthEvent({
         type: 'compliance', severity: 'medium', source: 'health_monitor',
         message: 'No recent backup detected (ISO 27001 A.12.3)',
         metadata: { backupExists: snap.backupExists, secondsSinceLastBackup: snap.secondsSinceLastBackup },
       })
     }
+  }
+
+  /** One open notice per condition; a recurring check must not re-alert. */
+  private logHealthEvent(event: Omit<SIEMEvent, 'id' | 'timestamp' | 'resolved'>): void {
+    const alreadyOpen = this.alerts.some(
+      a => a.status === 'active' && a.description === event.message,
+    )
+    if (!alreadyOpen) this.logEvent(event)
   }
 
   private async detectComplianceDrift(): Promise<void> {
@@ -786,6 +810,12 @@ export class SIEMService {
     }
     if (metrics.networkActivity && metrics.networkActivity.connections > 100) {
       this.logEvent({ type: 'security', severity: 'high', source: src, message: `Unusual network activity: ${metrics.networkActivity.connections} connections`, metadata: metrics })
+    }
+    if (metrics.cpuUsage !== undefined && metrics.cpuUsage > 90) {
+      this.logEvent({ type: 'anomaly', severity: 'medium', source: src, message: `High CPU usage: ${metrics.cpuUsage}%`, metadata: metrics })
+    }
+    if (metrics.memoryUsage !== undefined && metrics.memoryUsage > 90) {
+      this.logEvent({ type: 'anomaly', severity: 'medium', source: src, message: `High memory usage: ${metrics.memoryUsage}%`, metadata: metrics })
     }
     if (metrics.errors !== undefined && metrics.errors > 10) {
       this.logEvent({ type: 'anomaly', severity: 'high', source: src, message: `High error rate: ${metrics.errors} errors`, metadata: metrics })
@@ -899,7 +929,7 @@ export class SIEMService {
         type: 'vulnerability',
         severity: 'high',
         description: 'Unauthenticated remote code execution in embedded RTOS firmware',
-        indicators: ['CVE-2024-27956', 'Firmware version < 3.0.0', 'Open telnet port 23'],
+        indicators: ['Unpatched firmware advisory', 'Firmware version < 3.0.0', 'Open telnet port 23'],
         mitigation: ['Update firmware to ≥3.0.0', 'Disable telnet; use SSH', 'Apply vendor hotfix'],
         lastUpdated: Date.now(),
         confidence: 1.0,

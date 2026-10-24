@@ -155,10 +155,13 @@ describe('theme controller', () => {
     applyTheme('light', root)
     expect(root.style.getPropertyValue('--background')).toBe(THEMES.light['--background'])
     expect(root.style.colorScheme).toBe('light')
+    const lightBg = hslTripletToRgb(THEMES.light['--background'])
+    expect(root.style.backgroundColor).toBe(`rgb(${lightBg.r}, ${lightBg.g}, ${lightBg.b})`)
     expect(root.classList.contains('dark')).toBe(false)
 
     clearTheme(root)
     expect(root.style.getPropertyValue('--background')).toBe('')
+    expect(root.style.backgroundColor).toBe('')
     expect(root.dataset['theme']).toBeUndefined()
   })
 })

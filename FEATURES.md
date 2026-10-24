@@ -1,91 +1,223 @@
-# Folio - Feature Documentation
+# Folio — Feature Documentation
 
 > **Honesty note:** every feature below exists in the codebase today. Markers:
 > ✅ = implemented and covered by automated tests · 🟡 = implemented at UI level
-> without a dedicated test. Earlier drafts of this file claimed features that do
-> not exist; those are listed explicitly under "Not implemented" so they do not
-> creep back. Counts come from `npm test`, which CI runs on every push.
+> or requires an optional external service. Counts come from `npm test`.
+
+## 🧭 Demo Gallery & Workspace Navigation ✅
+
+- **Demo gallery**: 29 runnable scenarios — at least one per workspace mode —
+  searchable by title, summary or analysis name and filterable by family.
+  Open with the header **Demos** button or **Ctrl/⌘+Shift+D**.
+- **One proven board across domains**: the half-wave rectifier demo seeds the
+  schematic, transient analysis, PCB, autorouted 3-D scene, BOM audit, HIL suite
+  and digital twin from the same component and wire data. PCB traces come from
+  the A* router (all four nets), not a fixed slab.
+- **Grouped workspace navigation**: 25 modes organised into Design, Electrical,
+  Mechanical and Ops & AI families, each with an icon and description, replacing
+  a single 25-tab ribbon.
+- **Command palette**: **Ctrl/⌘+K** searches every workspace, every demo and
+  document actions (save, theme, gallery) with arrow-key navigation.
+- **Contextual status bar**: mode description, schematic metrics when on the
+  sheet, theme and unsaved state everywhere; a DEMOS shortcut included. Readouts
+  are prioritised by width rather than clipped on narrow viewports.
+- **Responsive workstation shell**: palettes dock beside the sheet at ≥1280 px
+  and become scrim-backed drawers below it, so the canvas keeps a usable width.
+  Secondary header tools collapse into a **More** menu, and the tab rail
+  auto-scrolls the active workspace into view.
+- **Tests**: gallery loading/filtering/Escape, palette filtering/keyboard
+  execution, scenario coverage of all 25 modes, routed-board geometry, compact
+  header menu routing and drawer dismissal.
 
 ## 🎯 Schematic Editor ✅
 
-- **Drag-and-drop placement**: click-to-arm in the parts browser, or drag onto the sheet
-- **Parts browser**: grouped, searchable list with symbol glyph badges, pin counts, and live shown/total counts
-- **Wiring**: click-to-click wire drawing with connection detection, junctions, and net labels on an infinite zoom/pan canvas
-- **Grid & snap**: configurable grid with snap-to-grid placement
-- **Properties inspector**: reference designator, type/category, electrical property rows, position/rotation transforms, read-only pin table, explicit Apply/Reset
-- **Design history**: simulation runs and edits persist into the saved design
+- **Placement**: click-to-arm or drag from the 39-part library, grid snap, rulers
+- **Wiring**: click-to-click routes, junctions, net labels, wire tool, delete tool
+- **Selection & editing**: properties inspector, reference designators, pin table,
+  position/rotation, undo/redo, autosave
+- **Multi-sheet**: global-label stitching, duplicate-reference rejection
+- **Interchange**: KiCad netlist import/export with round-trip tests
 
 ## ⚡ Simulation Engine ✅
 
-- **Analysis types**: DC operating point, DC sweep, transient, AC, noise, and Monte Carlo (six analyses wired into the simulation panel)
-- **In-app SPICE-style solver**: MNA stamping with 51 validated semiconductor devices (µ-normalized part library) and behavioral sources
-- **Digital logic simulator — runnable in the app**: discrete-event, four-state (0/1/X/Z) engine — combinational gates (NOT/BUF/AND/NAND/OR/NOR/XOR/XNOR) with propagation delay, edge-triggered flip-flops (SR/D/JK/T), clocks and stimuli, priority-ordered event heap, X-propagating and fail-loud on combinational loops (`digitalLogic.ts`). Reachable from the **Simulation panel → "Digital timing"** analysis: paste a compact digital deck (`digitalNetlistParser.ts`, fail-loud per line number), run, and read a step timing diagram plus final node values. A ready-to-run 2-bit ripple-counter deck is preloaded.
-- **Mixed-signal co-simulation** (`mixedSignal.ts`): lockstep bridge couples the digital engine to the analog SPICE solver — digital nets drive the analog net as PWL voltage sources, analog probes threshold back into digital stimuli, iterated over macro-steps, so a GPIO driving a load or a comparator driving logic works in one run.
-- **Solver truth**: every analog and digital result checked against independently-computed reference equations at test time (no hand-typed tables) — fail-loud contract: unsupported constructs error, never invent a curve
-- **SPICE netlist import/export**: `netlistBuilder` + `spiceEngine` deck export with correct device card forms
-- **Waveform viewer**: interactive line charts with tooltips, legends, and measurement readouts (recharts)
-- **Multiphysics**: coupled thermal/structural solvers with golden-vector regression tests
-- **Per-net design-rule feedback** in the PCB flow
+- **Analyses**: DC operating point, DC sweep, transient, AC, noise, Monte Carlo —
+  all wired into the simulation panel
+- **Analog solver**: MNA stamping, 51 validated semiconductor models, behavioral
+  sources, transmission lines, transformers
+- **Transient integration**: backward Euler (default, monotone), trapezoidal, or
+  Gear/BDF2 (second-order, damping), with backward-Euler startup/restart and
+  adaptive subdivision
+- **Digital logic**: four-state event simulation (gates, flip-flops, clocks,
+  X propagation, loop detection) runnable from the panel
+- **Mixed-signal**: lockstep bridge between digital events and analog PWL sources
+- **Netlists**: SPICE deck export and import
+- **Waveforms**: interactive charts with probes, measurements, and playback
+- **Truth checks**: solver outputs compared against independently computed
+  reference equations in the test suite
 
-## 🖥 PCB Design ✅
+## 🎛 Control Systems & Electric Machines ✅
 
-- **Schematic → PCB conversion**: placement and auto-routing with design-rule constraints (converter is unit-tested)
-- **Multi-sheet schematics**: global-label stitching across sheets with private locals and duplicate-reference rejection (`multiSheet.ts`)
-- **KiCad netlist interchange**: s-expression import/export with round-trip tests (`kicadNetlist.ts`)
-- **PCB canvas**: board outline, traces, vias, pads, layer visibility toggles with color-coded layer list
-- **DRC**: clearance, trace width, drill, and annular-ring checks (`src/lib/manufacturing/drc.ts`)
-- **Manufacturing output**: full fab package — Gerber layer set (F/B Cu, masks, silks, Edge.Cuts), true Excellon drill, centroid/PnP, MPN BOM — gated on JLCPCB DRC (`fabExport.ts`, parser-validated tests); multilayer stackup + impedance engine, differential pairs, BGA fanout, power integrity, DDR rules, enclosure STEP
-- **Bill of Materials**: cost, quantity, lifecycle and availability badges, editable per-line notes
+- **Linear control**: transfer-function algebra (series, parallel, feedback),
+  Durand–Kerner polynomial roots, pole/zero stability classification,
+  controllable-canonical state space, RK4 time simulation, step/impulse metrics,
+  log-spaced Bode magnitude and unwrapped phase, gain/phase margins, Nyquist,
+  and controllability/observability ranks. The **Control** workspace panel drives
+  a plant plus optional PID and plots closed-loop step and Bode responses
+- **PID**: filtered derivative, unit-feedback loop, derivative-on-measurement,
+  output clamping and conditional-integration anti-windup
+- **Brushed DC motor/generator**: two-state armature model stepped with a
+  zero-order-hold matrix exponential (result independent of the output sample
+  interval), load/generator torque conventions, terminal-voltage and efficiency
+  reporting
+- **BLDC/PMSM**: dq model with ideal FOC decoupling
+- **Stepper**: sinusoidal holding torque, first-order phase-current lag, detent
+  and lumped damping, with RK4 substepping sized from the electrical and
+  mechanical time constants
+- **Machines panel**: steady-state operating points and time-domain speed,
+  current, torque, power, dq and rotor-position traces
+
+## 🖥 PCB Design & Manufacturing ✅
+
+- **Layout**: editable board outline (width/height), multi-layer stack, traces,
+  vias, pads, layer toggles, interactive canvas
+- **3-D preview**: the viewer renders the routed layout itself — actual outline,
+  per-layer copper, via barrels, footprint pads and component bodies — and the
+  same geometry feeds STL/OBJ export. Off-board traces, vias and parts are
+  reported as warnings rather than silently clamped
+- **Conversion & routing**: schematic-to-PCB placement and constrained autorouting
+- **Checks**: DRC (clearance, width, drill, annular ring) and ERC
+- **Thermal**: 2-D finite-volume steady-state solver with convection on both
+  faces; shared CPU/Worker/WebGPU physics, hotspot and converged status
+- **Signal integrity**: single-line microstrip/stripline Z₀, reflection lattice,
+  trace-width optimisation for a target impedance, and a pattern-driven eye
+  diagram (ISI, rise time, reflection overshoot) computed from a routed trace
+  plus declared stackup/driver assumptions (no crosstalk)
+- **EMC**: closed-form trace/loop and cable emission estimates against CISPR
+  limits at 3 m — not a chamber measurement or full-wave solve
+- **Advanced rules**: multilayer stackup, differential pairs, BGA fanout, power
+  integrity, DDR constraints, HDI routing
+- **Fabrication**: Gerber RS-274X, Excellon drill, centroid/PnP, BOM, JLCPCB DRC
+  gate, and enclosure STEP export
+- **Encrypted export**: AES-GCM-256 project snapshots with PBKDF2 key derivation
+
+## 🧮 Compute Acceleration ✅
+
+- **Capability probe**: reports WebGPU adapter, Worker support, shared memory,
+  and the recommended thermal path in the System Dashboard
+- **Three real thermal paths**: WebGPU WGSL Jacobi, Web Worker, main-thread SOR
+- **Correctness gate**: GPU output is accepted only when the shared residual
+  converges; otherwise dispatch falls back and reports the path that succeeded
+- **Browser-verified**: GPU and CPU peaks/averages agree within 0.01 °C on tested
+  boards (50×50 and 100×80 grids)
 
 ## 🤖 Robotics, Mechanical & 3D ✅ / 🟡
 
-- **3D circuit viewer**: three.js scene with grid/PCB/components/traces visibility toggles, STL/OBJ export (render-tested)
-- **Mechanical/FEA panel**: multiphysics thermal-structural analysis controls (render-tested)
-- **Robotics toolbox & kinematics**: 3D robot preview, joint framing, advanced kinematics helpers (`advancedRobotics.ts`)
+- **Mechanical**: shared material catalogue, support-aware Euler–Bernoulli beam
+  analysis (cantilever or simply supported; axial force affects stress only),
+  deflection, stress, modal frequencies, buckling, assembly transforms, AP214
+  STEP export (one closed shell per component through the shared geometry
+  writer), constrained particle-swarm section sizing with closed-form
+  re-verification. Reduced-order beam model — not a 3D FEM solver, and plates
+  are analysed as beams (🟡)
+- **3D**: Three.js circuit/PCB viewer, mesh printability metrics, STL export, and
+  real FDM slicing to G-code (contours with hole orientation, clipped infill,
+  solid shells, raft/brim/skirt, relative volumetric extrusion). Limits: single
+  perimeter path, no support generation, FDM only — unsupported requests fail
+  loudly instead of emitting wrong toolpaths. XR preview entry point
+  (🟡 browser/device dependent)
+- **Robotics**: forward/inverse kinematics with damped least-squares IK
+  (current-pose seed, deterministic multi-start retry, joint-limit clamping),
+  analytic velocity/acceleration trajectory records, task simulation that
+  rejects non-monotonic timestamps, out-of-limit or non-finite waypoints and
+  empty tasks, tool-point collision against box/sphere/cylinder obstacles, a
+  sample-density-independent dimensionless-jerk smoothness score, joint
+  framing, mechanism replay of planned profiles from explicit start poses or
+  commanded velocities, advanced robotics panel, digital-twin demo, numerical
+  Lagrangian dynamics (Jacobian mass matrix, gravity, Coriolis/centrifugal,
+  energy, conditioning; unsupported joints/state rejected explicitly). Links
+  are not swept and there is no friction, motor, flexible-body, or narrow-phase
+  collision modelling (🟡 not a certified dynamics sign-off)
+- **RF**: antenna and filter synthesis with a dedicated workspace panel;
+  numerically integrated dipole/monopole directivity and an optimiser that
+  refuses unreachable targets ✅
+
+## 💻 HDL, FPGA & IC ✅
+
+- **HDL**: VHDL and Verilog subsets with parsers and fail-loud diagnostics,
+  logic synthesis, FPGA flow helpers
+- **IC**: flow adapters, standard-cell library, silicon floorplanning, GDS export,
+  chip packaging models
 
 ## 🔌 Embedded & Hardware ✅ / 🟡
 
-- **Hardware interfaces**: simulated I²C, SPI, UART, and CAN with a manager API (fully unit-tested)
-- **Firmware artifacts**: Intel HEX parse/serialize with round-trip tests
-- **Board programming**: STK500v1 upload over WebSerial with read-back verification (live when a port is granted, honest refusal otherwise); browser-side toolchain integration fails closed outside Node (guarded, tested); bulk SD-image flasher core with MBR parse and hash-verified chunks
-- **Hardware-in-the-loop panel**: HIL scenario UI (render-tested)
+- **Interfaces**: simulated I²C, SPI, UART, CAN manager APIs (unit-tested)
+- **Firmware**: Intel HEX parse/serialize, firmware artifacts, board bring-up;
+  schematic-driven Arduino/ESP32 sketch generation (pin/net macros, sensor
+  reads, peripheral drive) packaged into a flashable Intel HEX image
+- **Programming**: STK500v1 upload over WebSerial with read-back verification
+  (live when a port is granted, honest refusal otherwise); fails closed outside
+  Node for browser-side toolchain steps
+- **HIL**: scenario UI and hardware-in-the-loop panel (render-tested)
+- **IIoT / digital twin**: twin synchronization and fleet dashboards 🟡
 
-## 🧠 AI Design Assistant ✅
+## 🧠 AI, Agents & Automation ✅ / 🟡
 
-- **aiService**: component recommendations, circuit analysis, and natural-language-to-design suggestions (unit-tested; requires a configured provider to answer live)
-- **AI chat panel**: conversational UI with quick actions, confidence metadata, and response feedback (render-tested)
+- **aiService**: component recommendations, circuit analysis, and design
+  suggestions from deterministic keyword/threshold heuristics — no model or
+  network call is made, so answers are advisory, not predictions ✅
+- **AI chat panel**: conversational UI over those heuristics, with confidence
+  metadata and feedback
+- **Agents**: EDA tool harness and symbolic verifier
+- **Datasheet importer** and **plugin marketplace** panels
+- **Optimisation**: evolutionary/multi-objective helpers and seeded particle-swarm
+  section sizing (unit-tested, deterministic per seed)
 
-## 🗂 Projects, Versioning & Offline ✅
+## 🗂 Projects, Collaboration, Plugins & Security ✅ / 🟡
 
-- **Offline-first projects**: local project store with create/open/save/delete (unit-tested) — the app boots fully offline into the IDE (smoke-tested)
-- **Cloud (optional)**: Supabase auth and project persistence when configured; local-only mode never contacts it
-- **Version history**: local commit-style history with restore (vcsService tests) plus snapshot checkpoints (backupService tests)
-- **Auto-save**: configurable interval, dirty-state indicator, canvas persistence
+- **Offline-first projects**: create/open/save/delete, autosave, dirty state
+- **Version history**: commit-style local history with restore and snapshots
+- **Cloud (optional)**: Supabase auth and project persistence when configured 🟡
+- **Sharing & roles**: owner/admin/editor/reviewer/viewer with permission checks
+  and collaborator management (`collaborationService` tests)
+- **Real-time**: Supabase Realtime presence and operation broadcast when
+  configured; local-only otherwise 🟡
+- **Plugins**: manifest validation, declared-permission gating, lifecycle hooks,
+  marketplace install/uninstall (unit-tested); not a security sandbox
+- **Asset security**: RBAC grants, AES-GCM-256 encryption/decryption, in-session
+  audit trail (unit-tested)
+- **Encrypted export** wired into the app export menu
 
 ## ⚙️ Settings, Theming & Accessibility ✅
 
-- **Themes**: light, dark, and high-contrast (WCAG 2.2 AAA) with system-preference following; retired theme names migrate cleanly (18 theme tests)
-- **Units & behavior**: metric/imperial units, animations toggle, auto-save interval, onboarding replay
-- **Language selector**: preference is stored, but only English strings ship today (no translations yet)
-- **Guided onboarding**: first-run tour (smoke-tested)
-- **Accessibility**: keyboard-operable toolbars and rails; every icon-only button must carry an accessible name — enforced by `npm run a11y:buttons` in CI
+- **Themes**: light, dark, high-contrast, system preference, migration of retired
+  theme names
+- **Units & behavior**: metric/imperial, animation toggle, autosave interval,
+  onboarding replay
+- **Accessibility**: keyboard-operable toolbars; every icon-only button must have
+  an accessible name, enforced by `npm run a11y:buttons` in CI
+- **Language selector**: preference stored; English strings only today 🟡
 
 ## 🛠 Quality Infrastructure ✅
 
-- **CI (GitHub Actions)**: lint (zero warnings), button-label audit, typecheck (app + build config), full test suite, production build
-- **Tests**: 451 tests across 45 files, including React render tests for the app shell and project manager
-- **Bundle**: 805 KB critical path (242 KB gzip) with lazy-loaded heavy panels (3D, robotics, simulation)
+- **CI**: lint (zero warnings), typecheck (app + build config), button-label
+  audit, full test suite, production build
+- **Tests**: 1,564 tests across 174 files, including engine truth tests and React
+  render/integration tests
+- **Build**: heavily code-split; feature panels and vendor chunks load on demand
 
-## ❌ Not implemented (previous drafts claimed these)
+## ❌ Not implemented
 
-- Real-time multi-user collaboration, comments/review workflows
-- Cloud sync beyond optional Supabase project persistence
-- Plugin system, JavaScript/Python scripting, REST API
-- UI translations (language selector exists; strings do not)
-- Font/icon-set options (context menus and the symbol editor are now implemented)
-- GDPR/compliance certifications, end-to-end encryption claims
-- Classroom management, automated grading
+- A certified multi-user backend beyond optional Supabase persistence/realtime
+- A plugin security sandbox (permission checks only)
+- UI translations (selector exists; strings do not)
+- Classroom management, automated grading, or a public REST API
+- GDPR / ISO 27001 / IEC 62443 certifications or end-to-end encryption claims
+- Certified numerical sign-off for fabrication or safety-critical control
+- Sparse/parallel circuit solving, variable-order Gear/BDF, or
+  foundry-validated device-model certification
+- Crosstalk, IBIS transient, or full-wave EM analysis
+- 3-D FEA, CFD, or contact solvers for mechanical and thermal work
 
 This document tracks what Folio actually is: a browser-based, offline-first
-engineering workbench for circuits, PCB, mechanical, robotics, and embedded
+engineering workbench for circuits, PCB, mechanical, robotics, RF, and embedded
 work, with tested simulation and manufacturing toolchains.

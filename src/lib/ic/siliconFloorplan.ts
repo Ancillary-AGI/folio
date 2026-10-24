@@ -62,14 +62,36 @@ export function generateDieFloorplan(
   signals: { inputs: string[]; outputs: string[]; clocks?: string[]; resets?: string[] },
   options: FloorplanOptions = {},
 ): DieFloorplan {
-  if (totalCellAreaUm2 <= 0) throw new Error('Total cell area must be positive.');
+  if (!Number.isFinite(totalCellAreaUm2) || totalCellAreaUm2 <= 0) {
+    throw new Error('Total cell area must be a finite, positive value.');
+  }
 
-  const targetUtil = (options.targetUtilizationPercent ?? 60) / 100;
+  const targetPercent = options.targetUtilizationPercent ?? 60;
+  if (!Number.isFinite(targetPercent) || targetPercent <= 0 || targetPercent > 100) {
+    throw new Error('Target utilization must be a finite percentage in (0,100].');
+  }
   const aspectRatio = options.aspectRatio ?? 1.0;
+  if (!Number.isFinite(aspectRatio) || aspectRatio <= 0) {
+    throw new Error('Aspect ratio must be finite and positive.');
+  }
   const padWidth = options.padWidthUm ?? 60.0;
   const padHeight = options.padHeightUm ?? 60.0;
   const padPitch = options.padPitchUm ?? 80.0;
   const margin = options.coreToDieMarginUm ?? 80.0;
+  for (const [name, value] of [
+    ['Pad width', padWidth],
+    ['Pad height', padHeight],
+    ['Pad pitch', padPitch],
+  ] as const) {
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new Error(`${name} must be finite and positive.`);
+    }
+  }
+  if (!Number.isFinite(margin) || margin < 0) {
+    throw new Error('Core-to-die margin must be finite and non-negative.');
+  }
+
+  const targetUtil = targetPercent / 100;
 
   // 1. Calculate Core Dimensions
   const coreArea = totalCellAreaUm2 / targetUtil;

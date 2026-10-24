@@ -1,4 +1,4 @@
-import type { Component, Wire, Net } from '../../types/domain';
+import type { Component, Wire, Net } from '../../types';
 
 export interface AIAgent {
   id: string;
@@ -55,6 +55,12 @@ function getCategoryName(component: Component): string {
   return 'unknown'
 }
 
+/**
+ * Rule-based design assistant. Everything here is deterministic heuristics
+ * (keyword matching, declared-property estimates, threshold rules); it makes
+ * no model or network call, so results are advisory and not statistical
+ * predictions. The heuristic thresholds are documented where they are used.
+ */
 export class AIService {
   private agents: Map<string, AIAgent> = new Map();
 
@@ -69,11 +75,8 @@ export class AIService {
       name: 'Design Optimization Agent',
       type: 'optimization',
       capabilities: ['circuit_optimization', 'layout_optimization', 'thermal_optimization', 'power_optimization'],
-      model: 'gpt-4',
-      parameters: {
-        temperature: 0.1,
-        max_tokens: 2000
-      }
+      model: 'rule-based-heuristics', // no model call is made by this service
+      parameters: {}
     });
 
     // Predictive maintenance agent
@@ -82,11 +85,8 @@ export class AIService {
       name: 'Predictive Maintenance Agent',
       type: 'prediction',
       capabilities: ['failure_prediction', 'lifetime_estimation', 'maintenance_scheduling'],
-      model: 'gpt-4',
-      parameters: {
-        temperature: 0.2,
-        max_tokens: 1500
-      }
+      model: 'rule-based-heuristics', // no model call is made by this service
+      parameters: {}
     });
 
     // Smart suggestions agent
@@ -95,11 +95,8 @@ export class AIService {
       name: 'Smart Suggestions Agent',
       type: 'design',
       capabilities: ['component_recommendation', 'connection_suggestion', 'design_improvement'],
-      model: 'gpt-3.5-turbo',
-      parameters: {
-        temperature: 0.3,
-        max_tokens: 1000
-      }
+      model: 'rule-based-heuristics', // no model call is made by this service
+      parameters: {}
     });
 
     // Analysis agent
@@ -108,11 +105,8 @@ export class AIService {
       name: 'Circuit Analysis Agent',
       type: 'analysis',
       capabilities: ['circuit_analysis', 'debugging', 'performance_analysis'],
-      model: 'gpt-4',
-      parameters: {
-        temperature: 0.1,
-        max_tokens: 2000
-      }
+      model: 'rule-based-heuristics', // no model call is made by this service
+      parameters: {}
     });
   }
 
@@ -209,7 +203,9 @@ export class AIService {
         optimizedDesign,
         improvements,
         confidence: 0.85, // Heuristic score from rule coverage, not a measured probability
-        reasoning: 'Optimizations applied based on design rules, thermal analysis, and performance metrics'
+        reasoning: suggestions.length > 0
+          ? `Advisory passes flagged: ${suggestions.map(s => s.type.replace(/_/g, ' ')).join(', ')}. Measured deltas are reported only when the supplied baseline defines the corresponding objective.`
+          : 'No optimization rule was triggered by this design (power ≤ 1 W, estimated temperature ≤ 70 °C, cost ≤ 50).'
       };
     } catch (error) {
       console.error('Design optimization failed:', error);
@@ -330,7 +326,7 @@ export class AIService {
     const analysis = {
       componentCount: components.length,
       powerConsumption: this.estimatePowerConsumption(components),
-      thermalProfile: this.analyzeThermalProfile(),
+      thermalProfile: this.analyzeThermalProfile(components),
       complexity: this.calculateDesignComplexity(components),
       cost: this.estimateDesignCost(components)
     };
@@ -423,7 +419,9 @@ export class AIService {
       const originalValue = this.getObjectiveValue(original, objective);
       const optimizedValue = this.getObjectiveValue(optimized, objective);
 
-      if (originalValue && optimizedValue) {
+      // Only report a measured delta when a baseline value actually exists;
+      // a fabricated default would advertise an improvement that never happened.
+      if (originalValue !== undefined && optimizedValue !== undefined && originalValue !== 0) {
         const improvement = this.calculateImprovementMetric(objective, originalValue, optimizedValue);
         improvements.push({
           parameter: objective,
@@ -528,6 +526,10 @@ export class AIService {
   }
 
   private async performCircuitAnalysis(components: Component[], wires: Wire[], nets: Net[]): Promise<string> {
+    // Guard the empty-canvas case: dividing by zero would print Infinity.
+    const averageConnections = components.length === 0
+      ? 0
+      : (wires.length * 2) / components.length;
     // Generate comprehensive circuit analysis
     const analysis = `
 Circuit Analysis Report:
@@ -539,12 +541,12 @@ Power Analysis:
 - Estimated Power Consumption: ${this.estimatePowerConsumption(components)}W
 
 Signal Integrity:
-- Critical Paths: ${this.identifyCriticalPaths(components, wires).length}
-- Potential Noise Sources: ${this.identifyNoiseSources(components)}
+- Timing-Sensitive Nets: ${this.identifyTimingSensitiveNets(wires).length}
+- Potential Noise Sources: ${this.identifyNoiseSources(components).length}
 
 Design Complexity:
 - Component Diversity: ${new Set(components.map(c => c.category)).size} categories
-- Average Connections per Component: ${(wires.length * 2) / components.length}
+- Average Connections per Component: ${averageConnections}
     `.trim();
 
     return analysis;
@@ -563,11 +565,11 @@ Design Complexity:
     });
 
     // Check for short circuits
-    const shortCircuits = this.detectShortCircuits(nets);
+    const shortCircuits = this.detectShortCircuits(components, nets);
     shortCircuits.forEach(short => {
       issues.push({
         severity: 'error',
-        message: `Potential short circuit on net ${short.netName}`
+        message: `Potential short circuit on net ${short.netName}: ${short.reason}`
       });
     });
 
@@ -598,11 +600,18 @@ Design Complexity:
   // Utility methods
   private estimatePowerConsumption(components: Component[]): number {
     let totalPower = 0;
-    components.forEach(comp => {
-      const power = typeof comp.properties?.power === 'number' ? comp.properties.power : 0;
+    for (const comp of components) {
+      const declaredPower = typeof comp.properties?.power === 'number' ? comp.properties.power : 0;
+      if (declaredPower !== 0) {
+        totalPower += declaredPower;
+        continue;
+      }
+      // Without a declared dissipation, I·V is the only computable estimate.
+      // A current with no voltage is not power and must not be added as if it were.
       const current = typeof comp.properties?.current === 'number' ? comp.properties.current : 0;
-      totalPower += power + current;
-    });
+      const voltage = typeof comp.properties?.voltage === 'number' ? comp.properties.voltage : 0;
+      totalPower += current * voltage;
+    }
     return totalPower;
   }
 
@@ -650,13 +659,13 @@ Design Complexity:
     return { ...design, costOptimized: true };
   }
 
-  private getObjectiveValue(design: Record<string, unknown> | undefined, objective: string): number {
-    if (!design) return 1.0;
+  private getObjectiveValue(design: Record<string, unknown> | undefined, objective: string): number | undefined {
+    if (!design) return undefined;
     switch (objective) {
-      case 'power': return typeof design.powerConsumption === 'number' ? design.powerConsumption : 1.0;
-      case 'cost': return typeof design.cost === 'number' ? design.cost : 10.0;
-      case 'performance': return typeof design.performance === 'number' ? design.performance : 1.0;
-      default: return 1.0;
+      case 'power': return typeof design.powerConsumption === 'number' ? design.powerConsumption : undefined;
+      case 'cost': return typeof design.cost === 'number' ? design.cost : undefined;
+      case 'performance': return typeof design.performance === 'number' ? design.performance : undefined;
+      default: return undefined;
     }
   }
 
@@ -788,8 +797,9 @@ Design Complexity:
     return nearest;
   }
 
-  private identifyCriticalPaths(_components: Component[], wires: Wire[]): Wire[] {
-    // Simplified critical path identification
+  private identifyTimingSensitiveNets(wires: Wire[]): Wire[] {
+    // Clock/data-named nets are flagged for review; this is a naming heuristic,
+    // not a timing analysis of the routed connectivity.
     return wires.filter(wire => wire.netName?.toLowerCase().includes('clock') ||
                   wire.netName?.toLowerCase().includes('data'));
   }
@@ -825,17 +835,27 @@ Design Complexity:
     return floatingInputs;
   }
 
-  private detectShortCircuits(nets: Net[]): Array<{ netName: string }> {
-    const shorts: Array<{ netName: string }> = [];
+  private detectShortCircuits(
+    components: Component[],
+    nets: Net[],
+  ): Array<{ netName: string; reason: string }> {
+    const pinType = new Map<string, string>();
+    for (const component of components) {
+      for (const pin of component.pins ?? []) {
+        pinType.set(`${component.id}:${pin.id}`, pin.type);
+      }
+    }
 
+    const shorts: Array<{ netName: string; reason: string }> = [];
     for (const net of nets) {
-      // Simplified short circuit detection
-      // In a real implementation, this would check for multiple output pins on the same net
-      const outputPinCount = net.connectedPins.length;
-      
-      // If there are more than 2 connections, it might indicate a short
-      if (outputPinCount > 2) {
-        shorts.push({ netName: net.name });
+      const types = net.connectedPins.map(
+        cp => pinType.get(`${cp.componentId}:${cp.pinId}`),
+      );
+      const outputPins = types.filter(type => type === 'output').length;
+      if (types.includes('power') && types.includes('ground')) {
+        shorts.push({ netName: net.name, reason: 'the net ties a power pin to a ground pin' });
+      } else if (outputPins > 1) {
+        shorts.push({ netName: net.name, reason: `${outputPins} output pins drive the same net` });
       }
     }
 
@@ -881,7 +901,7 @@ Design Complexity:
     }
 
     if (workspaceMode === 'fpga' && (lower.includes('hdl') || lower.includes('vhdl') || lower.includes('verilog') || lower.includes('fpga'))) {
-      return `In the **FPGA workspace** you can write HDL (VHDL or Verilog) and synthesize to a target device.\n\nSupported targets: Xilinx XC7A35T (Artix-7), Intel Cyclone 10, Lattice ECP5, Gowin GW1N-9.\n\nThe synthesizer estimates:\n• LUT utilisation\n• Flip-flop count\n• BRAM/DSP usage\n• Estimated Fmax\n\nPaste your HDL and click **Synthesise** to begin.`
+      return `In the **FPGA workspace** you can write structural HDL (VHDL or Verilog) and elaborate it for a target device.\n\nSupported targets: Xilinx XC7A35T (Artix-7), Intel Cyclone 10, Lattice ECP5, Gowin GW1N-9.\n\nThe elaboration reports:\n• Parsed gate count and LUT estimate\n• Flip-flop count\n• A portable design manifest\n\nTiming/Fmax, BRAM/DSP inference, vendor bitstream assembly and device programming require the vendor place-and-route toolchain and are not fabricated here.`
     }
 
     if (workspaceMode === 'robotics' && (lower.includes('kinematic') || lower.includes('robot') || lower.includes('joint'))) {

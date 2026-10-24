@@ -43,6 +43,33 @@ describe('Marketplace Service', () => {
     expect(service.isInstalled('org.folio.jlcpcb-rules')).toBe(false);
   });
 
+  it('rejects malformed manifests at registration instead of installing them', () => {
+    const service = new MarketplaceService();
+    const broken: MarketplaceEntry = {
+      id: 'acme-broken',
+      manifest: {
+        id: 'acme-broken',
+        name: 'Broken Package',
+        version: '1.0.0',
+        description: 'No entry point',
+        author: 'ACME',
+        enabled: true,
+        permissions: [],
+        entry: '',
+        apiVersion: '1.0.0',
+      },
+      author: 'ACME',
+      isVerifiedPublisher: false,
+      downloadsCount: 0,
+      rating: 0,
+      tags: [],
+      packagePayload: {},
+    };
+
+    expect(() => service.registerPackage(broken)).toThrow(/Invalid plugin manifest acme-broken: entry must be/);
+    expect(service.listPackages()).toHaveLength(0);
+  });
+
   it('rejects installation of packages attempting unauthorized actions', () => {
     const service = new MarketplaceService();
 

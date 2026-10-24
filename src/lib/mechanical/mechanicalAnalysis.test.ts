@@ -3,6 +3,8 @@ import {
   analyseBeam,
   analyseConduction,
   analyseEmc,
+  beamBucklingLoad,
+  beamNaturalFrequencies,
   cylinderMassInertia,
   cylinderSectionInertia,
   prismInertia,
@@ -85,13 +87,61 @@ describe('beam analysis', () => {
 
   it('matches the cantilever deflection PL³/(3EI) over the supplied span', () => {
     const span = 0.25;
-    const result = analyseBeam(SLAB, STEEL, { force: 2_000, span });
+    const result = analyseBeam(SLAB, STEEL, { transverseForce: 2_000, span });
     const expected = (2_000 * span ** 3) / (3 * STEEL.youngsModulus * prismInertia(SLAB));
     expect(result.deflection).toBeCloseTo(expected, 18);
   });
 
+  it('keeps an axial force out of the transverse deflection', () => {
+    const result = analyseBeam(SLAB, STEEL, { force: 2_000, span: 0.25 });
+    expect(result.axialStress).not.toBe(0);
+    expect(result.deflection).toBe(0);
+  });
+
+  it('applies a transverse tip load as root moment P·L without axial stress', () => {
+    const span = 0.4;
+    const load = 750;
+    const result = analyseBeam(SLAB, STEEL, { transverseForce: load, span });
+    const fibre = SLAB.depth / 2;
+    expect(result.axialStress).toBe(0);
+    expect(result.bendingMoment).toBeCloseTo(load * span, 12);
+    expect(result.bendingStress).toBeCloseTo(
+      (load * span * fibre) / prismInertia(SLAB),
+      6,
+    );
+    expect(result.deflection).toBeCloseTo(
+      (load * span ** 3) / (3 * STEEL.youngsModulus * prismInertia(SLAB)),
+      18,
+    );
+  });
+
+  it('adds the uniform-load root moment wL²/2 and wL⁴/(8EI) deflection', () => {
+    const span = 0.3;
+    const distributedLoad = 2_000;
+    const result = analyseBeam(SLAB, STEEL, { distributedLoad, span });
+    const inertia = prismInertia(SLAB);
+    expect(result.bendingMoment).toBeCloseTo((distributedLoad * span ** 2) / 2, 12);
+    expect(result.bendingStress).toBeCloseTo(
+      ((distributedLoad * span ** 2) / 2) * (SLAB.depth / 2) / inertia,
+      6,
+    );
+    expect(result.deflection).toBeCloseTo(
+      (distributedLoad * span ** 4) / (8 * STEEL.youngsModulus * inertia),
+      18,
+    );
+  });
+
+  it('rejects a non-finite transverse or distributed load', () => {
+    expect(() => analyseBeam(SLAB, STEEL, { transverseForce: Number.NaN })).toThrow(
+      /transverseForce must be finite/,
+    );
+    expect(() => analyseBeam(SLAB, STEEL, { distributedLoad: Number.POSITIVE_INFINITY })).toThrow(
+      /distributedLoad must be finite/,
+    );
+  });
+
   it('defaults the span to the part height rather than a hardcoded 100 mm', () => {
-    const result = analyseBeam(SLAB, STEEL, { force: 1_000 });
+    const result = analyseBeam(SLAB, STEEL, { transverseForce: 1_000 });
     const expected =
       (1_000 * SLAB.height ** 3) / (3 * STEEL.youngsModulus * prismInertia(SLAB));
     expect(result.deflection).toBeCloseTo(expected, 18);
@@ -135,6 +185,78 @@ describe('beam analysis', () => {
     expect(pushed.axialStress).toBeLessThan(0);
     expect(pushed.bendingStress).toBeLessThan(0);
     expect(pushed.safetyFactor).toBeCloseTo(STEEL.yieldStrength / Math.abs(pushed.totalStress), 6);
+  });
+
+  it('uses the midspan peak and deflection for a simply supported point load', () => {
+    const span = 0.4;
+    const load = 750;
+    const inertia = prismInertia(SLAB);
+    const result = analyseBeam(
+      SLAB,
+      STEEL,
+      { transverseForce: load, span },
+      { support: 'simply-supported' },
+    );
+    expect(result.bendingMoment).toBeCloseTo((load * span) / 4, 12);
+    expect(result.bendingStress).toBeCloseTo(
+      (((load * span) / 4) * (SLAB.depth / 2)) / inertia,
+      6,
+    );
+    expect(result.deflection).toBeCloseTo(
+      (load * span ** 3) / (48 * STEEL.youngsModulus * inertia),
+      18,
+    );
+  });
+
+  it('uses wL²/8 and 5wL⁴/(384EI) for a simply supported uniform load', () => {
+    const span = 0.3;
+    const distributedLoad = 4_000;
+    const inertia = prismInertia(SLAB);
+    const result = analyseBeam(
+      SLAB,
+      STEEL,
+      { distributedLoad, span },
+      { support: 'simply-supported' },
+    );
+    expect(result.bendingMoment).toBeCloseTo((distributedLoad * span ** 2) / 8, 12);
+    expect(result.deflection).toBeCloseTo(
+      (5 * distributedLoad * span ** 4) / (384 * STEEL.youngsModulus * inertia),
+      18,
+    );
+  });
+
+  it('rejects a support condition it does not model', () => {
+    expect(() =>
+      analyseBeam(SLAB, STEEL, {}, { support: 'fixed-fixed' as never }),
+    ).toThrow(/Unsupported beam support/);
+  });
+
+  it('computes cantilever and simply supported natural frequencies from the same section', () => {
+    const span = 0.5;
+    const inertia = prismInertia(SLAB);
+    const massPerLength = STEEL.density * SLAB.width * SLAB.depth;
+
+    const cantilever = beamNaturalFrequencies(SLAB, STEEL, 'cantilever', span);
+    const cantileverFundamental =
+      (1.875104068711961 ** 2 / (2 * Math.PI * span ** 2)) *
+      Math.sqrt((STEEL.youngsModulus * inertia) / massPerLength);
+    expect(cantilever[0]).toBeCloseTo(cantileverFundamental, 9);
+    expect(cantilever[1] / cantilever[0]).toBeCloseTo(6.2669, 9);
+
+    const supported = beamNaturalFrequencies(SLAB, STEEL, 'simply-supported', span);
+    const supportedFundamental =
+      (Math.PI ** 2 / (2 * Math.PI * span ** 2)) *
+      Math.sqrt((STEEL.youngsModulus * inertia) / massPerLength);
+    expect(supported[0]).toBeCloseTo(supportedFundamental, 9);
+    expect(supported[1] / supported[0]).toBeCloseTo(4, 9);
+  });
+
+  it('uses the effective-length factor for the buckling load', () => {
+    const span = 0.5;
+    const inertia = prismInertia(SLAB);
+    const euler = (Math.PI ** 2 * STEEL.youngsModulus * inertia) / span ** 2;
+    expect(beamBucklingLoad(SLAB, STEEL, 'simply-supported', span)).toBeCloseTo(euler, 9);
+    expect(beamBucklingLoad(SLAB, STEEL, 'cantilever', span)).toBeCloseTo(euler / 4, 9);
   });
 });
 

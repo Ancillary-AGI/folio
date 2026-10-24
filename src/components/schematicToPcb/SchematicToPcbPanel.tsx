@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { schematicToPcbConverter, PCBLayout, ConversionOptions } from '../../lib/schematicToPcb/schematicToPcbConverter';
+import { runSchematicERC } from '../../lib/manufacturing/erc';
 import { Schematic } from '../../types';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -18,6 +19,8 @@ export const SchematicToPcbPanel: React.FC<SchematicToPcbPanelProps> = ({
   onPcbGenerated
 }) => {
   const [isConverting, setIsConverting] = useState(false);
+  const [validation, setValidation] = useState<ReturnType<typeof schematicToPcbConverter.validateDesign> | null>(null);
+  const erc = useMemo(() => runSchematicERC(schematic), [schematic]);
   const [conversionOptions, setConversionOptions] = useState<ConversionOptions>({
     boardSize: { width: 100, height: 80 },
     layerCount: 2,
@@ -40,6 +43,7 @@ export const SchematicToPcbPanel: React.FC<SchematicToPcbPanelProps> = ({
         schematic,
         conversionOptions
       );
+      setValidation(schematicToPcbConverter.validateDesign(layout));
 
       if (onPcbGenerated) {
         onPcbGenerated(layout);
@@ -160,6 +164,35 @@ export const SchematicToPcbPanel: React.FC<SchematicToPcbPanelProps> = ({
           <Label htmlFor="optimizePlacement">Optimize component placement</Label>
         </div>
 
+        <div className="rounded-md border border-border p-3 space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-medium">Electrical rules</span>
+            <span className={erc.summary.errors > 0 ? 'text-destructive' : 'text-muted-foreground'}>
+              {erc.summary.errors} errors · {erc.summary.warnings} warnings · {erc.summary.info} info
+            </span>
+          </div>
+          {erc.violations.length === 0 ? (
+            <p className="text-xs text-success">No electrical rule violations.</p>
+          ) : (
+            <ul className="max-h-40 space-y-1 overflow-y-auto">
+              {erc.violations.map((violation, index) => (
+                <li
+                  key={`${violation.type}-${violation.componentId ?? ''}-${violation.pinId ?? ''}-${index}`}
+                  className={`rounded px-2 py-1 text-xs ${
+                    violation.severity === 'error'
+                      ? 'bg-destructive/10 text-destructive'
+                      : violation.severity === 'warning'
+                        ? 'bg-warning/10 text-warning'
+                        : 'bg-muted text-muted-foreground'
+                  }`}
+                >
+                  {violation.message}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
         <Button
           onClick={handleConvert}
           disabled={isConverting}
@@ -167,6 +200,26 @@ export const SchematicToPcbPanel: React.FC<SchematicToPcbPanelProps> = ({
         >
           {isConverting ? 'Converting...' : 'Convert to PCB'}
         </Button>
+
+        {validation && (
+          <div className="rounded-md border border-border p-3 text-xs space-y-1" aria-live="polite">
+            <div className="flex items-center justify-between">
+              <span className="font-medium">Post-conversion DRC</span>
+              <span className={validation.valid ? 'text-success' : 'text-destructive'}>
+                {validation.valid ? 'Clean' : `${validation.errors.length} error(s)`}
+              </span>
+            </div>
+            {validation.errors.map((message, index) => (
+              <p key={`error-${index}`} className="text-destructive">{message}</p>
+            ))}
+            {validation.warnings.map((message, index) => (
+              <p key={`warning-${index}`} className="text-warning">{message}</p>
+            ))}
+            {validation.errors.length === 0 && validation.warnings.length === 0 && (
+              <p className="text-muted-foreground">No design-rule or connectivity issues found.</p>
+            )}
+          </div>
+        )}
 
         <div className="text-sm text-muted-foreground">
           <p>Components: {schematic.components.length}</p>

@@ -34,11 +34,30 @@ describe('scope measurements + power analysis', () => {
     expect(lines[0]).toBe('t,V(OUT)');
     expect(lines).toHaveLength(6);
   });
+  it('weights mean and RMS by elapsed time on a non-uniform grid', () => {
+    const m = measureWaveform({
+      name: 'V(X)', unit: 'V',
+      data: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 4 }],
+    })
+    // Integral of y is 2·(0+4)/2·1 = 2 over a 2 s span → mean 1 V.
+    expect(m.mean).toBeCloseTo(1, 9)
+    // ∫y² = (0+16)/2·1 = 8 over 2 s → RMS √4 = 2 V, not the sample RMS √(16/3).
+    expect(m.rms).toBeCloseTo(2, 9)
+  })
   it('fails loud on empty or mismatched series', () => {
     expect(() => measureWaveform({ name: 'V(E)', unit: 'V', data: [] })).toThrow(/no data/);
+    expect(() => waveformsToCsv([{ name: 'V(E)', unit: 'V', data: [] }])).toThrow(/at least one sample/);
     expect(() => powerSeries(
       { name: 'V', unit: 'V', data: [{ x: 0, y: 1 }] },
       { name: 'I', unit: 'A', data: [{ x: 0, y: 1 }, { x: 1, y: 1 }] },
     )).toThrow(/matching grids/);
+    expect(() => waveformsToCsv([
+      { name: 'V(A)', unit: 'V', data: [{ x: 0, y: 1 }, { x: 1, y: 2 }] },
+      { name: 'V(B)', unit: 'V', data: [{ x: 0, y: 1 }, { x: 1, y: 2 }, { x: 2, y: 3 }] },
+    ])).toThrow(/shared time grid/);
+    expect(() => waveformsToCsv([
+      { name: 'V(A)', unit: 'V', data: [{ x: 0, y: 1 }, { x: 1, y: 2 }] },
+      { name: 'V(B)', unit: 'V', data: [{ x: 0, y: 1 }, { x: 2, y: 2 }] },
+    ])).toThrow(/differs at sample/);
   });
 });

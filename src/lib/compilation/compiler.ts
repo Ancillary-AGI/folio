@@ -1,4 +1,4 @@
-import { Component, Wire, Net } from '../../types/index';
+import { Component, Wire, Net, Pin } from '../../types/index';
 import { bytesToIntelHex, textToBytes } from './intelHex';
 
 // Compiler interface for different target platforms
@@ -12,17 +12,24 @@ export interface CompilerTarget {
 
 export interface CompilerOptions {
   target: string;
+  /** Recorded in the generated header; no vendor optimiser runs in the browser. */
   optimization: 'none' | 'speed' | 'size' | 'balanced';
+  /** Recorded in the generated header; debug symbols are a toolchain concern. */
   debug: boolean;
+  /** Display concern for the caller; diagnostics are always computed. */
   warnings: boolean;
+  /** Header names included verbatim (angle brackets are optional). */
   includes: string[];
   defines: Record<string, string>;
+  /** Library names; `.h` is appended. */
   libraries: string[];
 }
 
 export interface CompilationResult {
   success: boolean;
   output: string;
+  /** The sketch that was analysed and packaged (empty when generation threw). */
+  code: string;
   errors: CompilationError[];
   warnings: CompilationWarning[];
   binary?: ArrayBuffer;
@@ -54,6 +61,23 @@ export interface CompilationWarning {
   file?: string;
 }
 
+/** Turn arbitrary text into a legal C identifier fragment. */
+function sanitizeIdentifier(text: string, fallback: string): string {
+  const cleaned = text
+    .trim()
+    .replace(/[^A-Za-z0-9_]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  if (!cleaned) return fallback
+  // A leading digit is legal in a name but not at the start of an identifier.
+  return /^[0-9]/.test(cleaned) ? `_${cleaned}` : cleaned
+}
+
+/** Escape a value for a double-quoted C string literal on one line. */
+function cString(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]+/g, ' ')
+}
+
 function generatePinMappings(
   platform: string,
   components: Component[],
@@ -61,24 +85,57 @@ function generatePinMappings(
   nets: Net[],
 ): string {
   const netByPin = buildNetMap(wires, nets)
-  const knownNets = new Map<string, string>()
+  const usedMacros = new Set<string>()
+  const uniqueMacro = (base: string): string => {
+    let candidate = base
+    let suffix = 2
+    while (usedMacros.has(candidate)) {
+      candidate = `${base}_${suffix}`
+      suffix += 1
+    }
+    usedMacros.add(candidate)
+    return candidate
+  }
+
+  const netMacros = new Map<string, string>()
   for (const name of new Set(netByPin.values())) {
-    knownNets.set(name, name.toUpperCase().replace(/[^A-Z0-9_]/g, '_'))
+    netMacros.set(name, uniqueMacro(`NET_${sanitizeIdentifier(name, 'UNNAMED')}`))
   }
 
   let mappings = `// ${platform} pin and net mappings\n`
-  for (const [name, macro] of knownNets) {
-    mappings += `#define NET_${macro} "${name.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"\n`
+  for (const [name, macro] of netMacros) {
+    mappings += `#define ${macro} "${cString(name)}"\n`
   }
   for (const component of components) {
     for (const pin of component.pins) {
       const netName = netByPin.get(`${component.id}\u0000${pin.id}`)
       if (!netName) continue
-      const componentName = `${component.name}_${pin.name}`.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
-      mappings += `#define ${componentName}_NET NET_${knownNets.get(netName)}\n`
+      const componentMacro = sanitizeIdentifier(`${component.name}_${pin.name}`, 'PIN')
+      mappings += `#define ${uniqueMacro(`${componentMacro}_NET`)} ${netMacros.get(netName)}\n`
     }
   }
   return mappings
+}
+
+/**
+ * Reject option values that would produce broken or injected C++.
+ * These are user-supplied through the UI, so they are checked at this boundary.
+ */
+function validateCompilerOptions(options: CompilerOptions): void {
+  const includeName = /^[A-Za-z0-9_./-]+$/
+  for (const library of options.libraries) {
+    if (!includeName.test(library)) throw new Error(`Invalid library include name "${library}"`)
+  }
+  for (const include of options.includes) {
+    const name = include.replace(/^<|>$/g, '')
+    if (!includeName.test(name)) throw new Error(`Invalid include name "${include}"`)
+  }
+  for (const [key, value] of Object.entries(options.defines)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      throw new Error(`Invalid preprocessor define name "${key}"`)
+    }
+    if (/[\r\n]/.test(value)) throw new Error(`Preprocessor define "${key}" spans multiple lines`)
+  }
 }
 
 /** Pin-key separator; a NUL cannot appear in an identifier, so it is collision-free. */
@@ -113,21 +170,142 @@ export function buildNetMap(wires: readonly Wire[], nets: readonly Net[]): Map<s
   return netByPin
 }
 
+interface PinRef {
+  component: Component
+  pin: Pin
+}
+
+/** Group every connected pin by the net it belongs to. */
+function groupPinsByNet(components: readonly Component[], wires: readonly Wire[], nets: readonly Net[]): Map<string, PinRef[]> {
+  const netByPin = buildNetMap(wires, nets)
+  const byNet = new Map<string, PinRef[]>()
+  for (const component of components) {
+    for (const pin of component.pins) {
+      const netName = netByPin.get(`${component.id}${PIN_KEY}${pin.id}`)
+      if (!netName) continue
+      const refs = byNet.get(netName) ?? []
+      refs.push({ component, pin })
+      byNet.set(netName, refs)
+    }
+  }
+  return byNet
+}
+
+const isMicrocontroller = (component: Component): boolean => component.category === 'microcontroller'
+const isSignalPin = (pin: Pin): boolean => pin.type === 'input' || pin.type === 'output' || pin.type === 'io'
+const isAnalogPinName = (name: string): boolean => /^A\d+$/i.test(name.trim())
+
+/**
+ * Net connections where exactly one MCU pin meets exactly one peripheral pin.
+ *
+ * A peripheral `output` pin (a sensor's OUT) is read by the MCU; a peripheral
+ * `input` pin (an LED anode, a servo PWM input) is driven by the MCU. Nets with
+ * several peripherals or no MCU are left to the named-mirror pass, because the
+ * schematic does not say which part is in charge.
+ */
+function boardConnections(byNet: Map<string, PinRef[]>): Array<{
+  netName: string
+  mcu: PinRef
+  device: PinRef
+  direction: 'read' | 'drive'
+}> {
+  const connections: Array<{ netName: string; mcu: PinRef; device: PinRef; direction: 'read' | 'drive' }> = []
+  for (const [netName, refs] of byNet) {
+    const mcuRefs = refs.filter((ref) => isMicrocontroller(ref.component) && (ref.pin.type === 'io' || ref.pin.type === 'input'))
+    const deviceRefs = refs.filter((ref) => !isMicrocontroller(ref.component) && isSignalPin(ref.pin))
+    if (mcuRefs.length !== 1 || deviceRefs.length !== 1) continue
+    const mcu = mcuRefs[0]
+    const device = deviceRefs[0]
+    if (device.pin.type === 'output' && mcu.pin.type !== 'output') {
+      connections.push({ netName, mcu, device, direction: 'read' })
+    } else if (device.pin.type === 'input' && mcu.pin.type === 'io') {
+      connections.push({ netName, mcu, device, direction: 'drive' })
+    }
+  }
+  return connections
+}
+
+/**
+ * Derive `setup()` pin modes from the same connection model as `loop()`.
+ * Legacy input/output-category parts keep their first pin configured, as before.
+ */
+function generateSetupBody(components: readonly Component[], wires: readonly Wire[], nets: readonly Net[], baud: number): string {
+  const lines: string[] = [`  Serial.begin(${baud});`, '', '  // Initialize pins']
+  const configured = new Set<string>()
+  const configure = (pin: string, mode: 'INPUT' | 'OUTPUT'): void => {
+    if (configured.has(pin)) return
+    configured.add(pin)
+    lines.push(`  pinMode(${pin}, ${mode});`)
+  }
+
+  for (const { mcu, direction } of boardConnections(groupPinsByNet(components, wires, nets))) {
+    configure(mcu.pin.name, direction === 'read' ? 'INPUT' : 'OUTPUT')
+  }
+  for (const component of components) {
+    if (component.category !== 'input' && component.category !== 'output') continue
+    if (component.pins.length === 0) continue
+    configure(component.pins[0].name, component.category === 'input' ? 'INPUT' : 'OUTPUT')
+  }
+  return lines.join('\n')
+}
+
 /**
  * Derive the `loop()` body from the schematic.
  *
- * The generated sketch mirrors sensed inputs onto driven outputs; when nothing
- * is linked it emits a documented idle loop that reports the inputs on serial.
+ * The generated sketch reads sensors wired to an MCU pin and drives peripheral
+ * inputs wired to one; named nets joining legacy input/output-category parts
+ * mirror one onto the other. When nothing matches it emits a documented idle
+ * loop rather than inventing behaviour the schematic does not describe.
  */
 function generateLoopBody(components: readonly Component[], wires: readonly Wire[], nets: readonly Net[]): string {
   const netByPin = buildNetMap(wires, nets)
-  const inputs = components.filter((component) => component.category === 'input' && component.pins.length > 0)
-  const outputs = components.filter((component) => component.category === 'output' && component.pins.length > 0)
-
+  const board = boardConnections(groupPinsByNet(components, wires, nets))
+  const handledPins = new Set(board.map(({ device }) => `${device.component.id}${PIN_KEY}${device.pin.id}`))
   const lines: string[] = []
+  const usedVariables = new Set<string>()
+  const variableFor = (component: Component): string => {
+    const base = `${sanitizeIdentifier(component.name || component.id, 'input')}Value`
+    let candidate = base
+    let suffix = 2
+    while (usedVariables.has(candidate)) {
+      candidate = `${base}${suffix}`
+      suffix += 1
+    }
+    usedVariables.add(candidate)
+    return candidate
+  }
+
+  for (const { netName, mcu, device, direction } of board) {
+    if (direction === 'read') {
+      const variable = variableFor(device.component)
+      const read = isAnalogPinName(mcu.pin.name) ? 'analogRead' : 'digitalRead'
+      lines.push(`  // ${device.component.name}.${device.pin.name} via ${mcu.component.name}.${mcu.pin.name} (net "${netName}")`)
+      lines.push(`  int ${variable} = ${read}(${mcu.pin.name});`)
+    } else {
+      lines.push(`  // ${device.component.name}.${device.pin.name} via ${mcu.component.name}.${mcu.pin.name} (net "${netName}")`)
+      if (/pwm/i.test(device.pin.name) || device.component.category === 'actuator') {
+        lines.push(`  analogWrite(${mcu.pin.name}, 0); // 0..255: set the level this output needs`)
+      } else {
+        lines.push(`  digitalWrite(${mcu.pin.name}, LOW); // set HIGH to activate`)
+      }
+    }
+  }
+
+  const inputs = components.filter(
+    (component) =>
+      component.category === 'input' &&
+      component.pins.length > 0 &&
+      !handledPins.has(`${component.id}${PIN_KEY}${component.pins[0].id}`),
+  )
+  const outputs = components.filter(
+    (component) =>
+      component.category === 'output' &&
+      component.pins.length > 0 &&
+      !handledPins.has(`${component.id}${PIN_KEY}${component.pins[0].id}`),
+  )
   for (const input of inputs) {
     const netName = netByPin.get(`${input.id}${PIN_KEY}${input.pins[0].id}`)
-    const identifier = `${input.name}Value`.replace(/[^A-Za-z0-9_]/g, '_')
+    const identifier = variableFor(input)
     lines.push(`  int ${identifier} = digitalRead(${input.pins[0].name});`)
     if (!netName) continue
 
@@ -141,8 +319,8 @@ function generateLoopBody(components: readonly Component[], wires: readonly Wire
   }
 
   if (lines.length === 0) {
-    lines.push('  // No sensing/driven pair is linked by a named net, so this loop idles.')
-    lines.push('  // Name the nets that join an input to an output to generate mirroring logic.')
+    lines.push('  // Nothing in this schematic maps onto a pin action, so this loop idles.')
+    lines.push('  // Wire a sensor output or a peripheral input to a microcontroller pin to generate logic.')
   } else {
     lines.push('  delay(10); // 100 Hz loop: keeps the copy above from saturating the ADC and watchdog')
   }
@@ -332,6 +510,70 @@ export function analyseSource(code: string, options: { requireSetupAndLoop: bool
   }
 }
 
+/**
+ * Build a sketch for a board family from the schematic's netlist.
+ *
+ * Shared by both targets so AVR and ESP32 output can never drift apart: the
+ * only differences are the platform comment, baud rate and extra includes.
+ */
+function generateSketch(
+  platform: 'Arduino' | 'ESP32',
+  baud: number,
+  extraIncludes: readonly string[],
+  components: Component[],
+  wires: Wire[],
+  nets: Net[],
+  options: CompilerOptions,
+): string {
+  validateCompilerOptions(options)
+
+  let code = `// ${platform} sketch from schematic (optimization: ${options.optimization}, debug: ${options.debug ? 'on' : 'off'})\n`
+  code += '#include <Arduino.h>\n'
+  for (const include of extraIncludes) code += `#include <${include}>\n`
+  for (const library of options.libraries) code += `#include <${library}.h>\n`
+  for (const include of options.includes) {
+    code += `#include <${include.replace(/^<|>$/g, '')}>\n`
+  }
+  code += '\n'
+
+  const defines = Object.entries(options.defines)
+  for (const [key, value] of defines) code += `#define ${key} ${value}\n`
+  if (defines.length > 0) code += '\n'
+
+  code += generatePinMappings(platform, components, wires, nets)
+  code += '\n'
+  code += `void setup() {\n${generateSetupBody(components, wires, nets, baud)}\n}\n\n`
+  code += `void loop() {\n${generateLoopBody(components, wires, nets)}\n}\n`
+  return code
+}
+
+/** Analyse a generated sketch and package it as an Intel HEX image. */
+function packageSketch(code: string, baseAddress: number, target: string, version: string): CompilationResult {
+  const analysis = analyseSource(code, { requireSetupAndLoop: true })
+  const image = buildFirmwareImage(code, baseAddress)
+
+  return {
+    success: analysis.errors.length === 0,
+    output:
+      analysis.errors.length === 0
+        ? `Analysed ${code.length} characters. Firmware image: ${image.imageBytes} bytes at 0x${image.baseAddress
+            .toString(16)
+            .padStart(4, '0')
+            .toUpperCase()}.`
+        : `Analysis failed with ${analysis.errors.length} error(s).`,
+    code,
+    errors: analysis.errors,
+    warnings: [
+      ...analysis.warnings,
+      { line: 0, column: 0, message: describeImageCaveat(), severity: 'info' },
+    ],
+    binary: image.binary,
+    hex: image.hex,
+    size: { flash: analysis.flashEstimate, ram: analysis.ramEstimate },
+    metadata: { compilationTime: 0, target, version },
+  }
+}
+
 // Arduino Compiler Target
 export class ArduinoCompiler implements CompilerTarget {
   id = 'arduino';
@@ -361,6 +603,7 @@ export class ArduinoCompiler implements CompilerTarget {
       return {
         success: false,
         output: 'Compilation failed',
+        code: '',
         errors: [{
           line: 0,
           column: 0,
@@ -379,47 +622,7 @@ export class ArduinoCompiler implements CompilerTarget {
   }
 
   private generateArduinoCode(components: Component[], wires: Wire[], nets: Net[], options: CompilerOptions): string {
-    let code = '';
-
-    // Add includes
-    code += '#include <Arduino.h>\n';
-    options.libraries.forEach(lib => {
-      code += `#include <${lib}.h>\n`;
-    });
-    code += '\n';
-
-    // Add defines
-    Object.entries(options.defines).forEach(([key, value]) => {
-      code += `#define ${key} ${value}\n`;
-    });
-    code += '\n';
-
-    // Generate pin mappings
-    const pinMappings = generatePinMappings('Arduino', components, wires, nets);
-    code += pinMappings;
-    code += '\n';
-
-    // Generate setup function
-    code += 'void setup() {\n';
-    code += '  // Initialize serial communication\n';
-    code += '  Serial.begin(9600);\n';
-    code += '\n';
-    code += '  // Initialize pins\n';
-    components.forEach(comp => {
-      if (comp.category === 'input') {
-        code += `  pinMode(${comp.pins[0].name}, INPUT);\n`;
-      } else if (comp.category === 'output') {
-        code += `  pinMode(${comp.pins[0].name}, OUTPUT);\n`;
-      }
-    });
-    code += '}\n\n';
-
-    // Generate loop function
-    code += 'void loop() {\n';
-    code += generateLoopBody(components, wires, nets);
-    code += '\n}\n';
-
-    return code;
+    return generateSketch('Arduino', 9600, [], components, wires, nets, options)
   }
 
   /**
@@ -430,32 +633,7 @@ export class ArduinoCompiler implements CompilerTarget {
    * plus a HEX encode), so the reported time is the real elapsed time.
    */
   private compileSource(code: string): CompilationResult {
-    const analysis = analyseSource(code, { requireSetupAndLoop: true });
-    const image = buildFirmwareImage(code, AVR_APPLICATION_BASE_ADDRESS);
-
-    return {
-      success: analysis.errors.length === 0,
-      output:
-        analysis.errors.length === 0
-          ? `Analysed ${code.length} characters. Firmware image: ${image.imageBytes} bytes at 0x${image.baseAddress
-              .toString(16)
-              .padStart(4, '0')
-              .toUpperCase()}.`
-          : `Analysis failed with ${analysis.errors.length} error(s).`,
-      errors: analysis.errors,
-      warnings: [
-        ...analysis.warnings,
-        { line: 0, column: 0, message: describeImageCaveat(), severity: 'info' },
-      ],
-      binary: image.binary,
-      hex: image.hex,
-      size: { flash: analysis.flashEstimate, ram: analysis.ramEstimate },
-      metadata: {
-        compilationTime: 0,
-        target: 'arduino',
-        version: '1.8.19',
-      },
-    };
+    return packageSketch(code, AVR_APPLICATION_BASE_ADDRESS, 'arduino', '1.8.19')
   }
 }
 
@@ -485,6 +663,7 @@ export class ESP32Compiler implements CompilerTarget {
       return {
         success: false,
         output: 'Compilation failed',
+        code: '',
         errors: [{
           line: 0,
           column: 0,
@@ -503,47 +682,7 @@ export class ESP32Compiler implements CompilerTarget {
   }
 
   private generateESP32Code(components: Component[], wires: Wire[], nets: Net[], options: CompilerOptions): string {
-    let code = '';
-
-    // ESP32 includes
-    code += '#include <Arduino.h>\n';
-    code += '#include <WiFi.h>\n';
-    options.libraries.forEach(lib => {
-      code += `#include <${lib}.h>\n`;
-    });
-    code += '\n';
-
-    // Add defines
-    Object.entries(options.defines).forEach(([key, value]) => {
-      code += `#define ${key} ${value}\n`;
-    });
-    code += '\n';
-
-    // Generate pin mappings
-    const pinMappings = generatePinMappings('ESP32', components, wires, nets);
-    code += pinMappings;
-    code += '\n';
-
-    // Generate setup function
-    code += 'void setup() {\n';
-    code += '  Serial.begin(115200);\n';
-    code += '\n';
-    code += '  // Initialize pins\n';
-    components.forEach(comp => {
-      if (comp.category === 'input') {
-        code += `  pinMode(${comp.pins[0].name}, INPUT);\n`;
-      } else if (comp.category === 'output') {
-        code += `  pinMode(${comp.pins[0].name}, OUTPUT);\n`;
-      }
-    });
-    code += '}\n\n';
-
-    // Generate loop function
-    code += 'void loop() {\n';
-    code += generateLoopBody(components, wires, nets);
-    code += '\n}\n';
-
-    return code;
+    return generateSketch('ESP32', 115200, ['WiFi.h'], components, wires, nets, options)
   }
 
   /**
@@ -553,32 +692,7 @@ export class ESP32Compiler implements CompilerTarget {
    * spec-correct HEX container, with no fabricated timings or binary blobs.
    */
   private compileSource(code: string, baseAddress: number): CompilationResult {
-    const analysis = analyseSource(code, { requireSetupAndLoop: true });
-    const image = buildFirmwareImage(code, baseAddress);
-
-    return {
-      success: analysis.errors.length === 0,
-      output:
-        analysis.errors.length === 0
-          ? `Analysed ${code.length} characters. Firmware image: ${image.imageBytes} bytes at 0x${image.baseAddress
-              .toString(16)
-              .padStart(4, '0')
-              .toUpperCase()}.`
-          : `Analysis failed with ${analysis.errors.length} error(s).`,
-      errors: analysis.errors,
-      warnings: [
-        ...analysis.warnings,
-        { line: 0, column: 0, message: describeImageCaveat(), severity: 'info' },
-      ],
-      binary: image.binary,
-      hex: image.hex,
-      size: { flash: analysis.flashEstimate, ram: analysis.ramEstimate },
-      metadata: {
-        compilationTime: 0,
-        target: 'esp32',
-        version: '4.4.1',
-      },
-    };
+    return packageSketch(code, baseAddress, 'esp32', '4.4.1')
   }
 }
 

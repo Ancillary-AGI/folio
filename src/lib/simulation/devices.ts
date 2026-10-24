@@ -89,6 +89,25 @@ export function parseSpiceValue(
   return value
 }
 
+/**
+ * Parse a physical dimension in millimetres.
+ *
+ * A bare number means millimetres (the unit PCB geometry is drawn in). An
+ * explicit `mm` suffix is handled here because `parseSpiceValue` reads its
+ * first `m` as the milli prefix and would return metres.
+ */
+export function parseMillimetres(
+  rawValue: string | number | boolean | undefined,
+  label: string,
+): number | undefined {
+  if (rawValue === undefined || rawValue === '') return undefined
+  if (typeof rawValue === 'string') {
+    const explicit = /^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)\s*mm\s*$/i.exec(rawValue)
+    if (explicit) return Number(explicit[1])
+  }
+  return parseSpiceValue(rawValue, label)
+}
+
 /** Read the first present parameter from a list of accepted aliases. */
 export function pickParameter(
   parameters: Readonly<Record<string, string | number | boolean>>,
@@ -126,6 +145,7 @@ export type DeviceKind =
   | 'resistor'
   | 'capacitor'
   | 'inductor'
+  | 'transmission-line'
   | 'voltage-source'
   | 'current-source'
   | 'diode'
@@ -162,6 +182,22 @@ export interface CapacitorDevice extends DeviceBase {
 export interface InductorDevice extends DeviceBase {
   kind: 'inductor'
   inductance: number
+}
+
+/**
+ * Lossless transmission line (SPICE `T` element).
+ *
+ * Port 1 is `p`/`n` and port 2 is `p2`/`n2`. `td` is the one-way propagation
+ * delay, not the round-trip time.
+ */
+export interface TransmissionLineDevice extends DeviceBase {
+  kind: 'transmission-line'
+  p2: string
+  n2: string
+  /** Characteristic impedance, Ω. */
+  z0: number
+  /** One-way propagation delay, seconds. */
+  td: number
 }
 
 export interface VoltageSourceDevice extends DeviceBase {
@@ -594,6 +630,7 @@ export type Device =
   | ResistorDevice
   | CapacitorDevice
   | InductorDevice
+  | TransmissionLineDevice
   | VoltageSourceDevice
   | CurrentSourceDevice
   | DiodeDevice
@@ -619,6 +656,12 @@ export function deviceNodes(device: Device): string[] {
     if (node !== undefined && !nodes.includes(node)) nodes.push(node)
   }
   switch (device.kind) {
+    case 'transmission-line':
+      push(device.p)
+      push(device.n)
+      push(device.p2)
+      push(device.n2)
+      break
     case 'bjt':
       push(device.c)
       push(device.b)

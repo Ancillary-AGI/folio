@@ -51,4 +51,18 @@ describe('flash sidecar daemon', () => {
     expect(line.endsWith('\n')).toBe(true);
     expect(decodeFrame(line)).toEqual({ kind: 'write', device: 'd', offset: 0, dataHex: '00ff', sha256: 'x' });
   });
+  it('rejects unknown kinds and ill-typed frames at the protocol boundary', () => {
+    expect(() => decodeFrame('{"kind":"format-everything"}')).toThrow(/unknown kind/);
+    expect(() => decodeFrame('{"kind":"write","device":"d","offset":-1,"dataHex":"00","sha256":"x"}')).toThrow(/offset/);
+    expect(() => decodeFrame('{"kind":"write","device":"d","offset":0,"dataHex":123,"sha256":"x"}')).toThrow(/dataHex/);
+    expect(() => decodeFrame('{"kind":"read","device":"d","offset":0}')).toThrow(/length/);
+    expect(() => decodeFrame('{"kind":"ready","devices":[]}')).not.toThrow();
+    expect(() => decodeFrame('{"kind":"ready"}')).toThrow(/devices/);
+  });
+  it('closes cleanly on bye instead of reporting an error', async () => {
+    const d = daemon();
+    const reply = await d.handle({ kind: 'bye' });
+    expect(reply).toEqual({ kind: 'bye' });
+    expect((await d.handle({ kind: 'hello' })).kind).toBe('error');
+  });
 });

@@ -38,11 +38,42 @@ const COPPER_OZ_DEFAULT = 1
 export function validateStackup(layers: StackupLayer[]): { stackup: Stackup; violations: StackupViolation[] } {
   const violations: StackupViolation[] = []
   let total = 0
+  let validTotal = true
   for (const layer of layers) {
-    if (layer.kind === 'dielectric') total += layer.thickness ?? 0
-    else total += ozToMm(layer.thickness ?? COPPER_OZ_DEFAULT)
+    const label = layer.name || `${layer.kind} layer`
+    if (layer.kind === 'dielectric') {
+      if (Number.isFinite(layer.thickness) && (layer.thickness ?? -1) >= 0) {
+        total += layer.thickness!
+      } else {
+        validTotal = false
+        violations.push({
+          rule: 'thickness',
+          severity: 'error',
+          message: `${label} dielectric thickness must be zero or positive and finite.`,
+        })
+      }
+      if (!(Number.isFinite(layer.er) && (layer.er ?? 0) >= 1)) {
+        violations.push({
+          rule: 'thickness',
+          severity: 'error',
+          message: `${label} dielectric constant must be finite and at least 1.`,
+        })
+      }
+      continue
+    }
+    const ounces = layer.thickness ?? COPPER_OZ_DEFAULT
+    if (Number.isFinite(ounces) && ounces > 0) {
+      total += ozToMm(ounces)
+    } else {
+      validTotal = false
+      violations.push({
+        rule: 'thickness',
+        severity: 'error',
+        message: `${label} copper weight must be positive and finite.`,
+      })
+    }
   }
-  if (total < 0.2 || total > 4) {
+  if (validTotal && (total < 0.2 || total > 4)) {
     violations.push({ rule: 'thickness', severity: 'error', message: `Stackup thickness ${total.toFixed(2)} mm outside 0.2–4 mm.` })
   }
   // Symmetry is about copper weights and dielectric — plane net names
@@ -53,7 +84,7 @@ export function validateStackup(layers: StackupLayer[]): { stackup: Stackup; vio
   if (signature.join('|') !== [...signature].reverse().join('|')) {
     violations.push({ rule: 'symmetry', severity: 'error', message: 'Stackup asymmetric about centre — warp risk.' })
   }
-  return { stackup: { layers, totalThickness: total }, violations }
+  return { stackup: { layers, totalThickness: validTotal ? total : Number.NaN }, violations }
 }
 
 /** Nearest plane above/below a signal layer, with dielectric distance. */
@@ -85,14 +116,28 @@ export function nearestPlane(
 
 /** Microstrip impedance (Hammerstad–Jensen simplified IPC form). */
 export function microstripImpedance(width: number, height: number, thickness: number, er: number): number {
+  if (!(Number.isFinite(width) && width > 0) || !(Number.isFinite(height) && height > 0)) {
+    throw new Error('microstrip width and dielectric height must be positive and finite')
+  }
+  if (!(Number.isFinite(thickness) && thickness >= 0) || !(Number.isFinite(er) && er >= 1)) {
+    throw new Error('microstrip copper thickness must be >= 0 and er must be >= 1')
+  }
   const erEff = (er + 1) / 2 + ((er - 1) / 2) / Math.sqrt(1 + 12 / (width / height))
   return (87 / Math.sqrt(erEff + 1.41)) * Math.log((5.98 * height) / (0.8 * width + thickness))
 }
 
-/** Symmetric stripline impedance (IPC-2141). */
+/**
+ * Symmetric stripline impedance, IPC-2141:
+ * Z0 = 60/√er · ln(4b / (0.67π(0.8w + t))), b = plane-to-plane spacing.
+ */
 export function striplineImpedance(width: number, spacing: number, thickness: number, er: number): number {
-  const wEff = width + (0.8 * thickness) / (1 + Math.exp(-2 * spacing))
-  return (60 / Math.sqrt(er)) * Math.log(4 * spacing / (0.67 * Math.PI * wEff))
+  if (!(Number.isFinite(width) && width > 0) || !(Number.isFinite(spacing) && spacing > 0)) {
+    throw new Error('stripline width and plane spacing must be positive and finite')
+  }
+  if (!(Number.isFinite(thickness) && thickness >= 0) || !(Number.isFinite(er) && er >= 1)) {
+    throw new Error('stripline copper thickness must be >= 0 and er must be >= 1')
+  }
+  return (60 / Math.sqrt(er)) * Math.log((4 * spacing) / (0.67 * Math.PI * (0.8 * width + thickness)))
 }
 
 /** Pair skew from routed lengths: ~6 ps/mm on FR4. Positive means P longer. */
@@ -107,6 +152,10 @@ export function widthForImpedance(
   low = 0.05,
   high = 1,
 ): number | undefined {
+  if (!(Number.isFinite(target) && target > 0)) throw new Error('target impedance must be positive and finite')
+  if (!(Number.isFinite(low) && low > 0) || !(Number.isFinite(high) && high > low)) {
+    throw new Error('width search range must satisfy 0 < low < high')
+  }
   const at = (w: number): number =>
     geometry.mode === 'microstrip'
       ? microstripImpedance(w, geometry.height, geometry.thickness, geometry.er)

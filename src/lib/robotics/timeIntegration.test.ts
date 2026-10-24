@@ -219,6 +219,19 @@ describe('sampling contract and guards', () => {
     expect(samples[0].state[0]).toBe(5);
   });
 
+  it('lands exactly on the end for a span shorter than the time epsilon', () => {
+    const samples = integrate(() => [1], [0], 0, 1e-13, { dt: 1e-3 });
+    expect(samples).toHaveLength(2);
+    expect(samples[1].time).toBe(1e-13);
+    expect(samples[1].state[0]).toBeCloseTo(1e-13, 25);
+  });
+
+  it('lands exactly on the end for a second-order span shorter than the time epsilon', () => {
+    const samples = integrateSecondOrder(() => [0], [1], [0], 0, 1e-13, { dt: 1e-3 });
+    expect(samples).toHaveLength(2);
+    expect(samples[1].time).toBe(1e-13);
+  });
+
   it('rejects a non-positive step, a reversed span and non-finite bounds', () => {
     expect(() => integrate(() => [1], [0], 0, 1, { dt: 0 })).toThrow(/positive/);
     expect(() => integrate(() => [1], [0], 0, 1, { dt: -0.1 })).toThrow(/positive/);

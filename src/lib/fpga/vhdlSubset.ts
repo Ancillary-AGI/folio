@@ -4,7 +4,7 @@
  * Folio simulates Verilog already (`verilogSubset.ts`); VHDL-only teams had no
  * path in. This parses the synthesizable structural subset:
  * `entity X is port(a: in bit; y: out bit); end;` +
- * `architecture s of X is begin u1: and2 port map(a,b,y); end;`
+ * `architecture s of X is begin u1: and2 port map(y,a,b); end;`
  * for AND/OR/NAND/NOR/XOR/NOT/BUF cells, elaborating to the same runnable
  * digital netlist. Fail-loud with line numbers; unmapped ports rejected.
  */

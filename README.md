@@ -1,422 +1,313 @@
-# Folio - Multi-Domain Engineering Workbench
+# Folio — Multi-Domain Engineering Workbench
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com)
-[![Version](https://img.shields.io/badge/version-2.0.0-blue)](https://github.com)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+Browser-based, offline-first engineering workbench for electronic CAD, mechanical
+design, simulation, robotics, and embedded development. Everything runs locally
+unless you explicitly configure a backend; no account is required for local use.
 
-A comprehensive, cross-platform engineering workbench that unifies CAD, mechanical simulation, circuit/PCB design, robotics and embedded systems development, digital twin simulation, and AI-driven optimization.
-
-**🚀 Status: active development — core workbench features operational**
-
----
-
-## 📊 Quick Stats
-
-- ✅ **CI:** lint, typecheck, unit tests & build enforced on every push (GitHub Actions)
-- ✅ **Tests:** 311 passing across 22 files
-- ✅ **Bundle Size:** 805 KB initial (242 KB gzipped), feature panels code-split
-- ✅ **Build Time:** ~60–70 seconds (1 minute on warm cache)
+**Status:** active development. Lint, both typechecks, 1,564 tests across 174
+files, the icon-button accessibility audit, and the production build all pass.
 
 ---
 
-## 🚀 Core Capabilities
-
-### 1. 🎨 CAD & Mechanical Design - **COMPLETE**
-
-**Advanced Features:**
-- ✅ Full parametric 3D modeling with constraint-based design
-- ✅ Multi-physics FEA simulation (thermal, electromagnetic, structural)
-- ✅ Real-time 3D visualization with WebGL/Three.js
-- ✅ AR/VR preview support via WebXR API
-- ✅ Professional STL/OBJ export with mesh optimization
-- ✅ Advanced G-code generation for FDM/SLA/SLS printers
-- ✅ Material property database
-- ✅ Adaptive mesh generation and refinement
-
-### 2. ⚡ Circuit & PCB Design - **COMPLETE**
-
-**Advanced Features:**
-- ✅ Professional schematic editor (500+ components)
-- ✅ Intelligent schematic-to-PCB conversion
-- ✅ Advanced auto-routing algorithms
-- ✅ IPC-compliant footprint library (1000+)
-- ✅ Real-time DRC/ERC checking
-- ✅ Advanced thermal analysis
-- ✅ High-speed signal integrity analysis
-- ✅ EMC/EMI simulation
-- ✅ RF circuit design and antenna optimization
-- ✅ Hardware-in-the-loop testing
-- ✅ Gerber/drill file export
-- ✅ Automated BOM generation
-
-### 3. 🤖 Robotics & Embedded Systems - **COMPLETE**
-
-**Advanced Features:**
-- ✅ Full Arduino IDE integration
-- ✅ Multi-platform compilers (AVR, ARM, ESP32, RISC-V)
-- ✅ FPGA design flow
-- ✅ Hardware interfaces (I²C, SPI, UART, CAN, USB)
-- ✅ 6-DOF robot simulation with physics
-- ✅ Forward/inverse kinematics
-- ✅ Trajectory planning
-- ✅ Collision detection and avoidance
-- ✅ Real-time digital twin sync
-- ✅ Agentic robotic control with RL
-- ✅ Path planning (A*, RRT)
-- ✅ IIoT device management
-- ✅ Visual block-based programming
-
-### 4. 🧠 Agentic AI & Intelligent Design Automation - **COMPLETE**
-
-**Advanced Features:**
-- ✅ Autonomous agentic co-design assistants
-- ✅ Deep reinforcement learning (DQN, PPO, SAC)
-- ✅ Evolutionary algorithms (GA, PSO, DE)
-- ✅ Multi-objective optimization
-- ✅ Predictive maintenance (LSTM/GRU)
-- ✅ Advanced NLP (transformer models)
-- ✅ Voice command interface
-- ✅ Context-aware smart suggestions
-- ✅ Real-time digital twin sync
-- ✅ Automated circuit analysis
-- ✅ Component recommendation engine
-
-### 5. 🏗️ IDE & Collaboration Environment - **COMPLETE**
-
-**Advanced Features:**
-- ✅ Real-time collaborative editing (OT)
-- ✅ Multi-user cursor/selection tracking
-- ✅ Git-like version control
-- ✅ Conflict resolution (3-way merge)
-- ✅ Cloud synchronization (Supabase)
-- ✅ Role-based access control (RBAC)
-- ✅ Extensible plugin system
-- ✅ AI-assisted code completion
-- ✅ Simulation co-pilot
-- ✅ Automatic backup/recovery
-- ✅ Full offline mode support
-
----
-
-## 🛠 Technology Stack
-
-- **Frontend:** React 18 + TypeScript + Vite
-- **UI Framework:** Tailwind CSS + Radix UI
-- **3D Graphics:** Three.js + React Three Fiber
-- **2D Canvas:** Konva.js
-- **State Management:** Zustand
-- **Backend:** Supabase (PostgreSQL + Real-time)
-- **AI Integration:** OpenAI API
-- **Simulation:** WebAssembly SPICE + Custom engines
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-```bash
-Node.js 18+
-npm or yarn
-Supabase account (for backend)
-OpenAI API key (for AI features)
-```
-
-### Installation
+## Quick start
 
 ```bash
-# Clone the repository
-git clone https://github.com/Ancillary-AGI/folio.git
-cd folio
-
-# Install dependencies
 npm install
-
-# Set up environment variables
-cp .env.example .env.local
-# Edit .env.local with your credentials
-
-# Start development server
-npm run dev
+npm run dev          # http://localhost:5174 (strict port)
 ```
 
-### Environment Variables
-
-Create `.env.local` with:
+Optional integrations (the app boots without them):
 
 ```env
-VITE_SUPABASE_URL=your_supabase_url
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-VITE_OPENAI_API_KEY=your_openai_api_key
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
 ```
+
+With no Supabase configuration the workbench is fully local: projects, version
+history, sharing metadata, and autosave use the browser. The AI panel is a local
+rule-based assistant (keyword matching, declared-property estimates and threshold
+rules); it makes no model or network call, and its output is advisory.
 
 ---
 
-## 📖 Usage Guide
+## What actually works
 
-### Basic Workflow
+### Demos and navigation
 
-1. **Create Project** - Start from dashboard or use templates
-2. **Design** - Use CAD, schematic, or PCB tools
-3. **Simulate** - Run multi-physics simulations
-4. **Optimize** - Let AI suggest improvements
-5. **Collaborate** - Share with team in real-time
-6. **Export** - Generate manufacturing files
+- **Demo gallery** (header **Demos**, or **Ctrl/⌘+Shift+D**): 29 runnable
+  scenarios covering every one of the 25 workspace modes, searchable and grouped
+  by family. A scenario seeds the stores or stages a one-shot request for the
+  panel that owns the feature, so the demo exercises the real engine rather than
+  a screenshot.
+- The half-wave rectifier demos share one board: schematic → transient → PCB →
+  autorouted 3-D scene → BOM audit → HIL → digital twin.
+- **Grouped workspaces**: Design, Electrical, Mechanical and Ops & AI families
+  with icons and descriptions instead of a flat tab ribbon.
+- **Command palette** (**Ctrl/⌘+K**): search and run any workspace mode, demo or
+  document action with the keyboard.
+- A contextual status bar reports the active mode, schematic metrics, theme and
+  unsaved state.
 
-### AI-Assisted Design
+### Schematic & circuit simulation
 
-```
-1. Open AI Chat Panel (Bot icon)
-2. Describe your requirements in natural language
-3. Review AI suggestions and recommendations
-4. Apply optimizations with one click
-5. Iterate with AI feedback
-```
+- Drag/drop or click-to-arm placement, searchable 39-part library, grid snap,
+  click-to-click wiring with junctions, properties inspector, undo/redo, rulers.
+- MNA SPICE-style solver written in TypeScript: DC operating point, DC sweep,
+  transient, AC, noise, and Monte Carlo, with 51 validated semiconductor models
+  and behavioral sources.
+- Discrete-event digital simulator (four-state logic, gates, flip-flops, clocks,
+  X propagation, combinational-loop detection) and a lockstep mixed-signal bridge
+  to the analog solver.
+- Netlist import/export, waveform viewer with measurements, per-net PCB feedback.
+- Multi-sheet schematics and KiCad netlist round-tripping.
 
-### Robotics Simulation
+### PCB & manufacturing
 
-```
-1. Open Robotics Toolbox
-2. Configure robot (6-DOF manipulator)
-3. Set target positions
-4. Run simulation with physics
-5. Export trajectory data
-```
+- Schematic-to-PCB conversion, auto-routing, multi-layer canvas with an editable
+  board outline, DRC and ERC.
+- The 3-D/AR viewer renders the routed layout itself: the actual outline,
+  per-layer copper traces, via barrels, footprint pads and component bodies
+  sized from the footprint library. The same geometry feeds STL/OBJ export, so
+  the exported model matches the board on screen; the PCB panel links straight
+  to it with **Preview 3D**. Off-board traces, vias and parts are reported, not
+  clamped to the edge.
+- Steady-state thermal analysis on a 2-D finite-volume grid with convection on
+  both faces. The solver is shared across three execution paths:
+  **WebGPU** (WGSL Jacobi), **Worker**, and **main thread** (SOR). GPU results
+  are only accepted after the residual converges; otherwise dispatch falls back.
+- Signal integrity: single-line microstrip/stripline impedance, reflection
+  lattice, a bisection-based trace-width optimiser, and a pattern-driven eye
+  diagram (ISI, rise time, reflection overshoot). The panel analyses a routed
+  trace with declared stackup and driver assumptions; crosstalk is not modelled.
+- Closed-form EMC emission estimates, stackup/impedance rules, differential
+  pairs, BGA fanout, power integrity, DDR constraints, HDI routing.
+- Fabrication output: Gerber set, Excellon drill, centroid/PnP, BOM, and an
+  optional encrypted project export (AES-GCM-256 with PBKDF2 key derivation).
 
-### PCB Design
+### Control systems & electric machines
 
-```
-1. Create schematic
-2. Convert to PCB (automatic routing)
-3. Run DRC/ERC checks
-4. Perform thermal/SI analysis
-5. Export Gerber files
-```
+- Transfer-function algebra (series, parallel, feedback), complex polynomial
+  roots by Durand–Kerner, pole/zero stability classification, controllable-
+  canonical state-space conversion, RK4 time simulation, step/impulse metrics,
+  log-spaced Bode magnitude and unwrapped phase, gain/phase margins, Nyquist,
+  and controllability/observability ranks. The **Control** workspace panel
+  drives a plant plus optional PID controller and plots the closed-loop step and
+  Bode response.
+- PID: continuous filtered-derivative transfer function, unit-feedback closed
+  loop, and a sampled controller with derivative-on-measurement, first-order
+  derivative filtering, output clamping and conditional-integration anti-windup.
+- Brushed DC motor/generator: two-state armature model stepped exactly with a
+  zero-order-hold matrix exponential (**independent of the output sample
+  interval**), load/generator torque sign conventions, terminal-voltage and
+  efficiency reporting. BLDC/PMSM: dq model with ideal FOC decoupling. Stepper:
+  sinusoidal holding torque, first-order phase-current lag, detent and lumped
+  damping, with RK4 substepping sized from the electrical/mechanical time
+  constants. The **Machines** workspace panel shows steady-state operating
+  points and time-domain speed, current, torque, power, dq and rotor-position
+  traces.
+
+### RF, HDL/FPGA, and IC design
+
+- Microstrip/stripline/antenna calculations and RF filter synthesis, exposed in a
+  dedicated RF workspace panel. Dipole/monopole directivity is numerically
+  integrated from the far-field pattern (gain equals directivity because no
+  ohmic-loss model is bundled); the antenna optimiser searches length and
+  refuses targets outside the achievable range instead of returning a best-effort
+  miss.
+- VHDL/Verilog subsets with parsers, logic synthesis, FPGA flow helpers, and
+  testbench-ready netlists.
+- IC design flow adapters, SKY130 standard-cell library, silicon floorplanning
+  with die/core sizing and macro placement, GDSII export, and package/chip
+  models (QFN/TQFP/BGA with bond-wire parasitics).
+- Four-state digital simulation for gates and flip-flops, plus a **Device Lab**
+  for catalog logic/memory chips: 74HC595 shift/latch edges, 74HC165 parallel
+  load and serial shift, 74HC138 active-low decoding, 23LC1024 SRAM, 24LC256
+  paged EEPROM (5 ms write cycle, page-boundary checks) and W25Q128 NOR flash
+  (clear-bits-until-erase semantics, 4 KB sector erase timing).
+
+### Mechanical & 3D
+
+- Shared material catalogue (density, modulus, yield, conductivity) used by every
+  mechanical analysis.
+- Euler–Bernoulli beam analysis with deflection, stress, natural frequencies, and
+  buckling load. The solver honours the part's support condition (fixed →
+  cantilever, pinned/roller → simply supported) and keeps axial force out of the
+  transverse deflection; modal and buckling results name the part they belong to.
+  Unsupported parts are reported instead of being analysed as cantilevers.
+  Structural and thermal panel integration. This is a reduced-order beam model,
+  not a 3D finite-element solve; plates are analysed as beams.
+- STEP assembly, STL, and real FDM slicing to G-code: triangle–plane slicing,
+  contour chaining, hole/outer orientation, clipped rectilinear infill, solid
+  top/bottom shells, brim/raft/skirt, and volumetric extrusion in relative mode.
+  The mechanical STEP export is AP214 with one faceted closed shell per
+  component, emitted through the same writer as the enclosure and mechanism
+  exporters. The mechanical panel slices the generated enclosure tray end to end.
+  Honest limits: one perimeter path (no multi-wall offsetting), no support
+  generation, FDM only — SLA/SLS and support requests are refused rather than
+  emitting invalid G-code, and open mesh chains are reported, not fabricated.
+- Printability metrics (overhang, thin walls, build-volume fit) computed from the
+  actual mesh.
+- Particle-swarm section sizing (PSO over width/height with stress, deflection,
+  and slenderness constraints), applied back to the beam model. The result is
+  re-checked against the closed-form relations before it is shown as feasible.
+- Three.js viewer, XR preview, enclosure workflow from PCB dimensions. The PCB
+  mode's 3-D preview is driven by the routed board (outline, copper, vias,
+  footprints) rather than a fixed demo slab.
+
+### Robotics, embedded & IIoT
+
+- Forward/inverse kinematics with a damped least-squares IK solver (6-row
+  geometric Jacobian, adaptive damping, step limiting, joint-limit clamping).
+  IK starts from the current pose and, when that fails, retries a deterministic
+  distance-ordered set of joint-space seeds, so reachable targets are not missed
+  because of a poor initial guess; no randomness is involved. Trajectory
+  helpers, joint preview, and advanced robotics panels.
+- Numerical rigid-body dynamics for serial revolute/prismatic chains: Jacobian
+  mass matrix, gravity vector, Coriolis/centrifugal (Ṁq̇ − ½∇(q̇ᵀMq̇)), energy,
+  and mass-matrix conditioning. Unsupported joint types and malformed state
+  vectors are rejected with an explicit error instead of a fabricated result;
+  friction, motor dynamics, and flexible-body effects are not modelled.
+- Mechanism replay samples the planned joint-space profile from the planned
+  start pose, or integrates declared joint velocities from the current pose;
+  with no planned move the current pose is held. Joint values at the service
+  boundary are degrees for revolute joints and metres for prismatic joints, and
+  unsupported joint types are rejected. Task simulation rejects non-monotonic
+  timestamps, out-of-limit or non-finite waypoints, and empty tasks; collision
+  tests the tool point against each obstacle's declared box/sphere/cylinder
+  (links are not swept), and smoothness is a sample-density-independent
+  dimensionless-jerk score. Box-level link collision is the only contact model,
+  so narrow-phase contact is not reported rather than invented.
+- Arduino-style firmware flow, board programming over WebSerial (live with a
+  granted port; fails loudly otherwise), Intel HEX round-trip, HIL scenarios,
+  digital-twin demo, and hardware interface simulators (I²C/SPI/UART/CAN).
+  Hardware bridges speak newline-delimited JSON with request ids and per-request
+  timeouts; wrong-length or non-byte replies are rejected, never zero-filled.
+
+### Agents, collaboration, plugins & security
+
+- Agent harness with EDA tools and a symbolic verifier; AI chat, datasheet
+  importer, and marketplace panels.
+- Local project store, autosave, version history with restore, backup snapshots.
+- Sharing/roles (owner, admin, editor, reviewer, viewer) with permission checks.
+  Real-time presence and operation broadcast use Supabase Realtime **when
+  configured**; otherwise the sharing model is local-only.
+- Plugin system with manifest validation, declared-permission gating, lifecycle
+  hooks, marketplace install/uninstall. Plugin code runs in the page; permissions
+  gate host API actions, not a security sandbox.
+- Asset RBAC and encrypted exports. The in-session audit trail records grants,
+  encryptions, decryptions, and refusals.
+
+### Compute acceleration
+
+The PCB panel's **Compute Acceleration** card probes the actual browser:
+
+- WebGPU availability and adapter name
+- Worker support and SharedArrayBuffer availability
+- Recommended thermal path
+
+WebGPU is used only for grids of at least 1,024 cells; smaller grids stay on the
+CPU to avoid upload overhead. If the adapter, pipeline, or readback fails, the
+dispatch falls back to Worker → CPU. The reported accelerator is the path that
+produced the converged result.
 
 ---
 
-## 🏗 Project Structure
-
-```
-folio/
-├── src/
-│   ├── components/          # React components
-│   │   ├── 3d/             # 3D visualization
-│   │   ├── ai/             # AI chat and assistance
-│   │   ├── collaboration/  # Real-time collaboration
-│   │   ├── mechanical/     # Mechanical design
-│   │   ├── pcb/            # PCB layout
-│   │   ├── programming/    # Embedded programming
-│   │   ├── robotics/       # Robotics simulation
-│   │   ├── simulation/     # Circuit simulation
-│   │   └── ui/             # Reusable UI components
-│   ├── lib/                # Core libraries
-│   │   ├── 3d/             # 3D export and rendering
-│   │   ├── ai/             # AI services
-│   │   ├── collaboration/  # Collaboration engine
-│   │   ├── hardware/       # Hardware interfaces
-│   │   ├── mechanical/     # Mechanical simulation
-│   │   ├── pcb/            # PCB analysis
-│   │   ├── plugins/        # Plugin system
-│   │   ├── robotics/       # Robotics simulation
-│   │   └── simulation/     # Multi-physics simulation
-│   ├── stores/             # State management
-│   ├── types/              # TypeScript definitions
-│   └── __tests__/          # Test suites
-├── docs/                   # Documentation
-└── dist/                   # Production build
-```
-
----
-
-## 🧪 Testing
+## Verification
 
 ```bash
-# Run all tests
-npm test
-
-# Run tests in watch mode
-npm run test:watch
-
-# Type checking
-npm run typecheck
-
-# Linting
-npm run lint
+npm run lint            # ESLint, zero warnings
+npm run a11y:buttons    # every icon-only button has an accessible name
+npm run typecheck       # app TypeScript
+npm run typecheck:node  # Vite/build config TypeScript
+npm test                # Vitest, 1,564 tests / 174 files
+npm run build           # production build
+npm run preview         # preview the build on port 4173
 ```
 
-**Test Coverage:**
-- Unit Tests: ✅ Passing
-- Integration Tests: ✅ Passing
-- Production Tests: ✅ Passing
-- Overall: 311 tests passing across 22 files (CI runs them on every push)
+CI (`.github/workflows/ci.yml`) runs all of the above on every push and PR.
+
+The acceleration paths have been checked in a real browser (Chrome/Electron
+WebGPU): the GPU thermal grid matches the CPU reference peak and average within
+0.01 °C and is only labelled `webgpu` when converged.
 
 ---
 
-## 📦 Building & Deployment
+## Project layout
 
-### Production Build
-
-```bash
-# Build for production
-npm run build
-
-# Preview production build
-npm run preview
+```
+src/
+  components/        React panels (schematic, pcb, mechanical, robotics, rf, ecad…)
+  lib/
+    simulation/      SPICE, digital, mixed-signal, devices, netlists
+    pcb/             thermal, PCB scene geometry and layout engines
+    manufacturing/   DRC/ERC, fab export, SI, stackup, autorouting
+    acceleration/    WebGPU/Worker thermal dispatch and capability probing
+    mechanical/      materials, beam/FEA, assemblies, kinematics, dynamics
+    rf/              antenna and RF circuit design
+    control/         transfer functions, PID, Bode/margins, state space
+    electronics/     part catalogs, machine dynamics, logic/memory behaviour
+    ic/ fpga/        IC flow, standard cells, GDS, HDL/synthesis
+    security/        asset RBAC + AES-GCM encryption
+    collaboration/   local sharing model + optional Supabase Realtime
+    plugins/         plugin system and permission checks
+  stores/            Zustand state and undo
+  __tests__/         render/integration tests
 ```
 
-**Build Output:**
-- Bundle Size: 805 KB initial payload (242 KB gzipped); heavy panels (3D, robotics, simulation) load on demand
-- Build Time: ~60–70 seconds
-- Modules: 3,262 transformed
-- Optimization: Minified + tree-shaken
+---
 
-### Deployment Platforms
+## Honest limits
 
-- ✅ Vercel (recommended)
-- ✅ Netlify
-- ✅ AWS Amplify
-- ✅ Azure Static Web Apps
-- ✅ Self-hosted (Docker)
+- Simulations are engineering approximations for design exploration, not
+  certified sign-off. Validate thermal, SI, EMC, and structural results against
+  measured hardware before fabrication.
+- The circuit solver uses dense LU on the full MNA matrix. It targets
+  board-scale circuits (hundreds of nodes), not million-node IC netlists; there
+  is no sparse/iterative solver and no foundry-validated device-model
+  certification.
+- Transient analysis offers backward Euler (the default: first-order, monotone,
+  unconditionally stable), trapezoidal integration (second-order, preserves LC
+  ringing), and Gear/BDF2 (second-order, A-stable, damps high-frequency numerical
+  ringing), with backward-Euler startup/restart and adaptive subdivision. Gear is
+  fixed at order 2; there is no variable-order BDF.
+- AC and noise analyses linearise about a converged DC operating point whenever
+  a device is bias-dependent. A purely linear circuit with an indeterminate DC
+  bias is solved at zero bias and reports that explicitly; a singular AC network
+  still fails rather than returning a curve.
+- SI is a closed-form single-line lattice with an eye diagram built from that
+  lattice (no crosstalk, IBIS transient, or full-wave field solve). EMC is a
+  closed-form loop/dipole estimate at 3 m, not a chamber measurement.
+- Thermal and structural analyses are reduced-order: a 2-D finite-volume PCB
+  grid, 1-D/2-D members and trusses, and closed-form beam/shaft/column formulas.
+  They are not 3-D FEA, CFD, or contact solvers.
+- Control analysis is single-input/single-output and linear time-invariant.
+  Polynomial roots, Bode curves and margins are computed from the declared
+  transfer function; nonlinear plants, MIMO state feedback, observers and
+  hardware-in-the-loop controller tuning are not included. The PID loop is
+  simulated, not auto-tuned.
+- Electric machines use lumped-parameter models (armature R/L, torque and back-EMF
+  constants, inertia, viscous damping). Magnetic saturation, cogging, eddy/
+  hysteresis losses, thermal derating and finite-element field solutions are not
+  modelled; stepper damping is a single lumped coefficient standing in for
+  bearing friction and back-EMF/eddy effects.
+- The PCB 3-D viewer is a geometry preview and mesh exporter (STL/OBJ), not an
+  electromagnetic, thermal or mechanical co-solve.
+- The IC flow targets a digital RTL subset with the bundled SKY130 cell set. Its
+  GDSII is a flow artifact for inspection and education — it is not DRC/LVS-clean
+  foundry tapeout, and there is no analog, custom or transistor-level layout
+  editor. Device Lab models datasheet-level logic and memory-array behaviour
+  (page/erase rules and timing constants), not full SPI/I²C bus timing or
+  analog electrical models.
+- Supabase and AI provider integrations are optional. Without credentials, cloud
+  sync and live AI answers are unavailable by design.
+- Real-time collaboration needs Supabase Realtime; the role/share UI works
+  locally without it.
+- The installable plugin surface is permission-gated but not sandboxed.
+- The language selector stores a preference; only English strings ship.
+- No GDPR, ISO 27001, or IEC 62443 certification is claimed.
 
 ---
 
-## 🎯 Key Features
+## License
 
-### Cross-Domain Integration
-
-**Seamless workflow across all engineering disciplines:**
-
-- CAD ↔ PCB: 3D models → PCB enclosures
-- AI ↔ Circuit: Component recommendations → schematics
-- Robotics ↔ Digital Twin: Real-time synchronization
-- Embedded ↔ Simulation: Code → hardware simulation
-
-### Advanced Capabilities
-
-**Multi-Physics Simulation:**
-- Coupled thermal-electrical-mechanical analysis
-- Transient and steady-state solvers
-- Mesh generation and refinement
-- Result visualization
-
-**Agentic AI:**
-- Autonomous design iteration
-- Multi-objective optimization
-- Reinforcement learning agents
-- Predictive analytics
-
-**Digital Twin:**
-- Real-time synchronization
-- Sensor data integration
-- Predictive maintenance
-- Performance monitoring
-
----
-
-## 🔒 Security & Compliance
-
-### Security Measures
-- ✅ Authentication and authorization (Supabase Auth)
-- ✅ Row-level security (RLS)
-- ✅ Input validation and sanitization
-- ✅ XSS/CSRF protection
-- ✅ Secure plugin execution (sandboxing)
-- ✅ Encrypted data storage
-- ✅ Role-based access control (RBAC)
-
-### Dependency audits
-- ✅ Production dependencies (`npm audit --omit=dev`): **0 vulnerabilities**
-- 🟡 Full tree (`npm audit`): 12 vulnerabilities (2 critical, 6 high, 4 moderate), all in the dev toolchain — vitest/tinypool/vite-node, vite/esbuild, and tailwindcss with its transitive braces/chokidar/micromatch/fast-glob/postcss deps. None of these ship to production.
-- Every remaining fix requires a semver-major upgrade (vitest 4, vite 8, tailwindcss 4); those are tracked as deliberate migrations rather than blind lockfile bumps.
-
-### Compliance
-- ✅ GDPR compliance ready
-- ✅ IEC 62443 support (industrial IoT)
-- ✅ ISO 27001 security controls
-- ✅ WCAG 2.1 AA accessibility (partial)
-
----
-
-## ⚡ Performance
-
-### Runtime Performance (design targets)
-- Initial Load: < 3 seconds
-- Time to Interactive: < 5 seconds
-- Frame Rate: 60 FPS (3D rendering)
-- Memory Usage: < 200 MB (typical)
-- Simulation Speed: Real-time capable
-
-### Scalability (design targets)
-- Max Components: 10,000+ per schematic
-- Max Concurrent Users: 50+ (collaboration)
-- Max Project Size: 100+ MB
-- Cloud Sync: Real-time (< 100ms latency)
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! To contribute:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
----
-
-## 📚 Documentation
-
-### Available Documentation
-- `README.md` - This file (user guide)
-- `FEATURES.md` - Detailed feature documentation
-- `.env.example` - Environment configuration
-
----
-
-## 🎓 Target Users
-
-- **Professional Engineers** - Electrical, mechanical, robotics engineers
-- **Research & Development** - Academic researchers and R&D teams
-- **Industrial Applications** - Manufacturing automation and IIoT
-- **Educational Institutions** - Universities and technical schools
-- **Hobbyists & Makers** - Electronics enthusiasts and makers
-
----
-
-## 🆘 Support
-
-- 🐛 **Issues:** [GitHub Issues](https://github.com/Ancillary-AGI/folio/issues)
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🎉 Status
-
-**Folio is under active development; the core workbench is operational and covered by CI.**
-
-Domain features implemented and exercised by the test suite:
-- ✅ CAD & Mechanical Design with FEA
-- ✅ Circuit & PCB Design with advanced analysis
-- ✅ Robotics & Embedded Systems with digital twin
-- ✅ Agentic AI with autonomous optimization
-- ✅ IDE & Collaboration with real-time editing
-
-Every push runs lint, typechecks, 311 unit/integration tests, and a production build (see `.github/workflows/ci.yml`).
-
----
-
-**Version:** 2.0.0  
-**Status:** 🚧 Active development  
-**Build:** ✅ Passing (local + CI)  
-**Deploy:** ⚙️ Static build ready for Vercel/Netlify/self-host
-
----
-
-*Built with ❤️ for the engineering community* ⚡🔧🤖
+MIT — see [LICENSE](LICENSE).

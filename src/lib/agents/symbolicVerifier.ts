@@ -76,9 +76,11 @@ export function verifyCircuitTopology(nodes: CircuitNode[]): SymbolicVerificatio
       });
     }
 
-    // 3. Floating High-Impedance Inputs
+    // 3. Floating High-Impedance Inputs. A passive pin is a valid DC path
+    // (pull-up/down/series resistor), so it counts as a driver here — flagging
+    // an input tied through a resistor as floating was a false positive.
     const inputPins = node.pins.filter((p) => p.pinKind === 'input');
-    const driverPins = node.pins.filter((p) => p.pinKind === 'output' || p.pinKind === 'power' || p.pinKind === 'ground');
+    const driverPins = node.pins.filter((p) => p.pinKind !== 'input');
     if (inputPins.length > 0 && driverPins.length === 0) {
       warnings.push({
         severity: 'warning',

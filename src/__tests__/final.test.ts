@@ -7,7 +7,6 @@ import { describe, it, expect } from 'vitest';
 
 // Import services with correct exports
 import { thermalAnalysisEngine } from '../lib/pcb/thermalAnalysis';
-import { signalIntegrityAnalyzer } from '../lib/pcb/signalIntegrity';
 import { roboticsSimulationService } from '../lib/robotics/roboticsSimulation';
 import { digitalTwinService } from '../lib/digitalTwin/digitalTwinService';
 import { hardwareInterfaceManager } from '../lib/hardware/hardwareInterfaces';
@@ -64,25 +63,6 @@ describe('Production Tests - All Features Working', () => {
       expect(result.recommendations).toBeDefined();
       expect(Array.isArray(result.nodes)).toBe(true);
       expect(Array.isArray(result.hotspots)).toBe(true);
-    });
-  });
-
-  describe('2. Signal Integrity Analysis', () => {
-    it('should calculate trace impedance', async () => {
-      const trace = {
-        length: 100,
-        width: 0.2,
-        thickness: 0.035,
-        dielectricHeight: 1.6,
-        dielectricConstant: 4.5,
-        frequency: 1e9
-      };
-
-      const result = await signalIntegrityAnalyzer.analyzeTrace(trace);
-
-      expect(result).toBeDefined();
-      expect(result.impedance).toBeGreaterThan(0);
-      expect(result.propagationDelay).toBeGreaterThan(0);
     });
   });
 
@@ -267,12 +247,10 @@ describe('Production Tests - All Features Working', () => {
 
     it('should get plugin by ID', () => {
       const plugins = pluginManager.getAllPlugins();
-      
-      if (plugins.length > 0) {
-        const plugin = pluginManager.getPlugin(plugins[0].manifest.id);
-        expect(plugin).toBeDefined();
-      } else {
-        expect(true).toBe(true); // No plugins loaded yet
+
+      expect(Array.isArray(plugins)).toBe(true);
+      for (const plugin of plugins) {
+        expect(pluginManager.getPlugin(plugin.manifest.id)).toBe(plugin);
       }
     });
   });

@@ -1,10 +1,28 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, type ChangeEvent } from 'react'
 import { Play, Download, Zap, BarChart3, X, AlertCircle, Info } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { spiceEngine, SimulationParameters, SimulationResult } from '../../lib/simulation/spiceEngine'
+import {
+  spiceEngine,
+  type CircuitNetlist,
+  type SimulationParameters,
+  type SimulationResult,
+} from '../../lib/simulation/spiceEngine'
 import { buildCircuitNetlist } from '../../lib/simulation/netlistBuilder'
+import { buildMultiSheetNetlist, type SchematicSheet } from '../../lib/simulation/multiSheet'
+import {
+  circuitToInterchange,
+  interchangeStats,
+  interchangeToSheet,
+  parseInterchangeText,
+  type InterchangeNetlist,
+} from '../../lib/simulation/netlistInterchange'
+import { emitKicadNetlist } from '../../lib/manufacturing/kicadNetlist'
+import { serializeEagleSchematic } from '../../lib/manufacturing/eagleSchematic'
+import { downloadFile } from '../../lib/exportUtils'
+import { parseSpiceModelLibrary, type SpiceModelCard } from '../../lib/simulation/modelLibrary'
+import type { AnalogToDigitalProbe, DigitalToAnalogDrive } from '../../lib/simulation/mixedSignal'
 import { playbackDuration, playbackFrame } from '../../lib/simulation/playback'
 import { measureWaveform, waveformsToCsv } from '../../lib/simulation/scopeAnalysis'
 import { useProjectStore } from '../../stores/useProjectStore'
@@ -32,7 +50,7 @@ const ANALYSIS_LABELS: Record<AnalysisType, string> = {
 const ANALYSIS_SUMMARY: Record<AnalysisType, string> = {
   dc: 'Solves the bias point by modified nodal analysis. Capacitors are open, inductors are shorts, and diodes are linearised by Newton iteration.',
   'dc-sweep': 'Steps one source, resistor or the temperature and re-solves the bias at every value — a characteristic curve rather than a single number. Each point is a full Newton solve warm-started from the last, so a knee is traced, not interpolated.',
-  transient: 'Integrates capacitors and inductors with backward-Euler companion models — unconditionally stable, and it will not ring on an ideal step.',
+  transient: 'Integrates capacitors and inductors with companion models. Backward Euler is unconditionally stable and will not ring on an ideal step; trapezoidal is second-order and preserves LC oscillation; Gear/BDF2 is second-order, A-stable and damps high-frequency numerical ringing.',
   ac: 'Sweeps the complex small-signal network, linearising diodes at the DC operating point so the response belongs to the bias you designed.',
   noise: 'Output-referred thermal and shot noise via the adjoint (transposed) network method, with an integrated RMS figure.',
   montecarlo: 'Re-solves the bias with R/C/L perturbed inside a tolerance band, reporting the mean and the ±3σ envelope. Seeded, so a sweep is reproducible.',
@@ -71,6 +89,21 @@ const DIGITAL_EXAMPLE = [
   'RUN until=120',
 ].join('\n')
 
+interface ImportedSheet {
+  name: string
+  format: 'kicad' | 'eagle'
+  netlist: InterchangeNetlist
+}
+
+/** FileReader rather than `File.text()` — jsdom does not implement the latter. */
+function readFileText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onerror = () => reject(reader.error ?? new Error('The file could not be read.'))
+    reader.readAsText(file)
+  })
+}
 
 export default function SimulationPanel({ onClose }: SimulationPanelProps) {
   const [isSimulating, setIsSimulating] = useState(false)
@@ -128,6 +161,24 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
   const { theme } = useTheme()
   const seriesColors = useMemo(() => chartSeriesColors(theme), [theme])
 
+  /*
+   * SPICE `.model` cards typed or pasted by the user. Parsing is pure and
+   * cheap, so it runs on every keystroke and reports problems before a run.
+   * A malformed card blocks simulation: silently falling back to the stock
+   * model would simulate a different transistor than the deck describes.
+   */
+  const [modelDeck, setModelDeck] = useState('')
+  const modelLibrary = useMemo(
+    () => (modelDeck.trim() ? parseSpiceModelLibrary(modelDeck) : null),
+    [modelDeck],
+  )
+  const modelCards = useMemo<Record<string, SpiceModelCard>>(
+    () => (modelLibrary ? Object.fromEntries(modelLibrary.models) : {}),
+    [modelLibrary],
+  )
+  const attachModelCards = (netlist: CircuitNetlist): CircuitNetlist =>
+    Object.keys(modelCards).length > 0 ? { ...netlist, models: modelCards } : netlist
+
   /**
    * Reference designators on the schematic whose value a sweep can step.
    *
@@ -151,11 +202,15 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
   }, [selectedAnalysis])
 
   const handleRunSimulation = async () => {
+    if (modelLibrary && modelLibrary.errors.length > 0) {
+      setError(`Fix the model-card errors first: ${modelLibrary.errors.join(' ')}`)
+      return
+    }
     setIsSimulating(true)
     setError(null)
 
     try {
-      const netlist = buildCircuitNetlist('Circuit Simulation', components, wires, parameters)
+      const netlist = attachModelCards(buildCircuitNetlist('Circuit Simulation', components, wires, parameters))
       const result = await spiceEngine.simulate(netlist)
       setSimulationResults(result)
       setSelectedWaveforms(pickDefaultWaveforms(result.waveforms.map((w) => w.name)))
@@ -182,6 +237,9 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
 
   const handleCorrelateBench = async () => {
     try {
+      if (modelLibrary && modelLibrary.errors.length > 0) {
+        throw new Error(`Fix the model-card errors first: ${modelLibrary.errors.join(' ')}`)
+      }
       const { correlateBench, toleranceEnvelope } = await import('../../lib/simulation/benchCorrelation')
       const { buildCircuitModel } = await import('../../lib/simulation/circuitModel')
       const { runOperatingPoint } = await import('../../lib/simulation/solver')
@@ -194,7 +252,9 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
           if (!signal || x === undefined || value === undefined) throw new Error(`Bad bench line: ${line} (want SIGNAL,x,value)`)
           return { signal, x: Number(x), value: Number(value) }
         })
-      const netlist = buildCircuitNetlist('Bench correlation', components, wires, { type: 'dc' })
+      const netlist = attachModelCards(
+        buildCircuitNetlist('Bench correlation', components, wires, { type: 'dc' }),
+      )
       const { model, errors } = buildCircuitModel(netlist)
       if (errors.length > 0) throw new Error(errors.join(' '))
       const { bands } = toleranceEnvelope(model, (perturbed) => runOperatingPoint(perturbed, { temperatureCelsius: 27 }).outcome, { iterations: 60, tolerance: 0.05 })
@@ -205,8 +265,93 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
     }
   }
 
+  const [importedSheets, setImportedSheets] = useState<ImportedSheet[]>([])
+  const [interchangeError, setInterchangeError] = useState<string | null>(null)
+  const [stitchVerdict, setStitchVerdict] = useState<string | null>(null)
+  const [includeDrawnSheet, setIncludeDrawnSheet] = useState(true)
+  const [stitching, setStitching] = useState(false)
+
+  const handleExportInterchange = (format: 'kicad' | 'eagle') => {
+    setInterchangeError(null)
+    try {
+      const netlist = buildCircuitNetlist('Folio design', components, wires, { type: 'dc' })
+      if (netlist.components.length === 0) {
+        throw new Error('Place at least one component before exporting a netlist.')
+      }
+      const interchange = circuitToInterchange(netlist)
+      if (format === 'kicad') {
+        downloadFile(emitKicadNetlist(netlist), 'folio_netlist.net', 'text/plain')
+      } else {
+        downloadFile(serializeEagleSchematic(interchange), 'folio_schematic.sch', 'text/plain')
+      }
+    } catch (thrown) {
+      setInterchangeError(describeError(thrown))
+    }
+  }
+
+  const handleImportNetlist = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setInterchangeError(null)
+    setStitchVerdict(null)
+    try {
+      const parsed = parseInterchangeText(await readFileText(file))
+      const base = file.name.replace(/\.[^.]+$/, '').trim() || `Imported sheet ${importedSheets.length + 1}`
+      // Validate now so a broken netlist is reported at import, not at solve time.
+      interchangeToSheet(base, parsed.netlist)
+      setImportedSheets((previous) => [
+        ...previous,
+        { name: base, format: parsed.format, netlist: parsed.netlist },
+      ])
+    } catch (thrown) {
+      setInterchangeError(describeError(thrown))
+    }
+  }
+
+  const handleStitchSheets = async () => {
+    setInterchangeError(null)
+    setStitchVerdict(null)
+    setStitching(true)
+    try {
+      const sheets: SchematicSheet[] = importedSheets.map((entry) =>
+        interchangeToSheet(entry.name, entry.netlist),
+      )
+      if (includeDrawnSheet && components.length > 0) {
+        sheets.push({ name: 'Drawn sheet', components, wires })
+      }
+      if (sheets.length === 0) {
+        throw new Error('Import a netlist or draw a circuit before stitching sheets.')
+      }
+      const netlist = buildMultiSheetNetlist('Multi-sheet circuit', sheets, parameters)
+      const result = await spiceEngine.simulate(netlist)
+      if (!result.success) {
+        throw new Error(result.error ?? 'The stitched netlist did not solve.')
+      }
+      setSimulationResults(result)
+      setSelectedWaveforms(pickDefaultWaveforms(result.waveforms.map((w) => w.name)))
+      const iterations = result.convergenceInfo?.iterations
+      setStitchVerdict(
+        `${sheets.length} sheet${sheets.length === 1 ? '' : 's'} stitched into ${
+          netlist.components.length
+        } device${netlist.components.length === 1 ? '' : 's'}${
+          iterations === undefined ? '' : ` · ${iterations} iterations`
+        }`,
+      )
+    } catch (thrown) {
+      setInterchangeError(describeError(thrown))
+    } finally {
+      setStitching(false)
+    }
+  }
+
   const [digitalDeck, setDigitalDeck] = useState<string>(DIGITAL_EXAMPLE)
   const [digitalOutput, setDigitalOutput] = useState<{ lines: string[]; values: Array<[string, string]>; error: string | null } | null>(null)
+  const [mixedCoupling, setMixedCoupling] = useState<string>('CLK=CLK_IN')
+  const [mixedTimeScale, setMixedTimeScale] = useState<number>(1e-3)
+  const [mixedVdd, setMixedVdd] = useState<number>(5)
+  const [mixedBusy, setMixedBusy] = useState(false)
+  const [mixedOutput, setMixedOutput] = useState<{ error: string | null; lines: string[] } | null>(null)
 
   const handleRunDigital = () => {
     setDigitalOutput(null)
@@ -237,6 +382,81 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
         .catch((thrown) => setDigitalOutput({ lines: [], values: [], error: describeError(thrown) }))
     } catch (thrown) {
       setDigitalOutput({ lines: [], values: [], error: describeError(thrown) })
+    }
+  }
+
+  const handleRunMixedSignal = async () => {
+    setMixedOutput(null)
+    setMixedBusy(true)
+    try {
+      if (modelLibrary && modelLibrary.errors.length > 0) {
+        throw new Error(`Fix the model-card errors first: ${modelLibrary.errors.join(' ')}`)
+      }
+      // The digital parser/engine and the co-simulation bridge load on demand;
+      // the analog-only path does not pay for either.
+      const [{ parseDigitalNetlist }, { simulateMixedSignal }] = await Promise.all([
+        import('../../lib/simulation/digitalNetlistParser'),
+        import('../../lib/simulation/mixedSignal'),
+      ])
+      const drives: DigitalToAnalogDrive[] = []
+      const probes: AnalogToDigitalProbe[] = []
+      for (const raw of mixedCoupling.split(/\r?\n/)) {
+        const line = raw.trim()
+        if (!line || line.startsWith('#')) continue
+        const drive = /^([^=<>]+)=([^=<>]+)$/.exec(line)
+        if (drive) {
+          drives.push({ digitalNode: drive[1].trim(), analogNet: drive[2].trim(), vdd: mixedVdd })
+          continue
+        }
+        const probe = /^([^=<>]+)>([^=<>]+)$/.exec(line)
+        if (probe) {
+          probes.push({ analogNet: probe[1].trim(), digitalNode: probe[2].trim() })
+          continue
+        }
+        throw new Error(`Bad coupling "${line}" — use digitalNet=analogNet or analogNet>digitalNet.`)
+      }
+      if (drives.length === 0 && probes.length === 0) {
+        throw new Error('Add at least one coupling: digitalNet=analogNet or analogNet>digitalNet.')
+      }
+
+      const { netlist: digital, until } = parseDigitalNetlist(digitalDeck)
+      const stopTime = until * mixedTimeScale
+      const stepTime =
+        parameters.stepTime && parameters.stepTime > 0 ? parameters.stepTime : stopTime / 200
+      const analog = attachModelCards(
+        buildCircuitNetlist('Mixed-signal co-simulation', components, wires, {
+          type: 'transient',
+          stopTime,
+          stepTime,
+        }),
+      )
+      const result = await simulateMixedSignal({
+        digital,
+        analog,
+        drives,
+        probes,
+        stopTime,
+        stepTime,
+        timeScale: mixedTimeScale,
+      })
+      if (!result.success) {
+        setMixedOutput({ error: result.error ?? 'The mixed-signal run could not be completed.', lines: result.notes })
+        return
+      }
+      const finalProbe = new Map<string, string>()
+      for (const sample of result.probeTimeline) finalProbe.set(sample.digitalNode, String(sample.value))
+      setMixedOutput({
+        error: null,
+        lines: [
+          `${result.analog.waveforms.length} analog waveform(s) over ${(stopTime * 1e3).toFixed(3)} ms.`,
+          ...[...finalProbe].map(([node, value]) => `${node}=${value}`),
+          ...result.notes,
+        ],
+      })
+    } catch (thrown) {
+      setMixedOutput({ error: describeError(thrown), lines: [] })
+    } finally {
+      setMixedBusy(false)
     }
   }
 
@@ -404,6 +624,31 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
                   step="0.0000001"
                   min="0"
                 />
+              </div>
+              <div className="col-span-2">
+                <label htmlFor="sim-integration" className="text-sm font-medium mb-1 block">
+                  Integration rule
+                </label>
+                <select
+                  id="sim-integration"
+                  value={parameters.integrationMethod ?? 'backward-euler'}
+                  onChange={(event) =>
+                    handleParameterChange(
+                      'integrationMethod',
+                      event.target.value as 'backward-euler' | 'trapezoidal' | 'bdf2',
+                    )
+                  }
+                  className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
+                >
+                  <option value="backward-euler">Backward Euler — stable, no numerical ringing</option>
+                  <option value="trapezoidal">Trapezoidal — second-order, preserves LC ringing</option>
+                  <option value="bdf2">Gear/BDF2 — second-order, damps stiff ringing</option>
+                </select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Startup and every step-size change use backward Euler: one step for trapezoidal,
+                  two for BDF2. Trapezoidal best preserves lossless ringing, BDF2 damps numerical
+                  ringing on stiff edges, and backward Euler is the safest default.
+                </p>
               </div>
               <label className="col-span-2 flex items-center justify-between gap-3 rounded-md border border-border p-2">
                 <span className="text-sm text-card-foreground">
@@ -621,7 +866,7 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
         <div className="flex gap-2">
           <Button
             onClick={handleRunSimulation}
-            disabled={isSimulating || components.length === 0}
+            disabled={isSimulating || components.length === 0 || (modelLibrary?.errors.length ?? 0) > 0}
             className="flex items-center gap-2"
           >
             {isSimulating ? (
@@ -644,6 +889,143 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
             </Button>
           )}
         </div>
+        {/* SPICE device models: a supported .model subset that overrides stock cards. */}
+        <div className="rounded-md border border-border bg-muted/50 p-3">
+          <h4 className="mb-1 text-xs font-medium text-card-foreground">Device model cards</h4>
+          <p className="mb-2 text-xs leading-relaxed text-muted-foreground">
+            Paste SPICE <span className="font-mono">.model</span> cards (NPN, PNP, NMOS, PMOS, NJF, PJF, D).
+            A transistor or diode uses the card named by its Model/Part/Type property; a value typed on
+            the symbol still wins over the card. Unsupported parameters are reported, never guessed.
+          </p>
+          <textarea
+            aria-label="SPICE model cards"
+            value={modelDeck}
+            onChange={(event) => setModelDeck(event.target.value)}
+            spellCheck={false}
+            placeholder={'.model 2N3904 NPN (IS=1E-14 BF=300 VAF=100)'}
+            className="h-24 w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-xs"
+          />
+          {modelLibrary ? (
+            <div className="mt-2 space-y-1 text-xs leading-relaxed">
+              {modelLibrary.models.size > 0 ? (
+                <p className="text-muted-foreground">
+                  Loaded:{' '}
+                  {[...modelLibrary.models.values()]
+                    .map((card) => `${card.name} (${card.type})`)
+                    .join(', ')}
+                </p>
+              ) : null}
+              {modelLibrary.errors.map((message) => (
+                <p key={message} role="alert" className="text-destructive">
+                  {message}
+                </p>
+              ))}
+              {modelLibrary.unsupported.map((entry) => (
+                <p key={entry} className="text-warning">
+                  Not imported: {entry} — use a .model card, not a subcircuit or include file.
+                </p>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        {/* Interchange: KiCad s-expression / EAGLE XML, and multi-sheet stitching. */}
+        <div className="rounded-md border border-border bg-muted/50 p-3">
+          <h4 className="mb-1 text-xs font-medium text-card-foreground">Netlist interchange &amp; multi-sheet</h4>
+          <p className="mb-2 text-xs leading-relaxed text-muted-foreground">
+            Export the drawn sheet for layout in KiCad or EAGLE, or import two-terminal R/C/L/D/V/I
+            netlists and stitch them with this sheet through shared global labels (GND, VCC, OUT…).
+            Imported pins are wired from the netlist itself, never guessed from geometry.
+          </p>
+          <div className="mb-2 flex flex-wrap gap-2">
+            <Button
+              onClick={() => handleExportInterchange('kicad')}
+              disabled={components.length === 0}
+              variant="outline"
+              size="sm"
+            >
+              Export KiCad netlist
+            </Button>
+            <Button
+              onClick={() => handleExportInterchange('eagle')}
+              disabled={components.length === 0}
+              variant="outline"
+              size="sm"
+            >
+              Export EAGLE schematic
+            </Button>
+          </div>
+          <label htmlFor="interchange-import" className="mb-1 block text-xs text-muted-foreground">
+            Import KiCad (.net) or EAGLE (.sch) netlist
+          </label>
+          <input
+            id="interchange-import"
+            type="file"
+            accept=".net,.cir,.sch,.xml"
+            onChange={handleImportNetlist}
+            className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs file:text-foreground"
+          />
+          {importedSheets.length > 0 && (
+            <ul className="mt-2 space-y-1">
+              {importedSheets.map((entry, index) => {
+                const stats = interchangeStats(entry.netlist)
+                return (
+                  <li
+                    key={`${entry.name}-${index}`}
+                    className="flex items-center justify-between gap-2 text-xs text-muted-foreground"
+                  >
+                    <span>
+                      {entry.name} — {stats.components} part{stats.components === 1 ? '' : 's'} ·{' '}
+                      {stats.nets} net{stats.nets === 1 ? '' : 's'} ({entry.format.toUpperCase()})
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`Remove imported sheet ${entry.name}`}
+                      onClick={() =>
+                        setImportedSheets((previous) => previous.filter((_, at) => at !== index))
+                      }
+                    >
+                      Remove
+                    </Button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={includeDrawnSheet}
+              onChange={(event) => setIncludeDrawnSheet(event.target.checked)}
+              className="h-3.5 w-3.5"
+            />
+            Include the drawn sheet
+          </label>
+          <Button
+            onClick={handleStitchSheets}
+            disabled={
+              stitching ||
+              (importedSheets.length === 0 && (!includeDrawnSheet || components.length === 0))
+            }
+            variant="outline"
+            size="sm"
+            className="mt-2"
+          >
+            {stitching ? 'Stitching…' : 'Stitch sheets and solve'}
+          </Button>
+          {stitchVerdict ? (
+            <p role="status" className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              {stitchVerdict}
+            </p>
+          ) : null}
+          {interchangeError ? (
+            <p role="alert" className="mt-2 text-xs leading-relaxed text-destructive">
+              {interchangeError}
+            </p>
+          ) : null}
+        </div>
+
         {/* Bench correlation (Giant 4): paste SIGNAL,x,value lines, verdict vs the tolerance envelope. */}
         <div className="rounded-md border border-border bg-muted/50 p-3">
           <h4 className="mb-1 text-xs font-medium text-card-foreground">Bench correlation</h4>
@@ -697,6 +1079,62 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
               </div>
             )
           ) : null}
+
+          {/* Mixed-signal: the digital deck's edges become PWL sources on analog nets. */}
+          <div className="mt-3 border-t border-border pt-3">
+            <h4 className="mb-1 text-xs font-medium text-card-foreground">Mixed-signal coupling</h4>
+            <p className="mb-2 text-xs leading-relaxed text-muted-foreground">
+              Drive an analog net from a digital node with{' '}
+              <span className="font-mono">digitalNet=analogNet</span>, or threshold an analog net back
+              into logic with <span className="font-mono">analogNet&gt;digitalNet</span>. One coupling per line.
+            </p>
+            <textarea
+              aria-label="Mixed-signal couplings"
+              value={mixedCoupling}
+              onChange={(event) => setMixedCoupling(event.target.value)}
+              spellCheck={false}
+              className="mb-2 h-16 w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-xs"
+            />
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="text-xs text-muted-foreground">
+                Seconds per digital tick
+                <input
+                  aria-label="Seconds per digital tick"
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={mixedTimeScale}
+                  onChange={(event) => setMixedTimeScale(Number(event.target.value))}
+                  className="mt-1 block w-32 rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground"
+                />
+              </label>
+              <label className="text-xs text-muted-foreground">
+                Logic supply (V)
+                <input
+                  aria-label="Mixed-signal logic supply (V)"
+                  type="number"
+                  step="any"
+                  value={mixedVdd}
+                  onChange={(event) => setMixedVdd(Number(event.target.value))}
+                  className="mt-1 block w-24 rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground"
+                />
+              </label>
+              <Button onClick={handleRunMixedSignal} disabled={mixedBusy} variant="outline" size="sm">
+                {mixedBusy ? 'Running…' : 'Run mixed-signal'}
+              </Button>
+            </div>
+            {mixedOutput ? (
+              mixedOutput.error ? (
+                <p role="alert" className="mt-2 text-xs leading-relaxed text-destructive">{mixedOutput.error}</p>
+              ) : (
+                <div className="mt-2 space-y-1">
+                  <pre className="overflow-x-auto rounded border border-border bg-background px-2 py-1 font-mono text-xs text-foreground">
+                    {mixedOutput.lines.join('\n')}
+                  </pre>
+                </div>
+              )
+            ) : null}
+          </div>
         </div>
 
         {/* Solver diagnostics: floating nets, non-convergence, step widening. */}

@@ -57,6 +57,25 @@ describe('digitalNetlistParser', () => {
     expect(() => parseDigitalNetlist('CLOCK c out=clk period=0')).toThrowError(/period must be > 0/)
   })
 
+  it('fails loud on a unary gate with more than one input', () => {
+    expect(() => parseDigitalNetlist('GATE g1 NOT out=y in=a,b')).toThrowError(/exactly one input/)
+  })
+
+  it('fails loud on an unknown flip-flop edge', () => {
+    expect(() =>
+      parseDigitalNetlist('FF f1 D clock=clk q=q qbar=nq D=d edge=both'),
+    ).toThrowError(/edge must be rising or falling/)
+  })
+
+  it('rejects a clock duty with no low phase', () => {
+    expect(() => parseDigitalNetlist('CLOCK c out=clk period=10 duty=1')).toThrowError(/duty must be in \(0,1\)/)
+  })
+
+  it('rejects negative or malformed stimulus times', () => {
+    expect(() => parseDigitalNetlist('SET a 1 @-5')).toThrowError(/non-negative/)
+    expect(() => parseDigitalNetlist('SET a 1 5')).toThrowError(/must use @/)
+  })
+
   it('names the offending line number', () => {
     try {
       parseDigitalNetlist('GATE g1 NOT out=y in=a\nSET a 9')

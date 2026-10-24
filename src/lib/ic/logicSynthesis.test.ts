@@ -23,9 +23,44 @@ describe('Silicon Logic Synthesis & STA', () => {
     expect(result.instances.length).toBe(5);
     expect(result.nets.get('Sum')).toBeDefined();
     expect(result.nets.get('Cout')).toBeDefined();
+    expect(result.metrics.criticalPath.length).toBeGreaterThanOrEqual(3);
+    expect(['A', 'B', 'Cin']).toContain(result.metrics.criticalPath[0]);
+    expect(['Sum', 'Cout']).toContain(result.metrics.criticalPath[result.metrics.criticalPath.length - 1]);
+    expect(result.metrics.criticalPath).toEqual([...new Set(result.metrics.criticalPath)]);
+  });
+
+  it('rejects a combinational loop instead of reporting a timing result', () => {
+    const loop: GatePrimitive[] = [
+      { id: 'gate', kind: 'AND2', inputs: { A: 'a', B: 'fb' }, outputs: { X: 'm' } },
+      { id: 'inv', kind: 'INV', inputs: { A: 'm' }, outputs: { Y: 'fb' } },
+    ];
+    expect(() => synthesizeGates('loop', loop, ['a'], ['m'])).toThrow(/Combinational loop detected/);
+  });
+
+  it('rejects an undriven primary output instead of reporting 0 ps', () => {
+    const and: GatePrimitive[] = [
+      { id: 'and', kind: 'AND2', inputs: { A: 'a', B: 'b' }, outputs: { X: 'y' } },
+    ];
+    expect(() => synthesizeGates('floating', and, ['a', 'b'], ['z'])).toThrow(/no timing path/);
+  });
+
+  it('rejects a net with multiple drivers', () => {
+    const double: GatePrimitive[] = [
+      { id: 'i1', kind: 'INV', inputs: { A: 'a' }, outputs: { Y: 'y' } },
+      { id: 'i2', kind: 'INV', inputs: { A: 'b' }, outputs: { Y: 'y' } },
+    ];
+    expect(() => synthesizeGates('double', double, ['a', 'b'], ['y'])).toThrow(/multiple drivers/);
   });
 
   it('rejects synthesis with empty gate list', () => {
     expect(() => synthesizeGates('empty', [], [], [])).toThrow(/empty/);
+  });
+
+  it('rejects a non-finite or negative clock frequency', () => {
+    const inv: GatePrimitive[] = [
+      { id: 'i1', kind: 'INV', inputs: { A: 'a' }, outputs: { Y: 'y' } },
+    ];
+    expect(() => synthesizeGates('bad-clock', inv, ['a'], ['y'], Number.NaN)).toThrow(/Clock frequency/);
+    expect(() => synthesizeGates('bad-clock', inv, ['a'], ['y'], -10)).toThrow(/Clock frequency/);
   });
 });

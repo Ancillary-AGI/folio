@@ -3,18 +3,8 @@
  * Provides API for creating and managing plugins
  */
 
-export interface PluginManifest {
-  id: string;
-  name: string;
-  version: string;
-  description: string;
-  author: string;
-  entryPoint: string;
-  apiVersion: string;
-  dependencies?: string[];
-  permissions?: string[];
-  hooks?: string[];
-}
+import type { PluginManifest } from '../../types/plugins';
+import { requirePermission, validateManifest } from './pluginPermissions';
 
 export interface PluginContext {
   api: PluginAPI;
@@ -84,6 +74,10 @@ export class PluginManager {
   private storage: Map<string, Map<string, unknown>> = new Map();
 
   async loadPlugin(manifest: PluginManifest, pluginFactory: (context: PluginContext) => Plugin): Promise<void> {
+    const failures = validateManifest(manifest);
+    if (failures.length > 0) {
+      throw new Error(`Invalid plugin manifest ${manifest.id}: ${failures.join('; ')}.`);
+    }
     if (this.plugins.has(manifest.id)) {
       throw new Error(`Plugin ${manifest.id} is already loaded`);
     }
@@ -93,7 +87,7 @@ export class PluginManager {
 
     // Create plugin context
     const context: PluginContext = {
-      api: this.createPluginAPI(manifest.id),
+      api: this.createPluginAPI(manifest),
       config: {},
       storage: this.createPluginStorage(manifest.id)
     };
@@ -144,30 +138,37 @@ export class PluginManager {
     console.log(`Plugin ${pluginId} unloaded successfully`);
   }
 
-  private createPluginAPI(pluginId: string): PluginAPI {
+  private createPluginAPI(manifest: PluginManifest): PluginAPI {
+    const pluginId = manifest.id;
+    const permissions = manifest.permissions;
     return {
       registerTool: (tool: PluginTool) => {
+        requirePermission(pluginId, permissions, 'registerTool');
         const toolId = `${pluginId}:${tool.id}`;
         this.tools.set(toolId, { ...tool, id: toolId });
         console.log(`Tool ${toolId} registered by plugin ${pluginId}`);
       },
 
       registerComponent: (type: string, component: PluginComponent) => {
+        requirePermission(pluginId, permissions, 'registerComponent');
         this.components.set(`${pluginId}:${type}`, component);
         console.log(`Component type ${pluginId}:${type} registered by plugin ${pluginId}`);
       },
 
       registerSimulation: (engine: string, simulator: PluginSimulator) => {
+        requirePermission(pluginId, permissions, 'registerSimulation');
         this.simulators.set(`${pluginId}:${engine}`, simulator);
         console.log(`Simulation engine ${pluginId}:${engine} registered by plugin ${pluginId}`);
       },
 
       registerExport: (format: string, exporter: PluginExporter) => {
+        requirePermission(pluginId, permissions, 'registerExport');
         this.exporters.set(`${pluginId}:${format}`, exporter);
         console.log(`Export format ${pluginId}:${format} registered by plugin ${pluginId}`);
       },
 
       registerHook: (hook: string, handler: (...args: unknown[]) => unknown) => {
+        requirePermission(pluginId, permissions, 'registerHook');
         if (!this.hooks.has(hook)) {
           this.hooks.set(hook, []);
         }
@@ -176,6 +177,7 @@ export class PluginManager {
       },
 
       subscribe: (event: string, handler: (...args: unknown[]) => void) => {
+        requirePermission(pluginId, permissions, 'subscribe');
         if (!this.events.has(event)) {
           this.events.set(event, []);
         }
@@ -184,6 +186,7 @@ export class PluginManager {
       },
 
       publish: (event: string, ...args: unknown[]) => {
+        requirePermission(pluginId, permissions, 'publish');
         const handlers = this.events.get(event) || [];
         handlers.forEach(handler => {
           try {

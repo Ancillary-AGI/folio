@@ -7,7 +7,7 @@
  * workspace, the component library, the status bar, and the theme toggle.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 
 // SchematicCanvas drives a real Konva stage backed by a 2D canvas, which jsdom
@@ -29,7 +29,7 @@ beforeEach(() => {
   localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
   // Zustand stores are module singletons — never assume the previous test's project or tool.
   useProjectStore.setState({ currentProject: null, currentSchematic: null, components: [], wires: [], isDirty: false })
-  useAppStore.setState({ activeTool: 'select', workspaceMode: 'schematic' })
+  useAppStore.setState({ activeTool: 'select', workspaceMode: 'schematic', sidebarOpen: true, aiChatOpen: false })
   window.history.replaceState(null, '', '#/')
 })
 
@@ -56,6 +56,40 @@ describe('App shell', () => {
     expect(screen.getAllByRole('button', { name: themeToggleName }).length).toBeGreaterThan(0)
   })
 
+  it('keeps secondary tools reachable from the compact More menu', async () => {
+    render(<App />)
+    fireEvent.click((await screen.findAllByRole('button', { name: /new project/i }))[0])
+
+    fireEvent.click(await screen.findByRole('button', { name: 'More tools' }))
+    const menu = screen.getByRole('menu', { name: 'More tools' })
+    expect(within(menu).getByRole('menuitem', { name: 'Settings' })).toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'AI Assistant' }))
+    expect(useAppStore.getState().aiChatOpen).toBe(true)
+  })
+
+  it('closes the component library from its palette close button', async () => {
+    render(<App />)
+    fireEvent.click((await screen.findAllByRole('button', { name: /new project/i }))[0])
+
+    expect(await screen.findByRole('complementary', { name: 'Component library' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Close component library' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('complementary', { name: 'Component library' })).not.toBeInTheDocument(),
+    )
+  })
+
+  it('keeps the deep-linked workspace encoded in the URL', async () => {
+    // A bookmarked/reloaded tab must win over the persisted default mode; the
+    // URL writer previously fired before the hash reader and snapped this to /.
+    window.history.replaceState(null, '', '#/bom')
+    render(<App />)
+    fireEvent.click((await screen.findAllByRole('button', { name: /new project/i }))[0])
+
+    expect(await screen.findByRole('button', { name: 'BOM' })).toHaveAttribute('aria-current', 'page')
+    expect(window.location.hash.startsWith('#/bom')).toBe(true)
+  })
+
   it('opens the guide on first run and can be dismissed', async () => {
     localStorage.removeItem(ONBOARDING_COMPLETED_KEY)
     render(<App />)
@@ -70,7 +104,7 @@ describe('App shell', () => {
   it('restarts the guide from Settings', async () => {
     render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: 'Settings' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Restart guided setup' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Restart guided setup' }, { timeout: 5000 }))
 
     expect(await screen.findByRole('dialog', { name: /one project/i })).toBeInTheDocument()
   })

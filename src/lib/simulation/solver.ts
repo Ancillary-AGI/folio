@@ -19,9 +19,12 @@ import {
   stampTransient,
   createTransientState,
   diodeCurrentAndConductance,
+  companionHistory,
+  integrationFactor,
   type DiodeOperatingPoint,
   type RealSystem,
   type SweepOverride,
+  type TransientIntegration,
   type TransientState,
 } from './stamping'
 import {
@@ -33,6 +36,7 @@ import {
   updateTransientState,
   type SemiconductorState,
 } from './semiconductors'
+import { createTLineState, recordTLineSample, type TLineState } from './transmissionLine'
 
 /** Default conductance added to every node so a floating net is at least solvable. */
 export const DEFAULT_GMIN = 1e-12
@@ -208,6 +212,74 @@ export function readBranchCurrents(model: CircuitModel, solution: readonly numbe
   return currents
 }
 
+/** Shortest one-way delay of any line, or Infinity when the circuit has none. */
+function shortestLineDelay(model: CircuitModel): number {
+  let delay = Number.POSITIVE_INFINITY
+  for (const device of model.devices) {
+    if (device.kind === 'transmission-line') delay = Math.min(delay, device.td)
+  }
+  return delay
+}
+
+/**
+ * Seed the delay history with the initial operating state.
+ *
+ * A line at DC is an ideal through connection, so its port currents come from
+ * the two branch rows. Passing `null` starts the line at zero stored energy.
+ */
+function seedTransmissionLines(
+  model: CircuitModel,
+  state: TransientState,
+  solution: readonly number[] | null,
+  time = 0,
+): void {
+  if (model.lineRows.size === 0) return
+  const voltages = solution ? readNodeVoltages(model, solution) : null
+  const currents = solution ? readBranchCurrents(model, solution) : null
+  for (const device of model.devices) {
+    if (device.kind !== 'transmission-line') continue
+    const lineState = createTLineState()
+    state.transmissionLines.set(device.name, lineState)
+    if (!voltages || !currents) {
+      recordTLineSample(device, lineState, time, 0, 0, 0, 0)
+      continue
+    }
+    const v1 = (voltages.get(device.p) ?? 0) - (voltages.get(device.n) ?? 0)
+    const v2 = (voltages.get(device.p2) ?? 0) - (voltages.get(device.n2) ?? 0)
+    const i1 = currents.get(`${device.name}#1`) ?? 0
+    const i2 = currents.get(`${device.name}#2`) ?? 0
+    recordTLineSample(device, lineState, time, v1, i1, v2, i2)
+  }
+}
+
+/** Record an accepted solution into every line history. */
+function recordTransmissionLines(
+  model: CircuitModel,
+  state: TransientState,
+  solution: readonly number[],
+  time: number,
+): void {
+  if (model.lineRows.size === 0) return
+  const voltages = readNodeVoltages(model, solution)
+  const currents = readBranchCurrents(model, solution)
+  for (const device of model.devices) {
+    if (device.kind !== 'transmission-line') continue
+    const lineState = state.transmissionLines.get(device.name)
+    if (!lineState) continue
+    const v1 = (voltages.get(device.p) ?? 0) - (voltages.get(device.n) ?? 0)
+    const v2 = (voltages.get(device.p2) ?? 0) - (voltages.get(device.n2) ?? 0)
+    const i1 = currents.get(`${device.name}#1`) ?? 0
+    const i2 = currents.get(`${device.name}#2`) ?? 0
+    recordTLineSample(device, lineState, time, v1, i1, v2, i2)
+  }
+}
+
+/** Copy a line history so a rejected time step can be rolled back exactly. */
+const cloneLineStates = (states: Map<string, TLineState>): Map<string, TLineState> =>
+  new Map(
+    [...states].map(([name, line]) => [name, { ...line, history: [...line.history] }]),
+  )
+
 /** Report nodes whose solved voltage cannot be physical. */
 export function collectImplausibleNodes(voltages: ReadonlyMap<string, number>): string[] {
   const notes: string[] = []
@@ -248,16 +320,49 @@ export interface OperatingPointResult {
   /** BJT, MOSFET and op-amp bias points at the operating point. */
   semiconductor: SemiconductorState
   solution: number[]
+  /**
+   * Why no solution was produced. `singular` means the topology itself is
+   * indeterminate (parallel ideal sources, or an ideal source across an ideal
+   * inductor); `model` means the netlist is invalid.
+   */
+  failure?: 'singular' | 'model'
+}
+
+/**
+ * True when no device's small-signal model depends on its DC bias.
+ *
+ * Such a circuit has an exact AC/noise solution even when the DC operating
+ * point is indeterminate — an ideal source directly across an ideal inductor,
+ * for example, leaves one branch current free but does not affect the
+ * frequency response of the linear network.
+ */
+export function isBiasIndependent(model: CircuitModel): boolean {
+  return !model.devices.some((device) =>
+    device.kind === 'diode' ||
+    device.kind === 'bjt' ||
+    device.kind === 'mosfet' ||
+    device.kind === 'jfet' ||
+    device.kind === 'op-amp' ||
+    device.kind === 'voltage-switch' ||
+    device.kind === 'current-switch' ||
+    device.kind === 'behavioral-source',
+  )
 }
 
 /** A model-level failure before Newton starts: no solution, but a usable state. */
-function failedOperatingPoint(model: CircuitModel, thermal: number, note: string): OperatingPointResult {
+function failedOperatingPoint(
+  model: CircuitModel,
+  thermal: number,
+  note: string,
+  failure: 'singular' | 'model' = 'model',
+): OperatingPointResult {
   return {
     outcome: { nodes: [], waveforms: [], iterations: 0, converged: false, notes: [note] },
     diodeConductances: new Map(),
     diodeOperatingPoints: new Map(),
     semiconductor: createSemiconductorState(model, thermal),
     solution: [],
+    failure,
   }
 }
 
@@ -319,6 +424,7 @@ export function runOperatingPoint(model: CircuitModel, options: OperatingPointOp
     return failedOperatingPoint(model, thermal,
       'The circuit has no unique operating point. Check for two ideal voltage sources of different ' +
         'values in parallel, or a voltage source short-circuited by a wire.',
+      'singular',
     )
   }
 
@@ -411,7 +517,10 @@ export function buildSweepValues(options: {
   maxPoints?: number
 }): number[] {
   const { startValue, stopValue, stepValue } = options
-  const maxPoints = options.maxPoints ?? 2000
+  const maxPoints =
+    Number.isFinite(options.maxPoints) && (options.maxPoints as number) >= 1
+      ? Math.floor(options.maxPoints as number)
+      : 2000
   if (!Number.isFinite(startValue) || !Number.isFinite(stopValue) || !Number.isFinite(stepValue)) return []
   if (stepValue === 0) return []
   if (stopValue > startValue && stepValue < 0) return []
@@ -466,7 +575,10 @@ function sweepLabel(options: DcSweepOptions, model: CircuitModel, value: number)
  * than only as a voltage.
  */
 export function runDcSweep(model: CircuitModel, options: DcSweepOptions): DcSweepResult {
-  const maxPoints = options.maxPoints ?? 2000
+  const maxPoints =
+    Number.isFinite(options.maxPoints) && (options.maxPoints as number) >= 1
+      ? Math.floor(options.maxPoints as number)
+      : 2000
   const values = buildSweepValues({ ...options, maxPoints })
   const notes: string[] = []
 
@@ -657,38 +769,80 @@ export interface TransientOptions {
   maxPoints?: number
   /** Smallest step the retry controller may shrink to before giving up. */
   minStepTime?: number
+  /**
+   * Companion-model integration rule. Backward Euler (the default) is
+   * unconditionally stable and monotone. Trapezoidal is second-order accurate
+   * and preserves a lossless LC oscillation far better, at the cost of ringing
+   * on a stiff step. Gear/BDF2 is also second-order and A-stable but damps
+   * high-frequency numerical ringing. Startup always uses backward Euler:
+   * one step for trapezoidal, two for BDF2, repeated after a step-size change,
+   * so no initial derivative is needed and the history always shares one `dt`.
+   */
+  integrationMethod?: TransientIntegration
 }
 
 /**
- * Transient analysis using backward Euler.
+ * Transient analysis using backward-Euler, trapezoidal or Gear/BDF2 companion
+ * models.
  *
- * The state carried between steps is exactly the capacitor voltages and inductor
- * currents: that is all the companion models need. There is no hidden global
- * state and no smoothing of the result.
+ * The state carried between steps is the capacitor voltage/current and the
+ * inductor current/voltage plus the semiconductor bias points, with a
+ * second-level history for BDF2. That is all the companions need: there is no
+ * hidden global state and no smoothing of the result.
  */
 export function runTransient(model: CircuitModel, options: TransientOptions): AnalysisOutcome {
   const { temperatureCelsius, stopTime, stepTime, useInitialConditions = false } = options
-  const maxPoints = options.maxPoints ?? 2000
+  const maxPoints =
+    Number.isFinite(options.maxPoints) && (options.maxPoints as number) >= 1
+      ? Math.floor(options.maxPoints as number)
+      : 2000
+  const method = options.integrationMethod ?? 'backward-euler'
 
-  if (!(stopTime > 0) || !(stepTime > 0)) {
+  if (!Number.isFinite(stopTime) || !Number.isFinite(stepTime) || !(stopTime > 0) || !(stepTime > 0)) {
     return {
       nodes: [],
       waveforms: [],
       iterations: 0,
       converged: false,
-      notes: ['Transient analysis needs a positive stop time and step time.'],
+      notes: ['Transient analysis needs a finite positive stop time and step time.'],
     }
   }
 
-  const requestedSteps = Math.max(1, Math.ceil(stopTime / stepTime))
-  const steps = Math.min(requestedSteps, maxPoints)
+  /*
+   * A line history is only meaningful if the step resolves the delay: with
+   * fewer than four samples per transit a reflection can be missed entirely,
+   * so the delay tightens the internal step exactly as a fast source edge does.
+   * The display budget may still widen it, which is reported below.
+   */
+  const lineDelay = shortestLineDelay(model)
+  const lineLimitedStep = Number.isFinite(lineDelay) ? lineDelay / 4 : Number.POSITIVE_INFINITY
+  const requestedSteps = Math.max(1, Math.ceil(stopTime / Math.min(stepTime, lineLimitedStep)))
+  const steps = Math.max(1, Math.min(requestedSteps, maxPoints))
   const dt = stopTime / steps
   const edgeFloor = smallestSourceEdge(model)
-  const minStep = Math.min(options.minStepTime ?? stepTime / 1024, edgeFloor / 4)
+  const requestedMin = options.minStepTime ?? stepTime / 1024
+  const minStep = Math.max(
+    Number.MIN_VALUE,
+    Math.min(
+      Number.isFinite(requestedMin) && requestedMin > 0 ? requestedMin : stepTime / 1024,
+      edgeFloor / 4,
+      Number.isFinite(lineDelay) ? lineDelay / 8 : Number.POSITIVE_INFINITY,
+    ),
+  )
 
   const state: TransientState = createTransientState()
   const notes: string[] = []
-  if (steps < requestedSteps) {
+  if (Number.isFinite(lineDelay) && lineLimitedStep < stepTime) {
+    notes.push(
+      dt <= lineLimitedStep
+        ? `Step time was reduced to ${(dt * 1e9).toFixed(2)} ns to resolve the ` +
+            `${(lineDelay * 1e9).toFixed(2)} ns line delay (at least four steps per transit).`
+        : `The ${(lineDelay * 1e9).toFixed(2)} ns line delay needs a step under ` +
+            `${(lineLimitedStep * 1e9).toFixed(2)} ns to resolve reflections, but the ` +
+            `${maxPoints}-point budget widened it to ${(dt * 1e9).toFixed(2)} ns. ` +
+            `Shorten the stop time for a resolved run.`,
+    )
+  } else if (steps < requestedSteps) {
     notes.push(
       `Step time was widened to ${(dt * 1e6).toFixed(3)} µs to stay within the ${maxPoints}-point display ` +
         'budget. Reduce the stop time for finer resolution.',
@@ -705,33 +859,132 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
         `Use a step under ${(period / 2 * 1e6).toFixed(3)} µs to resolve it.`,
     )
   }
+  if (method === 'trapezoidal') {
+    notes.push(
+      'Transient integration: trapezoidal rule (second-order, A-stable). The first step and the ' +
+        'first step after every step-size change use backward Euler to start the history.',
+    )
+  } else if (method === 'bdf2') {
+    notes.push(
+      'Transient integration: Gear/BDF2 (second-order, A-stable, damping). The first two steps and ' +
+        'the first two steps after every step-size change use backward Euler to build the history.',
+    )
+  }
 
   let initialSolution: number[] | undefined
   const thermal = thermalVoltage(temperatureCelsius)
-  if (useInitialConditions) {
+  const resetState = (): void => {
     for (const device of model.devices) {
-      if (device.kind === 'capacitor') state.capacitorVoltages.set(device.name, 0)
-      if (device.kind === 'inductor') state.inductorCurrents.set(device.name, 0)
+      if (device.kind === 'capacitor') {
+        state.capacitorVoltages.set(device.name, 0)
+        state.capacitorVoltages2.set(device.name, 0)
+        state.capacitorCurrents.set(device.name, 0)
+      }
+      if (device.kind === 'inductor') {
+        state.inductorCurrents.set(device.name, 0)
+        state.inductorCurrents2.set(device.name, 0)
+        state.inductorVoltages.set(device.name, 0)
+      }
     }
+  }
+  if (useInitialConditions) {
+    resetState()
+    // Junction and gate capacitances are bias-dependent. At rest the bias is
+    // 0 V, not "unknown": seeding the zero-bias values keeps the first step
+    // from ignoring a transistor's junction capacitance entirely.
+    updateTransientState(model, state, new Map(), thermal, { dt: 0 })
+    seedTransmissionLines(model, state, null)
   } else {
     const operatingPoint = runOperatingPoint(model, { temperatureCelsius, gmin: options.gmin })
     if (operatingPoint.solution.length === 0) {
-      return { nodes: [], waveforms: [], iterations: 0, converged: false, notes: operatingPoint.outcome.notes }
+      /*
+       * An ideal source across an ideal inductor has no unique DC bias (the
+       * branch-current split is arbitrary), but a transient started from rest
+       * is well posed. Only a genuinely singular topology is retried this way;
+       * an invalid model must still be reported.
+       */
+      if (operatingPoint.failure !== 'singular') {
+        return { nodes: [], waveforms: [], iterations: 0, converged: false, notes: operatingPoint.outcome.notes }
+      }
+      resetState()
+      updateTransientState(model, state, new Map(), thermal, { dt: 0 })
+      seedTransmissionLines(model, state, null)
+      notes.push(
+        'The DC operating point is indeterminate (for example an ideal source directly across an ideal ' +
+          'inductor); the transient was started from zero stored energy.',
+      )
+    } else {
+      const voltages = readNodeVoltages(model, operatingPoint.solution)
+      const currents = readBranchCurrents(model, operatingPoint.solution)
+      for (const device of model.devices) {
+        if (device.kind === 'capacitor') {
+          const voltage = (voltages.get(device.p) ?? 0) - (voltages.get(device.n) ?? 0)
+          state.capacitorVoltages.set(device.name, voltage)
+          state.capacitorVoltages2.set(device.name, voltage)
+          state.capacitorCurrents.set(device.name, 0)
+        }
+        if (device.kind === 'inductor') {
+          const current = currents.get(device.name) ?? 0
+          state.inductorCurrents.set(device.name, current)
+          state.inductorCurrents2.set(device.name, current)
+          state.inductorVoltages.set(device.name, 0)
+        }
+      }
+      // Semiconductor junctions are charged too: without this the first time step
+      // would behave as if every transistor had been sitting at 0 V.
+      updateTransientState(model, state, voltages, thermal)
+      // A lossless line carries the DC bias as its initial traveling-wave state,
+      // so an already-energised circuit starts quiet instead of launching a
+      // spurious transient from an assumed zero.
+      seedTransmissionLines(model, state, operatingPoint.solution)
+      initialSolution = operatingPoint.solution
     }
-    const voltages = readNodeVoltages(model, operatingPoint.solution)
-    const currents = readBranchCurrents(model, operatingPoint.solution)
+  }
+
+  /*
+   * Accept one solved time point into the history the next companion reads.
+   * The stored current is the one the companion just implied, so trapezoidal
+   * takes a consistent `i_prev` and BDF2 takes both `v_prev`/`i_prev` samples
+   * from the same discrete derivative (including the backward-Euler startup).
+   */
+  const commitStep = (
+    voltages: ReadonlyMap<string, number>,
+    currents: ReadonlyMap<string, number>,
+    dtUsed: number,
+    methodUsed: TransientIntegration,
+  ): void => {
+    const factor = integrationFactor(methodUsed)
+    const trapezoidal = methodUsed === 'trapezoidal'
     for (const device of model.devices) {
       if (device.kind === 'capacitor') {
-        state.capacitorVoltages.set(device.name, (voltages.get(device.p) ?? 0) - (voltages.get(device.n) ?? 0))
+        const voltage = (voltages.get(device.p) ?? 0) - (voltages.get(device.n) ?? 0)
+        const previousVoltage = state.capacitorVoltages.get(device.name) ?? 0
+        const previousVoltage2 = state.capacitorVoltages2.get(device.name) ?? 0
+        const previousCurrent = state.capacitorCurrents.get(device.name) ?? 0
+        const history = companionHistory(methodUsed, previousVoltage, previousVoltage2)
+        state.capacitorVoltages2.set(device.name, previousVoltage)
+        state.capacitorVoltages.set(device.name, voltage)
+        state.capacitorCurrents.set(
+          device.name,
+          dtUsed > 0
+            ? ((factor * device.capacitance) / dtUsed) * (voltage - history) -
+                (trapezoidal ? previousCurrent : 0)
+            : 0,
+        )
       }
       if (device.kind === 'inductor') {
+        state.inductorCurrents2.set(
+          device.name,
+          state.inductorCurrents.get(device.name) ?? 0,
+        )
         state.inductorCurrents.set(device.name, currents.get(device.name) ?? 0)
+        state.inductorVoltages.set(
+          device.name,
+          (voltages.get(device.p) ?? 0) - (voltages.get(device.n) ?? 0),
+        )
       }
     }
-    // Semiconductor junctions are charged too: without this the first time step
-    // would behave as if every transistor had been sitting at 0 V.
-    updateTransientState(model, state, voltages, thermal)
-    initialSolution = operatingPoint.solution
+    updateTransientState(model, state, voltages, thermal, { dt: dtUsed, method: methodUsed })
   }
 
   const voltageSeries = new Map<string, Array<{ x: number; y: number }>>()
@@ -740,14 +993,23 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
   let iterations = 0
   let converged = true
   let warmStart = initialSolution
+  /*
+   * Backward Euler for startup: one step for trapezoidal, two for BDF2, and
+   * the same count again after every step-size change. Companion history
+   * belongs to one `dt` and must not be carried across a different one; the
+   * second BE step is what supplies BDF2's older sample at the new step size.
+   */
+  const startupSteps = method === 'bdf2' ? 2 : 1
+  let stepsAtCurrentDt = 0
+  let stepMethod: TransientIntegration = 'backward-euler'
 
   for (let step = 1; step <= steps; step += 1) {
     const time = step * dt
     const newton = solveNewton(
       model,
       (system) => {
-        stampTransient(system, model, dt, state, time)
-        stampSemiconductorLinear(system, model, { dt, state })
+        stampTransient(system, model, dt, state, time, stepMethod)
+        stampSemiconductorLinear(system, model, { dt, state, method: stepMethod })
       },
       {
         temperatureCelsius,
@@ -760,54 +1022,70 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
     if ((!newton || !newton.converged) && dt > minStep) {
       const stepStart = time - dt
       const savedCaps = new Map(state.capacitorVoltages)
+      const savedCaps2 = new Map(state.capacitorVoltages2)
+      const savedCapCurrents = new Map(state.capacitorCurrents)
       const savedInds = new Map(state.inductorCurrents)
+      const savedInds2 = new Map(state.inductorCurrents2)
+      const savedIndVoltages = new Map(state.inductorVoltages)
       const savedBjt = new Map(state.bjtJunctions)
       const savedMos = new Map(state.mosfetBias)
       const savedJfet = new Map(state.jfetBias)
       const savedOp = new Map(state.opAmpStages)
+      const savedOp2 = new Map(state.opAmpStages2)
+      const savedOpCurrents = new Map(state.opAmpCurrents)
+      const savedLines = cloneLineStates(state.transmissionLines)
       const restore = (): void => {
         state.capacitorVoltages = new Map(savedCaps)
+        state.capacitorVoltages2 = new Map(savedCaps2)
+        state.capacitorCurrents = new Map(savedCapCurrents)
         state.inductorCurrents = new Map(savedInds)
+        state.inductorCurrents2 = new Map(savedInds2)
+        state.inductorVoltages = new Map(savedIndVoltages)
         state.bjtJunctions = new Map(savedBjt)
         state.mosfetBias = new Map(savedMos)
         state.jfetBias = new Map(savedJfet)
         state.opAmpStages = new Map(savedOp)
+        state.opAmpStages2 = new Map(savedOp2)
+        state.opAmpCurrents = new Map(savedOpCurrents)
+        state.transmissionLines = cloneLineStates(savedLines)
       }
       let subDt = dt / 2
       let sub = warmStart
       let subSolution: number[] | undefined
+      let subIterations = newton?.iterations ?? 0
       let subbed = false
-      while (subDt >= minStep) {
+      while (subDt >= minStep && subDt > 0) {
         restore()
         let cursor = stepStart
         let cursorStart = sub
         let failed = false
+        // `sub` is the warm start for the first substep; later substeps warm
+        // start from the previous accepted one. BDF2 again needs two BE
+        // substeps so its history belongs entirely to `subDt`.
+        let cursorSteps = 0
+        let cursorMethod: TransientIntegration = 'backward-euler'
         while (cursor < time - subDt / 2) {
           cursor += subDt
           const attempt = solveNewton(
             model,
             (system) => {
-              stampTransient(system, model, subDt, state, cursor)
-              stampSemiconductorLinear(system, model, { dt: subDt, state })
+              stampTransient(system, model, subDt, state, cursor, cursorMethod)
+              stampSemiconductorLinear(system, model, { dt: subDt, state, method: cursorMethod })
             },
             { temperatureCelsius, gmin: options.gmin, initial: cursorStart, time: cursor },
           )
+          subIterations += attempt?.iterations ?? 0
           if (!attempt || !attempt.converged) {
             failed = true
             break
           }
           const attemptVoltages = readNodeVoltages(model, attempt.solution)
           const attemptCurrents = readBranchCurrents(model, attempt.solution)
-          for (const device of model.devices) {
-            if (device.kind === 'capacitor') {
-              state.capacitorVoltages.set(device.name, (attemptVoltages.get(device.p) ?? 0) - (attemptVoltages.get(device.n) ?? 0))
-            }
-            if (device.kind === 'inductor') {
-              state.inductorCurrents.set(device.name, attemptCurrents.get(device.name) ?? 0)
-            }
-          }
-          updateTransientState(model, state, attemptVoltages, thermal)
+          commitStep(attemptVoltages, attemptCurrents, subDt, cursorMethod)
+          recordTransmissionLines(model, state, attempt.solution, cursor)
           cursorStart = attempt.solution
+          cursorSteps += 1
+          cursorMethod = cursorSteps < startupSteps ? 'backward-euler' : method
         }
         if (!failed) {
           subbed = true
@@ -825,15 +1103,17 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
         // answer. Re-solving the full step from scratch re-crosses the edge
         // and re-fails — instead accept the subdivided solution directly.
         const voltages = readNodeVoltages(model, subSolution as number[])
-        const currents = readBranchCurrents(model, subSolution as number[])
         warmStart = subSolution
-        iterations += 1
+        iterations += subIterations
         notes.push(`Step subdivided near t = ${(time * 1e3).toFixed(4)} ms to cross a fast edge.`)
+        // The state now owns a shorter-dt history; restart integration so the
+        // next full step does not carry it across the changed step.
+        stepsAtCurrentDt = 0
+        stepMethod = 'backward-euler'
         for (const node of model.nodeNames) {
           if (isInternalNode(node)) continue
           voltageSeries.get(node)?.push({ x: time, y: voltages.get(node) ?? 0 })
         }
-        void currents
         continue
       }
     }
@@ -854,16 +1134,10 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
     warmStart = newton.solution
     const voltages = readNodeVoltages(model, newton.solution)
     const currents = readBranchCurrents(model, newton.solution)
-
-    for (const device of model.devices) {
-      if (device.kind === 'capacitor') {
-        state.capacitorVoltages.set(device.name, (voltages.get(device.p) ?? 0) - (voltages.get(device.n) ?? 0))
-      }
-      if (device.kind === 'inductor') {
-        state.inductorCurrents.set(device.name, currents.get(device.name) ?? 0)
-      }
-    }
-    updateTransientState(model, state, voltages, thermal)
+    commitStep(voltages, currents, dt, stepMethod)
+    recordTransmissionLines(model, state, newton.solution, time)
+    stepsAtCurrentDt += 1
+    stepMethod = stepsAtCurrentDt < startupSteps ? 'backward-euler' : method
 
     for (const node of model.nodeNames) {
       if (isInternalNode(node)) continue
@@ -898,8 +1172,14 @@ export interface AcSweepOptions {
 }
 
 /** Build the frequency grid for an AC sweep. */
-export function buildFrequencyGrid(options: AcSweepOptions): number[] {
+export function buildFrequencyGrid(
+  options: Pick<AcSweepOptions, 'startFrequency' | 'stopFrequency' | 'pointsPerDecade' | 'linearPoints'>,
+): number[] {
   const { startFrequency, stopFrequency, pointsPerDecade = 20, linearPoints } = options
+  if (!Number.isFinite(startFrequency) || !Number.isFinite(stopFrequency) ||
+    startFrequency <= 0 || stopFrequency < startFrequency) {
+    return []
+  }
   if (linearPoints !== undefined && linearPoints > 0) {
     const count = Math.min(Math.max(2, Math.floor(linearPoints)), 2000)
     const step = (stopFrequency - startFrequency) / (count - 1)
@@ -931,6 +1211,15 @@ export function runAcSweep(model: CircuitModel, options: AcSweepOptions): Analys
     gmin = DEFAULT_GMIN,
   } = options
 
+  if (!Number.isFinite(startFrequency) || !Number.isFinite(stopFrequency)) {
+    return {
+      nodes: [],
+      waveforms: [],
+      iterations: 0,
+      converged: false,
+      notes: ['AC analysis needs finite start and stop frequencies.'],
+    };
+  }
   if (!(startFrequency > 0) || !(stopFrequency > 0)) {
     return {
       nodes: [],
@@ -949,15 +1238,75 @@ export function runAcSweep(model: CircuitModel, options: AcSweepOptions): Analys
       notes: ['AC analysis needs a stop frequency at least as large as the start frequency.'],
     }
   }
+  if (options.pointsPerDecade !== undefined &&
+    (!Number.isFinite(options.pointsPerDecade) || options.pointsPerDecade < 1)) {
+    return {
+      nodes: [],
+      waveforms: [],
+      iterations: 0,
+      converged: false,
+      notes: ['AC analysis needs at least one frequency point per decade.'],
+    }
+  }
+  if (options.linearPoints !== undefined && !Number.isFinite(options.linearPoints)) {
+    return {
+      nodes: [],
+      waveforms: [],
+      iterations: 0,
+      converged: false,
+      notes: ['AC analysis needs a finite linear point count.'],
+    }
+  }
 
   // Bias-dependent linearisation: the operating point is the physics here.
   const operatingPoint = runOperatingPoint(model, { temperatureCelsius, gmin: options.gmin, time: 0 })
   const notes = [...operatingPoint.outcome.notes]
+  const biasSolved =
+    !operatingPoint.failure &&
+    operatingPoint.outcome.converged &&
+    operatingPoint.solution.length > 0
+  if (!biasSolved && (operatingPoint.failure !== 'singular' || !isBiasIndependent(model))) {
+    /*
+     * Linearising at a failed bias would produce a smooth, plausible-looking
+     * Bode plot of a circuit that is not actually biased there. Refuse instead:
+     * an AC result is only meaningful about a converged operating point.
+     */
+    notes.push(
+      'AC analysis needs a converged DC operating point; the bias solve failed, so no frequency response was computed.',
+    )
+    return {
+      nodes: [],
+      waveforms: [],
+      iterations: operatingPoint.outcome.iterations,
+      converged: false,
+      notes,
+    }
+  }
+  if (!biasSolved) {
+    notes.push(
+      'The DC operating point is indeterminate (for example an ideal source directly across an ideal ' +
+        'inductor); this circuit is linear, so the AC response was computed about zero bias.',
+    )
+  }
+  const biasSolution = biasSolved
+    ? operatingPoint.solution
+    : new Array<number>(model.size).fill(0)
   const thermal = thermalVoltage(temperatureCelsius)
-  const operatingVoltages = readNodeVoltages(model, operatingPoint.solution)
-  const operatingCurrents = readBranchCurrents(model, operatingPoint.solution)
+  const operatingVoltages = readNodeVoltages(model, biasSolution)
+  const operatingCurrents = readBranchCurrents(model, biasSolution)
+  const diodeConductances = biasSolved ? operatingPoint.diodeConductances : new Map<string, number>()
 
   const frequencies = buildFrequencyGrid(options)
+  if (frequencies.length === 0) {
+    notes.push('AC analysis could not build a frequency grid from the requested start, stop and point count.');
+    return {
+      nodes: [],
+      waveforms: [],
+      iterations: operatingPoint.outcome.iterations,
+      converged: false,
+      notes,
+    }
+  }
   const magnitude = new Map<string, Array<{ x: number; y: number }>>()
   const phase = new Map<string, Array<{ x: number; y: number }>>()
   for (const node of model.nodeNames) {
@@ -970,7 +1319,7 @@ export function runAcSweep(model: CircuitModel, options: AcSweepOptions): Analys
   for (const frequency of frequencies) {
     const omega = 2 * Math.PI * frequency
     const system = createComplexSystem(model)
-    stampAc(system, model, omega, operatingPoint.diodeConductances, gmin)
+    stampAc(system, model, omega, diodeConductances, gmin)
     stampSemiconductorSmallSignal(system, model, operatingPoint.semiconductor, thermal, omega, operatingVoltages, {
       currents: operatingCurrents,
       time: 0,

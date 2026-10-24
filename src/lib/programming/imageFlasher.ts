@@ -51,6 +51,9 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string> {
 
 /** Chunk plan: fixed-size chunks with per-chunk hashes (last may be short). */
 export async function flashPlan(image: Uint8Array, chunkSize = 1024 * 1024): Promise<FlashChunk[]> {
+  if (!Number.isFinite(chunkSize) || chunkSize <= 0) {
+    throw new Error('chunk size must be positive and finite')
+  }
   const chunks: FlashChunk[] = []
   let index = 0
   for (let offset = 0; offset < image.length; offset += chunkSize) {

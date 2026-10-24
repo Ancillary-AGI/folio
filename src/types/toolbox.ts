@@ -147,7 +147,13 @@ export interface Matrix3x3 {
 export interface MeshGeometry {
   type: 'box' | 'cylinder' | 'sphere' | 'mesh'
   dimensions?: Size
+  /** Third box dimension, metres; falls back to `radius * 2` or 0.25. */
+  depth?: number
   radius?: number
+  /** Placement in the assembly, metres. Omit for automatic layout in a grid. */
+  position?: Vector3
+  /** Rotation in radians. */
+  rotation?: Vector3
   mesh?: string // URL to STL/OBJ file
 }
 

@@ -76,6 +76,10 @@ export function applyTheme(theme: ThemeId, root: HTMLElement | null = typeof doc
   }
   root.dataset.theme = theme
   root.style.colorScheme = isDarkTheme(theme) ? 'dark' : 'light'
+  /* The pre-paint bootstrap pins the first-frame colour on <html>. Keep it in
+   * step here, otherwise a runtime switch leaves the boot theme's colour
+   * behind on overscroll and in the scrollbar gutter. */
+  root.style.backgroundColor = `hsl(${tokens['--background']})`
   root.classList.toggle('dark', isDarkTheme(theme))
   return tokens
 }
@@ -84,6 +88,7 @@ export function applyTheme(theme: ThemeId, root: HTMLElement | null = typeof doc
 export function clearTheme(root: HTMLElement | null = typeof document === 'undefined' ? null : document.documentElement): void {
   if (!root) return
   for (const name of TOKEN_NAMES) root.style.removeProperty(name)
+  root.style.removeProperty('background-color')
   delete root.dataset.theme
   root.classList.remove('dark')
 }

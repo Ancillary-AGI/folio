@@ -27,6 +27,10 @@ import { useAppStore } from '../stores/useAppStore'
 import { iiotFleetManager } from '../lib/iiot/fleetManager'
 import { crossDomainOrchestrator } from '../lib/codesign/crossDomainOrchestrator'
 import { backupService } from '../lib/backup/backupService'
+import {
+  queryAccelerationCapabilities,
+  type AccelerationCapabilities,
+} from '../lib/acceleration/acceleratedSimulation'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -87,6 +91,8 @@ export const SystemDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState('overview')
   const [loading, setLoading] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  const [capabilities, setCapabilities] = useState<AccelerationCapabilities | null>(null)
+  const [probingCompute, setProbingCompute] = useState(false)
 
   const { components, wires, currentProject } = useProjectStore()
   const { workspaceMode } = useAppStore()
@@ -168,6 +174,17 @@ export const SystemDashboard: React.FC = () => {
     const id = setInterval(refresh, 30_000)
     return () => clearInterval(id)
   }, [refresh])
+
+  const probeCompute = useCallback(async () => {
+    setProbingCompute(true)
+    try {
+      setCapabilities(await queryAccelerationCapabilities())
+    } catch (err) {
+      console.error('Acceleration probe failed:', err)
+    } finally {
+      setProbingCompute(false)
+    }
+  }, [])
 
   // Live SIEM metrics from store (no poll needed for these)
   const recentSIEMEvents = siemService.getEvents({ limit: 10 })
@@ -259,6 +276,37 @@ export const SystemDashboard: React.FC = () => {
                 <div className="flex justify-between"><span className="text-muted-foreground">Last backup</span><span className={metrics.lastBackupAgo === 'Never' ? 'text-destructive' : 'text-success'}>{metrics.lastBackupAgo}</span></div>
                 {metrics.syncScore !== null && (
                   <div className="flex justify-between"><span className="text-muted-foreground">Sync score</span><span className={healthColor(metrics.syncScore)}>{metrics.syncScore.toFixed(0)}%</span></div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="md:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center justify-between">
+                  <span className="flex items-center gap-1"><Cpu className="w-4 h-4" />Compute Acceleration</span>
+                  <Button variant="outline" size="sm" onClick={probeCompute} disabled={probingCompute} className="h-7 text-xs">
+                    <RefreshCw className={`w-3 h-3 mr-1 ${probingCompute ? 'animate-spin' : ''}`} />
+                    {capabilities ? 'Re-probe' : 'Detect'}
+                  </Button>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {capabilities ? (
+                  <>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">WebGPU</span>
+                      <span className={capabilities.webgpu ? 'text-success' : 'text-muted-foreground'}>
+                        {capabilities.webgpu ? `Available${capabilities.webgpuAdapter ? ` — ${capabilities.webgpuAdapter}` : ''}` : 'Unavailable'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Worker threads</span><span>{capabilities.workerThreads ? 'Supported' : 'Unavailable'}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Shared memory</span><span>{capabilities.sharedMemory ? 'Supported' : 'Unavailable'}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Thermal solver path</span><Badge variant="outline">{capabilities.recommendedThermalPath}</Badge></div>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Detect which compute paths this browser can run. Thermal analysis uses WebGPU when available, then a Worker, then the main thread.
+                  </p>
                 )}
               </CardContent>
             </Card>

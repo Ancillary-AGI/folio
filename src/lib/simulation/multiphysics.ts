@@ -107,6 +107,10 @@ export function solveBarConduction(input: ThermalConductionInput): ThermalConduc
   if (!(area > 0)) throw new Error('Thermal: cross-sectional area must be > 0 m².')
   if (!(thermalConductivity > 0)) throw new Error('Thermal: thermal conductivity must be > 0 W/(m·K).')
   if (!Number.isInteger(segments) || segments < 1) throw new Error('Thermal: segments must be an integer >= 1.')
+  if (!Number.isFinite(temperatureAtStart) || !Number.isFinite(temperatureAtEnd)) {
+    throw new Error('Thermal: endpoint temperatures must be finite.')
+  }
+  if (!Number.isFinite(generation)) throw new Error('Thermal: heat generation must be finite.')
 
   const nodeCount = segments + 1
   const spacing = length / segments
@@ -214,6 +218,7 @@ export function solveAxialBar(input: AxialBarInput): AxialBarResult {
   if (!(area > 0)) throw new Error('Structural: cross-sectional area must be > 0 m².')
   if (!(youngsModulus > 0)) throw new Error('Structural: Young modulus must be > 0 Pa.')
   if (!Number.isInteger(segments) || segments < 1) throw new Error('Structural: segments must be an integer >= 1.')
+  if (!Number.isFinite(endLoad)) throw new Error('Structural: end load must be finite.')
 
   const nodeCount = segments + 1
   const elementLength = length / segments
@@ -332,12 +337,20 @@ export function solveTruss(nodes: readonly TrussNodeInput[], members: readonly T
   const rhs: number[] = new Array<number>(degrees).fill(0)
 
   nodes.forEach((node, index) => {
+    if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) {
+      throw new Error(`Structural: node ${index + 1} has non-finite coordinates.`)
+    }
+    if (!Number.isFinite(node.loadX ?? 0) || !Number.isFinite(node.loadY ?? 0)) {
+      throw new Error(`Structural: node ${index + 1} has a non-finite load.`)
+    }
     rhs[index * 2] = node.loadX ?? 0
     rhs[index * 2 + 1] = node.loadY ?? 0
   })
 
   const geometry = members.map((member, memberIndex) => {
-    if (member.from < 0 || member.from >= nodes.length || member.to < 0 || member.to >= nodes.length) {
+    const fromValid = Number.isInteger(member.from) && member.from >= 0 && member.from < nodes.length
+    const toValid = Number.isInteger(member.to) && member.to >= 0 && member.to < nodes.length
+    if (!fromValid || !toValid) {
       throw new Error(`Structural: member ${memberIndex + 1} references a node that does not exist.`)
     }
     if (member.from === member.to) {
@@ -524,6 +537,12 @@ export function solveElectrostaticField(input: ElectrostaticFieldInput): Electro
   if (!(relativePermittivity >= 1)) throw new Error('Electrostatic: relative permittivity must be >= 1.')
   if (!Number.isInteger(cellsX) || cellsX < 1) throw new Error('Electrostatic: cellsX must be an integer >= 1.')
   if (!Number.isInteger(cellsY) || cellsY < 1) throw new Error('Electrostatic: cellsY must be an integer >= 1.')
+  if (!Number.isFinite(upperPlateVoltage) || !Number.isFinite(lowerPlateVoltage)) {
+    throw new Error('Electrostatic: plate voltages must be finite.')
+  }
+  if (guardVoltage !== undefined && !Number.isFinite(guardVoltage)) {
+    throw new Error('Electrostatic: guard voltage must be finite.')
+  }
 
   const columns = cellsX + 1
   const rows = cellsY + 2 // interior rows plus one plate row at each end
@@ -637,7 +656,9 @@ export function solveElectrostaticField(input: ElectrostaticFieldInput): Electro
   }
 
   // Field magnitude at the grid midline: E = −∇V, central difference in y.
-  const midRow = Math.max(1, Math.round(rows / 2))
+  // Stay strictly between the two plate rows; with cellsY = 1 there is exactly
+  // one interior row, and reading midRow ± 1 must still land on a plate row.
+  const midRow = Math.max(1, Math.min(rows - 2, Math.floor(rows / 2)))
   const midColumn = Math.floor(columns / 2)
   const gradientY = (potentials[midRow + 1][midColumn] - potentials[midRow - 1][midColumn]) / (2 * spacingY)
   const gradientX =

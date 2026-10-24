@@ -128,6 +128,27 @@ describe('thermal: 1D steady-state conduction', () => {
         temperatureAtEnd: 0,
       }),
     ).toThrow(/segments/)
+    expect(() =>
+      solveBarConduction({
+        length: 1,
+        area: 1,
+        thermalConductivity: 1,
+        segments: 4,
+        temperatureAtStart: Number.NaN,
+        temperatureAtEnd: 0,
+      }),
+    ).toThrow(/temperatures/)
+    expect(() =>
+      solveBarConduction({
+        length: 1,
+        area: 1,
+        thermalConductivity: 1,
+        segments: 4,
+        temperatureAtStart: 0,
+        temperatureAtEnd: 0,
+        heatGeneration: Number.NaN,
+      }),
+    ).toThrow(/generation/)
   })
 })
 
@@ -168,6 +189,7 @@ describe('structural: axial bar', () => {
 
   it('rejects a zero-modulus bar', () => {
     expect(() => solveAxialBar({ length: 1, area: 1, youngsModulus: 0, segments: 2, endLoad: 1 })).toThrow(/Young/)
+    expect(() => solveAxialBar({ length: 1, area: 1, youngsModulus: 1e9, segments: 2, endLoad: Number.NaN })).toThrow(/load/)
   })
 })
 
@@ -245,6 +267,18 @@ describe('structural: 2D truss', () => {
         [{ from: 0, to: 1, area: 0, youngsModulus: 1e9 }],
       ),
     ).toThrow(/positive area/)
+    expect(() =>
+      solveTruss(
+        [{ x: 0, y: 0, fixX: true, fixY: true }, { x: 1, y: 0 }],
+        [{ from: 0.5, to: 1, area: 1e-4, youngsModulus: 1e9 }],
+      ),
+    ).toThrow(/does not exist/)
+    expect(() =>
+      solveTruss(
+        [{ x: 0, y: 0, fixX: true, fixY: true }, { x: Number.NaN, y: 0 }],
+        [{ from: 0, to: 1, area: 1e-4, youngsModulus: 1e9 }],
+      ),
+    ).toThrow(/non-finite coordinates/)
   })
 })
 
@@ -357,5 +391,14 @@ describe('electrostatic: parallel-plate field', () => {
     expect(() => parallelPlates({ separation: 0 })).toThrow(/separation/)
     expect(() => parallelPlates({ relativePermittivity: 0.5 })).toThrow(/permittivity/)
     expect(() => parallelPlates({ cellsY: 0 })).toThrow(/cellsY/)
+    expect(() => parallelPlates({ upperPlateVoltage: Number.NaN })).toThrow(/voltages/)
+    expect(() => parallelPlates({ guardVoltage: Number.NaN })).toThrow(/guard voltage/)
+  })
+
+  it('solves the smallest valid grid without reading past the plate rows', () => {
+    const result = parallelPlates({ cellsX: 1, cellsY: 1 })
+    expect(result.potentials).toHaveLength(3)
+    expect(result.converged).toBe(true)
+    expect(Number.isFinite(result.meanFieldMagnitude)).toBe(true)
   })
 })

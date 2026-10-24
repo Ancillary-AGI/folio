@@ -16,10 +16,10 @@ describe('plugin permissions', () => {
   it('validates manifests and rejects malformed ones', () => {
     const good = {
       id: 'acme-export', name: 'ACME', version: '1.2.3', author: 'ACME',
-      entryPoint: './index.js', apiVersion: '1', permissions: ['export:circuit'],
+      entry: './index.js', apiVersion: '1', permissions: ['export:circuit'],
     };
     expect(validateManifest(good)).toEqual([]);
-    expect(validateManifest({ ...good, id: 'BAD ID' })).toContain('id must be lowercase alphanumeric with dashes');
+    expect(validateManifest({ ...good, id: 'BAD ID' })).toContain('id must be lowercase alphanumeric with dashes or dots');
     expect(validateManifest({ ...good, version: 'v1' })).toContain('version must be semver (x.y.z)');
     expect(validateManifest({ ...good, permissions: ['fly:moon'] })).toContain('unknown permission "fly:moon"');
     expect(validateManifest({ ...good, name: '' })).toContain('name must be a non-empty string');

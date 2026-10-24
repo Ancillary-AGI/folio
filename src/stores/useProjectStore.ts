@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import { Component, Project, Schematic } from '../lib/supabase'
 import { generateId } from '../lib/utils'
+import type { PcbSceneInput } from '../lib/pcb/pcbScene'
 
 export interface CanvasComponent {
   id: string
@@ -49,6 +50,11 @@ export interface ProjectState {
   // Canvas data
   components: CanvasComponent[]
   wires: CanvasWire[]
+
+  // Latest routed board, published by the PCB panel so the 3D viewer and
+  // export paths preview the layout the designer actually made.
+  pcbLayout: PcbSceneInput | null
+  setPcbLayout: (layout: PcbSceneInput | null) => void
   
   // Component management
   addComponent: (component: CanvasComponent) => void
@@ -140,6 +146,9 @@ export const useProjectStore = create<ProjectState>()(
     // Canvas data
     components: [],
     wires: [],
+
+    pcbLayout: null,
+    setPcbLayout: (layout) => set({ pcbLayout: layout }),
     
     // Component management
     addComponent: (component) => {

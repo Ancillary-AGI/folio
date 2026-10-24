@@ -8,7 +8,7 @@
  * reaction to it; netlist building stays real.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import SimulationPanel from '../components/simulation/SimulationPanel'
 import { spiceEngine } from '../lib/simulation/spiceEngine'
@@ -16,6 +16,19 @@ import type { SimulationResult } from '../lib/simulation/spiceEngine'
 import { useProjectStore } from '../stores/useProjectStore'
 import type { CanvasComponent } from '../stores/useProjectStore'
 import type { Component } from '../lib/supabase'
+
+const exportSpies = vi.hoisted(() => ({ downloadFile: vi.fn() }))
+vi.mock('../lib/exportUtils', () => exportSpies)
+
+const KICAD_DIVIDER = `(export (version D)
+  (components
+    (comp (ref V1) (value "5") (footprint ""))
+    (comp (ref R1) (value "1k") (footprint ""))
+    (comp (ref R2) (value "2k") (footprint "")))
+  (nets
+    (net 1 "IN" (node (ref V1) (pin 1)) (node (ref R1) (pin 1)))
+    (net 2 "OUT" (node (ref R1) (pin 2)) (node (ref R2) (pin 1)))
+    (net 0 "GND" (node (ref V1) (pin 2)) (node (ref R2) (pin 2)))))`
 
 /** Minimal symbol: a plain two-pin passive, never listed in PIN_ORDER. */
 const makeSymbol = (overrides: Partial<Component> = {}): Component => ({
@@ -54,7 +67,14 @@ describe('SimulationPanel', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    exportSpies.downloadFile.mockClear()
   })
+
+  const importFile = (name: string, text: string) => {
+    fireEvent.change(screen.getByLabelText('Import KiCad (.net) or EAGLE (.sch) netlist'), {
+      target: { files: [new File([text], name, { type: 'text/plain' })] },
+    })
+  }
 
   it('renders the chrome and guard states for an empty sheet', () => {
     const onClose = vi.fn()
@@ -62,7 +82,7 @@ describe('SimulationPanel', () => {
 
     expect(screen.getByText('Circuit Simulation')).toBeInTheDocument()
     // Default analysis: transient, ready to run on first open.
-    expect(screen.getByText(/Integrates capacitors and inductors with backward-Euler/)).toBeInTheDocument()
+    expect(screen.getByText(/companion models\. Backward Euler is unconditionally stable/)).toBeInTheDocument()
 
     // Every solver-supported analysis is offered as a menu button.
     for (const label of [
@@ -91,9 +111,14 @@ describe('SimulationPanel', () => {
   it('swaps the parameter form when the analysis changes', () => {
     render(<SimulationPanel onClose={vi.fn()} />)
 
-    expect(screen.getByText(/Integrates capacitors and inductors with backward-Euler/)).toBeInTheDocument()
+    expect(screen.getByText(/companion models\. Backward Euler is unconditionally stable/)).toBeInTheDocument()
     expect(screen.getByLabelText('Stop time (s)')).toBeInTheDocument()
     expect(screen.getByLabelText('Max step (s)')).toBeInTheDocument()
+    const integration = screen.getByLabelText('Integration rule')
+    expect(integration).toHaveValue('backward-euler')
+    expect(screen.getByRole('option', { name: /Gear\/BDF2/ })).toBeInTheDocument()
+    fireEvent.change(integration, { target: { value: 'bdf2' } })
+    expect(integration).toHaveValue('bdf2')
     expect(screen.queryByLabelText('Start frequency (Hz)')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'AC sweep' }))
@@ -101,6 +126,7 @@ describe('SimulationPanel', () => {
     expect(screen.getByLabelText('Start frequency (Hz)')).toBeInTheDocument()
     expect(screen.getByLabelText('Stop frequency (Hz)')).toBeInTheDocument()
     expect(screen.queryByLabelText('Stop time (s)')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Integration rule')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Noise' }))
     expect(screen.getByLabelText('Output net')).toBeInTheDocument()
@@ -116,6 +142,22 @@ describe('SimulationPanel', () => {
     expect(screen.getByLabelText('Stop')).toBeInTheDocument()
     expect(screen.getByLabelText('Step')).toBeInTheDocument()
     expect(screen.queryByLabelText('Stop time (s)')).not.toBeInTheDocument()
+  })
+
+  it('drives the analog sheet from the digital deck through a coupling', async () => {
+    // The digital example's CLK node drives an analog net; the run must reach
+    // the real co-simulation bridge and report the analog window it produced.
+    render(<SimulationPanel onClose={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('Seconds per digital tick'), {
+      target: { value: '0.00001' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Run mixed-signal' }))
+
+    // The co-simulation run is real work; under full-suite parallel load it can
+    // exceed Testing Library's 1 s default without indicating a hang.
+    expect(await screen.findByText(/analog waveform/, {}, { timeout: 10_000 })).toBeInTheDocument()
+    expect(screen.getByLabelText('Mixed-signal couplings')).toHaveValue('CLK=CLK_IN')
   })
 
   it('offers only sweepable symbols in the DC sweep picker', () => {
@@ -144,6 +186,34 @@ describe('SimulationPanel', () => {
 
     fireEvent.change(select, { target: { value: 'R1' } })
     expect(select).toHaveValue('R1')
+  })
+
+  it('parses model cards, blocks malformed decks, and passes cards to the solver', async () => {
+    seedSheet([place('R1', makeSymbol())])
+    const canned: SimulationResult = {
+      success: true,
+      nodes: [],
+      waveforms: [],
+      operatingPoint: {},
+      convergenceInfo: { iterations: 2, converged: true },
+      analysis: 'dc',
+    }
+    const simulate = vi.spyOn(spiceEngine, 'simulate').mockResolvedValue(canned)
+    render(<SimulationPanel onClose={vi.fn()} />)
+
+    const modelDeck = screen.getByLabelText('SPICE model cards')
+    fireEvent.change(modelDeck, { target: { value: '.model MYNPN NPN (IS=1E-14 BF=200)' } })
+    expect(screen.getByText('Loaded: MYNPN (NPN)')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Run simulation' })).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'DC operating point' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }))
+    await waitFor(() => expect(simulate).toHaveBeenCalledTimes(1))
+    expect(simulate.mock.calls[0][0].models?.MYNPN?.parameters.bf).toBe(200)
+
+    fireEvent.change(modelDeck, { target: { value: '.model BAD NPN (BF=100 BF=200)' } })
+    expect(screen.getByText(/duplicate model parameter BF/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Run simulation' })).toBeDisabled()
   })
 
   it('reports solver failures in an alert without recording the run', async () => {
@@ -197,5 +267,59 @@ describe('SimulationPanel', () => {
     expect(runs).toHaveLength(1)
     expect(runs[0]).toMatchObject({ type: 'dc', status: 'completed' })
     expect(runs[0].name).toContain('DC operating point')
+  })
+
+  it('exports the drawn circuit in KiCad and EAGLE formats', () => {
+    const resistor = makeSymbol()
+    seedSheet([place('R1', resistor), place('R2', resistor)])
+    render(<SimulationPanel onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export KiCad netlist' }))
+    expect(exportSpies.downloadFile).toHaveBeenCalledWith(
+      expect.stringContaining('(export'),
+      'folio_netlist.net',
+      'text/plain',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export EAGLE schematic' }))
+    expect(exportSpies.downloadFile).toHaveBeenLastCalledWith(
+      expect.stringContaining('<eagle'),
+      'folio_schematic.sch',
+      'text/plain',
+    )
+  })
+
+  it('imports a KiCad netlist and solves the stitched sheets', async () => {
+    render(<SimulationPanel onClose={vi.fn()} />)
+
+    importFile('divider.net', KICAD_DIVIDER)
+    expect(await screen.findByText(/divider — 3 parts · 3 nets \(KICAD\)/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stitch sheets and solve' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('1 sheet stitched into 3 devices')
+    expect(screen.getByText('Waveforms')).toBeInTheDocument()
+  })
+
+  it('rejects duplicate references between imported and drawn sheets', async () => {
+    seedSheet([place('R1', makeSymbol())])
+    render(<SimulationPanel onClose={vi.fn()} />)
+
+    importFile('divider.net', KICAD_DIVIDER)
+    await screen.findByText(/divider — 3 parts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Stitch sheets and solve' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Duplicate reference R1 on sheets divider and Drawn sheet',
+    )
+  })
+
+  it('reports a malformed netlist without importing it', async () => {
+    render(<SimulationPanel onClose={vi.fn()} />)
+
+    importFile('bad.net', '(netlist)')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/root must be an \(export/i)
+    expect(screen.queryByText(/bad —/)).not.toBeInTheDocument()
   })
 })

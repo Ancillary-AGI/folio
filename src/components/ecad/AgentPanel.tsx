@@ -14,12 +14,14 @@
  */
 
 import { useState, useRef, useCallback } from 'react'
-import { Bot, Play, CheckCircle, AlertCircle, Clock, ChevronRight, Eye, Send, Cpu, Zap, Shield, Terminal } from 'lucide-react'
+import { Bot, CheckCircle, AlertCircle, Clock, ChevronRight, Eye, Send, Shield, Terminal } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { AgentHarness, type AgentCall, type AgentBudget } from '../../lib/agents/agentHarness'
 import { edaTools, planEdaFlow, type EdaPlanStep } from '../../lib/agents/edaTools'
-import { MetaHarness, type MetaAgentTask } from '../../lib/agents/metaHarness'
+import { MetaHarness } from '../../lib/agents/metaHarness'
+import { verifySchematic } from '../../lib/agents/schematicVerification'
+import type { SymbolicVerificationResult } from '../../lib/agents/symbolicVerifier'
 import { useProjectStore } from '../../stores/useProjectStore'
 
 // ─── One agent harness instance per panel mount ───────────────────────────────
@@ -76,6 +78,21 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const { components, wires, generateNetlist } = useProjectStore()
+  const [verification, setVerification] = useState<SymbolicVerificationResult | null>(null)
+  const [verificationError, setVerificationError] = useState<string | null>(null)
+
+  const handleVerifySchematic = useCallback(() => {
+    try {
+      if (components.length === 0) {
+        throw new Error('Draw at least one component before running ERC.')
+      }
+      setVerificationError(null)
+      setVerification(verifySchematic(components, wires))
+    } catch (err) {
+      setVerification(null)
+      setVerificationError(err instanceof Error ? err.message : String(err))
+    }
+  }, [components, wires])
 
   const addMessage = useCallback((msg: Omit<ChatMessage, 'id' | 'timestamp'>) => {
     const full: ChatMessage = { ...msg, id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, timestamp: Date.now() }
@@ -160,42 +177,91 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
   }, [input, running, addMessage, components, wires, generateNetlist, harnessRef])
 
   return (
-    <div className="flex flex-col h-full bg-gray-900 text-gray-100 overflow-hidden">
+    <div className="flex flex-col h-full bg-background text-foreground overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 shrink-0">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
-          <Bot size={16} className="text-blue-400" />
+          <Bot size={16} className="text-primary" />
           <span className="font-semibold text-sm">Engineering Agent</span>
-          {running && <span className="text-xs text-yellow-400 animate-pulse">● Running</span>}
+          {running && <span className="text-xs text-warning animate-pulse">● Running</span>}
         </div>
         <div className="flex gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleVerifySchematic}
+            title="Verify circuit topology (ERC)"
+            aria-label="Verify circuit topology"
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            <Shield size={13} className="mr-1" />ERC
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => setShowAudit(v => !v)} title="Audit trail"
-            className={`text-xs ${showAudit ? 'text-blue-400' : 'text-gray-400'}`}>
+            className={`text-xs ${showAudit ? 'text-primary' : 'text-muted-foreground'}`}>
             <Eye size={13} className="mr-1" />{auditTrail.length}
           </Button>
           {onClose && (
-            <Button size="sm" variant="ghost" onClick={onClose} className="text-gray-400 hover:text-gray-200">✕</Button>
+            <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close agent panel" className="text-muted-foreground hover:text-foreground">✕</Button>
           )}
         </div>
       </div>
 
+      {verificationError || verification ? (
+        <div className="border-b border-border px-4 py-2 shrink-0 text-xs" aria-live="polite">
+          {verificationError ? (
+            <p role="alert" className="text-destructive">{verificationError}</p>
+          ) : verification ? (
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                {verification.passed ? (
+                  <CheckCircle size={12} className="text-success" />
+                ) : (
+                  <AlertCircle size={12} className="text-destructive" />
+                )}
+                <span className={verification.passed ? 'text-success' : 'text-destructive'}>
+                  ERC {verification.passed ? 'passed' : `found ${verification.errors.length} error(s)`}
+                  {verification.warnings.length > 0 ? ` · ${verification.warnings.length} warning(s)` : ''}
+                  {' '}· {verification.metrics.nodeCount} nets / {verification.metrics.pinCount} pins
+                </span>
+                <button
+                  type="button"
+                  aria-label="Dismiss ERC result"
+                  onClick={() => setVerification(null)}
+                  className="ml-auto text-muted-foreground hover:text-foreground"
+                >
+                  ✕
+                </button>
+              </div>
+              {[...verification.errors, ...verification.warnings].slice(0, 4).map((issue, index) => (
+                <p
+                  key={`${issue.code}-${index}`}
+                  className={issue.severity === 'error' ? 'text-destructive' : 'text-warning'}
+                >
+                  {issue.message}
+                </p>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {showAudit ? (
         /* Audit trail view */
         <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
-          <p className="text-xs text-gray-500 mb-2">All agent tool calls — full audit</p>
-          {auditTrail.length === 0 && <p className="text-xs text-gray-600">No calls yet.</p>}
+          <p className="text-xs text-muted-foreground mb-2">All agent tool calls — full audit</p>
+          {auditTrail.length === 0 && <p className="text-xs text-muted-foreground">No calls yet.</p>}
           {auditTrail.map((call, i) => (
-            <div key={i} className="bg-gray-800 rounded p-2 text-xs">
+            <div key={i} className="bg-card rounded p-2 text-xs">
               <div className="flex items-center gap-2 mb-1">
-                <span className="font-mono text-blue-300">{call.tool}</span>
+                <span className="font-mono text-primary">{call.tool}</span>
                 {call.approved ? (
-                  call.error ? <AlertCircle size={10} className="text-red-400" /> : <CheckCircle size={10} className="text-green-400" />
-                ) : <Shield size={10} className="text-yellow-400" />}
-                <span className="text-gray-600 ml-auto">{call.endedAt - call.startedAt}ms</span>
+                  call.error ? <AlertCircle size={10} className="text-destructive" /> : <CheckCircle size={10} className="text-success" />
+                ) : <Shield size={10} className="text-warning" />}
+                <span className="text-muted-foreground ml-auto">{call.endedAt - call.startedAt}ms</span>
               </div>
-              {call.error && <p className="text-red-400">{call.error}</p>}
-              {call.result && !call.error && (
-                <pre className="text-gray-400 text-xs overflow-x-auto">{JSON.stringify(call.result, null, 2).slice(0, 200)}</pre>
+              {call.error && <p className="text-destructive">{call.error}</p>}
+              {!!call.result && !call.error && (
+                <pre className="text-muted-foreground text-xs overflow-x-auto">{(JSON.stringify(call.result, null, 2) ?? String(call.result)).slice(0, 200)}</pre>
               )}
             </div>
           ))}
@@ -208,15 +274,15 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
               <div key={msg.id} className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 {msg.role !== 'user' && (
                   <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                    msg.role === 'agent' ? 'bg-blue-700' : 'bg-gray-700'
+                    msg.role === 'agent' ? 'bg-primary' : 'bg-muted'
                   }`}>
                     {msg.role === 'agent' ? <Bot size={13} /> : <Terminal size={11} />}
                   </div>
                 )}
                 <div className={`max-w-xs rounded-xl px-3 py-2 text-xs leading-relaxed ${
-                  msg.role === 'user' ? 'bg-blue-700 text-white rounded-br-none' :
-                  msg.role === 'agent' ? 'bg-gray-800 text-gray-100 rounded-bl-none' :
-                  'bg-gray-850 text-gray-400 w-full text-center py-1 rounded-none bg-transparent border-none'
+                  msg.role === 'user' ? 'bg-primary text-primary-foreground rounded-br-none' :
+                  msg.role === 'agent' ? 'bg-card text-foreground rounded-bl-none' :
+                  'bg-surface text-muted-foreground w-full text-center py-1 rounded-none bg-transparent border-none'
                 }`}>
                   <p className="whitespace-pre-wrap">{msg.content}</p>
 
@@ -224,11 +290,11 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
                   {msg.plan && (
                     <div className="mt-2 space-y-1">
                       {msg.plan.map((step, i) => (
-                        <div key={i} className="flex items-start gap-1.5 text-xs bg-gray-700 rounded p-1.5">
-                          <ChevronRight size={10} className="text-blue-400 shrink-0 mt-0.5" />
+                        <div key={i} className="flex items-start gap-1.5 text-xs bg-muted rounded p-1.5">
+                          <ChevronRight size={10} className="text-primary shrink-0 mt-0.5" />
                           <div>
-                            <span className="font-mono text-blue-300">{step.tool}</span>
-                            <span className="text-gray-400 ml-1">{step.rationale}</span>
+                            <span className="font-mono text-primary">{step.tool}</span>
+                            <span className="text-muted-foreground ml-1">{step.rationale}</span>
                           </div>
                         </div>
                       ))}
@@ -239,17 +305,17 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
                   {msg.calls && msg.calls.length > 0 && (
                     <div className="mt-2 space-y-1">
                       {msg.calls.slice(-3).map((call, i) => (
-                        <div key={i} className="flex items-center gap-1.5 text-xs text-gray-500">
-                          {call.error ? <AlertCircle size={10} className="text-red-400" /> : <CheckCircle size={10} className="text-green-400" />}
+                        <div key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          {call.error ? <AlertCircle size={10} className="text-destructive" /> : <CheckCircle size={10} className="text-success" />}
                           <span className="font-mono">{call.tool}</span>
-                          <span className="ml-auto text-gray-600">{call.endedAt - call.startedAt}ms</span>
+                          <span className="ml-auto text-muted-foreground">{call.endedAt - call.startedAt}ms</span>
                         </div>
                       ))}
                     </div>
                   )}
 
                   {msg.error && (
-                    <div className="mt-1.5 text-xs text-red-400 flex items-start gap-1">
+                    <div className="mt-1.5 text-xs text-destructive flex items-start gap-1">
                       <AlertCircle size={10} className="mt-0.5 shrink-0" />
                       <span>{msg.error}</span>
                     </div>
@@ -262,23 +328,23 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
 
           {/* Approval gate */}
           {pendingApproval && (
-            <div className="mx-3 mb-2 bg-yellow-900/40 border border-yellow-700 rounded-lg p-3 text-xs">
+            <div className="mx-3 mb-2 bg-warning/10 border border-warning/50 rounded-lg p-3 text-xs">
               <div className="flex items-center gap-2 mb-2">
-                <Shield size={13} className="text-yellow-400" />
-                <span className="font-semibold text-yellow-300">Approval Required</span>
+                <Shield size={13} className="text-warning" />
+                <span className="font-semibold text-warning">Approval Required</span>
               </div>
-              <p className="text-yellow-200 mb-1">
-                The agent wants to call: <code className="font-mono bg-yellow-900/50 px-1 rounded">{pendingApproval.call.tool}</code>
+              <p className="text-warning mb-1">
+                The agent wants to call: <code className="font-mono bg-warning/15 px-1 rounded">{pendingApproval.call.tool}</code>
               </p>
-              <p className="text-gray-400 mb-2 line-clamp-2">
+              <p className="text-muted-foreground mb-2 line-clamp-2">
                 Args: {JSON.stringify(pendingApproval.call.args).slice(0, 120)}…
               </p>
               <div className="flex gap-2">
-                <Button size="sm" className="bg-green-700 hover:bg-green-600 h-7 text-xs"
+                <Button size="sm" className="bg-success hover:bg-success/90 h-7 text-xs"
                   onClick={() => { pendingApproval.resolve(true); setPendingApproval(null) }}>
                   <CheckCircle size={11} className="mr-1" />Allow
                 </Button>
-                <Button size="sm" variant="ghost" className="h-7 text-xs text-red-400 hover:text-red-300 border border-red-700"
+                <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive hover:text-destructive border border-destructive/50"
                   onClick={() => { pendingApproval.resolve(false); setPendingApproval(null) }}>
                   Deny
                 </Button>
@@ -287,25 +353,26 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
           )}
 
           {/* Templates */}
-          <div className="px-3 pb-1 shrink-0">
-            <div className="flex gap-1.5 overflow-x-auto pb-1">
+          <div className="relative shrink-0 px-3 pb-1">
+            <div className="scrollbar-none flex gap-1.5 overflow-x-auto pb-1">
               {TEMPLATES.map(t => (
                 <button
                   key={t.label}
                   onClick={() => handleSend(t.prompt)}
                   disabled={running}
-                  className="shrink-0 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-full px-2.5 py-1 transition-colors border border-gray-700"
+                  className="shrink-0 text-xs bg-card hover:bg-muted text-foreground rounded-full px-2.5 py-1 transition-colors border border-border"
                 >
                   {t.label}
                 </button>
               ))}
             </div>
+            <div className="pointer-events-none absolute inset-y-0 right-3 w-6 bg-gradient-to-l from-background to-transparent" aria-hidden="true" />
           </div>
 
           {/* Input */}
-          <div className="flex gap-2 p-3 border-t border-gray-700 shrink-0">
+          <div className="flex gap-2 p-3 border-t border-border shrink-0">
             <Input
-              className="flex-1 bg-gray-800 border-gray-600 text-sm h-9"
+              className="flex-1 bg-card border-border text-sm h-9"
               placeholder="Simulate, route, check DRC, export…"
               value={input}
               onChange={e => setInput(e.target.value)}
@@ -313,7 +380,8 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
               disabled={running}
             />
             <Button size="sm" onClick={() => handleSend()} disabled={running || !input.trim()}
-              className="bg-blue-700 hover:bg-blue-600 h-9">
+              aria-label={running ? 'Sending request' : 'Send message'}
+              className="bg-primary hover:bg-primary/90 h-9">
               {running ? <Clock size={14} className="animate-spin" /> : <Send size={14} />}
             </Button>
           </div>

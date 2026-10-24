@@ -610,8 +610,10 @@ class BoardProgrammer {
       fs.mkdirSync(tempDir, { recursive: true });
       binaryPath = path.join(tempDir, 'sketch.hex');
 
-      // Convert ArrayBuffer to hex file (simplified)
-      const hexContent = this.arrayBufferToHex(compiledBinary);
+      // Intel HEX with extended-address records; a bare 16-bit address
+      // silently wraps for images larger than 64 KiB.
+      const { bytesToIntelHex } = await import('../compilation/intelHex');
+      const hexContent = bytesToIntelHex(new Uint8Array(compiledBinary), { baseAddress: 0 });
       fs.writeFileSync(binaryPath, hexContent);
     }
 
@@ -701,31 +703,6 @@ class BoardProgrammer {
     };
   }
 
-  private arrayBufferToHex(buffer: ArrayBuffer): string {
-    const bytes = new Uint8Array(buffer);
-    let hex = '';
-
-    for (let i = 0; i < bytes.length; i += 16) {
-      const chunk = bytes.slice(i, i + 16);
-      const address = i.toString(16).padStart(4, '0').toUpperCase();
-      const hexData = Array.from(chunk, byte => byte.toString(16).padStart(2, '0').toUpperCase()).join('');
-      const checksum = this.calculateChecksum(address + hexData);
-
-      hex += `:${address}${chunk.length.toString(16).padStart(2, '0').toUpperCase()}${hexData}${checksum}\n`;
-    }
-
-    hex += ':00000001FF\n'; // End of file record
-    return hex;
-  }
-
-  private calculateChecksum(data: string): string {
-    let sum = 0;
-    for (let i = 0; i < data.length; i += 2) {
-      sum += parseInt(data.substr(i, 2), 16);
-    }
-    const checksum = ((sum ^ 0xFF) + 1) & 0xFF;
-    return checksum.toString(16).padStart(2, '0').toUpperCase();
-  }
 
   /**
    * Deterministic local analysis shared by every "no toolchain" path.

@@ -1,4 +1,5 @@
 import { Component } from './supabase';
+import { catalogComponents } from './electronics/componentCatalog';
 
 export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
   {
@@ -65,6 +66,64 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       value: '10uH',
       current: '1A',
       tolerance: '10%'
+    }
+  },
+  {
+    category: 'passive',
+    name: 'Transformer',
+    is_standard: true,
+    symbol_data: {
+      width: 120,
+      height: 80,
+      paths: [
+        'M 30,0 L 30,12',
+        'M 30,12 A 8,8 0 0,1 30,28',
+        'M 30,28 A 8,8 0 0,1 30,44',
+        'M 30,44 A 8,8 0 0,1 30,60',
+        'M 30,60 L 30,80',
+        'M 90,0 L 90,12',
+        'M 90,12 A 8,8 0 0,1 90,28',
+        'M 90,28 A 8,8 0 0,1 90,44',
+        'M 90,44 A 8,8 0 0,1 90,60',
+        'M 90,60 L 90,80',
+        'M 56,16 L 56,64',
+        'M 64,16 L 64,64'
+      ]
+    },
+    pins: [
+      { id: 'primary_in', name: 'P+', x: 30, y: 0, type: 'passive' },
+      { id: 'primary_out', name: 'P-', x: 30, y: 80, type: 'passive' },
+      { id: 'secondary_in', name: 'S+', x: 90, y: 0, type: 'passive' },
+      { id: 'secondary_out', name: 'S-', x: 90, y: 80, type: 'passive' }
+    ],
+    default_properties: {
+      inductance: '1H',
+      secondaryInductance: '4H',
+      k: '0.99'
+    }
+  },
+  {
+    category: 'passive',
+    name: 'Transmission Line',
+    is_standard: true,
+    symbol_data: {
+      width: 140,
+      height: 60,
+      paths: [
+        'M 0,15 L 140,15',
+        'M 0,45 L 140,45',
+        'M 10,27 L 130,27'
+      ]
+    },
+    pins: [
+      { id: 'p1', name: '1+', x: 0, y: 15, type: 'input' },
+      { id: 'n1', name: '1-', x: 0, y: 45, type: 'input' },
+      { id: 'p2', name: '2+', x: 140, y: 15, type: 'output' },
+      { id: 'n2', name: '2-', x: 140, y: 45, type: 'output' }
+    ],
+    default_properties: {
+      z0: '50',
+      td: '1ns'
     }
   },
   {
@@ -967,5 +1026,9 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       type: 'SMD',
       size: '1.27mm'
     }
-  }
+  },
+
+  // Datasheet-accurate parts adapted from the electronics catalogs: real
+  // pinouts for 74HC logic, memory, MCUs, connectors, machines and batteries.
+  ...catalogComponents,
 ];

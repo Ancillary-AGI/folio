@@ -53,12 +53,22 @@ describe('IBIS buffer models', () => {
     // dV/dI over that segment: 0.5V / 13mA ≈ 38.5 ohm.
     expect(driverImpedance(model, 0.75, false)).toBeCloseTo(0.5 / 0.013, 6);
     expect(() => ivCurrent(model.pulldown, 5)).toThrow(/outside I-V range/);
+    // An unsorted table would silently interpolate across the wrong segment.
+    expect(() =>
+      ivCurrent([{ voltage: 1, current: 0 }, { voltage: 0, current: 1 }], 0.5),
+    ).toThrow(/strictly increasing/);
   });
   it('parses SI suffixes and rejects malformed input', () => {
     expect(parseSI('2.5pF', 1, '')).toBeCloseTo(2.5e-12, 20);
     expect(parseSI('-10m', 1, '')).toBeCloseTo(-0.01, 9);
     expect(parseSI('100MHz', 1, '')).toBeCloseTo(1e8, 0);
+    // A bare unit is a whole name: F is farad while fF is femtofarad.
+    expect(parseSI('1F', 1, '')).toBe(1);
+    expect(parseSI('1fF', 1, '')).toBeCloseTo(1e-15, 25);
+    expect(parseSI('1mF', 1, '')).toBeCloseTo(1e-3, 15);
+    expect(parseSI('1MHz', 1, '')).toBeCloseTo(1e6, 6);
     expect(() => parseSI('3.3Q', 1, '')).toThrow(/prefix/);
+    expect(() => parseSI('1e999', 1, '')).toThrow(/non-finite/);
     expect(() => parseIbis('garbage')).toThrow(/IBIS Ver/);
     expect(() => parseIbis('[IBIS Ver] 3.2\n[Model] NO_TABLES\nModel_type Output\nC_comp 1pF\n[End]')).toThrow(/no Pullup\/Pulldown/);
     expect(() => parseIbis('[IBIS Ver] 3.2\n[Model] NO_CCOMP\nModel_type Output\n[Pullup]\n0 0\n1 0.01\n[End]')).toThrow(/C_comp/);

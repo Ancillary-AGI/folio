@@ -188,7 +188,7 @@ export default function ToolRail({ onSave }: ToolRailProps) {
       {/* Simulation lives one tab to the right of the sheet — jump straight there. */}
       <RailButton
         title="Open Simulation (run DC, sweep, transient on this sheet)"
-        ariaLabel="Open Simulation panel"
+        ariaLabel="Open Simulation workspace"
         onClick={() => useAppStore.getState().setWorkspaceMode('simulation')}
       >
         <Activity className="h-4 w-4" />

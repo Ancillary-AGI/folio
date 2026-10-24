@@ -14,34 +14,43 @@
  * cell specs in standardCellLibrary.ts — no magic constants.
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { lazy, Suspense } from 'react'
 import { Cpu, Layers, Package, Download, Play, RefreshCw, ChevronRight, CheckCircle, AlertCircle, BarChart3 } from 'lucide-react'
 import { Button } from '../ui/button'
-import { synthesize, type SynthesisResult } from '../../lib/ic/icFlowAdapter'
-import { STANDARD_CELL_LIBRARY } from '../../lib/ic/standardCellLibrary'
-import { planFloorplan, type FloorplanResult } from '../../lib/ic/icFlowAdapter'
-import { generatePackageDescription, PACKAGE_TYPES, type ChipPackage } from '../../lib/ic/icFlowAdapter'
-import { exportGDSII } from '../../lib/ic/icFlowAdapter'
+import { useDemoRequest } from '../workspace/useDemoRequest'
+import { synthesize, planFloorplan, generatePackageDescription, PACKAGE_TYPES, exportGDSII, type SynthesisResult, type FloorplanResult, type ChipPackage } from '../../lib/ic/icFlowAdapter'
 import { parseVerilogModule } from '../../lib/fpga/verilogSubset'
+import { parseVhdl } from '../../lib/fpga/vhdlSubset'
+import { STANDARD_MEMORY } from '../../lib/electronics/logicMemory'
+import {
+  MemoryDevice,
+  ShiftRegister165,
+  ShiftRegister595,
+  decode138,
+  memoryDeviceFromSpec,
+  type ShiftRegister165Outputs,
+  type ShiftRegister595Inputs,
+  type ShiftRegister595Outputs,
+} from '../../lib/electronics/memoryBehavior'
 
 const HDLEditor = lazy(() => import('./HDLEditor'))
 
 const DEFAULT_VERILOG = `// SkyWater 130nm standard-cell example
-// 4-bit ripple carry adder
-module adder4(
-  input  [3:0] a,
-  input  [3:0] b,
-  input        cin,
-  output [3:0] sum,
-  output       cout
+// Structural full adder mapped to sky130 gates
+module full_adder(
+  input  a,
+  input  b,
+  input  cin,
+  output sum,
+  output cout
 );
-  wire c0, c1, c2;
-  // Synthesizer maps to sky130 full adder cells
-  assign {c0, sum[0]} = a[0] + b[0] + cin;
-  assign {c1, sum[1]} = a[1] + b[1] + c0;
-  assign {c2, sum[2]} = a[2] + b[2] + c1;
-  assign {cout, sum[3]} = a[3] + b[3] + c2;
+  wire n1, n2, n3;
+  xor g1 (n1,  a, b);
+  xor g2 (sum, n1, cin);
+  and g3 (n2,  a, b);
+  and g4 (n3,  n1, cin);
+  or  g5 (cout, n2, n3);
 endmodule`
 
 interface StepStatus {
@@ -55,47 +64,175 @@ interface ICDesignPanelProps {
 }
 
 export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
-  const [activeTab, setActiveTab] = useState<'entry' | 'synthesis' | 'floorplan' | 'packaging' | 'export'>('entry')
+  const [activeTab, setActiveTab] = useState<'entry' | 'synthesis' | 'floorplan' | 'packaging' | 'export' | 'devices'>('entry')
+  const flowTabsRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const active = flowTabsRef.current?.querySelector<HTMLElement>('[aria-current="page"]')
+    active?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+  }, [activeTab])
+  useDemoRequest('ic-device-lab', () => setActiveTab('devices'))
   const [hdlCode, setHdlCode] = useState(DEFAULT_VERILOG)
+  const [hdlLanguage, setHdlLanguage] = useState<'verilog' | 'vhdl'>('verilog')
   const [synthResult, setSynthResult] = useState<SynthesisResult | null>(null)
   const [floorplanResult, setFloorplanResult] = useState<FloorplanResult | null>(null)
   const [selectedPackage, setSelectedPackage] = useState<ChipPackage | null>(null)
-  const [gdsContent, setGdsContent] = useState<string | null>(null)
+  const [gdsContent, setGdsContent] = useState<{ binary: ArrayBuffer; text: string } | null>(null)
   const [status, setStatus] = useState<Record<string, StepStatus>>({})
   const [log, setLog] = useState<string[]>([])
 
+  // ── Device lab: behavioural logic and memory chips ─────────────────────────
+  const [devicePartId, setDevicePartId] = useState('hc595')
+  const deviceSpec = useMemo(
+    () => STANDARD_MEMORY.find((part) => part.id === devicePartId) ?? STANDARD_MEMORY[0],
+    [devicePartId],
+  )
+  const [shiftInputs, setShiftInputs] = useState<ShiftRegister595Inputs>({
+    ser: false, srclk: false, rclk: false, oeBar: false, srclrBar: true,
+  })
+  const [shiftOutput, setShiftOutput] = useState<ShiftRegister595Outputs | null>(null)
+  const [parallelBits, setParallelBits] = useState<number[]>([1, 0, 1, 0, 0, 1, 1, 0])
+  const [parallelControls, setParallelControls] = useState({ plBar: true, ceBar: false, cp: false, ser: false })
+  const [parallelOutput, setParallelOutput] = useState<ShiftRegister165Outputs | null>(null)
+  const [decoderInputs, setDecoderInputs] = useState({
+    a: false, b: false, c: false, g1: true, g2aBar: false, g2bBar: false,
+  })
+  const shiftRef = useRef(new ShiftRegister595())
+  const parallelRef = useRef(new ShiftRegister165())
+  const memoryRef = useRef<MemoryDevice | null>(null)
+  const [memoryAddress, setMemoryAddress] = useState(0)
+  const [memoryValue, setMemoryValue] = useState(0x5a)
+  const [memoryMessage, setMemoryMessage] = useState<string | null>(null)
+  const [, setMemoryRevision] = useState(0)
+  useEffect(() => {
+    shiftRef.current = new ShiftRegister595()
+    parallelRef.current = new ShiftRegister165()
+    setShiftOutput(null)
+    setParallelOutput(null)
+    setMemoryAddress(0)
+    setMemoryMessage(null)
+    try {
+      memoryRef.current = memoryDeviceFromSpec(deviceSpec)
+    } catch {
+      memoryRef.current = null
+    }
+  }, [deviceSpec])
+
+  const stepShift595 = () => {
+    setShiftOutput(shiftRef.current.step(shiftInputs))
+  }
+
+  const stepParallel165 = () => {
+    try {
+      setParallelOutput(parallelRef.current.step({ ...parallelControls, parallel: parallelBits }))
+    } catch (error) {
+      setMemoryMessage(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const runMemoryOperation = (operation: 'read' | 'write' | 'erase') => {
+    const memory = memoryRef.current
+    if (!memory) return
+    try {
+      if (operation === 'read') {
+        setMemoryMessage(`0x${memoryAddress.toString(16)} = 0x${memory.readByte(memoryAddress).toString(16).padStart(2, '0')}`)
+      } else if (operation === 'write') {
+        const result = memory.writeByte(memoryAddress, memoryValue)
+        setMemoryMessage(
+          `Wrote 0x${result.stored.toString(16).padStart(2, '0')} at 0x${result.address.toString(16)} in ${result.timeMs} ms${result.stored !== memoryValue ? ' (flash kept the zero bits)' : ''}.`,
+        )
+      } else {
+        const result = memory.eraseSector(memoryAddress)
+        setMemoryMessage(
+          `Erased ${result.bytesErased} bytes from 0x${result.startAddress.toString(16)} in ${result.timeMs} ms.`,
+        )
+      }
+      setMemoryRevision((revision) => revision + 1)
+    } catch (error) {
+      setMemoryMessage(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const memoryIsArray = deviceSpec.capacityBits !== undefined && deviceSpec.kind !== 'shift-register' && deviceSpec.kind !== 'decoder'
+  const memoryBytes = memoryIsArray && memoryRef.current
+    ? Array.from(memoryRef.current.bytes().slice(0, 16))
+    : null
+
   const appendLog = (msg: string) => setLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`])
 
-  const setStep = (step: string, s: Partial<StepStatus>) =>
-    setStatus(prev => ({ ...prev, [step]: { done: false, running: false, ...prev[step], ...s } }))
+  const setStep = (step: string, patch: Partial<StepStatus>) =>
+    setStatus(prev => {
+      const current = prev[step] ?? { done: false, running: false }
+      return { ...prev, [step]: { ...current, ...patch } }
+    })
 
-  const handleSynthesize = useCallback(async () => {
-    setStep('synthesis', { running: true, error: undefined })
+  /** Any edit invalidates downstream results — never export a stale design. */
+  const handleHdlChange = (code: string, language: 'verilog' | 'vhdl') => {
+    setHdlCode(code)
+    setHdlLanguage(language)
+    setSynthResult(null)
+    setFloorplanResult(null)
+    setGdsContent(null)
+  }
+
+  const handleSynthesize = useCallback(async (code = hdlCode, language = hdlLanguage) => {
+    setStep('synthesis', { running: true, done: false, error: undefined })
+    // A new netlist invalidates every downstream artifact.
+    setFloorplanResult(null)
+    setSelectedPackage(null)
+    setGdsContent(null)
     appendLog('Starting synthesis on SKY130 PDK…')
     try {
-      const elab = parseVerilogModule(hdlCode)
-      appendLog(`Parsed module: ${elab.name} (${elab.ports.length} ports)`)
-      const result = synthesize(elab.netlist, STANDARD_CELL_LIBRARY)
+      const design = language === 'verilog'
+        ? (() => {
+            const elab = parseVerilogModule(code)
+            return {
+              name: elab.name,
+              netlist: elab.netlist,
+              ports: elab.ports.map((port) => ({ name: port.name, direction: port.direction })),
+            }
+          })()
+        : (() => {
+            const elab = parseVhdl(code)
+            return {
+              name: elab.entity,
+              netlist: elab.netlist,
+              ports: elab.ports.map((port) => ({
+                name: port.name,
+                direction: port.direction === 'in' ? 'input' as const : 'output' as const,
+              })),
+            }
+          })()
+      appendLog(`Parsed ${language === 'verilog' ? 'module' : 'entity'}: ${design.name} (${design.ports.length} ports)`)
+      const result = synthesize(design.netlist, design.ports)
       setSynthResult(result)
       appendLog(`Synthesis complete: ${result.cells.length} cells, ${result.totalArea.toFixed(2)} µm², critical path ${result.criticalPathPs.toFixed(0)} ps`)
-      setStep('synthesis', { done: true, running: false })
+      setStep('synthesis', { done: true, running: false, error: undefined })
       setActiveTab('floorplan')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       appendLog(`Synthesis failed: ${msg}`)
       setStep('synthesis', { running: false, error: msg })
     }
-  }, [hdlCode])
+  }, [hdlCode, hdlLanguage])
+
+  // The full-flow demo opens on the preloaded full adder and runs synthesis so
+  // the next tab already holds a real result instead of an empty flow.
+  useDemoRequest('ic-full-flow', () => {
+    setHdlCode(DEFAULT_VERILOG)
+    setHdlLanguage('verilog')
+    void handleSynthesize(DEFAULT_VERILOG, 'verilog')
+  })
 
   const handleFloorplan = useCallback(async () => {
     if (!synthResult) { appendLog('Run synthesis first.'); return }
-    setStep('floorplan', { running: true, error: undefined })
+    setStep('floorplan', { running: true, done: false, error: undefined })
     appendLog('Planning floorplan…')
     try {
       const result = planFloorplan(synthResult)
       setFloorplanResult(result)
       appendLog(`Floorplan: die ${result.dieWidthUm.toFixed(1)}×${result.dieHeightUm.toFixed(1)} µm, utilization ${(result.utilizationPercent).toFixed(1)}%`)
-      setStep('floorplan', { done: true, running: false })
+      setStep('floorplan', { done: true, running: false, error: undefined })
       setActiveTab('packaging')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -106,13 +243,13 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
 
   const handleExportGDSII = useCallback(() => {
     if (!synthResult || !floorplanResult) { appendLog('Complete synthesis and floorplan first.'); return }
-    setStep('export', { running: true })
+    setStep('export', { running: true, done: false, error: undefined })
     appendLog('Generating GDSII stream…')
     try {
       const gds = exportGDSII(synthResult, floorplanResult)
       setGdsContent(gds)
-      appendLog(`GDSII generated: ${gds.length} bytes`)
-      setStep('export', { done: true, running: false })
+      appendLog(`GDSII generated: ${gds.binary.byteLength} bytes`)
+      setStep('export', { done: true, running: false, error: undefined })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       appendLog(`GDSII export failed: ${msg}`)
@@ -122,7 +259,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
 
   const downloadGDSII = () => {
     if (!gdsContent) return
-    const blob = new Blob([gdsContent], { type: 'application/octet-stream' })
+    const blob = new Blob([gdsContent.binary], { type: 'application/octet-stream' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
     a.download = 'design.gds'
@@ -135,49 +272,55 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
     { id: 'synthesis', label: 'Synthesis', step: 'synthesis' },
     { id: 'floorplan', label: 'Floorplan', step: 'floorplan' },
     { id: 'packaging', label: 'Packaging', step: null },
+    { id: 'devices', label: 'Device Lab', step: null },
     { id: 'export', label: 'GDSII Export', step: 'export' },
   ] as const
 
   return (
-    <div className="flex flex-col h-full bg-gray-900 text-gray-100 overflow-hidden">
+    <div className="flex flex-col h-full bg-background text-foreground overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 shrink-0">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
-          <Cpu size={16} className="text-purple-400" />
+          <Cpu size={16} className="text-chart-4" />
           <span className="font-semibold text-sm">IC Design — SkyWater SKY130</span>
         </div>
-        {onClose && <Button size="sm" variant="ghost" onClick={onClose} className="text-gray-400">✕</Button>}
+        {onClose && <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close IC design panel" className="text-muted-foreground">✕</Button>}
       </div>
 
       {/* Flow tabs */}
-      <div className="flex border-b border-gray-700 shrink-0 overflow-x-auto">
+      <div className="relative shrink-0 border-b border-border">
+        <div ref={flowTabsRef} className="scrollbar-none flex overflow-x-auto">
         {TABS.map((tab, i) => {
           const s = tab.step ? status[tab.step] : undefined
           return (
             <button key={tab.id}
               onClick={() => setActiveTab(tab.id)}
+              aria-current={activeTab === tab.id ? 'page' : undefined}
               className={`flex items-center gap-1.5 px-4 py-2 text-xs whitespace-nowrap transition-colors ${
-                activeTab === tab.id ? 'border-b-2 border-purple-400 text-purple-400' : 'text-gray-400 hover:text-gray-200'
+                activeTab === tab.id ? 'border-b-2 border-chart-4/50 text-chart-4' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              {i > 0 && <ChevronRight size={10} className="text-gray-600" />}
-              {s?.done && <CheckCircle size={10} className="text-green-400" />}
-              {s?.error && <AlertCircle size={10} className="text-red-400" />}
-              {s?.running && <RefreshCw size={10} className="text-yellow-400 animate-spin" />}
+              {i > 0 && <ChevronRight size={10} className="text-muted-foreground" />}
+              {s?.done && <CheckCircle size={10} className="text-success" />}
+              {s?.error && <AlertCircle size={10} className="text-destructive" />}
+              {s?.running && <RefreshCw size={10} className="text-warning animate-spin" />}
               {tab.label}
             </button>
           )
         })}
+        </div>
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-background to-transparent" aria-hidden="true" />
       </div>
 
-      <div className="flex-1 overflow-hidden flex">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
         {/* Main content */}
-        <div className="flex-1 overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-hidden">
           {activeTab === 'entry' && (
-            <Suspense fallback={<div className="flex items-center justify-center h-full text-gray-500 text-sm">Loading editor…</div>}>
+            <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground text-sm">Loading editor…</div>}>
               <HDLEditor
                 initialCode={hdlCode}
-                language="verilog"
+                language={hdlLanguage}
+                onCodeChange={handleHdlChange}
               />
             </Suspense>
           )}
@@ -185,7 +328,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
           {activeTab === 'synthesis' && (
             <div className="p-4 space-y-4 overflow-y-auto h-full">
               <div className="flex items-center gap-2">
-                <Button onClick={handleSynthesize} className="bg-purple-700 hover:bg-purple-600" size="sm"
+                <Button onClick={() => { void handleSynthesize() }} className="bg-primary hover:bg-primary/90" size="sm"
                   disabled={status['synthesis']?.running}>
                   {status['synthesis']?.running
                     ? <RefreshCw size={13} className="animate-spin mr-1" />
@@ -200,37 +343,37 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                     {[
                       { label: 'Cell count', value: synthResult.cells.length },
                       { label: 'Total area', value: `${synthResult.totalArea.toFixed(2)} µm²` },
-                      { label: 'Critical path', value: `${synthResult.criticalPathPs.toFixed(0)} ps` },
-                      { label: 'Max freq', value: `${(1e12 / synthResult.criticalPathPs / 1e6).toFixed(0)} MHz` },
+                      { label: 'Critical path', value: synthResult.metrics.criticalPathDelayPs > 0 ? `${synthResult.metrics.criticalPathDelayPs} ps` : 'n/a' },
+                      { label: 'Max freq', value: synthResult.metrics.maxOperatingFreqMhz > 0 ? `${synthResult.metrics.maxOperatingFreqMhz} MHz` : 'n/a' },
                       { label: 'Static power', value: `${(synthResult.staticPowerUw ?? 0).toFixed(2)} µW` },
                       { label: 'Dynamic power', value: `${(synthResult.dynamicPowerMw ?? 0).toFixed(3)} mW` },
                     ].map(({ label, value }) => (
-                      <div key={label} className="bg-gray-800 rounded p-2">
-                        <p className="text-xs text-gray-400">{label}</p>
-                        <p className="text-sm font-mono text-white">{value}</p>
+                      <div key={label} className="bg-card rounded p-2">
+                        <p className="text-xs text-muted-foreground">{label}</p>
+                        <p className="text-sm font-mono text-foreground">{value}</p>
                       </div>
                     ))}
                   </div>
 
                   <div>
-                    <p className="text-xs text-gray-400 mb-1.5">Cell breakdown</p>
-                    <div className="max-h-48 overflow-y-auto rounded border border-gray-700">
+                    <p className="text-xs text-muted-foreground mb-1.5">Cell breakdown</p>
+                    <div className="max-h-48 overflow-y-auto rounded border border-border">
                       <table className="w-full text-xs">
-                        <thead className="bg-gray-800 sticky top-0">
+                        <thead className="bg-card sticky top-0">
                           <tr>
                             {['Cell', 'Drive', 'Count', 'Area (µm²)', 'Delay (ps)'].map(h => (
-                              <th key={h} className="text-left px-2 py-1 text-gray-400">{h}</th>
+                              <th key={h} className="text-left px-2 py-1 text-muted-foreground">{h}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
                           {synthResult.cells.slice(0, 20).map((cell, i) => (
-                            <tr key={i} className="border-t border-gray-700/50">
-                              <td className="px-2 py-1 font-mono text-purple-300">{cell.name}</td>
-                              <td className="px-2 py-1 text-gray-400">{cell.driveStrength ?? 1}</td>
-                              <td className="px-2 py-1 text-white">1</td>
-                              <td className="px-2 py-1 text-gray-300">{cell.area.toFixed(3)}</td>
-                              <td className="px-2 py-1 text-gray-300">{(cell.delayPs ?? 0).toFixed(0)}</td>
+                            <tr key={i} className="border-t border-border/50">
+                              <td className="px-2 py-1 font-mono text-chart-4">{cell.name}</td>
+                              <td className="px-2 py-1 text-muted-foreground">{cell.driveStrength ?? 1}</td>
+                              <td className="px-2 py-1 text-foreground">1</td>
+                              <td className="px-2 py-1 text-foreground">{cell.area.toFixed(3)}</td>
+                              <td className="px-2 py-1 text-foreground">{(cell.delayPs ?? 0).toFixed(0)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -238,7 +381,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                     </div>
                   </div>
 
-                  <Button onClick={handleFloorplan} size="sm" className="bg-blue-700 hover:bg-blue-600">
+                  <Button onClick={handleFloorplan} size="sm" className="bg-primary hover:bg-primary/90">
                     Continue → Floorplan
                   </Button>
                 </div>
@@ -249,11 +392,11 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
           {activeTab === 'floorplan' && (
             <div className="p-4 space-y-4 overflow-y-auto h-full">
               {!synthResult && (
-                <p className="text-sm text-gray-400">Run synthesis first to generate a netlist for floorplanning.</p>
+                <p className="text-sm text-muted-foreground">Run synthesis first to generate a netlist for floorplanning.</p>
               )}
               {synthResult && (
                 <>
-                  <Button onClick={handleFloorplan} size="sm" className="bg-blue-700 hover:bg-blue-600"
+                  <Button onClick={handleFloorplan} size="sm" className="bg-primary hover:bg-primary/90"
                     disabled={status['floorplan']?.running}>
                     {status['floorplan']?.running
                       ? <RefreshCw size={13} className="animate-spin mr-1" />
@@ -270,30 +413,30 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                           { label: 'Utilization', value: `${floorplanResult.utilizationPercent.toFixed(1)}%` },
                           { label: 'Rows', value: floorplanResult.rows },
                         ].map(({ label, value }) => (
-                          <div key={label} className="bg-gray-800 rounded p-2">
-                            <p className="text-xs text-gray-400">{label}</p>
-                            <p className="text-sm font-mono text-white">{value}</p>
+                          <div key={label} className="bg-card rounded p-2">
+                            <p className="text-xs text-muted-foreground">{label}</p>
+                            <p className="text-sm font-mono text-foreground">{value}</p>
                           </div>
                         ))}
                       </div>
 
                       {/* Die visualization */}
-                      <div className="bg-gray-800 rounded p-3">
-                        <p className="text-xs text-gray-400 mb-2">Die preview (not to scale)</p>
-                        <div className="relative bg-gray-950 rounded border border-gray-600"
+                      <div className="bg-card rounded p-3">
+                        <p className="text-xs text-muted-foreground mb-2">Die preview (not to scale)</p>
+                        <div className="relative bg-canvas rounded border border-border"
                           style={{ height: 160, width: '100%' }}>
-                          <div className="absolute inset-4 border-2 border-green-600 rounded" />
-                          <div className="absolute inset-6 bg-purple-900/40 rounded flex items-center justify-center">
+                          <div className="absolute inset-4 border-2 border-success/50 rounded" />
+                          <div className="absolute inset-6 bg-chart-4/15 rounded flex items-center justify-center">
                             <div className="text-center">
-                              <Cpu size={20} className="mx-auto text-purple-400 mb-1" />
-                              <p className="text-xs text-purple-300">{synthResult.cells.length} cells</p>
-                              <p className="text-xs text-gray-400">{floorplanResult.utilizationPercent.toFixed(1)}% utilized</p>
+                              <Cpu size={20} className="mx-auto text-chart-4 mb-1" />
+                              <p className="text-xs text-chart-4">{synthResult.cells.length} cells</p>
+                              <p className="text-xs text-muted-foreground">{floorplanResult.utilizationPercent.toFixed(1)}% utilized</p>
                             </div>
                           </div>
                         </div>
                       </div>
 
-                      <Button onClick={() => setActiveTab('packaging')} size="sm" className="bg-blue-700 hover:bg-blue-600">
+                      <Button onClick={() => setActiveTab('packaging')} size="sm" className="bg-primary hover:bg-primary/90">
                         Continue → Packaging
                       </Button>
                     </div>
@@ -305,23 +448,23 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
 
           {activeTab === 'packaging' && (
             <div className="p-4 space-y-4 overflow-y-auto h-full">
-              <p className="text-xs text-gray-400">Select a package type for the die.</p>
+              <p className="text-xs text-muted-foreground">Select a package type for the die.</p>
               <div className="grid grid-cols-2 gap-2">
                 {PACKAGE_TYPES.slice(0, 8).map(pkg => (
                   <div key={pkg.id}
                     onClick={() => setSelectedPackage(pkg)}
                     className={`cursor-pointer rounded-lg p-3 border transition-colors ${
                       selectedPackage?.id === pkg.id
-                        ? 'border-purple-500 bg-purple-900/30'
-                        : 'border-gray-700 bg-gray-800 hover:border-gray-500'
+                        ? 'border-chart-4/50 bg-chart-4/10'
+                        : 'border-border bg-card hover:border-primary/60'
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">
-                      <Package size={13} className={selectedPackage?.id === pkg.id ? 'text-purple-400' : 'text-gray-400'} />
-                      <span className="font-mono text-sm text-white">{pkg.name}</span>
+                      <Package size={13} className={selectedPackage?.id === pkg.id ? 'text-chart-4' : 'text-muted-foreground'} />
+                      <span className="font-mono text-sm text-foreground">{pkg.name}</span>
                     </div>
-                    <p className="text-xs text-gray-400">{pkg.description}</p>
-                    <div className="flex gap-3 mt-1 text-xs text-gray-500">
+                    <p className="text-xs text-muted-foreground">{pkg.description}</p>
+                    <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
                       <span>{pkg.pinCount} pins</span>
                       <span>{pkg.bodySize}</span>
                     </div>
@@ -329,23 +472,242 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                 ))}
               </div>
               {selectedPackage && (
-                <div className="bg-gray-800 rounded p-3">
-                  <p className="text-xs text-gray-400 mb-1">Package details</p>
-                  <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">
+                <div className="bg-card rounded p-3">
+                  <p className="text-xs text-muted-foreground mb-1">Package details</p>
+                  <pre className="text-xs text-success font-mono whitespace-pre-wrap">
                     {generatePackageDescription(selectedPackage)}
                   </pre>
                 </div>
               )}
-              <Button onClick={() => setActiveTab('export')} size="sm" className="bg-blue-700 hover:bg-blue-600">
+              <Button onClick={() => setActiveTab('export')} size="sm" className="bg-primary hover:bg-primary/90">
                 Continue → GDSII Export
               </Button>
+            </div>
+          )}
+
+          {activeTab === 'devices' && (
+            <div className="p-4 space-y-4 overflow-y-auto h-full">
+              <div>
+                <label htmlFor="device-part" className="text-xs text-muted-foreground block mb-1">Logic / memory part</label>
+                <select
+                  id="device-part"
+                  value={devicePartId}
+                  onChange={(event) => setDevicePartId(event.target.value)}
+                  className="w-full rounded border border-border bg-card px-2 py-1.5 text-sm text-foreground"
+                >
+                  {STANDARD_MEMORY.map((part) => (
+                    <option key={part.id} value={part.id}>{part.partNumber} — {part.name}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground mt-1">{deviceSpec.description}</p>
+              </div>
+
+              {deviceSpec.partNumber === '74HC595' && (
+                <div className="bg-card rounded p-3 space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Clock edges are detected between steps: toggle SRCLK on then off to shift one bit.
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    {([
+                      ['ser', 'SER'], ['srclk', 'SRCLK'], ['rclk', 'RCLK'],
+                      ['srclrBar', 'SRCLR̅'], ['oeBar', 'OE̅'],
+                    ] as const).map(([key, label]) => (
+                      <label key={key} className="flex items-center gap-1.5 text-xs text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={shiftInputs[key]}
+                          onChange={(event) => setShiftInputs((prev) => ({ ...prev, [key]: event.target.checked }))}
+                          aria-label={label}
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  <Button size="sm" onClick={stepShift595} className="bg-primary hover:bg-primary/90">
+                    Apply step
+                  </Button>
+                  {shiftOutput && (
+                    <div className="space-y-2">
+                      <div className="flex gap-1">
+                        {shiftOutput.outputs.map((bit, index) => (
+                          <span
+                            key={index}
+                            title={`Q${String.fromCharCode(65 + index)}`}
+                            className={`flex h-6 w-6 items-center justify-center rounded-sm border text-[10px] ${
+                              shiftOutput.outputsEnabled && bit
+                                ? 'border-success bg-success text-success-foreground'
+                                : 'border-border bg-muted text-muted-foreground'
+                            }`}
+                          >
+                            {`Q${String.fromCharCode(65 + index)}`}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-xs font-mono text-success">
+                        Shift 0x{shiftOutput.shiftRegister.toString(16).padStart(2, '0')} ·
+                        Latch 0x{shiftOutput.latchRegister.toString(16).padStart(2, '0')} ·
+                        QH′ {shiftOutput.serialOut} ·
+                        outputs {shiftOutput.outputsEnabled ? 'enabled' : 'high-Z'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {deviceSpec.partNumber === '74HC165' && (
+                <div className="bg-card rounded p-3 space-y-3">
+                  <p className="text-xs text-muted-foreground">Parallel inputs D0..D7 (D0 first out).</p>
+                  <div className="flex flex-wrap gap-2">
+                    {parallelBits.map((bit, index) => (
+                      <label key={index} className="flex items-center gap-1 text-xs text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={bit === 1}
+                          aria-label={`D${index}`}
+                          onChange={(event) => setParallelBits((prev) =>
+                            prev.map((value, position) => position === index ? (event.target.checked ? 1 : 0) : value))}
+                        />
+                        D{index}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    {([
+                      ['plBar', 'PL̅'], ['ceBar', 'CE'], ['cp', 'CP'], ['ser', 'SER'],
+                    ] as const).map(([key, label]) => (
+                      <label key={key} className="flex items-center gap-1.5 text-xs text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={parallelControls[key]}
+                          aria-label={label}
+                          onChange={(event) => setParallelControls((prev) => ({ ...prev, [key]: event.target.checked }))}
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  <Button size="sm" onClick={stepParallel165} className="bg-primary hover:bg-primary/90">
+                    Apply step
+                  </Button>
+                  {parallelOutput && (
+                    <p className="text-xs font-mono text-success">
+                      Register 0x{parallelOutput.register.toString(16).padStart(2, '0')} ·
+                      QH {parallelOutput.qh} · QH̅ {parallelOutput.qhBar}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {deviceSpec.partNumber === '74HC138' && (
+                <div className="bg-card rounded p-3 space-y-3">
+                  <div className="flex flex-wrap gap-3">
+                    {([
+                      ['a', 'A'], ['b', 'B'], ['c', 'C'], ['g1', 'G1'],
+                      ['g2aBar', 'G2A̅'], ['g2bBar', 'G2B̅'],
+                    ] as const).map(([key, label]) => (
+                      <label key={key} className="flex items-center gap-1.5 text-xs text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={decoderInputs[key]}
+                          aria-label={label}
+                          onChange={(event) => setDecoderInputs((prev) => ({ ...prev, [key]: event.target.checked }))}
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="flex gap-1">
+                    {decode138(decoderInputs).outputs.map((level, index) => (
+                      <span
+                        key={index}
+                        className={`flex h-6 w-8 items-center justify-center rounded-sm border text-[10px] ${
+                          level === 0
+                            ? 'border-success bg-success text-success-foreground'
+                            : 'border-border bg-muted text-muted-foreground'
+                        }`}
+                      >
+                        Y{index}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-xs font-mono text-success">
+                    {decode138(decoderInputs).enabled
+                      ? `Selected Y${decode138(decoderInputs).selected} (active low)`
+                      : 'Disabled — all outputs high'}
+                  </p>
+                </div>
+              )}
+
+              {memoryIsArray && (
+                <div className="bg-card rounded p-3 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label htmlFor="memory-address" className="text-xs text-muted-foreground block mb-1">Address (0x…)</label>
+                      <input
+                        id="memory-address"
+                        type="number"
+                        min="0"
+                        max={(deviceSpec.capacityBits ?? 0) / 8 - 1}
+                        value={memoryAddress}
+                        onChange={(event) => {
+                          const next = Number(event.target.value)
+                          const limit = (deviceSpec.capacityBits ?? 0) / 8 - 1
+                          if (Number.isInteger(next) && next >= 0 && next <= limit) setMemoryAddress(next)
+                        }}
+                        className="w-full rounded border border-border bg-background px-2 py-1 text-sm text-foreground"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="memory-value" className="text-xs text-muted-foreground block mb-1">Value (0–255)</label>
+                      <input
+                        id="memory-value"
+                        type="number"
+                        min="0"
+                        max="255"
+                        value={memoryValue}
+                        onChange={(event) => {
+                          const next = Number(event.target.value)
+                          if (Number.isInteger(next) && next >= 0 && next <= 255) setMemoryValue(next)
+                        }}
+                        className="w-full rounded border border-border bg-background px-2 py-1 text-sm text-foreground"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" className="border-border" onClick={() => runMemoryOperation('read')}>
+                      Read
+                    </Button>
+                    <Button size="sm" variant="outline" className="border-border" onClick={() => runMemoryOperation('write')}>
+                      Write
+                    </Button>
+                    {deviceSpec.kind === 'flash' && (
+                      <Button size="sm" variant="outline" className="border-border" onClick={() => runMemoryOperation('erase')}>
+                        Erase sector
+                      </Button>
+                    )}
+                  </div>
+                  {memoryMessage && <p className="text-xs font-mono text-success">{memoryMessage}</p>}
+                  <div className="text-xs text-muted-foreground">
+                    {Math.round((deviceSpec.capacityBits ?? 0) / 8)} bytes ·
+                    {' '}{deviceSpec.interface ?? 'parallel'} ·
+                    {' '}page {memoryRef.current?.pageSizeBytes ?? '—'} bytes ·
+                    {' '}write {memoryRef.current?.writeCycleMs ?? 0} ms
+                  </div>
+                  {memoryBytes && (
+                    <p className="font-mono text-xs text-foreground break-all">
+                      {memoryBytes.map((byte, index) =>
+                        `${index.toString(16).padStart(2, '0')}:${byte.toString(16).padStart(2, '0')}`).join(' ')}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
           {activeTab === 'export' && (
             <div className="p-4 space-y-4 overflow-y-auto h-full">
               <div className="flex gap-2">
-                <Button onClick={handleExportGDSII} size="sm" className="bg-green-700 hover:bg-green-600"
+                <Button onClick={handleExportGDSII} size="sm" className="bg-success hover:bg-success/90"
                   disabled={!synthResult || status['export']?.running}>
                   {status['export']?.running
                     ? <RefreshCw size={13} className="animate-spin mr-1" />
@@ -353,19 +715,19 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                   Generate GDSII
                 </Button>
                 {gdsContent && (
-                  <Button onClick={downloadGDSII} size="sm" variant="outline" className="border-gray-600">
+                  <Button onClick={downloadGDSII} size="sm" variant="outline" className="border-border">
                     <Download size={13} className="mr-1" /> Download .gds
                   </Button>
                 )}
               </div>
 
               {gdsContent && (
-                <div className="bg-gray-800 rounded p-3">
-                  <p className="text-xs text-gray-400 mb-1">GDSII preview (first 512 bytes)</p>
-                  <pre className="text-xs font-mono text-green-300 overflow-x-auto whitespace-pre-wrap">
-                    {gdsContent.slice(0, 512)}…
+                <div className="bg-card rounded p-3">
+                  <p className="text-xs text-muted-foreground mb-1">GDSII summary</p>
+                  <pre className="text-xs font-mono text-success overflow-x-auto whitespace-pre-wrap">
+                    {gdsContent.text}
                   </pre>
-                  <p className="text-xs text-gray-500 mt-1">{gdsContent.length} bytes total</p>
+                  <p className="text-xs text-muted-foreground mt-1">{gdsContent.binary.byteLength} bytes total</p>
                 </div>
               )}
             </div>
@@ -373,14 +735,14 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
         </div>
 
         {/* Log pane */}
-        <div className="w-56 border-l border-gray-700 flex flex-col overflow-hidden">
-          <div className="px-3 py-2 border-b border-gray-700 shrink-0">
-            <p className="text-xs text-gray-500">Build log</p>
+        <div className="flex max-h-[35%] w-full shrink-0 flex-col overflow-hidden border-t border-border lg:max-h-none lg:w-56 lg:border-l lg:border-t-0">
+          <div className="px-3 py-2 border-b border-border shrink-0">
+            <p className="text-xs text-muted-foreground">Build log</p>
           </div>
           <div className="flex-1 overflow-y-auto p-2">
-            {log.length === 0 && <p className="text-xs text-gray-600">No output yet.</p>}
+            {log.length === 0 && <p className="text-xs text-muted-foreground">No output yet.</p>}
             {log.map((line, i) => (
-              <p key={i} className="text-xs font-mono text-gray-400 leading-4">{line}</p>
+              <p key={i} className="text-xs font-mono text-muted-foreground leading-4">{line}</p>
             ))}
           </div>
         </div>

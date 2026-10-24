@@ -36,5 +36,23 @@ describe('power integrity', () => {
     expect(relief.spokes).toBe(4)
     expect(relief.copperFraction).toBeGreaterThan(0)
     expect(relief.copperFraction).toBeLessThan(1)
+    expect(thermalSpokes(1.5, 0).copperFraction).toBe(0)
+  })
+
+  it('rejects a non-positive stitching pitch instead of looping forever', () => {
+    expect(() => stitchingGrid(10, 10, 0)).toThrow(/pitch/)
+    expect(() => stitchingGrid(10, 10, -1)).toThrow(/pitch/)
+    expect(() => stitchingGrid(10, 10, Number.NaN)).toThrow(/pitch/)
+    expect(() => stitchingGrid(-10, 10, 1)).toThrow(/width/)
+    expect(() => stitchingGrid(10, 10, 1, -1)).toThrow(/edge/)
+  })
+
+  it('rejects non-physical resistance and inductance dimensions', () => {
+    expect(() => pourResistance(0, 5)).toThrow(/length/)
+    expect(() => pourResistance(10, 0)).toThrow(/width/)
+    expect(() => pourResistance(10, 5, 0)).toThrow(/copper/)
+    expect(() => planeLoopInductance(10, 0, 0.2)).toThrow(/width/)
+    expect(() => planeLoopInductance(10, 20, 0)).toThrow(/separation/)
+    expect(() => thermalSpokes(0, 0.3)).toThrow(/diameter/)
   })
 })

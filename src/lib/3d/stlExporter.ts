@@ -18,9 +18,19 @@ export class STLExporter {
     scale: 1
   };
 
-  static exportScene(scene: THREE.Scene, options: STLExportOptions = {}): string | ArrayBuffer {
+  private static resolveOptions(options: STLExportOptions): Required<STLExportOptions> {
     const opts = { ...this.DEFAULT_OPTIONS, ...options };
-    const geometries = this.collectGeometries(scene);
+    if (!Number.isFinite(opts.scale) || opts.scale <= 0) {
+      throw new Error('STL export requires a finite positive scale');
+    }
+    return opts;
+  }
+
+  static exportScene(scene: THREE.Scene, options: STLExportOptions = {}): string | ArrayBuffer {
+    const opts = this.resolveOptions(options);
+    // World matrices are lazy; an un-updated scene would export stale transforms.
+    scene.updateMatrixWorld(true);
+    const geometries = this.collectGeometries(scene, opts.scale);
 
     if (opts.binary) {
       return this.exportBinary(geometries, opts);
@@ -30,7 +40,8 @@ export class STLExporter {
   }
 
   static exportMesh(mesh: THREE.Mesh, options: STLExportOptions = {}): string | ArrayBuffer {
-    const opts = { ...this.DEFAULT_OPTIONS, ...options };
+    const opts = this.resolveOptions(options);
+    mesh.updateMatrixWorld(true);
     const geometries = [this.processGeometry(mesh.geometry, mesh.matrixWorld, opts.scale)];
 
     if (opts.binary) {
@@ -41,7 +52,7 @@ export class STLExporter {
   }
 
   static exportToSTL(geometry: THREE.BufferGeometry | TriangleMeshData, filename = 'Folio_Model'): string {
-    const opts = this.DEFAULT_OPTIONS;
+    const opts = this.resolveOptions({});
     const bufferGeometry = geometry instanceof THREE.BufferGeometry ? geometry : this.createBufferGeometry(geometry);
     const processedGeometry = this.processGeometry(bufferGeometry, new THREE.Matrix4(), opts.scale);
     const solidName = filename.replace(/[^a-zA-Z0-9_.-]/g, '_') || 'Folio_Model';
@@ -68,12 +79,12 @@ export class STLExporter {
     return geometry;
   }
 
-  private static collectGeometries(scene: THREE.Scene): Array<{ vertices: Float32Array; normals: Float32Array; indices: Uint32Array }> {
+  private static collectGeometries(scene: THREE.Scene, scale: number): Array<{ vertices: Float32Array; normals: Float32Array; indices: Uint32Array }> {
     const geometries: Array<{ vertices: Float32Array; normals: Float32Array; indices: Uint32Array }> = [];
 
     scene.traverse((object) => {
       if (object instanceof THREE.Mesh && object.geometry) {
-        geometries.push(this.processGeometry(object.geometry, object.matrixWorld, 1));
+        geometries.push(this.processGeometry(object.geometry, object.matrixWorld, scale));
       }
     });
 
@@ -94,6 +105,14 @@ export class STLExporter {
     // Get vertices
     const positionAttribute = transformedGeometry.attributes.position;
     const vertices = new Float32Array(positionAttribute.array);
+    for (let i = 0; i < vertices.length; i++) {
+      if (!Number.isFinite(vertices[i])) {
+        throw new Error('STL export requires finite vertex coordinates');
+      }
+    }
+    if (!transformedGeometry.index && vertices.length % 9 !== 0) {
+      throw new Error('STL export requires non-indexed positions in whole triangles');
+    }
 
     // Get or compute normals
     let normals: Float32Array;
@@ -114,20 +133,87 @@ export class STLExporter {
         }
       }
     }
+    for (let i = 0; i < normals.length; i++) {
+      if (!Number.isFinite(normals[i])) {
+        throw new Error('STL export requires finite vertex normals');
+      }
+    }
 
-    // Get indices
+    // Get indices. STL stores triangles, so partial/index-out-of-range data is
+    // rejected rather than written as a NaN vertex.
+    const vertexCount = vertices.length / 3;
     let indices: Uint32Array;
     if (transformedGeometry.index) {
-      indices = new Uint32Array(transformedGeometry.index.array);
+      const source = transformedGeometry.index.array;
+      if (source.length % 3 !== 0) {
+        throw new Error('STL export requires an index buffer containing whole triangles');
+      }
+      indices = new Uint32Array(source.length);
+      for (let i = 0; i < source.length; i++) {
+        const index = source[i];
+        if (!Number.isInteger(index) || index < 0 || index >= vertexCount) {
+          throw new Error('STL export has a face index outside the vertex buffer');
+        }
+        indices[i] = index;
+      }
     } else {
-      // Generate indices for non-indexed geometry
-      indices = new Uint32Array(vertices.length / 3);
+      // Generate indices for non-indexed geometry (already verified as whole triangles)
+      indices = new Uint32Array(vertexCount);
       for (let i = 0; i < indices.length; i++) {
         indices[i] = i;
       }
     }
 
     return { vertices, normals, indices };
+  }
+
+  /**
+   * Unit facet normal from the triangle winding. STL stores one normal per
+   * facet, so this is the correct fallback when vertex normals are absent or
+   * explicitly excluded; writing (0,0,1) would be a lie about the geometry.
+   */
+  private static facetNormal(vertices: Float32Array, i0: number, i1: number, i2: number): [number, number, number] {
+    const ax = vertices[i1] - vertices[i0];
+    const ay = vertices[i1 + 1] - vertices[i0 + 1];
+    const az = vertices[i1 + 2] - vertices[i0 + 2];
+    const bx = vertices[i2] - vertices[i0];
+    const by = vertices[i2 + 1] - vertices[i0 + 1];
+    const bz = vertices[i2 + 2] - vertices[i0 + 2];
+    let nx = ay * bz - az * by;
+    let ny = az * bx - ax * bz;
+    let nz = ax * by - ay * bx;
+    const length = Math.hypot(nx, ny, nz);
+    if (length > 0) {
+      nx /= length;
+      ny /= length;
+      nz /= length;
+    }
+    return [nx, ny, nz];
+  }
+
+  private static normalForTriangle(
+    vertices: Float32Array,
+    normals: Float32Array,
+    options: Required<STLExportOptions>,
+    i0: number,
+    i1: number,
+    i2: number,
+  ): [number, number, number] {
+    if (!options.includeNormals || normals.length === 0) {
+      return this.facetNormal(vertices, i0, i1, i2);
+    }
+    let nx = (normals[i0] + normals[i1] + normals[i2]) / 3;
+    let ny = (normals[i0 + 1] + normals[i1 + 1] + normals[i2 + 1]) / 3;
+    let nz = (normals[i0 + 2] + normals[i1 + 2] + normals[i2 + 2]) / 3;
+    const length = Math.hypot(nx, ny, nz);
+    if (length > 0) {
+      nx /= length;
+      ny /= length;
+      nz /= length;
+    } else {
+      return this.facetNormal(vertices, i0, i1, i2);
+    }
+    return [nx, ny, nz];
   }
 
   private static exportASCII(
@@ -146,14 +232,9 @@ export class STLExporter {
         const i1 = indices[i + 1] * 3;
         const i2 = indices[i + 2] * 3;
 
-        // Calculate face normal if not provided
-        let nx = 0, ny = 0, nz = 1;
-        if (options.includeNormals && normals.length > 0) {
-          // Average normals of the three vertices
-          nx = (normals[i0] + normals[i1] + normals[i2]) / 3;
-          ny = (normals[i0 + 1] + normals[i1 + 1] + normals[i2 + 1]) / 3;
-          nz = (normals[i0 + 2] + normals[i1 + 2] + normals[i2 + 2]) / 3;
-        }
+        // Facet normal from averaged vertex normals when available; otherwise
+        // from the triangle itself.
+        const [nx, ny, nz] = this.normalForTriangle(vertices, normals, options, i0, i1, i2);
 
         stl += `  facet normal ${nx} ${ny} ${nz}\n`;
         stl += '    outer loop\n';
@@ -207,12 +288,7 @@ export class STLExporter {
         const i2 = indices[i + 2] * 3;
 
         // Normal vector (12 bytes)
-        let nx = 0, ny = 0, nz = 1;
-        if (options.includeNormals && normals.length > 0) {
-          nx = (normals[i0] + normals[i1] + normals[i2]) / 3;
-          ny = (normals[i0 + 1] + normals[i1 + 1] + normals[i2 + 1]) / 3;
-          nz = (normals[i0 + 2] + normals[i1 + 2] + normals[i2 + 2]) / 3;
-        }
+        const [nx, ny, nz] = this.normalForTriangle(vertices, normals, options, i0, i1, i2);
 
         view.setFloat32(offset, nx, true); offset += 4;
         view.setFloat32(offset, ny, true); offset += 4;
@@ -259,7 +335,8 @@ export class STLExporter {
   static validateSTL(data: string | ArrayBuffer): boolean {
     if (typeof data === 'string') {
       // ASCII STL validation
-      return data.startsWith('solid ') && data.endsWith('endsolid ') && data.includes('facet normal');
+      const text = data.trim();
+      return text.startsWith('solid ') && /endsolid\s+\S+$/.test(text) && text.includes('facet normal');
     } else {
       // Binary STL validation
       const view = new DataView(data);

@@ -153,8 +153,10 @@ export function integrate(
   let time = t0;
   let step = 0;
 
-  while (time < tEnd - 1e-12) {
-    const h = Math.min(dt, tEnd - time);
+  while (time < tEnd) {
+    const remaining = tEnd - time;
+    const last = remaining <= dt;
+    const h = last ? remaining : dt;
     const slope = derivative(time, state);
     if (slope.length !== state.length) {
       throw new Error(`Step ${step}: derivative returned ${slope.length} values for ${state.length}.`);
@@ -167,9 +169,12 @@ export function integrate(
           : eulerStep(derivative, time, state, h);
     assertFinite(next, `Step ${step} at t=${time}`);
     state = next;
-    time += h;
+    // Land exactly on tEnd on the final step instead of accumulating round-off
+    // (and never spin on a step too small to advance the clock).
+    time = last ? tEnd : time + h;
     step += 1;
     samples.push({ time, state: [...state] });
+    if (last) break;
   }
   return samples;
 }
@@ -242,8 +247,10 @@ export function integrateSecondOrder(
   let time = t0;
   let step = 0;
 
-  while (time < tEnd - 1e-12) {
-    const h = Math.min(dt, tEnd - time);
+  while (time < tEnd) {
+    const remaining = tEnd - time;
+    const last = remaining <= dt;
+    const h = last ? remaining : dt;
     if (method === 'symplectic-euler') {
       const advanced = symplecticEulerStep(acceleration, time, position, velocity, h);
       position = advanced.position;
@@ -259,9 +266,10 @@ export function integrateSecondOrder(
     }
     assertFinite(position, `Step ${step} position at t=${time}`);
     assertFinite(velocity, `Step ${step} velocity at t=${time}`);
-    time += h;
+    time = last ? tEnd : time + h;
     step += 1;
     samples.push({ time, position: [...position], velocity: [...velocity] });
+    if (last) break;
   }
   return samples;
 }

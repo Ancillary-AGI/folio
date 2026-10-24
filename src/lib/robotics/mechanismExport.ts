@@ -1,11 +1,15 @@
 /**
  * Mechanism export — STEP geometry plus the gate that must pass first.
  *
- * `advancedRobotics.exportMechanismSTL` needs a live three.js scene, so it cannot run
- * in a test or in the light path. These functions describe a mechanism as plain numbers
- * instead: link lengths, sections and assembled angles. That keeps the export testable,
- * and it means the manufacturability verdict and the exported solid are computed from
- * the same description rather than from two different models that can disagree.
+ * These functions describe a mechanism as plain numbers instead: link lengths,
+ * sections and assembled angles. That keeps the STEP path testable and means the
+ * manufacturability verdict and the exported solid are computed from the same
+ * description rather than from two models that can disagree.
+ *
+ * The STL path in `advancedRobotics` emits each link's actual mesh in
+ * millimetres; this STEP path deliberately approximates every link as a box of
+ * the measured section. Both carry the same pose, but they are different solids,
+ * so do not treat one as a byte-for-byte substitute for the other.
  *
  * The export is refused when the gate fails. Returning `ok: false` with the findings is
  * the whole point: a design that would buckle, jam a joint or overhang the printer must

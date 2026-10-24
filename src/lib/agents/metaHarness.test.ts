@@ -99,4 +99,25 @@ describe('Meta-Harness Multi-Agent Orchestrator', () => {
 
     expect(() => meta.createPlan('Bad Plan', badTasks)).toThrow(/unknown dependency/);
   });
+
+  it('rejects dependency cycles and duplicate task ids', () => {
+    const meta = new MetaHarness(new AgentHarness());
+    const task = (id: string, dependencies: string[]): MetaAgentTask => ({
+      id,
+      role: 'schematic',
+      title: id,
+      description: id,
+      dependencies,
+      toolName: 'dummy',
+      args: {},
+      status: 'pending',
+    });
+
+    expect(() =>
+      meta.createPlan('Cycle', [task('a', ['b']), task('b', ['a'])]),
+    ).toThrow(/cycle/);
+    expect(() => meta.createPlan('Duplicate', [task('a', []), task('a', [])])).toThrow(
+      /Duplicate task ID/,
+    );
+  });
 });

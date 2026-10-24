@@ -72,9 +72,19 @@ export function playbackFrame(
     if (/^I\(/i.test(wave.name)) continue;
     const nodeMatch = /^V\((.+)\)$/i.exec(wave.name);
     const key = nodeMatch ? nodeMatch[1].toUpperCase() : wave.name.toUpperCase();
-    const values = wave.data.map((p) => p.y);
-    const lo = Math.min(...values);
-    const hi = Math.max(...values);
+    if (wave.data.length === 0) {
+      // No samples: report neutral brightness instead of NaN from an empty range.
+      glow[key] = 0.5;
+      continue;
+    }
+    // Loop rather than spreading into Math.min/max: a long transient can hold
+    // far more samples than the engine's argument limit.
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const point of wave.data) {
+      if (point.y < lo) lo = point.y;
+      if (point.y > hi) hi = point.y;
+    }
     const span = hi - lo;
     glow[key] = span <= 0 ? 0.5 : (voltages[key] - lo) / span;
   }

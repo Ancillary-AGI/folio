@@ -3,7 +3,7 @@ import { supabase, Project } from '../lib/supabase'
 import { offlineProjectStore } from '../lib/offlineProjectStore'
 import { Button } from './ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
-import { Plus, FolderOpen, Calendar, User, Search, Trash2 } from 'lucide-react'
+import { Plus, FolderOpen, Calendar, User, Search, Trash2, ArrowRight } from 'lucide-react'
 
 interface ProjectManagerProps {
   onSelectProject: (project: Project) => void
@@ -83,25 +83,39 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
+    <div className="mx-auto max-w-6xl p-4 sm:p-6">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-foreground mb-2">Your Projects</h1>
-        <p className="text-muted-foreground">Manage your circuit design projects</p>
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">Folio workbench</p>
+        <h1 className="mb-2 text-2xl font-bold text-foreground sm:text-3xl">Your Projects</h1>
+        <p className="max-w-2xl text-muted-foreground">
+          Schematic, PCB, mechanical, robotics and systems projects — stored on this device.
+        </p>
+        <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Supported disciplines">
+          {['Schematic', 'PCB', '3D preview', 'Simulation', 'Mechanical', 'HDL / IC', 'Robotics', 'Operations'].map((discipline) => (
+            <li
+              key={discipline}
+              className="rounded-sm border border-border bg-surface px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
+            >
+              {discipline}
+            </li>
+          ))}
+        </ul>
       </div>
 
-      <div className="flex gap-4 mb-6">
-        <div className="flex-1 relative">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative min-w-0 flex-1">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <input
             type="text"
             placeholder="Search projects..."
+            aria-label="Search projects"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full rounded-lg border border-border bg-background py-2 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-primary"
           />
         </div>
         
-        <Button onClick={onNewProject} className="flex items-center gap-2">
+        <Button onClick={onNewProject} className="flex flex-shrink-0 items-center gap-2">
           <Plus className="w-4 h-4" />
           New Project
         </Button>
@@ -117,7 +131,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
             <p className="text-muted-foreground mb-4">
               {searchTerm 
                 ? 'Try adjusting your search terms'
-                : 'Create your first circuit design project to get started'
+                : 'Create your first engineering project — from circuit to enclosure — to get started'
               }
             </p>
             {!searchTerm && (
@@ -133,7 +147,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
           {filteredProjects.map((project) => (
             <Card
               key={project.id}
-              className={`cursor-pointer transition-all hover:shadow-lg ${
+              className={`cursor-pointer transition-all hover:border-primary/40 hover:shadow-lg ${
                 selectedProject === project.id ? 'ring-2 ring-primary' : ''
               }`}
               onClick={() => {
@@ -175,13 +189,26 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
                   </div>
                 </div>
                 
-                <div className="mt-3 pt-3 border-t border-border">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Last modified</span>
-                    <span className="font-medium">
+                <div className="mt-3 flex items-center justify-between border-t border-border pt-2">
+                  <span className="text-xs text-muted-foreground">
+                    Last modified{' '}
+                    <span className="font-medium text-foreground">
                       {new Date(project.updated_at).toLocaleTimeString()}
                     </span>
-                  </div>
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 gap-1 px-1.5 text-xs text-primary hover:text-primary"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setSelectedProject(project.id)
+                      onSelectProject(project)
+                    }}
+                    aria-label={`Open ${project.name}`}
+                  >
+                    Open <ArrowRight className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
               </CardContent>
             </Card>

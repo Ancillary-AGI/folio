@@ -18,9 +18,30 @@ const PIN_ORDER: Readonly<Record<string, ReadonlyArray<string>>> = {
   'voltage_controlled_switch': ['positive', 'negative', 'control_pos', 'control_neg'],
   'current_controlled_switch': ['positive', 'negative'],
   'behavioral_source': ['positive', 'negative'],
+  'transformer': ['primary_in', 'primary_out', 'secondary_in', 'secondary_out'],
+  'transmission_line': ['p1', 'n1', 'p2', 'n2'],
 }
 
 const pinKey = (componentId: string, pinId: string): string => `${componentId}\u0000${pinId}`
+
+/**
+ * Terminal pins in the exact order `buildCircuitNetlist` emits nodes.
+ *
+ * Exported so analyses that need to correlate a node index back to its pin
+ * (ERC, probes) cannot drift from the netlist builder's ordering.
+ */
+export function orderedTerminalPins(
+  component: CanvasComponent['component'],
+): CanvasComponent['component']['pins'] {
+  const type = component.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')
+  const order = PIN_ORDER[type]
+  if (!order) return component.pins
+  return order.map((pinId) => {
+    const pin = component.pins.find((candidate) => candidate.id === pinId)
+    if (!pin) throw new Error(`Symbol ${component.name} is missing pin ${pinId}`)
+    return pin
+  })
+}
 
 const normalizeNetName = (name: string): string => {
   const trimmed = name.trim()
@@ -132,14 +153,7 @@ export function buildCircuitNetlist(
     title,
     components: components.map((placed) => {
       const type = placed.component.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')
-      const order = PIN_ORDER[type]
-      const pins = order
-        ? order.map((pinId) => {
-            const pin = placed.component.pins.find((candidate) => candidate.id === pinId)
-            if (!pin) throw new Error(`${placed.reference}: symbol ${placed.component.name} is missing pin ${pinId}`)
-            return pin
-          })
-        : placed.component.pins
+      const pins = orderedTerminalPins(placed.component)
       return {
         type,
         name: placed.reference,

@@ -36,7 +36,7 @@ describe('Circuit3DViewer', () => {
     exportSpies.exportMeshes.mockClear()
     exportSpies.downloadFile.mockClear()
     // Seed an empty sheet: the viewer maps store components to 3D.
-    useProjectStore.setState({ components: [], wires: [] })
+    useProjectStore.setState({ components: [], wires: [], pcbLayout: null })
   })
 
   it('renders viewport chrome, view presets and layer toggles', () => {
@@ -71,5 +71,59 @@ describe('Circuit3DViewer', () => {
     expect(obj).toBeDefined()
     if (obj) fireEvent.click(obj)
     expect(exportSpies.exportMeshes).toHaveBeenCalled()
+  })
+
+  it('renders the routed board instead of the demo slab when a layout exists', () => {
+    useProjectStore.setState({
+      pcbLayout: {
+        widthMm: 100,
+        heightMm: 80,
+        thicknessMm: 1.6,
+        layers: [
+          { id: 'top-cu', name: 'Top Copper', kind: 'copper', color: '#cc0000' },
+          { id: 'bot-cu', name: 'Bottom Copper', kind: 'copper', color: '#ffaa00' },
+        ],
+        traces: [{
+          id: 't1', net: 'OUT', layerId: 'top-cu', widthMm: 0.25,
+          points: [{ x: 10, y: 20 }, { x: 40, y: 20 }],
+        }],
+        vias: [{ id: 'v1', net: 'GND', x: 50, y: 40, padDiameterMm: 0.6, drillDiameterMm: 0.3 }],
+        components: [{
+          id: 'r1', reference: 'R1', footprint: '0805', category: 'resistor',
+          x: 25, y: 20, rotationDeg: 0,
+        }],
+      },
+    })
+
+    render(<Circuit3DViewer onClose={() => {}} />)
+    expect(screen.getByText(/Routed layout/)).toBeInTheDocument()
+    expect(screen.getByText(/Board: 100 × 80 mm/)).toBeInTheDocument()
+    expect(screen.getByText(/Traces: 1/)).toBeInTheDocument()
+    expect(screen.getByText('R1 · 0805')).toBeInTheDocument()
+    expect(screen.getByText('Top Copper')).toBeInTheDocument()
+  })
+
+  it('exports the routed board geometry', () => {
+    useProjectStore.setState({
+      pcbLayout: {
+        widthMm: 50,
+        heightMm: 40,
+        thicknessMm: 1.6,
+        layers: [{ id: 'top-cu', name: 'Top Copper', kind: 'copper', color: '#cc0000' }],
+        traces: [{
+          id: 't1', net: 'OUT', layerId: 'top-cu', widthMm: 0.25,
+          points: [{ x: 5, y: 5 }, { x: 20, y: 5 }],
+        }],
+        vias: [],
+        components: [],
+      },
+    })
+
+    render(<Circuit3DViewer onClose={() => {}} />)
+    const stl = screen.getAllByRole('button').find((button) =>
+      button.textContent?.toLowerCase().includes('stl'))
+    expect(stl).toBeDefined()
+    if (stl) fireEvent.click(stl)
+    expect(exportSpies.exportScene).toHaveBeenCalled()
   })
 })

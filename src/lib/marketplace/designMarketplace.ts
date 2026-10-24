@@ -64,10 +64,20 @@ export class DesignMarketplace {
   }
 
   publish(input: Omit<MarketplaceListing, 'id' | 'publishedAt' | 'downloads'> & { downloads?: number }): MarketplaceListing {
+    if (!input.title.trim()) throw new Error('Marketplace listing requires a title');
+    if (!input.author.trim()) throw new Error('Marketplace listing requires an author');
+    if (!/^\d+\.\d+\.\d+$/.test(input.version)) throw new Error(`Marketplace listing version must be semver: "${input.version}"`);
+    if (!Number.isFinite(input.rating) || input.rating < 0 || input.rating > 5) {
+      throw new Error(`Marketplace listing rating must be between 0 and 5: ${input.rating}`);
+    }
+    const downloads = input.downloads ?? 0;
+    if (!Number.isInteger(downloads) || downloads < 0) {
+      throw new Error(`Marketplace listing downloads must be a non-negative integer: ${downloads}`);
+    }
     const listing: MarketplaceListing = {
       ...input,
       id: `mkt_${Date.now()}_${++this.idSeq}`,
-      downloads: input.downloads ?? 0,
+      downloads,
       publishedAt: Date.now(),
     };
     this.listings.set(listing.id, listing);
@@ -75,13 +85,13 @@ export class DesignMarketplace {
   }
 
   search(query = '', category?: MarketplaceCategory): MarketplaceListing[] {
-    const q = query.toLowerCase();
+    const q = query.trim().toLowerCase();
     return Array.from(this.listings.values()).filter((item) => {
       const matchesQuery =
         !q ||
-        item.title.toLowerCase().includes(q) ||
-        item.tags.some((t) => t.includes(q)) ||
-        item.description.toLowerCase().includes(q);
+        `${item.title}\n${item.author}\n${item.description}\n${item.tags.join('\n')}`
+          .toLowerCase()
+          .includes(q);
       const matchesCategory = !category || item.category === category;
       return matchesQuery && matchesCategory;
     });

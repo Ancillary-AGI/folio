@@ -68,4 +68,10 @@ describe('image flasher', () => {
     const verdict = await verifyFlash(image.subarray(0, 1000), plan)
     expect(verdict.ok).toBe(false)
   })
+
+  it('rejects a non-positive chunk size instead of looping forever', async () => {
+    await expect(flashPlan(syntheticImage(), 0)).rejects.toThrow(/chunk size/)
+    await expect(flashPlan(syntheticImage(), -1)).rejects.toThrow(/chunk size/)
+    await expect(flashPlan(syntheticImage(), Number.NaN)).rejects.toThrow(/chunk size/)
+  })
 })

@@ -7,8 +7,10 @@
  * viewer with nothing invented. Proven by `demoBoard.test.ts`.
  *
  * Circuit: 6 Vpk 1 kHz sine into 10 ohm source resistance, 1N5817
- * Schottky, 10 uF filter across a 100 ohm load. Hand-verifiable: OUT
- * rides the positive half-cycle minus ~0.3 V and never swings negative.
+ * Schottky, 10 uF filter across a 100 ohm load. Hand-checkable: OUT only
+ * conducts on the positive half-cycle and never swings negative; at the
+ * panel defaults it peaks near 4.4 V (source IR + diode drop) with roughly
+ * 2.3 V of ripple, since the capacitor is an ideal 10 uF with no ESR.
  */
 import type { CanvasComponent, CanvasWire } from '../../stores/useProjectStore';
 import type { Component } from '../supabase';

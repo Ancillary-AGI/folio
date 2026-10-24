@@ -37,6 +37,9 @@ describe('AI Datasheet-to-Component Ingestion', () => {
     expect(parsed.electrical.minSupplyVoltageV).toBe(2.7);
     expect(parsed.electrical.maxSupplyVoltageV).toBe(5.5);
     expect(parsed.pins.length).toBe(16);
+    expect(parsed.packaging.packageName).toBe('SOIC-16');
+    expect(parsed.packaging.pinCount).toBe(16);
+    expect(parsed.packaging.bodyHeightMm).toBeGreaterThan(4.9);
     expect(parsed.pins.find((p) => p.name === 'VDD')?.kind).toBe('power');
     expect(parsed.pins.find((p) => p.name === 'DGND')?.kind).toBe('ground');
   });
@@ -72,6 +75,13 @@ describe('AI Datasheet-to-Component Ingestion', () => {
     // SPICE subcircuit check
     expect(synthesized.spiceSubcircuit).toContain('.SUBCKT NE555D');
     expect(synthesized.spiceSubcircuit).toContain('.ENDS NE555D');
+  });
+
+  it('honours an explicit SOIC package line when no pin table is present', () => {
+    const parsed = parseDatasheetText('MPN: TEST16\nPackage: SOIC-16\nSupply Voltage: 3V to 5V');
+    expect(parsed.packaging.packageName).toBe('SOIC-16');
+    expect(parsed.packaging.pinCount).toBe(16);
+    expect(parsed.packaging.bodyHeightMm).toBeGreaterThan(4.9);
   });
 
   it('rejects empty datasheet text', () => {

@@ -29,6 +29,7 @@ const ACTION_PERMISSIONS: Record<string, PluginPermission> = {
   'registerComponent': 'write:components',
   'registerSimulation': 'simulate:circuit',
   'registerExport': 'export:circuit',
+  'registerHook': 'system:events',
   'subscribe': 'system:events',
   'publish': 'system:events',
   'storage': 'system:storage',
@@ -58,16 +59,16 @@ export function requirePermission(pluginId: string, declared: readonly string[] 
 }
 
 const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
-const PLUGIN_ID = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+const PLUGIN_ID = /^[a-z0-9]+([.-][a-z0-9]+)*$/;
 
 /** Validate a plugin manifest. Returns failures; empty means installable. */
 export function validateManifest(manifest: {
   id?: unknown; name?: unknown; version?: unknown; author?: unknown;
-  entryPoint?: unknown; apiVersion?: unknown; permissions?: unknown;
+  entry?: unknown; apiVersion?: unknown; permissions?: unknown;
 }): string[] {
   const failures: string[] = [];
   if (typeof manifest.id !== 'string' || !PLUGIN_ID.test(manifest.id)) {
-    failures.push('id must be lowercase alphanumeric with dashes');
+    failures.push('id must be lowercase alphanumeric with dashes or dots');
   }
   if (typeof manifest.name !== 'string' || manifest.name.trim().length === 0) {
     failures.push('name must be a non-empty string');
@@ -78,8 +79,8 @@ export function validateManifest(manifest: {
   if (typeof manifest.author !== 'string' || manifest.author.trim().length === 0) {
     failures.push('author must be a non-empty string');
   }
-  if (typeof manifest.entryPoint !== 'string' || manifest.entryPoint.trim().length === 0) {
-    failures.push('entryPoint must be a non-empty string');
+  if (typeof manifest.entry !== 'string' || manifest.entry.trim().length === 0) {
+    failures.push('entry must be a non-empty string');
   }
   if (typeof manifest.apiVersion !== 'string' || manifest.apiVersion.trim().length === 0) {
     failures.push('apiVersion must be a non-empty string');

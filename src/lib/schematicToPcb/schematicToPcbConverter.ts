@@ -1,4 +1,13 @@
-import { Schematic, Component, Wire, PlacedComponent } from '../../types';
+import type { Schematic, Component, Wire, PlacedComponent } from '../../types';
+import {
+  DEFAULT_DRC_RULES,
+  DesignRuleChecker,
+  type DRCSettings,
+} from '../manufacturing/drc';
+import type { PCBDesign, PCBPad as DesignPad } from '../manufacturing/pcb';
+import { autoroute, type RouterPad } from '../manufacturing/autorouter';
+import { footprintLibrary } from '../manufacturing/footprintLibrary';
+import { polylineLength } from '../geometry/distance';
 
 export interface PCBLayout {
   id: string;
@@ -102,7 +111,7 @@ export class SchematicToPcbConverter {
     };
 
     // Convert components to PCB components
-    layout.components = await this.convertComponents(schematic.components);
+    layout.components = await this.convertComponents(schematic.components, schematic);
 
     // Place components
     if (options.optimizePlacement) {
@@ -117,9 +126,6 @@ export class SchematicToPcbConverter {
     } else {
       layout.traces = this.convertWiresToTraces(schematic.wires, layout);
     }
-
-    // Add vias where necessary
-    this.addVias(layout);
 
     this.layouts.set(layoutId, layout);
     return layout;
@@ -188,13 +194,17 @@ export class SchematicToPcbConverter {
     return layers;
   }
 
-  private async convertComponents(components: PlacedComponent[]): Promise<PCBComponent[]> {
+  private async convertComponents(components: PlacedComponent[], schematic: Schematic): Promise<PCBComponent[]> {
     const pcbComponents: PCBComponent[] = [];
+    const netByPin = this.buildPinNetMap(schematic);
 
     for (const placedComponent of components) {
       const component = placedComponent.component;
-      const footprint = await this.getComponentFootprint(component);
-      const pads = await this.generatePads(component, footprint);
+      const footprint = this.getComponentFootprint(component);
+      const pads = this.generatePads(component, footprint).map((pad, index) => ({
+        ...pad,
+        net: netByPin.get(`${placedComponent.id}:${component.pins[index].id}`),
+      }));
 
       const pcbComponent: PCBComponent = {
         id: `pcb-${placedComponent.id}`,
@@ -212,72 +222,232 @@ export class SchematicToPcbConverter {
     return pcbComponents;
   }
 
-  private async getComponentFootprint(component: Component): Promise<string> {
-    // Map component categories to standard footprints
-    const footprintMap: Record<string, string> = {
-      resistor: 'RES-0805',
-      capacitor: 'CAP-0805',
-      inductor: 'IND-0805',
-      diode: 'DIO-SOD-323',
-      transistor: 'SOT-23',
-      ic: 'SOIC-8',
-      connector: 'HDR-1X2',
-      led: 'LED-0805'
-    };
+  /**
+   * Pad-to-net assignment. Wires carry connectivity, so they take priority;
+   * declared nets fill in any pin the wire table missed. Without this map
+   * every generated pad was netless, which made both the router and DRC
+   * blind to the schematic.
+   */
+  private buildPinNetMap(schematic: Schematic): Map<string, string> {
+    const netByPin = new Map<string, string>();
+    const key = (componentId: string, pinId: string) => `${componentId}:${pinId}`;
 
-    return footprintMap[component.category] || 'GENERIC';
-  }
-
-  private async generatePads(_component: Component, footprint: string): Promise<PCBPad[]> {
-    // Generate pads based on footprint
-    const pads: PCBPad[] = [];
-
-    // This is a simplified implementation
-    // In a real system, this would load footprint data from a library
-    switch (footprint) {
-      case 'RES-0805':
-        pads.push(
-          { id: '1', shape: 'rectangle', position: { x: -0.5, y: 0 }, size: { width: 0.8, height: 0.6 } },
-          { id: '2', shape: 'rectangle', position: { x: 0.5, y: 0 }, size: { width: 0.8, height: 0.6 } }
-        );
-        break;
-      case 'SOIC-8':
-        for (let i = 0; i < 8; i++) {
-          const x = (i < 4) ? -1.27 : 1.27;
-          const y = (i % 4 - 1.5) * 1.27;
-          pads.push({
-            id: (i + 1).toString(),
-            shape: 'rectangle',
-            position: { x, y },
-            size: { width: 0.6, height: 1.5 }
-          });
-        }
-        break;
-      default:
-        // Generic 2-pin component
-        pads.push(
-          { id: '1', shape: 'circle', position: { x: -1, y: 0 }, size: { width: 0.8, height: 0.8 } },
-          { id: '2', shape: 'circle', position: { x: 1, y: 0 }, size: { width: 0.8, height: 0.8 } }
-        );
+    for (const net of schematic.nets) {
+      const name = net.name || net.id;
+      for (const connection of net.connectedPins) {
+        netByPin.set(key(connection.componentId, connection.pinId), name);
+      }
     }
 
-    return pads;
+    for (const wire of schematic.wires) {
+      const name = wire.netName || wire.id;
+      for (const connection of wire.connectedPins) {
+        netByPin.set(key(connection.componentId, connection.pinId), name);
+      }
+    }
+
+    return netByPin;
   }
 
-  private optimizeComponentPlacement(layout: PCBLayout): void {
-    // Implement intelligent component placement algorithm
-    // This is a simplified version - real implementation would use optimization algorithms
+  /**
+   * Choose a real footprint whose pad count matches the schematic symbol.
+   * A mismatched footprint would silently drop pins (the old code always
+   * emitted two pads, so every 3-48 pin part lost connectivity).
+   */
+  private getComponentFootprint(component: Component): string {
+    const pinCount = component.pins.length;
+    const name = component.name.toLowerCase();
+    let candidates: string[] = [];
 
-    const centerX = layout.width / 2;
-    const centerY = layout.height / 2;
-    const radius = Math.min(layout.width, layout.height) * 0.3;
+    switch (component.category) {
+      case 'passive':
+        candidates = name.includes('cap') ? ['cap_0603'] : ['res_0402'];
+        break;
+      case 'semiconductor':
+        candidates = ['sot_23'];
+        break;
+      case 'connector':
+        candidates = ['header_2x1', 'header_2x2', 'header_2x3', 'header_2x4'];
+        break;
+      case 'ic':
+      case 'microcontroller':
+      case 'memory':
+      case 'timing':
+        candidates = footprintLibrary.getFootprintsByCategory('ic').map(footprint => footprint.id);
+        break;
+    }
 
-    layout.components.forEach((component, index) => {
-      const angle = (index / layout.components.length) * Math.PI * 2;
-      component.position.x = centerX + Math.cos(angle) * radius;
-      component.position.y = centerY + Math.sin(angle) * radius;
-      component.rotation = (angle * 180) / Math.PI;
+    const match = candidates
+      .map(id => footprintLibrary.getFootprint(id))
+      .find(footprint => footprint && footprint.pads.length === pinCount);
+
+    return match?.id ?? 'GENERIC';
+  }
+
+  /**
+   * Pads are keyed by the schematic pin id, not by a synthetic index: nets,
+   * DRC, and the router all address connectivity through that id.
+   */
+  private generatePads(component: Component, footprintId: string): PCBPad[] {
+    const footprint = footprintLibrary.getFootprint(footprintId);
+    const pinIds = component.pins.map(pin => pin.id);
+
+    if (footprint && footprint.pads.length === pinIds.length) {
+      return footprint.pads.map((pad, index) => ({
+        id: pinIds[index],
+        shape: pad.shape,
+        position: { ...pad.position },
+        size: { ...pad.size },
+        drill: pad.drillDiameter,
+      }));
+    }
+
+    return this.generateGenericPads(pinIds);
+  }
+
+  /** DIP-style fallback for parts the footprint library does not cover. */
+  private generateGenericPads(pinIds: string[]): PCBPad[] {
+    if (pinIds.length <= 2) {
+      const positions = pinIds.length === 1
+        ? [{ x: 0, y: 0 }]
+        : [{ x: -1, y: 0 }, { x: 1, y: 0 }];
+      return pinIds.map((id, index) => ({
+        id,
+        shape: 'circle' as const,
+        position: positions[index],
+        size: { width: 0.8, height: 0.8 },
+      }));
+    }
+
+    const pitchMm = 2.54;
+    const perSide = Math.ceil(pinIds.length / 2);
+    return pinIds.map((id, index) => {
+      const side = index < perSide ? -1 : 1;
+      const row = index < perSide ? index : index - perSide;
+      return {
+        id,
+        shape: 'circle' as const,
+        position: { x: side * 3.81, y: (row - (perSide - 1) / 2) * pitchMm },
+        size: { width: 1.5, height: 1.5 },
+        drill: 0.8,
+      };
     });
+  }
+
+  /**
+   * Deterministic pairwise-swap placement that minimises half-perimeter
+   * wirelength (HPWL) over the netlist. Swaps that leave the board or overlap a
+   * neighbour's pad envelope are rejected, and rotations are left untouched, so
+   * the result is always routable in the same way as the grid start.
+   */
+  private optimizeComponentPlacement(layout: PCBLayout): void {
+    this.autoPlaceComponents(layout);
+    const components = layout.components;
+    if (components.length < 2) return;
+
+    const marginMm = 0.5;
+    const insideBoard = () => components.every(component => {
+      const bounds = this.componentBounds(component);
+      return bounds.minX >= marginMm && bounds.minY >= marginMm
+        && bounds.maxX <= layout.width - marginMm && bounds.maxY <= layout.height - marginMm;
+    });
+    const withoutOverlap = () => {
+      const envelopes = components.map(component => this.componentBounds(component));
+      for (let i = 0; i < envelopes.length; i += 1) {
+        for (let j = i + 1; j < envelopes.length; j += 1) {
+          const a = envelopes[i];
+          const b = envelopes[j];
+          if (a.minX < b.maxX + marginMm && b.minX < a.maxX + marginMm
+            && a.minY < b.maxY + marginMm && b.minY < a.maxY + marginMm) {
+            return false;
+          }
+        }
+      }
+      return true;
+    };
+
+    let bestWirelength = this.placementWirelength(components);
+    let improved = true;
+    let passes = 0;
+    while (improved && passes < 25) {
+      improved = false;
+      passes += 1;
+      for (let i = 0; i < components.length; i += 1) {
+        for (let j = i + 1; j < components.length; j += 1) {
+          const a = components[i];
+          const b = components[j];
+          const ax = a.position.x;
+          const ay = a.position.y;
+          a.position.x = b.position.x;
+          a.position.y = b.position.y;
+          b.position.x = ax;
+          b.position.y = ay;
+
+          const wirelength = this.placementWirelength(components);
+          if (wirelength + 1e-9 < bestWirelength && insideBoard() && withoutOverlap()) {
+            bestWirelength = wirelength;
+            improved = true;
+          } else {
+            const bx = a.position.x;
+            const by = a.position.y;
+            a.position.x = b.position.x;
+            a.position.y = b.position.y;
+            b.position.x = bx;
+            b.position.y = by;
+          }
+        }
+      }
+    }
+  }
+
+  /** Half-perimeter wirelength over every net that reaches two or more pads. */
+  private placementWirelength(components: PCBComponent[]): number {
+    const bounds = new Map<string, { minX: number; minY: number; maxX: number; maxY: number }>();
+    for (const component of components) {
+      for (const pad of component.pads) {
+        if (!pad.net) continue;
+        const position = this.padWorldPosition(component, pad);
+        const current = bounds.get(pad.net);
+        if (current) {
+          current.minX = Math.min(current.minX, position.x);
+          current.minY = Math.min(current.minY, position.y);
+          current.maxX = Math.max(current.maxX, position.x);
+          current.maxY = Math.max(current.maxY, position.y);
+        } else {
+          bounds.set(pad.net, {
+            minX: position.x, minY: position.y, maxX: position.x, maxY: position.y,
+          });
+        }
+      }
+    }
+    let total = 0;
+    for (const box of bounds.values()) {
+      total += (box.maxX - box.minX) + (box.maxY - box.minY);
+    }
+    return total;
+  }
+
+  private componentBounds(component: PCBComponent): { minX: number; minY: number; maxX: number; maxY: number } {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const pad of component.pads) {
+      const position = this.padWorldPosition(component, pad);
+      minX = Math.min(minX, position.x - pad.size.width / 2);
+      minY = Math.min(minY, position.y - pad.size.height / 2);
+      maxX = Math.max(maxX, position.x + pad.size.width / 2);
+      maxY = Math.max(maxY, position.y + pad.size.height / 2);
+    }
+    if (!Number.isFinite(minX)) {
+      return {
+        minX: component.position.x - 0.5,
+        minY: component.position.y - 0.5,
+        maxX: component.position.x + 0.5,
+        maxY: component.position.y + 0.5,
+      };
+    }
+    return { minX, minY, maxX, maxY };
   }
 
   private autoPlaceComponents(layout: PCBLayout): void {
@@ -304,7 +474,7 @@ export class SchematicToPcbConverter {
       const trace: PCBTrace = {
         id: `trace-${index}`,
         net: wire.netName || `net-${index}`,
-        layer: 'signal-1',
+        layer: layout.layers.find(layer => layer.type === 'signal')?.id ?? 'signal-1',
         width: layout.designRules.minTraceWidth,
         points: wire.points.map(p => ({ x: p.x, y: p.y })),
         clearance: layout.designRules.minTraceClearance
@@ -316,293 +486,161 @@ export class SchematicToPcbConverter {
     return traces;
   }
 
+  /**
+   * Route the connectivity graph with the shared A* router. Pads are the
+   * router's anchors, so routing follows the netlist rather than hoping a
+   * schematic wire endpoint happens to land on a placed pad (the previous
+   * implementation silently dropped every net when it did not).
+   */
   private async autoRouteTraces(layout: PCBLayout, wires: Wire[]): Promise<void> {
-    // Advanced auto-routing algorithm with multi-layer support and obstacle avoidance
-
-    // Create routing grid
-    const gridSize = 0.5; // 0.5mm grid
-    const grid = this.createRoutingGrid(layout, gridSize);
-
-    for (const wire of wires) {
-      const startPoint = wire.points[0];
-      const endPoint = wire.points[wire.points.length - 1];
-
-      // Find component pads at start and end
-      const startPad = this.findPadAtPosition(layout, startPoint);
-      const endPad = this.findPadAtPosition(layout, endPoint);
-
-      if (startPad && endPad) {
-        // Try routing on different layers
-        let routed = false;
-        const layers = ['signal-1', 'signal-2', 'signal-3', 'signal-4'];
-
-        for (const layer of layers) {
-          if (this.routeOnLayer(grid, startPad.position, endPad.position, layer, gridSize)) {
-            const trace: PCBTrace = {
-              id: `auto-trace-${wire.id}-${layer}`,
-              net: wire.netName || `net-${wire.id}`,
-              layer,
-              width: this.calculateOptimalTraceWidth(wire, layout),
-              points: this.calculateAdvancedTracePath(startPad.position, endPad.position),
-              clearance: layout.designRules.minTraceClearance
-            };
-
-            layout.traces.push(trace);
-            routed = true;
-
-            // Add vias if changing layers
-            if (layer !== 'signal-1') {
-              this.addLayerChangeVias(layout, trace);
-            }
-            break;
-          }
-        }
-
-        if (!routed) {
-          // Fallback to simple routing
-          const trace: PCBTrace = {
-            id: `auto-trace-${wire.id}-fallback`,
-            net: wire.netName || `net-${wire.id}`,
-            layer: 'signal-1',
-            width: layout.designRules.minTraceWidth,
-            points: this.calculateTracePath(startPad.position, endPad.position),
-            clearance: layout.designRules.minTraceClearance
-          };
-          layout.traces.push(trace);
-        }
-      }
+    const pads = this.buildRouterPads(layout);
+    if (pads.length === 0) {
+      layout.traces = this.convertWiresToTraces(wires, layout);
+      return;
     }
-  }
 
-  private createRoutingGrid(layout: PCBLayout, gridSize: number): boolean[][][] {
-    const width = Math.ceil(layout.width / gridSize);
-    const height = Math.ceil(layout.height / gridSize);
-    const layers = layout.layers.length;
-
-    const grid: boolean[][][] = Array(layers).fill(0).map(() =>
-      Array(height).fill(0).map(() =>
-        Array(width).fill(false)
-      )
-    );
-
-    // Mark obstacles (components, existing traces, etc.)
-    layout.components.forEach(component => {
-      component.pads.forEach(pad => {
-        const x = Math.floor(pad.position.x / gridSize);
-        const y = Math.floor(pad.position.y / gridSize);
-        const layerIndex = layout.layers.findIndex(l => l.id === 'signal-1'); // Top layer
-
-        if (x >= 0 && x < width && y >= 0 && y < height && layerIndex >= 0) {
-          const padClearance = pad.clearance || layout.designRules.minTraceClearance;
-          const padRadius = Math.ceil((Math.max(pad.size.width, pad.size.height) / 2 + padClearance) / gridSize);
-          for (let dy = -padRadius; dy <= padRadius; dy++) {
-            for (let dx = -padRadius; dx <= padRadius; dx++) {
-              const nx = x + dx;
-              const ny = y + dy;
-              if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                grid[layerIndex][ny][nx] = true; // Occupied
-              }
-            }
-          }
-        }
-      });
+    const copperLayers = layout.layers
+      .filter(layer => layer.type === 'signal' || layer.type === 'power' || layer.type === 'ground')
+      .map(layer => layer.id);
+    const rules = layout.designRules;
+    const result = autoroute(pads, {
+      boardWidthMm: layout.width,
+      boardHeightMm: layout.height,
+      layers: copperLayers,
+      gridMm: 0.5,
+      minTraceWidthMm: rules.minTraceWidth,
+      minSpacingMm: rules.minTraceClearance,
+      viaDrillMm: rules.minDrillSize,
+      viaPadMm: rules.minDrillSize + rules.minAnnularRing * 2,
+      viaPenalty: 8,
     });
 
-    return grid;
+    layout.traces.push(...result.traces.map((trace, index): PCBTrace => ({
+      id: `auto-trace-${index}`,
+      net: trace.netId,
+      layer: trace.layerId,
+      width: trace.widthMm,
+      points: trace.points,
+      clearance: rules.minTraceClearance,
+    })));
+
+    layout.vias.push(...result.vias.map((via, index): PCBVia => ({
+      id: `auto-via-${index}`,
+      position: { x: via.x, y: via.y },
+      drill: via.drillMm,
+      pad: via.padMm,
+      layers: copperLayers,
+      net: via.netId,
+    })));
   }
 
-  private routeOnLayer(grid: boolean[][][], start: {x: number, y: number}, end: {x: number, y: number}, _layerId: string, gridSize: number): boolean {
-    // A* pathfinding algorithm for routing
-    const layerIndex = 0; // Simplified - assume single layer for now
-    const startX = Math.floor(start.x / gridSize);
-    const startY = Math.floor(start.y / gridSize);
-    const endX = Math.floor(end.x / gridSize);
-    const endY = Math.floor(end.y / gridSize);
+  private buildRouterPads(layout: PCBLayout): RouterPad[] {
+    const defaultLayer = layout.layers.find(layer => layer.type === 'signal')?.id ?? 'signal-1';
+    const pads: RouterPad[] = [];
 
-    if (startX < 0 || startX >= grid[0][0].length || startY < 0 || startY >= grid[0].length ||
-        endX < 0 || endX >= grid[0][0].length || endY < 0 || endY >= grid[0].length) {
-      return false;
-    }
-
-    // Simplified A* - in practice, this would be much more sophisticated
-    const visited = new Set<string>();
-    const queue: Array<{x: number, y: number, cost: number, heuristic: number}> = [];
-
-    queue.push({ x: startX, y: startY, cost: 0, heuristic: Math.abs(endX - startX) + Math.abs(endY - startY) });
-
-    while (queue.length > 0) {
-      queue.sort((a, b) => (a.cost + a.heuristic) - (b.cost + b.heuristic));
-      const current = queue.shift()!;
-
-      const key = `${current.x},${current.y}`;
-      if (visited.has(key)) continue;
-      visited.add(key);
-
-      if (current.x === endX && current.y === endY) {
-        return true; // Path found
-      }
-
-      // Check neighbors
-      const neighbors = [
-        { x: current.x + 1, y: current.y },
-        { x: current.x - 1, y: current.y },
-        { x: current.x, y: current.y + 1 },
-        { x: current.x, y: current.y - 1 }
-      ];
-
-      for (const neighbor of neighbors) {
-        if (neighbor.x >= 0 && neighbor.x < grid[0][0].length &&
-            neighbor.y >= 0 && neighbor.y < grid[0].length &&
-            !grid[layerIndex][neighbor.y][neighbor.x] &&
-            !visited.has(`${neighbor.x},${neighbor.y}`)) {
-          queue.push({
-            x: neighbor.x,
-            y: neighbor.y,
-            cost: current.cost + 1,
-            heuristic: Math.abs(endX - neighbor.x) + Math.abs(endY - neighbor.y)
-          });
-        }
-      }
-    }
-
-    return false; // No path found
-  }
-
-  private calculateOptimalTraceWidth(wire: Wire, layout: PCBLayout): number {
-    // Calculate optimal trace width based on current requirements
-    const current = wire.current || 0.1; // Default 100mA
-
-    // Simplified formula: width = sqrt(current / k) where k is a constant
-    // For FR4, k ≈ 0.048 for 1oz copper
-    const k = 0.048;
-    const width = Math.sqrt(current / k);
-    const maxWidth = layout.designRules.maxTraceWidth || 2.0;
-
-    return Math.max(layout.designRules.minTraceWidth, Math.min(width, maxWidth));
-  }
-
-  private calculateAdvancedTracePath(start: {x: number, y: number}, end: {x: number, y: number}): Array<{x: number, y: number}> {
-    // For now, return simple path - in practice, this would reconstruct path from A* algorithm
-    return this.calculateTracePath(start, end);
-  }
-
-  private addLayerChangeVias(layout: PCBLayout, trace: PCBTrace): void {
-    // Add vias at layer changes
-    const via: PCBVia = {
-      id: `via-${trace.id}`,
-      position: trace.points[Math.floor(trace.points.length / 2)], // Via in middle
-      drill: layout.designRules.minDrillSize,
-      pad: layout.designRules.minAnnularRing * 2,
-      layers: [trace.layer, 'signal-1'], // Connect to top layer
-      net: trace.net
-    };
-
-    layout.vias.push(via);
-  }
-
-  private findPadAtPosition(layout: PCBLayout, position: { x: number; y: number }): PCBPad | null {
     for (const component of layout.components) {
       for (const pad of component.pads) {
-        const dx = pad.position.x + component.position.x - position.x;
-        const dy = pad.position.y + component.position.y - position.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        if (distance < 0.5) { // 0.5mm tolerance
-          return pad;
-        }
+        if (!pad.net) continue;
+        const position = this.padWorldPosition(component, pad);
+        pads.push({
+          netId: pad.net,
+          componentId: component.componentId,
+          pinId: pad.id,
+          x: position.x,
+          y: position.y,
+          layer: defaultLayer,
+          // The footprint knows the real copper; the router otherwise assumes a
+          // 1.6 mm through-hole disc and over-blocks fine-pitch SMD pins.
+          padDiameterMm: Math.max(pad.size.width, pad.size.height),
+        });
       }
     }
-    return null;
-  }
 
-  private calculateTracePath(
-    start: { x: number; y: number },
-    end: { x: number; y: number }
-  ): Array<{ x: number; y: number }> {
-    // Simple Manhattan routing
-    const points: Array<{ x: number; y: number }> = [start];
-
-    // Add intermediate points for L-shaped trace
-    const midY = (start.y + end.y) / 2;
-
-    points.push({ x: start.x, y: midY });
-    points.push({ x: end.x, y: midY });
-    points.push(end);
-
-    return points;
-  }
-
-  private addVias(layout: PCBLayout): void {
-    // Add vias where traces need to change layers
-    // Simplified implementation
-
-    layout.traces.forEach(trace => {
-      if (trace.points.length > 2) {
-        // Add via at trace start if needed
-        const via: PCBVia = {
-          id: `via-${trace.id}`,
-          position: trace.points[0],
-          drill: layout.designRules.minDrillSize,
-          pad: layout.designRules.minAnnularRing * 2,
-          layers: ['signal-1', 'signal-2'],
-          net: trace.net
-        };
-
-        layout.vias.push(via);
-      }
-    });
+    return pads;
   }
 
   getPCBLayout(layoutId: string): PCBLayout | undefined {
     return this.layouts.get(layoutId);
   }
 
+  /**
+   * Top-copper-only RS-274X Gerber for a converted layout. Complete fabrication
+   * output (masks, silk, outline, Excellon drill) lives in `buildFabPackage`;
+   * this method exists for previewing the routed copper from a conversion.
+   */
   exportToGerber(layout: PCBLayout): string {
-    // Generate Gerber files for manufacturing
-    // This is a simplified implementation
-    let gerber = '';
+    const scale = 1_000_000;
+    const coord = (value: number) => Math.round(value * scale).toString();
+    const lines: string[] = [
+      'G04 Converted top copper — Folio*',
+      '%FSLAX46Y46*%',
+      '%MOMM*%',
+      '%LPD*%',
+    ];
 
-    // Header
-    gerber += '%FSLAX46Y46*%\n';
-    gerber += '%MOMM*%\n';
-    gerber += '%LPD*%\n';
-
-    // Components
-    layout.components.forEach(component => {
-      gerber += `X${Math.round(component.position.x * 1000000)}Y${Math.round(component.position.y * 1000000)}D01*\n`;
+    const traceApertures = new Map<string, number>();
+    layout.traces.forEach(trace => {
+      const key = trace.width.toFixed(4);
+      if (!traceApertures.has(key)) traceApertures.set(key, 10 + traceApertures.size);
+    });
+    traceApertures.forEach((code, width) => {
+      lines.push(`%ADD${code}C,${width}*%`);
     });
 
-    // Traces
+    const padApertures = new Map<string, number>();
+    layout.components.forEach(component => {
+      component.pads.forEach(pad => {
+        const shape = pad.shape === 'rectangle' ? 'R' : 'C';
+        const key = `${shape}:${pad.size.width.toFixed(4)}X${pad.size.height.toFixed(4)}`;
+        if (!padApertures.has(key)) padApertures.set(key, 20 + padApertures.size);
+      });
+    });
+    padApertures.forEach((code, key) => {
+      const [shape, size] = key.split(':');
+      lines.push(`%ADD${code}${shape},${size}*%`);
+    });
+
     layout.traces.forEach(trace => {
-      trace.points.forEach((point, index) => {
-        const command = index === 0 ? 'D02' : 'D01';
-        gerber += `X${Math.round(point.x * 1000000)}Y${Math.round(point.y * 1000000)}${command}*\n`;
+      if (trace.points.length < 2) return;
+      const aperture = traceApertures.get(trace.width.toFixed(4))!;
+      lines.push(`D${aperture}*`);
+      lines.push(`X${coord(trace.points[0].x)}Y${coord(trace.points[0].y)}D02*`);
+      for (let index = 1; index < trace.points.length; index += 1) {
+        lines.push(`X${coord(trace.points[index].x)}Y${coord(trace.points[index].y)}D01*`);
+      }
+    });
+
+    layout.components.forEach(component => {
+      component.pads.forEach(pad => {
+        const shape = pad.shape === 'rectangle' ? 'R' : 'C';
+        const key = `${shape}:${pad.size.width.toFixed(4)}X${pad.size.height.toFixed(4)}`;
+        const aperture = padApertures.get(key)!;
+        const position = this.padWorldPosition(component, pad);
+        lines.push(`D${aperture}*`);
+        lines.push(`X${coord(position.x)}Y${coord(position.y)}D03*`);
       });
     });
 
-    // Footer
-    gerber += 'M02*\n';
-
-    return gerber;
+    lines.push('M02*');
+    return `${lines.join('\n')}\n`;
   }
 
   validateDesign(layout: PCBLayout): { valid: boolean; errors: string[]; warnings: string[] } {
-    const errors: string[] = [];
-    const warnings: string[] = [];
+    const result = new DesignRuleChecker(this.toPcbDesign(layout), this.drcSettings(layout)).runDRC();
+    const errors = result.violations.filter(v => v.severity === 'error').map(v => v.message);
+    const warnings = result.violations.filter(v => v.severity === 'warning').map(v => v.message);
 
-    // DRC checks
-    const drcResult = this.runDRC(layout);
-    errors.push(...drcResult.violations.filter(v => v.severity === 'error').map(v => v.message));
-    warnings.push(...drcResult.violations.filter(v => v.severity === 'warning').map(v => v.message));
+    // A netless pad is a layout connectivity fact the geometric DRC does not
+    // model. Report it once per pad rather than once per net.
+    for (const component of layout.components) {
+      for (const pad of component.pads) {
+        if (!pad.net) {
+          warnings.push(`Pad ${pad.id} of component ${component.id} is not connected to any net`);
+        }
+      }
+    }
 
-    // ERC checks
-    const ercResult = this.runERC(layout);
-    errors.push(...ercResult.violations.filter(v => v.severity === 'error').map(v => v.message));
-    warnings.push(...ercResult.violations.filter(v => v.severity === 'warning').map(v => v.message));
-
-    // EMC checks
-    const emcResult = this.runEMCSimulation(layout);
-    warnings.push(...emcResult.warnings);
+    warnings.push(...this.runEMCSimulation(layout).warnings);
 
     return {
       valid: errors.length === 0,
@@ -611,85 +649,115 @@ export class SchematicToPcbConverter {
     };
   }
 
-  private runDRC(layout: PCBLayout): { violations: Array<{ severity: string; message: string }> } {
-    const violations: Array<{ severity: string; message: string }> = [];
-
-    // Check minimum trace widths
-    layout.traces.forEach(trace => {
-      if (trace.width < layout.designRules.minTraceWidth) {
-        violations.push({
-          severity: 'error',
-          message: `Trace ${trace.id} width ${trace.width}mm below minimum ${layout.designRules.minTraceWidth}mm`
-        });
-      }
-    });
-
-    // Check clearances
-    layout.traces.forEach(trace => {
-      if (trace.clearance < layout.designRules.minTraceClearance) {
-        violations.push({
-          severity: 'error',
-          message: `Trace ${trace.id} clearance ${trace.clearance}mm below minimum ${layout.designRules.minTraceClearance}mm`
-        });
-      }
-    });
-
-    // Check drill sizes
-    layout.vias.forEach(via => {
-      if (via.drill < layout.designRules.minDrillSize) {
-        violations.push({
-          severity: 'error',
-          message: `Via ${via.id} drill ${via.drill}mm below minimum ${layout.designRules.minDrillSize}mm`
-        });
-      }
-    });
-
-    return { violations };
+  /** Map converter rules onto the shared DRC settings. */
+  private drcSettings(layout: PCBLayout): Partial<DRCSettings> {
+    const rules = layout.designRules;
+    return {
+      minTraceWidth: rules.minTraceWidth,
+      minTraceClearance: rules.minTraceClearance,
+      minViaDiameter: rules.minDrillSize + rules.minAnnularRing * 2,
+      minViaDrillDiameter: rules.minDrillSize,
+      minPadDiameter: DEFAULT_DRC_RULES.minPadDiameter,
+      minAnnularRing: rules.minAnnularRing,
+      maxTraceWidth: rules.maxTraceWidth ?? DEFAULT_DRC_RULES.maxTraceWidth,
+      minHoleDiameter: rules.minDrillSize,
+      checkUnconnectedNets: true,
+      checkAcuteAngles: true,
+      checkTraceLength: false,
+    };
   }
 
-  private runERC(layout: PCBLayout): { violations: Array<{ severity: string; message: string }> } {
-    const violations: Array<{ severity: string; message: string }> = [];
+  /** Adapt the converter's layout to the shared PCB model used by DRC. */
+  private toPcbDesign(layout: PCBLayout): PCBDesign {
+    const copperLayers = layout.layers.filter(layer =>
+      layer.type === 'signal' || layer.type === 'power' || layer.type === 'ground'
+    );
+    const copperLayerIds = copperLayers.map(layer => layer.id);
+    const settings = this.drcSettings(layout);
 
-    // Basic ERC checks
-    layout.components.forEach(component => {
-      component.pads.forEach(pad => {
-        if (!pad.net) {
-          violations.push({
-            severity: 'warning',
-            message: `Pad ${pad.id} of component ${component.id} is not connected to any net`
-          });
-        }
-      });
-    });
+    const pads: DesignPad[] = [];
+    for (const component of layout.components) {
+      for (const pad of component.pads) {
+        pads.push({
+          id: `${component.id}:${pad.id}`,
+          componentId: component.componentId,
+          pinId: pad.id,
+          position: this.padWorldPosition(component, pad),
+          shape: pad.shape,
+          size: pad.size,
+          drillDiameter: pad.drill,
+          layers: copperLayerIds,
+          netId: pad.net,
+        });
+      }
+    }
 
-    // Check for power/ground shorts
-    const powerNets = new Set<string>();
-    const groundNets = new Set<string>();
+    const netNames = new Set<string>();
+    for (const pad of pads) if (pad.netId) netNames.add(pad.netId);
+    for (const trace of layout.traces) if (trace.net) netNames.add(trace.net);
+    for (const via of layout.vias) if (via.net) netNames.add(via.net);
 
-    layout.components.forEach(component => {
-      component.pads.forEach(pad => {
-        if (pad.net?.toLowerCase().includes('power') || pad.net?.toLowerCase().includes('vcc') || pad.net?.toLowerCase().includes('vdd')) {
-          powerNets.add(pad.net);
-        }
-        if (pad.net?.toLowerCase().includes('ground') || pad.net?.toLowerCase().includes('gnd')) {
-          groundNets.add(pad.net);
-        }
-      });
-    });
+    return {
+      id: layout.id,
+      name: layout.name,
+      dimensions: {
+        width: layout.width,
+        height: layout.height,
+        thickness: layout.designRules.boardThickness,
+      },
+      layers: copperLayers.map(layer => ({
+        id: layer.id,
+        name: layer.name,
+        type: 'copper',
+        thickness: layer.thickness,
+        material: layer.material,
+      })),
+      traces: layout.traces.map(trace => ({
+        id: trace.id,
+        netId: trace.net,
+        layerId: trace.layer,
+        width: trace.width,
+        points: trace.points,
+        clearance: trace.clearance,
+      })),
+      vias: layout.vias.map(via => ({
+        id: via.id,
+        position: via.position,
+        diameter: via.pad,
+        drillDiameter: via.drill,
+        layers: via.layers,
+        netId: via.net,
+      })),
+      pads,
+      components: [],
+      nets: Array.from(netNames).map(name => ({
+        id: name,
+        name,
+        connectedPins: [],
+        wires: [],
+      })),
+      designRules: {
+        minTraceWidth: settings.minTraceWidth ?? DEFAULT_DRC_RULES.minTraceWidth,
+        minTraceSpacing: settings.minTraceClearance ?? DEFAULT_DRC_RULES.minTraceClearance,
+        minViaDiameter: settings.minViaDiameter ?? DEFAULT_DRC_RULES.minViaDiameter,
+        minViaDrillDiameter: settings.minViaDrillDiameter ?? DEFAULT_DRC_RULES.minViaDrillDiameter,
+        minPadDiameter: settings.minPadDiameter ?? DEFAULT_DRC_RULES.minPadDiameter,
+        minHoleDiameter: settings.minHoleDiameter ?? DEFAULT_DRC_RULES.minHoleDiameter,
+        copperThickness: layout.designRules.copperThickness,
+        solderMaskClearance: 0.1,
+        silkScreenClearance: 0.15,
+      },
+    };
+  }
 
-    // Check for power-ground shorts
-    powerNets.forEach(powerNet => {
-      groundNets.forEach(groundNet => {
-        if (powerNet === groundNet) {
-          violations.push({
-            severity: 'error',
-            message: `Power net "${powerNet}" is shorted to ground net "${groundNet}"`
-          });
-        }
-      });
-    });
-
-    return { violations };
+  private padWorldPosition(component: PCBComponent, pad: PCBPad): { x: number; y: number } {
+    const radians = (component.rotation * Math.PI) / 180;
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+    return {
+      x: component.position.x + pad.position.x * cos - pad.position.y * sin,
+      y: component.position.y + pad.position.x * sin + pad.position.y * cos,
+    };
   }
 
   private runEMCSimulation(layout: PCBLayout): { warnings: string[] } {
@@ -698,7 +766,7 @@ export class SchematicToPcbConverter {
     // Basic EMC analysis
     layout.traces.forEach(trace => {
       // Check for long traces that might radiate
-      const length = this.calculateTraceLength(trace);
+      const length = polylineLength(trace.points);
       if (length > 50) { // 50mm threshold
         warnings.push(`Trace ${trace.id} is ${length.toFixed(1)}mm long - consider EMI shielding`);
       }
@@ -721,16 +789,6 @@ export class SchematicToPcbConverter {
     return { warnings };
   }
 
-  private calculateTraceLength(trace: PCBTrace): number {
-    let length = 0;
-    for (let i = 1; i < trace.points.length; i++) {
-      const dx = trace.points[i].x - trace.points[i-1].x;
-      const dy = trace.points[i].y - trace.points[i-1].y;
-      length += Math.sqrt(dx * dx + dy * dy);
-    }
-    return length;
-  }
-
   private calculateAngle(p1: {x: number, y: number}, p2: {x: number, y: number}, p3: {x: number, y: number}): number {
     const v1 = { x: p1.x - p2.x, y: p1.y - p2.y };
     const v2 = { x: p3.x - p2.x, y: p3.y - p2.y };
@@ -744,15 +802,15 @@ export class SchematicToPcbConverter {
   }
 
   private calculateTraceImpedance(trace: PCBTrace, layout: PCBLayout): number {
-    // Simplified impedance calculation for microstrip line
+    // First-order IPC-2141 microstrip estimate. Assumes a two-layer FR4 board
+    // (the full board thickness is the dielectric height), εr = 4.5, and no
+    // solder-mask or copper-roughness correction. Multi-layer stackups need the
+    // dedicated stackup solver, which carries the real dielectric heights.
     const height = layout.designRules.boardThickness || 1.6; // mm
-    const er = 4.5; // Relative permittivity for FR4
+    const er = 4.5;
     const w = trace.width;
-    const t = 0.035; // Copper thickness in mm
-
-    // Simplified formula for 50 ohm line
-    const impedance = 87 / Math.sqrt(er + 1.41) * Math.log(5.98 * height / (0.8 * w + t));
-    return impedance;
+    const t = layout.designRules.copperThickness || 0.035; // mm
+    return 87 / Math.sqrt(er + 1.41) * Math.log(5.98 * height / (0.8 * w + t));
   }
 }
 

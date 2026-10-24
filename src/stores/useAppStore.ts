@@ -6,12 +6,17 @@ import type { ThemePreference } from '../lib/theme/tokens'
 export type WorkspaceMode =
   | 'schematic'
   | 'simulation'
+  | 'control'
+  | 'machines'
   | 'mechanical'
   | 'pcb'
+  | 'rf'
   | 'convert'
   | 'preview3d'
   | 'robotics'
   | 'embedded'
+  | 'imaging'
+  | 'visual'
   | 'fpga'
   | 'hil'
   | 'twin'
@@ -59,6 +64,11 @@ export interface AppState {
   
   workspaceMode: WorkspaceMode
   setWorkspaceMode: (mode: WorkspaceMode) => void
+
+  /** One-shot request a workspace panel consumes on mount (demo bootstrap). */
+  demoRequest: string | null
+  requestDemo: (request: string | null) => void
+  clearDemoRequest: () => void
 
   // UI State
   sidebarOpen: boolean
@@ -146,7 +156,13 @@ export const useAppStore = create<AppState>()(
           })),
         
         workspaceMode: 'schematic',
-        setWorkspaceMode: (workspaceMode) => set({ workspaceMode }),
+        // A manual mode switch drops any unconsumed demo bootstrap, so a stale
+        // request can never fire in an unrelated workspace later.
+        setWorkspaceMode: (workspaceMode) => set({ workspaceMode, demoRequest: null }),
+
+        demoRequest: null,
+        requestDemo: (demoRequest) => set({ demoRequest }),
+        clearDemoRequest: () => set({ demoRequest: null }),
 
         // UI State
         sidebarOpen: true,

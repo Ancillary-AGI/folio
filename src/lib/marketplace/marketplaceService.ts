@@ -28,8 +28,10 @@ export class MarketplaceService {
   private readonly installed = new Map<string, MarketplaceEntry>();
 
   registerPackage(entry: MarketplaceEntry): void {
-    // Validate manifest structure and semver
-    validateManifest(entry.manifest);
+    const failures = validateManifest(entry.manifest);
+    if (failures.length > 0) {
+      throw new Error(`Invalid plugin manifest ${entry.id}: ${failures.join('; ')}.`);
+    }
     this.registry.set(entry.id, entry);
   }
 

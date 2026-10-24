@@ -121,13 +121,17 @@ export function emitKicadNetlist(netlist: CircuitNetlist): string {
     lines.push(`    (comp (ref ${component.name}) (value "${value}") (footprint ""))`)
   }
   lines.push('  )')
-  // Group pins by node name into numbered nets.
+  // Group pins by node name into numbered nets. Unconnected terminals have no
+  // net in KiCad (the pad exists, the net does not); ground aliases are
+  // emitted under the conventional GND name rather than SPICE's node 0.
   const nets = new Map<string, Array<{ ref: string; pin: string }>>()
   for (const component of netlist.components) {
     component.nodes.forEach((node, pinIndex) => {
-      const list = nets.get(node) ?? []
+      if (!node.trim() || node.startsWith('NC_')) return
+      const name = /^(?:0|gnd|ground)$/i.test(node.trim()) ? 'GND' : node
+      const list = nets.get(name) ?? []
       list.push({ ref: component.name, pin: String(pinIndex + 1) })
-      nets.set(node, list)
+      nets.set(name, list)
     })
   }
   lines.push('  (nets')

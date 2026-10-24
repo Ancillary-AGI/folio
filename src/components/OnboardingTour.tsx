@@ -104,7 +104,7 @@ export default function OnboardingTour({
         onClick={(event) => event.stopPropagation()}
         className="app-panel flex max-h-[calc(100vh-2rem)] min-h-0 w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-border shadow-2xl outline-none animate-rise-in"
       >
-        <header className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-4 py-3 sm:px-6">
+        <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-4 py-3 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground" aria-hidden="true">
               <StepIcon className="h-5 w-5" />
@@ -129,7 +129,7 @@ export default function OnboardingTour({
               <X className="h-4 w-4" />
             </Button>
           </div>
-        </header>
+        </div>
         <p className="sr-only" role="status" aria-live="polite">
           Step {activeIndex + 1} of {ONBOARDING_STEPS.length}: {step.title}
         </p>

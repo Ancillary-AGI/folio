@@ -4,6 +4,18 @@ import { parseVerilogModule } from './verilogSubset';
 import { parseVhdl } from './vhdlSubset';
 import { simulateDigital } from '../simulation/digitalLogic';
 
+/**
+ * FPGA flow — structural elaboration only.
+ *
+ * The parsers turn Verilog/VHDL into a real gate-level netlist, and this module
+ * reports the resources that netlist implies (gate and flip-flop counts, a
+ * one-LUT-per-gate estimate). It does NOT bundle place-and-route, vendor
+ * mapping, or timing analysis, so it never invents an Fmax, WNS, BRAM/DSP
+ * inference, a vendor bitstream, or a successful device programming event.
+ * Those steps require Vivado/Quartus/Diamond/Gowin EDA and a connected
+ * programmer; this flow states that instead of fabricating results.
+ */
+
 export interface FPGADevice {
   id: string;
   vendor: FPGAVendor;
@@ -24,32 +36,48 @@ export interface HDLModule {
 
 export interface SynthesisResult {
   success: boolean;
-  device: FPGADevice;
+  /** Null when the requested device id is unknown. */
+  device: FPGADevice | null;
+  /** Counts derived by elaborating the HDL into the structural netlist. */
   utilization: {
+    gates: number;
+    /** Estimate: one LUT per gate. Real mapping may share logic. */
     luts: number;
     flipFlops: number;
+    /** Not inferred — zero until a memory-inference pass exists. */
     bramKb: number;
+    /** Not inferred — zero until a DSP-inference pass exists. */
     dsp: number;
     lutPercent: number;
   };
-  timing: { fmaxMhz: number; wnsNs: number };
+  /**
+   * Timing requires vendor place-and-route. `modelled: false` means Fmax and
+   * WNS are unknown, not zero — callers must not display them as measurements.
+   */
+  timing: { fmaxMhz: null; wnsNs: null; modelled: false };
   warnings: string[];
   errors: string[];
   netlistHash: string;
 }
 
-export interface Bitstream {
+/** A portable description of an elaborated design — not a vendor bitstream. */
+export interface DesignManifest {
+  format: 'folio-fpga-manifest/1';
   deviceId: string;
-  dataHex: string;
-  sizeBytes: number;
-  checksum: string;
+  netlistHash: string;
+  gateCount: number;
+  flipFlopCount: number;
+  estimatedLuts: number;
+  warnings: string[];
+  /** Vendor bitstream assembly and device configuration are out of scope. */
+  vendorBitstreamAvailable: false;
   createdAt: number;
 }
 
-export interface FPGAProgramResult {
-  success: boolean;
+export interface FPGAConfigurationResult {
+  /** Always false: no programmer backend is bundled with this flow. */
+  programmed: false;
   deviceId: string;
-  programmedAt: number;
   message: string;
 }
 
@@ -69,8 +97,14 @@ function hashString(input: string): string {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
+const EMPTY_UTILIZATION: SynthesisResult['utilization'] = {
+  gates: 0, luts: 0, flipFlops: 0, bramKb: 0, dsp: 0, lutPercent: 0,
+};
+
+const NO_TIMING: SynthesisResult['timing'] = { fmaxMhz: null, wnsNs: null, modelled: false };
+
 export class FPGADesignFlow {
-  private programmed: Map<string, Bitstream> = new Map();
+  private retained: Map<string, DesignManifest> = new Map();
 
   getDevices(vendor?: FPGAVendor): FPGADevice[] {
     return vendor ? FPGA_DEVICES.filter((d) => d.vendor === vendor) : FPGA_DEVICES;
@@ -85,9 +119,9 @@ export class FPGADesignFlow {
     if (!device) {
       return {
         success: false,
-        device: FPGA_DEVICES[0],
-        utilization: { luts: 0, flipFlops: 0, bramKb: 0, dsp: 0, lutPercent: 0 },
-        timing: { fmaxMhz: 0, wnsNs: 0 },
+        device: null,
+        utilization: { ...EMPTY_UTILIZATION },
+        timing: { ...NO_TIMING },
         warnings: [],
         errors: [`Unknown FPGA device: ${deviceId}`],
         netlistHash: '',
@@ -109,8 +143,8 @@ export class FPGADesignFlow {
     }
 
     // Real HDL elaboration: parse structural Verilog/VHDL into the digital
-    // netlist and functionally verify it on the digital engine, so synthesis
-    // estimates count actual gates instead of source characters.
+    // netlist and functionally verify it on the digital engine, so counts come
+    // from actual gates instead of source characters.
     let gateCount = 0;
     let ffCount = 0;
     for (const module of modules) {
@@ -121,19 +155,37 @@ export class FPGADesignFlow {
           gateCount += netlist.gates?.length ?? 0;
           ffCount += netlist.flipFlops?.length ?? 0;
           const sim = simulateDigital(
-            { gates: netlist.gates, stimuli: ports.filter((p) => p.direction === 'in').map((p) => ({ node: p.name, value: 0 as const, time: 0 })) },
+            {
+              gates: netlist.gates,
+              flipFlops: netlist.flipFlops,
+              stimuli: ports
+                .filter((p) => p.direction === 'in')
+                .map((p) => ({ node: p.name, value: 0 as const, time: 0 })),
+            },
             10,
           );
-          if (!sim.success) warnings.push(`VHDL ${module.name}: functional check failed — ${sim.error ?? 'unknown'}`);
+          if (!sim.success) {
+            errors.push(`VHDL ${module.name}: functional check failed — ${sim.error ?? 'unknown'}`);
+          }
         } else if (lang === 'verilog' || lang === 'systemverilog') {
           const { ports, netlist } = parseVerilogModule(module.source);
           gateCount += netlist.gates?.length ?? 0;
           ffCount += netlist.flipFlops?.length ?? 0;
           const sim = simulateDigital(
-            { gates: netlist.gates, stimuli: ports.filter((p) => p.direction === 'input').map((p) => ({ node: p.name, value: 0 as const, time: 0 })) },
+            {
+              gates: netlist.gates,
+              flipFlops: netlist.flipFlops,
+              stimuli: ports
+                .filter((p) => p.direction === 'input')
+                .map((p) => ({ node: p.name, value: 0 as const, time: 0 })),
+            },
             10,
           );
-          if (!sim.success) warnings.push(`Verilog ${module.name}: functional check failed — ${sim.error ?? 'unknown'}`);
+          if (!sim.success) {
+            errors.push(`Verilog ${module.name}: functional check failed — ${sim.error ?? 'unknown'}`);
+          }
+        } else {
+          errors.push(`HDL ${module.name}: unsupported language "${module.language}"`);
         }
       } catch (error) {
         errors.push(`HDL ${module.name}: ${error instanceof Error ? error.message : 'parse failed'}`);
@@ -141,57 +193,88 @@ export class FPGADesignFlow {
     }
     if (errors.length > 0) {
       return {
-        success: false, device,
-        utilization: { luts: 0, flipFlops: 0, bramKb: 0, dsp: 0, lutPercent: 0 },
-        timing: { fmaxMhz: 0, wnsNs: 0 }, warnings, errors, netlistHash: '',
+        success: false,
+        device,
+        utilization: { ...EMPTY_UTILIZATION },
+        timing: { ...NO_TIMING },
+        warnings,
+        errors,
+        netlistHash: '',
       };
     }
 
-    const loc = Math.min(device.luts, Math.max(1, gateCount * 2 + Math.floor(source.length / 400)));
-    const ff = Math.min(device.flipFlops, Math.max(ffCount, Math.floor(source.length / 120)));
-    const bram = Math.min(device.bramKb, Math.floor(source.length / 80));
-    const dsp = /mult|\*|dsp/i.test(source) ? Math.min(device.dsp, 4) : 0;
-    const lutPercent = (loc / device.luts) * 100;
-    const fmaxMhz = Math.max(40, 220 - lutPercent * 1.5);
+    // One LUT per parsed gate is an upper-bound estimate before mapping;
+    // logic sharing in a real mapper can only reduce it. No source-length
+    // fudging, no invented BRAM/DSP, no invented timing.
+    const luts = gateCount;
+    const lutPercent = (luts / device.luts) * 100;
+
+    warnings.push(
+      'Timing, BRAM and DSP inference are not modelled: Fmax/WNS are unavailable and BRAM/DSP report 0.',
+    );
+    if (luts > device.luts) {
+      warnings.push(
+        `LUT estimate (${luts}) exceeds ${device.part} capacity (${device.luts}); the design is likely over capacity.`,
+      );
+    }
+    if (ffCount > device.flipFlops) {
+      warnings.push(
+        `Flip-flop count (${ffCount}) exceeds ${device.part} capacity (${device.flipFlops}).`,
+      );
+    }
 
     return {
-      success: errors.length === 0,
+      success: true,
       device,
-      utilization: { luts: loc, flipFlops: ff, bramKb: bram, dsp, lutPercent },
-      timing: { fmaxMhz, wnsNs: fmaxMhz > 50 ? 0.4 : -0.2 },
+      utilization: {
+        gates: gateCount,
+        luts,
+        flipFlops: ffCount,
+        bramKb: 0,
+        dsp: 0,
+        lutPercent,
+      },
+      timing: { ...NO_TIMING },
       warnings,
       errors,
       netlistHash: hashString(source + deviceId),
     };
   }
 
-  generateBitstream(synthesis: SynthesisResult): Bitstream | null {
-    if (!synthesis.success) return null;
-    const payload = `${synthesis.netlistHash}:${synthesis.device.id}:${synthesis.utilization.luts}`;
-    const dataHex = Array.from(payload)
-      .map((c) => c.charCodeAt(0).toString(16).padStart(2, '0'))
-      .join('');
+  generateManifest(synthesis: SynthesisResult): DesignManifest | null {
+    if (!synthesis.success || !synthesis.device) return null;
     return {
+      format: 'folio-fpga-manifest/1',
       deviceId: synthesis.device.id,
-      dataHex,
-      sizeBytes: Math.ceil(dataHex.length / 2) + 1024,
-      checksum: hashString(dataHex),
+      netlistHash: synthesis.netlistHash,
+      gateCount: synthesis.utilization.gates,
+      flipFlopCount: synthesis.utilization.flipFlops,
+      estimatedLuts: synthesis.utilization.luts,
+      warnings: [...synthesis.warnings],
+      vendorBitstreamAvailable: false,
       createdAt: Date.now(),
     };
   }
 
-  program(bitstream: Bitstream): FPGAProgramResult {
-    this.programmed.set(bitstream.deviceId, bitstream);
+  /**
+   * Keep the manifest locally for export. A vendor bitstream and a connected
+   * programmer would be required to configure hardware, so this reports that
+   * no device was programmed instead of claiming success.
+   */
+  retainManifest(manifest: DesignManifest): FPGAConfigurationResult {
+    this.retained.set(manifest.deviceId, manifest);
     return {
-      success: true,
-      deviceId: bitstream.deviceId,
-      programmedAt: Date.now(),
-      message: `Programmed ${bitstream.deviceId} (${bitstream.sizeBytes} bytes)`,
+      programmed: false,
+      deviceId: manifest.deviceId,
+      message:
+        `Manifest retained for ${manifest.deviceId} (${manifest.gateCount} gates, ` +
+        `${manifest.estimatedLuts} LUT estimate). No programmer is attached; ` +
+        'no device was configured. Generate a vendor bitstream with the vendor toolchain first.',
     };
   }
 
-  getProgrammedBitstream(deviceId: string): Bitstream | undefined {
-    return this.programmed.get(deviceId);
+  getRetainedManifest(deviceId: string): DesignManifest | undefined {
+    return this.retained.get(deviceId);
   }
 }
 

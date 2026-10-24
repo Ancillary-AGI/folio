@@ -4,6 +4,7 @@ import { buildDemoHdl, DEMO_VERILOG, DEMO_VHDL } from '../../lib/demo/demoHdl';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
+import { useDemoRequest } from '../workspace/useDemoRequest';
 
 export default function FPGADesignPanel() {
   const [deviceId, setDeviceId] = useState(FPGA_DEVICES[0].id);
@@ -28,14 +29,24 @@ export default function FPGADesignPanel() {
     setLog(buildDemoHdl(deviceId).verdict);
   };
 
-  const program = () => {
-    const bitstream = fpgaDesignFlow.generateBitstream(result);
-    if (!bitstream) {
-      setLog(result.errors.join('\n') || 'Synthesis failed');
+  useDemoRequest('fpga-verilog', () => loadDemo('verilog'));
+  useDemoRequest('fpga-vhdl', () => loadDemo('vhdl'));
+
+  const generateManifest = () => {
+    const manifest = fpgaDesignFlow.generateManifest(result);
+    if (!manifest) {
+      setLog(result.errors.join('\n') || 'Elaboration failed');
       return;
     }
-    const programmed = fpgaDesignFlow.program(bitstream);
-    setLog(programmed.message);
+    const retained = fpgaDesignFlow.retainManifest(manifest);
+    const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${deviceId}-design-manifest.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setLog(retained.message);
   };
 
   return (
@@ -45,29 +56,35 @@ export default function FPGADesignPanel() {
         <Card>
           <CardHeader><CardTitle>HDL</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            <select className="w-full border rounded-md p-2 bg-background" value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>
+            <label htmlFor="fpga-device" className="text-xs font-medium text-muted-foreground">Target device</label>
+            <select id="fpga-device" className="w-full border rounded-md p-2 bg-background" value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>
               {FPGA_DEVICES.map((d) => (
                 <option key={d.id} value={d.id}>{d.vendor} {d.part}</option>
               ))}
             </select>
-            <textarea className="w-full h-56 font-mono text-xs border rounded-md p-2 bg-background" value={source} onChange={(e) => setSource(e.target.value)} />
+            <label htmlFor="fpga-source" className="text-xs font-medium text-muted-foreground">HDL source</label>
+            <textarea id="fpga-source" className="w-full h-56 font-mono text-xs border rounded-md p-2 bg-background" value={source} onChange={(e) => setSource(e.target.value)} />
             <div className="grid grid-cols-2 gap-2">
               <Button variant="outline" onClick={() => loadDemo('verilog')}>Load Verilog demo</Button>
               <Button variant="outline" onClick={() => loadDemo('vhdl')}>Load VHDL demo</Button>
             </div>
-            <Button onClick={program} disabled={!result.success}>Generate bitstream & program</Button>
+            <Button onClick={generateManifest} disabled={!result.success}>Generate design manifest (JSON)</Button>
+            <p className="text-xs text-muted-foreground">
+              Structural elaboration and resource estimates only. Vendor place-and-route,
+              timing analysis, bitstream assembly and device programming are not bundled.
+            </p>
             <p className="text-sm text-muted-foreground">{log}</p>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle>Synthesis</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Elaboration &amp; resource estimate</CardTitle></CardHeader>
           <CardContent className="space-y-2 text-sm">
             <div className="flex gap-2">
-              <Badge>{result.success ? 'pass' : 'fail'}</Badge>
-              <span>Fmax {result.timing.fmaxMhz.toFixed(1)} MHz</span>
+              <Badge>{result.success ? 'elaborated' : 'fail'}</Badge>
+              <span>Timing: not modelled (vendor place-and-route required)</span>
             </div>
-            <p>LUTs {result.utilization.luts} ({result.utilization.lutPercent.toFixed(1)}%)</p>
-            <p>FFs {result.utilization.flipFlops} · BRAM {result.utilization.bramKb} kb · DSP {result.utilization.dsp}</p>
+            <p>Gates {result.utilization.gates} → LUT estimate {result.utilization.luts} ({result.utilization.lutPercent.toFixed(1)}%)</p>
+            <p>Flip-flops {result.utilization.flipFlops} · BRAM not inferred · DSP not inferred</p>
             {result.warnings.map((w) => <p key={w} className="text-warning">{w}</p>)}
             {result.errors.map((w) => <p key={w} className="text-destructive">{w}</p>)}
           </CardContent>

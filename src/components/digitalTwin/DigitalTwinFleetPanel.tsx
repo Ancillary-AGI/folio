@@ -4,6 +4,7 @@ import { iiotFleetManager } from '../../lib/iiot/fleetManager';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
+import { useDemoRequest } from '../workspace/useDemoRequest';
 
 export default function DigitalTwinFleetPanel() {
   const [health, setHealth] = useState(iiotFleetManager.fleetHealth());
@@ -53,6 +54,8 @@ export default function DigitalTwinFleetPanel() {
     setTwinStatus(demo.verified ? 'verified' : 'failed');
     refresh();
   };
+
+  useDemoRequest('twin-rectifier', () => { void verifyRectifierTwin(); });
 
   return (
     <div className="h-full overflow-auto p-4 space-y-4">

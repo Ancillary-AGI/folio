@@ -5,8 +5,11 @@
  *   • All four protocol classes expose a unified async API
  *   • UART: bridges to the browser WebSerial API when available; falls back to
  *     in-browser simulation so the rest of the app continues to function
- *   • I²C / SPI / CAN: fully simulated (real hardware requires a native bridge
- *     such as an Arduino/USB adapter running a JSON-over-UART protocol)
+ *   • I²C / SPI: use a native USB bridge when one is connected and simulated
+ *     buses otherwise. Bridge traffic is newline-delimited JSON; every request
+ *     carries an `id` and waits for the matching reply (or a timeout error).
+ *     Malformed/missing replies reject rather than returning invented bytes.
+ *   • CAN: simulated, or the SLCAN protocol over an attached UART bridge
  *   • HardwareInterfaceManager creates and tracks named instances
  *   • WebSerialBridge: standalone helper that wraps a SerialPort and exposes
  *     readable / writable streams for higher-level code
@@ -124,6 +127,13 @@ export class WebSerialBridge {
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null
   private _state: ConnectionState = 'disconnected'
   private _receiveCallbacks: Array<(data: Uint8Array) => void> = []
+  private lineBuffer = ''
+  private nextRequestId = 1
+  private pendingRequests = new Map<number, {
+    resolve: (message: Record<string, unknown>) => void
+    reject: (error: Error) => void
+    timer: ReturnType<typeof setTimeout>
+  }>()
 
   get state(): ConnectionState { return this._state }
   get isAvailable(): boolean {
@@ -170,6 +180,61 @@ export class WebSerialBridge {
     this._receiveCallbacks.push(callback)
   }
 
+  /**
+   * Send a newline-delimited JSON command and wait for the bridge's reply with
+   * the same `id`. The bridge protocol is documented in the module header; an
+   * unanswered or unparsable reply rejects instead of returning invented data.
+   */
+  async request(command: Record<string, unknown>, timeoutMs = 1000): Promise<Record<string, unknown>> {
+    if (this.state !== 'connected') throw new Error('WebSerial bridge is not connected')
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error('Bridge timeout must be positive')
+    const id = this.nextRequestId++
+    return new Promise<Record<string, unknown>>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(id)
+        reject(new Error(`Bridge did not answer "${String(command.cmd)}" within ${timeoutMs} ms`))
+      }, timeoutMs)
+      this.pendingRequests.set(id, { resolve, reject, timer })
+      this.write(new TextEncoder().encode(`${JSON.stringify({ ...command, id })}\n`)).catch(error => {
+        clearTimeout(timer)
+        this.pendingRequests.delete(id)
+        reject(error instanceof Error ? error : new Error(String(error)))
+      })
+    })
+  }
+
+  /** Feed bytes received from the port into the line-oriented response router. */
+  ingest(data: Uint8Array): void {
+    this.lineBuffer += new TextDecoder().decode(data)
+    let newline = this.lineBuffer.indexOf('\n')
+    while (newline >= 0) {
+      const line = this.lineBuffer.slice(0, newline).trim()
+      this.lineBuffer = this.lineBuffer.slice(newline + 1)
+      newline = this.lineBuffer.indexOf('\n')
+      if (!line) continue
+      let parsed: unknown
+      try { parsed = JSON.parse(line) } catch { continue }
+      if (typeof parsed !== 'object' || parsed === null) continue
+      const message = parsed as Record<string, unknown>
+      const id = message.id
+      if (typeof id !== 'number') continue
+      const pending = this.pendingRequests.get(id)
+      if (pending) {
+        clearTimeout(pending.timer)
+        this.pendingRequests.delete(id)
+        pending.resolve(message)
+      }
+    }
+  }
+
+  private rejectPending(error: Error): void {
+    for (const pending of this.pendingRequests.values()) {
+      clearTimeout(pending.timer)
+      pending.reject(error)
+    }
+    this.pendingRequests.clear()
+  }
+
   private async startReading(): Promise<void> {
     if (!this.port?.readable) return
     const reader = this.port.readable.getReader()
@@ -178,7 +243,10 @@ export class WebSerialBridge {
       while (true) {
         const { value, done } = await reader.read()
         if (done) break
-        if (value) this._receiveCallbacks.forEach(cb => cb(value))
+        if (value) {
+          this.ingest(value)
+          this._receiveCallbacks.forEach(cb => cb(value))
+        }
       }
     } catch {
       /* port closed */
@@ -194,7 +262,16 @@ export class WebSerialBridge {
       this._state = 'disconnected'
       this.reader = null
       this.writer = null
+      this.lineBuffer = ''
+      this.rejectPending(new Error('WebSerial bridge closed before the request completed'))
     }
+  }
+
+  /** Simulate an incoming bridge line (tests and loopback diagnostics). */
+  simulateData(data: string | Uint8Array): void {
+    const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data
+    this.ingest(bytes)
+    this._receiveCallbacks.forEach(cb => cb(bytes))
   }
 }
 
@@ -230,13 +307,13 @@ export class I2CInterface {
   async probeDevice(address?: number): Promise<boolean> {
     const addr = address ?? this.config.address
     if (this.bridge?.state === 'connected') {
-      // Real probe via bridge — for now we request and wait for ACK/NACK
-      const cmd = new TextEncoder().encode(JSON.stringify({ cmd: 'i2c_probe', address: addr }) + '\n')
-      await this.bridge.write(cmd)
-      // In production, parse bridge response here. For now treat as present.
-      return true
+      const reply = await this.bridge.request({ cmd: 'i2c_probe', address: addr })
+      if (typeof reply.ack !== 'boolean') {
+        throw new Error(`I2C bridge reply for probe 0x${addr.toString(16)} has no boolean "ack"`)
+      }
+      return reply.ack
     }
-    // Simulation: devices at even addresses 0x10–0x50 are "present"
+    // Simulated bus: devices at even addresses 0x10–0x50 are "present"
     return addr % 2 === 0 && addr >= 0x10 && addr <= 0x50
   }
 
@@ -251,15 +328,14 @@ export class I2CInterface {
   }
 
   async readRegister(deviceAddress: number, registerAddress: number, length = 1): Promise<Uint8Array> {
+    if (!Number.isInteger(length) || length < 1) throw new Error('I2C read length must be a positive integer')
     const tx: I2CTransaction = { deviceAddress, registerAddress, readLength: length, stopCondition: true, timestamp: Date.now() }
     this.txLog.push(tx)
     if (this.bridge?.state === 'connected') {
-      const cmd = new TextEncoder().encode(JSON.stringify({ cmd: 'i2c_read', addr: deviceAddress, reg: registerAddress, len: length }) + '\n')
-      await this.bridge.write(cmd)
-      // In production wait for response bytes; return zeros for now
-      return new Uint8Array(length)
+      const reply = await this.bridge.request({ cmd: 'i2c_read', addr: deviceAddress, reg: registerAddress, len: length })
+      return readByteArray(reply.data, length, `I2C read 0x${deviceAddress.toString(16)}:0x${registerAddress.toString(16)}`)
     }
-    // Simulation: return deterministic bytes derived from addr+reg
+    // Simulated bus: deterministic bytes derived from addr+reg
     return new Uint8Array(length).map((_, i) => (deviceAddress + registerAddress + i) & 0xff)
   }
 
@@ -281,6 +357,21 @@ export class I2CInterface {
 
 // ── SPI ───────────────────────────────────────────────────────────────────────
 
+function readByteArray(value: unknown, expectedLength: number, what: string): Uint8Array {
+  if (!Array.isArray(value) || value.length !== expectedLength) {
+    throw new Error(`${what}: bridge reply must contain exactly ${expectedLength} bytes`)
+  }
+  const bytes = new Uint8Array(expectedLength)
+  for (let i = 0; i < expectedLength; i += 1) {
+    const byte = value[i]
+    if (typeof byte !== 'number' || !Number.isInteger(byte) || byte < 0 || byte > 0xff) {
+      throw new Error(`${what}: bridge returned a non-byte value at index ${i}`)
+    }
+    bytes[i] = byte
+  }
+  return bytes
+}
+
 export class SPIInterface {
   private txLog: SPITransaction[] = []
   private chipSelectStates = new Map<number, boolean>()
@@ -299,13 +390,13 @@ export class SPIInterface {
   }
 
   async transfer(txData: Uint8Array, csPin?: number): Promise<Uint8Array> {
-    const rxData = new Uint8Array(txData.length)
+    let rxData: Uint8Array
     if (this.bridge?.state === 'connected') {
-      const cmd = new TextEncoder().encode(JSON.stringify({ cmd: 'spi_transfer', cs: csPin, data: Array.from(txData) }) + '\n')
-      await this.bridge.write(cmd)
-      // In production, parse response; return zeros for now
+      const reply = await this.bridge.request({ cmd: 'spi_transfer', cs: csPin, data: Array.from(txData) })
+      rxData = readByteArray(reply.data, txData.length, 'SPI transfer')
     } else {
-      // Simulation: invert bits as mock MISO response
+      // Simulated MISO: invert bits
+      rxData = new Uint8Array(txData.length)
       for (let i = 0; i < txData.length; i++) rxData[i] = (~txData[i]) & 0xff
     }
     this.txLog.push({ txData: new Uint8Array(txData), rxData, timestamp: Date.now() })

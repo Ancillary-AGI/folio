@@ -11,12 +11,17 @@ import type { WorkspaceMode } from './useAppStore';
 export const WORKSPACE_ROUTES: Readonly<Record<WorkspaceMode, string>> = {
   schematic: '/',
   simulation: '/simulation',
+  control: '/control',
+  machines: '/machines',
   mechanical: '/cad',
   pcb: '/pcb',
+  rf: '/rf',
   convert: '/schematic-pcb',
   preview3d: '/3d',
   robotics: '/robotics',
   embedded: '/embedded',
+  imaging: '/imaging',
+  visual: '/visual',
   fpga: '/fpga',
   hil: '/hil',
   twin: '/twin',
@@ -41,6 +46,11 @@ export function modeFromHash(): WorkspaceMode | null {
   const hash = window.location.hash.replace(/^#/, '');
   const path = hash.split('?')[0] || '/';
   return ROUTE_TO_MODE[path] ?? null;
+}
+
+/** True when a string is a defined workspace mode. */
+export function isWorkspaceMode(value: string): value is WorkspaceMode {
+  return Object.prototype.hasOwnProperty.call(WORKSPACE_ROUTES, value)
 }
 
 /** Project id encoded in the current hash query, or null. */

@@ -80,6 +80,13 @@ describe('fail-loud guards', () => {
     expect(() => solveIk([], [0, 0, 0])).toThrow(/empty chain/);
   });
 
+  it('rejects a non-positive IK tolerance', () => {
+    const chain = planarArm(0, 0);
+    for (const tolerance of [0, -1, Number.NaN]) {
+      expect(() => solveIk(chain, [1, 0, 0], { tolerance })).toThrow(/tolerance/);
+    }
+  });
+
   it('reports a singular system rather than a fabricated solution', () => {
     expect(() =>
       solveLinearSystem(
@@ -178,6 +185,40 @@ describe('inverse kinematics', () => {
     expect(result.iterations).toBe(40);
     expect(result.error).toBeGreaterThan(40);
   });
+
+  it('projects every iterate into the supplied joint limits', () => {
+    // One revolute joint can only reach (0, 1, 0) at a quarter turn; a 0.1 rad
+    // stop makes that unreachable, and the solver must say so rather than
+    // returning 1.57 rad.
+    const chain: DhJoint[] = [{ a: 1, alpha: 0, d: 0, theta: 0, kind: 'revolute' }];
+    const result = solveIk(chain, [0, 1, 0], { limits: [{ min: 0, max: 0.1 }] });
+    expect(result.values[0]).toBeCloseTo(0.1, 12);
+    expect(result.converged).toBe(false);
+    expect(result.error).toBeGreaterThan(0.5);
+  });
+
+  it('finds a reachable solution that respects asymmetric limits', () => {
+    const target = translationOf(endEffectorPose(planarArm(0.5, 0.8)));
+    const result = solveIk(planarArm(0, 0), target, {
+      limits: [{ min: 0, max: 1.5 }, { min: 0, max: 1.5 }],
+    });
+    expect(result.converged).toBe(true);
+    expect(result.values[0]).toBeGreaterThanOrEqual(0);
+    expect(result.values[0]).toBeLessThanOrEqual(1.5);
+    expect(result.values[1]).toBeGreaterThanOrEqual(0);
+    expect(result.values[1]).toBeLessThanOrEqual(1.5);
+  });
+
+  it('rejects malformed limits instead of silently ignoring them', () => {
+    expect(() =>
+      solveIk(planarArm(0, 0), [1, 0, 0], { limits: [{ min: 0, max: 1 }] }),
+    ).toThrow(/match the chain length/);
+    expect(() =>
+      solveIk(planarArm(0, 0), [1, 0, 0], {
+        limits: [{ min: 1, max: 0 }, { min: 0, max: 1 }],
+      }),
+    ).toThrow(/invalid/);
+  });
 });
 
 describe('closed-form two-link solution', () => {
@@ -239,6 +280,23 @@ describe('closed-form two-link solution', () => {
 
   it('rejects a non-positive link length', () => {
     expect(() => twoLinkIk(0.5, 0.5, 0, 1)).toThrow(/positive/);
+  });
+
+  it('folds equal links onto the shoulder without returning NaN', () => {
+    const solution = twoLinkIk(0, 0, 1, 1);
+    expect(solution.reachable).toBe(true);
+    for (const branch of [solution.elbowUp, solution.elbowDown]) {
+      expect(Number.isFinite(branch.shoulder)).toBe(true);
+      expect(Number.isFinite(branch.elbow)).toBe(true);
+      const tip = planarArmTip(branch.shoulder, branch.elbow, 1, 1);
+      expect(tip[0]).toBeCloseTo(0, 12);
+      expect(tip[1]).toBeCloseTo(0, 12);
+    }
+  });
+
+  it('rejects a non-finite target', () => {
+    expect(() => twoLinkIk(Number.NaN, 0, 1, 1)).toThrow(/finite/);
+    expect(() => twoLinkIk(0, Number.POSITIVE_INFINITY, 1, 1)).toThrow(/finite/);
   });
 });
 

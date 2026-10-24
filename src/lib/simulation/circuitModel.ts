@@ -19,6 +19,7 @@
 
 import {
   parseSpiceValue,
+  parseMillimetres,
   normalizeNodeName,
   isGroundNode,
   pickParameter,
@@ -26,13 +27,30 @@ import {
   type BehavioralSourceDevice,
   type BjtModelParams,
   type Device,
+  type InductorDevice,
   type JfetModelParams,
   type MosfetModelParams,
   type SourceWaveform,
 } from './devices'
 import type { CircuitNetlist, Component } from './spiceEngine'
+import { microstripEffectiveEr, tdFromGeometry, z0FromGeometry } from './transmissionLine'
 import { probeFromTestPoint, normalizeProbeRequests } from './probes'
 import type { ProbeRequest, RawProbe } from './probes'
+import type { CoupledInductorPair } from './transformerMutual'
+import {
+  modelCardDeviceKind,
+  modelCardPolarity,
+  normalizeModelCards,
+  resolveModelCard,
+  type ModelDeviceKind,
+  type SpiceModelCard,
+} from './modelLibrary'
+
+/** Auxiliary MNA rows carrying the two port currents of a transmission line. */
+export interface TransmissionLineBranchRows {
+  port1: number
+  port2: number
+}
 
 export interface CircuitModel {
   devices: Device[]
@@ -42,6 +60,8 @@ export interface CircuitModel {
   nodeIndex: Map<string, number>
   /** Device name → branch-current row index (voltage sources and inductors). */
   branchRows: Map<string, number>
+  /** Transmission-line port currents, keyed by device name. */
+  lineRows: Map<string, TransmissionLineBranchRows>
   /** Total number of unknowns (node voltages + branch currents). */
   size: number
   /** Every node name that is ground, including aliases found on devices. */
@@ -50,6 +70,8 @@ export interface CircuitModel {
   notes: string[]
   /** Normalized simulation probes / test points. */
   probes: ProbeRequest[]
+  /** Coupled inductor pairs (SPICE `K` cards / transformer windings). */
+  couplings: CoupledInductorPair[]
 }
 
 export interface BuildModelResult {
@@ -96,6 +118,11 @@ const CLASSIFIERS: ReadonlyArray<{ kind: DeviceKind | 'ground'; matches: (type: 
     kind: 'op-amp',
     matches: (type) => type.includes('opamp') || type.includes('op_amp') || (type.includes('operational') && type.includes('amplifier')),
   },
+  {
+    kind: 'transmission-line',
+    matches: (type, name) =>
+      type.includes('transmissionline') || type.includes('delayline') || type.includes('tline') || /^tl?\d/i.test(name),
+  },
   { kind: 'mosfet', matches: (type, name) => type.includes('mosfet') || /^m\d/i.test(name) },
   { kind: 'jfet', matches: (type, name) => type.includes('jfet') || /^j\d/i.test(name) },
   {
@@ -137,6 +164,23 @@ function classify(component: Component): DeviceKind | 'ground' | null {
   return null
 }
 
+/** A four-terminal transformer symbol: two windings plus a coupling factor. */
+function isTransformerComponent(component: Component): boolean {
+  const type = `${component.type}`.toLowerCase().replace(/[^a-z0-9]+/g, '')
+  return type.includes('transformer') || type.includes('coupledinductor')
+}
+
+/** A SPICE `K` card: no terminals, references two existing inductors. */
+function isCouplingComponent(component: Component): boolean {
+  if (component.nodes.length !== 0) return false
+  const type = `${component.type} ${component.name}`.toLowerCase().replace(/[^a-z0-9]+/g, '')
+  const referenced =
+    pickParameter(component.parameters, 'l1', 'primary', 'primaryInductance') !== undefined
+    && pickParameter(component.parameters, 'l2', 'secondary', 'secondaryInductance') !== undefined
+    && pickParameter(component.parameters, 'k', 'coupling') !== undefined
+  return referenced && (type.includes('mutual') || type.includes('coupl') || /^k\d/i.test(component.name))
+}
+
 /** Terminals emitted by the netlist builder for pins with no wire attached. */
 const isUnconnectedNode = (node: string): boolean => node.startsWith('NC_')
 
@@ -149,6 +193,11 @@ function requiredValue(component: Component, label: string, ...keys: string[]): 
 function optionalValue(component: Component, fallback: number, label: string, ...keys: string[]): number {
   const raw = pickParameter(component.parameters, ...keys)
   return raw === undefined ? fallback : parseSpiceValue(raw, `${component.name} ${label}`)
+}
+
+/** Read one of a component's physical dimensions in millimetres. */
+function millimetres(component: Component, label: string, ...keys: string[]): number | undefined {
+  return parseMillimetres(pickParameter(component.parameters, ...keys), `${component.name} ${label}`)
 }
 
 /**
@@ -366,6 +415,63 @@ const modelParameter = (
   return parseSpiceValue(fallback, `${component.name} ${label}`)
 }
 
+/**
+ * Card parameters this solver actually consumes, per device family.
+ *
+ * A reference library card carries many more fields (noise, temperature,
+ * rating). Feeding those into the component would be harmless but would imply
+ * they were modelled; they are reported as ignored instead.
+ */
+const MODELLED_CARD_PARAMETERS: Readonly<Record<ModelDeviceKind, ReadonlySet<string>>> = {
+  bjt: new Set([
+    'is', 'bf', 'br', 'nf', 'nr', 'vaf', 'var', 'ikf', 'ikr', 'ise', 'ne', 'isc', 'nc',
+    'cje', 'vje', 'mje', 'cjc', 'vjc', 'mjc', 'fc', 'tf', 'tr', 'rb', 'rc', 're',
+  ]),
+  mosfet: new Set(['vto', 'kp', 'gamma', 'phi', 'lambda', 'is', 'n', 'cgs', 'cgd']),
+  jfet: new Set(['beta', 'vto', 'lambda', 'is', 'n', 'cgs', 'cgd']),
+  diode: new Set(['is', 'n']),
+}
+
+/**
+ * Apply a `.model` card to a copied component.
+ *
+ * The card parameters become ordinary symbol properties, which is exactly the
+ * merge point `modelParameter` already defines: an explicit symbol property
+ * (spread last) wins, then the card, then the stock part-number card, then the
+ * SPICE default. The card's declared type sets polarity unless the symbol
+ * states one — in SPICE the card, not the reference designator, decides NPN
+ * vs PNP / N vs P.
+ */
+function withModelCard(
+  component: Component,
+  card: SpiceModelCard,
+  kind: ModelDeviceKind,
+  notes: string[],
+): Component {
+  const modelled = MODELLED_CARD_PARAMETERS[kind]
+  const parameters: Record<string, string | number | boolean> = {}
+  const ignored: string[] = []
+  for (const [key, value] of Object.entries(card.parameters)) {
+    if (!modelled.has(key)) {
+      ignored.push(key)
+      continue
+    }
+    // Infinity means "not in effect" in SPICE and is the solver's own default.
+    if (Number.isFinite(value)) parameters[key] = value
+  }
+  if (ignored.length > 0) {
+    notes.push(
+      `${component.name}: SPICE model ${card.name} parameters with no equivalent here are ignored: ` +
+        `${ignored.join(', ')}.`,
+    )
+  }
+  const polarity = modelCardPolarity(card)
+  if (polarity && pickParameter(component.parameters, 'polarity') === undefined) {
+    parameters.polarity = polarity
+  }
+  return { ...component, parameters: { ...parameters, ...component.parameters } }
+}
+
 function parseBjtModel(component: Component): { polarity: 'npn' | 'pnp'; model: BjtModelParams } {
   const declared = `${component.type} ${component.name}`.toLowerCase().replace(/[^a-z]/g, '')
   const requested = pickParameter(component.parameters, 'polarity')
@@ -568,6 +674,62 @@ function toDevice(
         const inductance = requiredValue(component, 'inductance', 'inductance', 'value', 'l')
         if (inductance <= 0) return { error: `${component.name} inductance must be > 0 H (got ${inductance}).` }
         return { device: { kind, name: component.name, p, n, inductance } }
+      }
+      case 'transmission-line': {
+        const p2 = nodes[2]
+        const n2 = nodes[3]
+        if (p === p2 || (isGroundNode(p) && isGroundNode(p2))) {
+          return {
+            error:
+              `${component.name} has both positive terminals on the same net (${p}); ` +
+              'a transmission line must connect two different ports in series.',
+          }
+        }
+
+        const width = millimetres(component, 'trace width', 'widthMm', 'traceWidth', 'width', 'w')
+        const height = millimetres(component, 'substrate height', 'heightMm', 'substrateHeight', 'height', 'h')
+        const erRaw = pickParameter(component.parameters, 'er', 'epsilonR', 'dielectricConstant', 'dk')
+        const epsilonR =
+          erRaw === undefined ? undefined : parseSpiceValue(erRaw, `${component.name} relative permittivity (er)`)
+
+        const z0Raw = pickParameter(component.parameters, 'z0', 'characteristicImpedance', 'impedance', 'zo')
+        let z0: number
+        if (z0Raw !== undefined) {
+          z0 = parseSpiceValue(z0Raw, `${component.name} characteristic impedance (z0)`)
+        } else if (width !== undefined && height !== undefined && epsilonR !== undefined) {
+          z0 = z0FromGeometry(width, height, epsilonR)
+        } else {
+          return {
+            error: `${component.name} needs a characteristic impedance (z0), or width/height/er to derive it.`,
+          }
+        }
+        if (!(z0 > 0) || !Number.isFinite(z0)) {
+          return { error: `${component.name} characteristic impedance must be > 0 Ω (got ${z0}).` }
+        }
+
+        const tdRaw = pickParameter(component.parameters, 'td', 'delay', 'delayTime', 'propagationDelay')
+        const length = millimetres(component, 'length', 'lengthMm', 'length', 'len')
+        const erEffRaw = pickParameter(component.parameters, 'erEff', 'effectiveEr', 'epsilonReff')
+        const erEff =
+          erEffRaw === undefined ? undefined : parseSpiceValue(erEffRaw, `${component.name} effective er (erEff)`)
+        let td: number
+        if (tdRaw !== undefined) {
+          td = parseSpiceValue(tdRaw, `${component.name} propagation delay (td)`)
+        } else if (length !== undefined && erEff !== undefined) {
+          td = tdFromGeometry(length, erEff)
+        } else if (length !== undefined && epsilonR !== undefined) {
+          const effective =
+            width !== undefined && height !== undefined ? microstripEffectiveEr(width, height, epsilonR) : epsilonR
+          td = tdFromGeometry(length, effective)
+        } else {
+          return {
+            error: `${component.name} needs a propagation delay (td), or length with er/erEff to derive it.`,
+          }
+        }
+        if (!(td > 0) || !Number.isFinite(td)) {
+          return { error: `${component.name} propagation delay must be > 0 s (got ${td}).` }
+        }
+        return { device: { kind, name: component.name, p, n, p2, n2, z0, td } }
       }
       case 'diode': {
         const saturationCurrent = requiredValue(
@@ -1266,6 +1428,7 @@ const MIN_TERMINALS: Record<DeviceKind | 'ground', number> = {
   resistor: 2,
   capacitor: 2,
   inductor: 2,
+  'transmission-line': 4,
   'voltage-source': 2,
   'current-source': 2,
   diode: 2,
@@ -1286,6 +1449,7 @@ const TERMINAL_LABELS: Record<DeviceKind | 'ground', string> = {
   resistor: 'two terminals',
   capacitor: 'two terminals',
   inductor: 'two terminals',
+  'transmission-line': 'input and output port terminals',
   'voltage-source': 'two terminals',
   'current-source': 'two terminals',
   diode: 'anode and cathode',
@@ -1301,8 +1465,8 @@ const TERMINAL_LABELS: Record<DeviceKind | 'ground', string> = {
   ground: 'a net',
 }
 
-/** An op-amp may add supply pins on top of its three signal terminals. */
-const MAX_TERMINALS: Record<DeviceKind, number> = { ...MIN_TERMINALS, 'op-amp': 5 }
+/** A MOSFET may add a bulk terminal; an op-amp may add supply pins. */
+const MAX_TERMINALS: Record<DeviceKind, number> = { ...MIN_TERMINALS, mosfet: 4, 'op-amp': 5 }
 
 /**
  * Build the MNA model for `netlist`.
@@ -1314,8 +1478,12 @@ export function buildCircuitModel(netlist: CircuitNetlist): BuildModelResult {
   const errors: string[] = []
   const notes: string[] = []
   const devices: Device[] = []
+  const couplings: CoupledInductorPair[] = []
+  const couplingCards: Component[] = []
+  const lineRows = new Map<string, TransmissionLineBranchRows>()
   const groundNodes = new Set<string>(['0'])
   const nodeNames = new Set<string>()
+  const modelCards = normalizeModelCards(netlist.models)
 
   /**
    * Normalize and validate a component's terminals.
@@ -1374,8 +1542,88 @@ export function buildCircuitModel(netlist: CircuitNetlist): BuildModelResult {
   }
 
   for (const component of netlist.components) {
-    const kind = classify(component)
     if ((component.type ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '').includes('testpoint')) continue
+
+    if (isTransformerComponent(component)) {
+      const terminals = component.nodes.map(normalizeNodeName)
+      if (terminals.length < 4 || terminals.slice(0, 4).some((node) => !node)) {
+        errors.push(
+          `${component.name} (transformer) needs four terminals (primary in/out, secondary in/out) ` +
+            `but has ${component.nodes.length}.`,
+        )
+        continue
+      }
+      try {
+        const primaryInductance = requiredValue(
+          component,
+          'primary inductance',
+          'l1',
+          'primaryInductance',
+          'inductance',
+          'value',
+        )
+        const secondaryInductance = requiredValue(
+          component,
+          'secondary inductance',
+          'l2',
+          'secondaryInductance',
+        )
+        const couplingCoefficient = optionalValue(
+          component,
+          1,
+          'coupling coefficient',
+          'k',
+          'coupling',
+        )
+        if (!(primaryInductance > 0) || !(secondaryInductance > 0)) {
+          errors.push(`${component.name} transformer inductances must both be > 0 H.`)
+          continue
+        }
+        if (!(couplingCoefficient > 0 && couplingCoefficient <= 1)) {
+          errors.push(`${component.name} coupling coefficient k must be in (0, 1] (got ${couplingCoefficient}).`)
+          continue
+        }
+
+        const [p1, n1, p2, n2] = terminals
+        const primary: InductorDevice = {
+          kind: 'inductor',
+          name: `${component.name}_P`,
+          p: p1,
+          n: n1,
+          inductance: primaryInductance,
+        }
+        const secondary: InductorDevice = {
+          kind: 'inductor',
+          name: `${component.name}_S`,
+          p: p2,
+          n: n2,
+          inductance: secondaryInductance,
+        }
+        devices.push(primary, secondary)
+        couplings.push({
+          name: component.name,
+          l1Name: primary.name,
+          l2Name: secondary.name,
+          k: couplingCoefficient,
+          l1Value: primaryInductance,
+          l2Value: secondaryInductance,
+          l1p: p1,
+          l1n: n1,
+          l2p: p2,
+          l2n: n2,
+        })
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : String(error))
+      }
+      continue
+    }
+
+    if (isCouplingComponent(component)) {
+      couplingCards.push(component)
+      continue
+    }
+
+    const kind = classify(component)
 
     if (kind === 'ground') {
       if (component.nodes.length === 0) {
@@ -1389,18 +1637,104 @@ export function buildCircuitModel(netlist: CircuitNetlist): BuildModelResult {
     if (kind === null) {
       errors.push(
         `${component.name} (${component.type}) has no model in this solver. Supported: resistor, capacitor, ` +
-          'inductor, voltage source (including PULSE/SIN/EXP/SFFM/PWL), current source, diode, BJT, MOSFET, JFET, ' +
-          'op-amp, voltage/current switch (S/W), behavioral source (B), controlled sources, ground.',
+          'inductor, lossless transmission line (T), voltage source (including PULSE/SIN/EXP/SFFM/PWL), ' +
+          'current source, diode, BJT, MOSFET, JFET, op-amp, voltage/current switch (S/W), behavioral source (B), ' +
+          'controlled sources, ground.',
       )
       continue
     }
 
-    const terminals = terminalsFor(component, kind)
+    /*
+     * A semiconductor may name a `.model` card instead of relying on the stock
+     * part-number card. The card's declared type must match the symbol family:
+     * a `.model Q1 NPN(...)` on a MOSFET is a wiring mistake, not a directive
+     * to re-interpret the part.
+     */
+    let effective = component
+    if (kind === 'bjt' || kind === 'mosfet' || kind === 'jfet' || kind === 'diode') {
+      const card = resolveModelCard(component, modelCards)
+      if (card) {
+        const cardKind = modelCardDeviceKind(card.type)
+        if (cardKind !== kind) {
+          errors.push(
+            `${component.name} references SPICE model ${card.name} (${card.type}), ` +
+              `which is not a ${kind} model.`,
+          )
+          continue
+        }
+        effective = withModelCard(component, card, kind, notes)
+      }
+    }
+
+    const terminals = terminalsFor(effective, kind)
     if (!terminals) continue
 
-    const resolved = toDevice(component, kind, terminals, netlist)
+    const resolved = toDevice(effective, kind, terminals, netlist)
     if ('error' in resolved) errors.push(resolved.error)
     else devices.push(resolved.device)
+  }
+
+  /*
+   * Resolve `K` cards after every winding exists, so card order in the netlist
+   * does not matter. A card names two inductors; it never creates nodes.
+   */
+  for (const component of couplingCards) {
+    try {
+      const l1Name = String(
+        pickParameter(component.parameters, 'l1', 'primary', 'primaryInductance') ?? '',
+      ).trim()
+      const l2Name = String(
+        pickParameter(component.parameters, 'l2', 'secondary', 'secondaryInductance') ?? '',
+      ).trim()
+      const couplingCoefficient = parseSpiceValue(
+        pickParameter(component.parameters, 'k', 'coupling'),
+        `${component.name} coupling coefficient`,
+      )
+      if (!(couplingCoefficient > 0 && couplingCoefficient <= 1)) {
+        errors.push(`${component.name} coupling coefficient k must be in (0, 1] (got ${couplingCoefficient}).`)
+        continue
+      }
+      const winding = (name: string): InductorDevice | undefined =>
+        devices.find(
+          (device): device is InductorDevice =>
+            device.kind === 'inductor' && device.name.toUpperCase() === name.toUpperCase(),
+        )
+      const primary = winding(l1Name)
+      const secondary = winding(l2Name)
+      if (!primary || !secondary) {
+        const missing = [!primary ? l1Name : null, !secondary ? l2Name : null].filter(Boolean).join(', ')
+        errors.push(`${component.name} couples an unknown inductor: ${missing}.`)
+        continue
+      }
+      if (primary.name === secondary.name) {
+        errors.push(`${component.name} couples ${primary.name} to itself.`)
+        continue
+      }
+      if (
+        couplings.some(
+          (pair) =>
+            (pair.l1Name === primary.name && pair.l2Name === secondary.name) ||
+            (pair.l1Name === secondary.name && pair.l2Name === primary.name),
+        )
+      ) {
+        errors.push(`${component.name} duplicates an existing coupling between ${primary.name} and ${secondary.name}.`)
+        continue
+      }
+      couplings.push({
+        name: component.name,
+        l1Name: primary.name,
+        l2Name: secondary.name,
+        k: couplingCoefficient,
+        l1Value: primary.inductance,
+        l2Value: secondary.inductance,
+        l1p: primary.p,
+        l1n: primary.n,
+        l2p: secondary.p,
+        l2n: secondary.n,
+      })
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error))
+    }
   }
 
   /*
@@ -1447,6 +1781,24 @@ export function buildCircuitModel(netlist: CircuitNetlist): BuildModelResult {
   const branchRows = new Map<string, number>()
   let branchCount = 0
   for (const device of devices) {
+    if (device.kind === 'transmission-line') {
+      /*
+       * A line carries two independent port currents. They are real MNA
+       * unknowns in every analysis: transient needs them for the Branin
+       * equations and AC for the Y-parameter equations; DC spends them on the
+       * two ideal-wire constraints (or one constraint plus the port-current
+       * relation when both ports share a return). Allocating them here keeps
+       * the system size identical across analyses.
+       */
+      const port1 = sortedNodes.length + branchCount
+      branchCount += 1
+      const port2 = sortedNodes.length + branchCount
+      branchCount += 1
+      lineRows.set(device.name, { port1, port2 })
+      branchRows.set(`${device.name}#1`, port1)
+      branchRows.set(`${device.name}#2`, port2)
+      continue
+    }
     if (
       device.kind === 'voltage-source' ||
       device.kind === 'inductor' ||
@@ -1472,10 +1824,12 @@ export function buildCircuitModel(netlist: CircuitNetlist): BuildModelResult {
       nodeNames: sortedNodes,
       nodeIndex,
       branchRows,
+      lineRows,
       size,
       groundNodes,
       notes,
       probes: collectedProbes,
+      couplings,
     },
     errors,
   }

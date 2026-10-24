@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import {
   ReactFlow,
   Node,
+  Edge,
   addEdge,
   Connection,
   useNodesState,
@@ -29,6 +30,8 @@ import {
   describeImageCaveat,
 } from '../../lib/compilation/compiler';
 import { downloadFile } from '../../lib/exportUtils';
+import { generateArduinoProgram } from '../../lib/programming/visualProgram';
+import { useDemoRequest } from '../workspace/useDemoRequest';
 
 interface VisualProgrammingEditorProps {
   onClose: () => void;
@@ -203,6 +206,25 @@ const blockCategories = {
   ]
 };
 
+/**
+ * The demo graph: a button drives an LED and an analog input drives a servo.
+ * It is a normal editable graph, so the compiler sees the same data a user
+ * would have built by hand.
+ */
+const DEMO_NODES: Node[] = [
+  { id: 'loop', type: 'function', position: { x: 40, y: 30 }, data: { label: 'Loop', functionName: 'loop', inputs: [] } },
+  { id: 'button', type: 'input', position: { x: 40, y: 150 }, data: { label: 'Digital Input', type: 'digital', pin: 2 } },
+  { id: 'led', type: 'output', position: { x: 320, y: 150 }, data: { label: 'Digital Output', type: 'digital', pin: 13 } },
+  { id: 'light', type: 'input', position: { x: 40, y: 280 }, data: { label: 'Analog Input', type: 'analog', pin: 'A0' } },
+  { id: 'servo', type: 'output', position: { x: 320, y: 280 }, data: { label: 'Servo Motor', type: 'servo', pin: 9 } },
+]
+
+const DEMO_EDGES: Edge[] = [
+  { id: 'e-loop-button', source: 'loop', target: 'button', animated: true },
+  { id: 'e-button-led', source: 'button', target: 'led', animated: true },
+  { id: 'e-light-servo', source: 'light', target: 'servo', animated: true },
+]
+
 function getBlockDescription(data: unknown): string {
   if (!data || typeof data !== 'object') return ''
   const properties = data as Record<string, unknown>
@@ -220,6 +242,14 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
   const [generatedCode, setGeneratedCode] = useState('');
   const [showCode, setShowCode] = useState(false);
   const [buildReport, setBuildReport] = useState<BuildReport | null>(null);
+
+  useDemoRequest('visual-blocks', () => {
+    setNodes(DEMO_NODES);
+    setEdges(DEMO_EDGES);
+    setGeneratedCode('');
+    setShowCode(false);
+    setBuildReport(null);
+  });
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
 
@@ -271,100 +301,9 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
   };
 
   const generateArduinoCode = () => {
-    let code = '// Generated Arduino Code\n\n';
-    
-    // Add includes and setup
-    code += '#include <Servo.h>\n';
-    code += '#include <DHT.h>\n\n';
-    
-    // Variable declarations
-    const servos = nodes.filter(n => n.data.type === 'servo');
-    servos.forEach((_servo, index) => {
-      code += `Servo servo${index};\n`;
-    });
-    
-    code += '\nvoid setup() {\n';
-    code += '  Serial.begin(9600);\n';
-    
-    // Setup pins
-    nodes.forEach(node => {
-      if (node.type === 'input' && node.data.type === 'digital') {
-        code += `  pinMode(${node.data.pin}, INPUT);\n`;
-      } else if (node.type === 'output' && node.data.type === 'digital') {
-        code += `  pinMode(${node.data.pin}, OUTPUT);\n`;
-      } else if (node.data.type === 'servo') {
-        const servoIndex = servos.findIndex(s => s.id === node.id);
-        code += `  servo${servoIndex}.attach(${node.data.pin});\n`;
-      }
-    });
-    
-    code += '}\n\n';
-    
-    code += 'void loop() {\n';
-    
-    // Generate main loop code based on node connections
-    const processedNodes = new Set<string>();
-    const startNodes = nodes.filter(n => n.type === 'function' && n.data.functionName === 'loop');
-    
-    if (startNodes.length === 0) {
-      // If no loop function, process all nodes
-      nodes.forEach(node => {
-        if (!processedNodes.has(node.id)) {
-          code += generateNodeCode(node);
-          processedNodes.add(node.id);
-        }
-      });
-    }
-    
-    code += '  delay(100); // Small delay to prevent overwhelming the system\n';
-    code += '}\n';
-    
+    const code = generateArduinoProgram(nodes);
     setGeneratedCode(code);
     setShowCode(true);
-    return code;
-  };
-
-  const generateNodeCode = (node: Node): string => {
-    let code = '';
-    
-    switch (node.type) {
-      case 'input':
-        if (node.data.type === 'digital') {
-          code += `  int ${node.id}_value = digitalRead(${node.data.pin});\n`;
-        } else if (node.data.type === 'analog') {
-          code += `  int ${node.id}_value = analogRead(${node.data.pin});\n`;
-        }
-        break;
-        
-      case 'output':
-        if (node.data.type === 'digital') {
-          code += `  digitalWrite(${node.data.pin}, HIGH);\n`;
-        } else if (node.data.type === 'pwm') {
-          code += `  analogWrite(${node.data.pin}, 128);\n`;
-        }
-        break;
-        
-      case 'process':
-        if (node.data.operation === 'delay') {
-          code += `  delay(${node.data.parameters?.ms || 1000});\n`;
-        }
-        break;
-        
-      case 'condition':
-        code += `  if (condition) {\n`;
-        code += `    // Condition body\n`;
-        code += `  }\n`;
-        break;
-        
-      case 'loop':
-        if (node.data.loopType === 'for') {
-          code += `  for (int i = 0; i < ${node.data.iterations || 10}; i++) {\n`;
-          code += `    // Loop body\n`;
-          code += `  }\n`;
-        }
-        break;
-    }
-    
     return code;
   };
 
@@ -445,10 +384,10 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
   };
 
   return (
-    <div className="fixed inset-0 bg-overlay/70 flex items-center justify-center z-50">
-      <div className="bg-card border border-border rounded-lg shadow-xl w-full max-w-7xl h-[90vh] flex">
+    <div className="flex h-full w-full flex-col overflow-hidden bg-background">
+      <div className="flex h-full w-full flex-col overflow-hidden bg-card lg:flex-row">
         {/* Block Palette */}
-        <div className="w-80 bg-card border-r border-border flex flex-col">
+        <div className="flex max-h-[38%] w-full flex-shrink-0 flex-col border-b border-border bg-card lg:max-h-none lg:w-80 lg:border-b-0 lg:border-r">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold text-foreground">Block Palette</h3>
             <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close visual programming editor">
@@ -542,7 +481,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
         </div>
 
         {/* Visual Programming Canvas */}
-        <div className="flex-1 relative" ref={reactFlowWrapper}>
+        <div className="relative min-h-0 flex-1" ref={reactFlowWrapper}>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -556,7 +495,12 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
             fitView
           >
             <Controls />
-            <MiniMap />
+            <MiniMap
+              style={{ backgroundColor: 'hsl(var(--card))', width: 128, height: 88 }}
+              maskColor="hsl(var(--background) / 0.65)"
+              nodeColor="hsl(var(--muted-foreground))"
+              nodeStrokeColor="hsl(var(--border))"
+            />
             <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
           </ReactFlow>
 
@@ -580,7 +524,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
 
         {/* Code Preview Panel */}
         {showCode && (
-          <div className="w-96 bg-card border-l border-border flex flex-col">
+          <div className="flex max-h-[35%] w-full flex-shrink-0 flex-col border-t border-border bg-card lg:max-h-none lg:w-96 lg:border-l lg:border-t-0">
             <div className="flex items-center justify-between p-4 border-b border-border">
               <h3 className="font-semibold text-foreground">Generated Code</h3>
               <Button variant="ghost" size="icon" onClick={() => setShowCode(false)} aria-label="Close code view">

@@ -13,6 +13,7 @@
  * to footprint pads around the placement origin.
  */
 import type { PlacedComponent, Wire } from '../../types'
+import { polylineDistance } from '../geometry/distance'
 import { footprintLibrary, type Footprint } from './footprintLibrary'
 
 /** Capability profile of the fab house the board is ordered from. */
@@ -248,7 +249,7 @@ export function buildFabPackage(
   const violations: FabViolation[] = []
   const traces = wires
     .filter((wire) => wire.points.length >= 2)
-    .map((wire) => ({ points: wire.points, width: Number(wire.style?.width ?? traceWidth) }))
+    .map((wire) => ({ points: wire.points, width: Number(wire.style?.width ?? traceWidth), netName: wire.netName }))
   traces.forEach((trace, index) => {
     if (trace.width < profile.minTraceWidth) {
       violations.push({ rule: 'trace-width', severity: 'error', message: `Trace ${index} width ${trace.width} mm below ${profile.name} minimum.`, elementId: `trace-${index}` })
@@ -256,10 +257,14 @@ export function buildFabPackage(
   })
   for (let a = 0; a < traces.length; a += 1) {
     for (let b = a + 1; b < traces.length; b += 1) {
-      let edge = Infinity
-      for (const p of traces[a].points) for (const q of traces[b].points) {
-        edge = Math.min(edge, Math.hypot(p.x - q.x, p.y - q.y) - (traces[a].width + traces[b].width) / 2)
-      }
+      // Copper on the same net is allowed to touch; different nets must clear.
+      const netA = traces[a].netName
+      const netB = traces[b].netName
+      if (netA && netB && netA === netB) continue
+      // Centre-line distance between the polylines, not just vertex distance:
+      // two long crossing traces have distant vertices but zero clearance.
+      const edge = polylineDistance(traces[a].points, traces[b].points)
+        - (traces[a].width + traces[b].width) / 2
       if (edge < profile.minTraceSpacing) {
         violations.push({ rule: 'trace-spacing', severity: 'error', message: `Traces ${a}/${b} clear ${edge.toFixed(3)} mm, below minimum.`, elementId: `trace-${a}/trace-${b}` })
       }
@@ -292,11 +297,15 @@ export function buildFabPackage(
     centroid.push({ reference: component.reference, x: component.position.x, y: component.position.y, rotation: component.rotation, footprint: footprint.name, side: 'Top', value })
     bom.push({ reference: component.reference, value, footprint: footprint.name, manufacturer: String(component.properties.manufacturer ?? component.component.manufacturer ?? ''), partNumber: String(component.properties.partNumber ?? component.component.partNumber ?? '') })
   }
+  // Only through-hole pads exist on the bottom copper; SMD pads are top-side
+  // in this model. Flashing every pad on B_Cu would short a board that only
+  // has top-side parts.
+  const throughHolePads = pads.filter((pad) => pad.drill !== undefined)
   const files = new Map<string, string>()
   files.set(`${projectName}-F_Cu.gtl`, gerberCopper('Top copper', traces, pads))
-  files.set(`${projectName}-B_Cu.gbl`, gerberCopper('Bottom copper', [], pads))
+  files.set(`${projectName}-B_Cu.gbl`, gerberCopper('Bottom copper', [], throughHolePads))
   files.set(`${projectName}-F_Mask.gts`, gerberMask('Top mask', pads, profile.maskClearance))
-  files.set(`${projectName}-B_Mask.gbs`, gerberMask('Bottom mask', pads, profile.maskClearance))
+  files.set(`${projectName}-B_Mask.gbs`, gerberMask('Bottom mask', throughHolePads, profile.maskClearance))
   files.set(`${projectName}-F_Silk.gto`, gerberSilk('Top silk', components.map((c) => ({ x: c.position.x, y: c.position.y + 2, text: c.reference }))))
   files.set(`${projectName}-B_Silk.gbo`, gerberSilk('Bottom silk', []))
   files.set(`${projectName}-Edge_Cuts.gm1`, gerberOutline(boardWidth, boardHeight))

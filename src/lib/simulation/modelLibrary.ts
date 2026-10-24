@@ -1,4 +1,4 @@
-import { parseSpiceValue } from './devices'
+import { parseSpiceValue, pickParameter } from './devices'
 
 export type SpiceModelType = 'NPN' | 'PNP' | 'NMOS' | 'PMOS' | 'NJF' | 'PJF' | 'D'
 
@@ -105,4 +105,94 @@ export function parseSpiceModelLibrary(source: string): SpiceModelLibrary {
   }
 
   return { models, errors, unsupported: [...new Set(unsupported)] }
+}
+
+/** Device family a card's declared type belongs to. */
+export type ModelDeviceKind = 'bjt' | 'mosfet' | 'jfet' | 'diode'
+
+export function modelCardDeviceKind(type: SpiceModelType): ModelDeviceKind {
+  switch (type) {
+    case 'NPN':
+    case 'PNP':
+      return 'bjt'
+    case 'NMOS':
+    case 'PMOS':
+      return 'mosfet'
+    case 'NJF':
+    case 'PJF':
+      return 'jfet'
+    case 'D':
+      return 'diode'
+  }
+}
+
+/** Polarity a card declares; `undefined` for a diode, which has none. */
+export function modelCardPolarity(card: SpiceModelCard): 'npn' | 'pnp' | 'n' | 'p' | undefined {
+  switch (card.type) {
+    case 'NPN':
+      return 'npn'
+    case 'PNP':
+      return 'pnp'
+    case 'NMOS':
+    case 'NJF':
+      return 'n'
+    case 'PMOS':
+    case 'PJF':
+      return 'p'
+    case 'D':
+      return undefined
+  }
+}
+
+/** `2N3904A` → `2N3904`: the gain-bin suffix stock cards also ignore. */
+const stripPartSuffix = (name: string): string => name.replace(/([0-9])[A-Z]$/, '$1')
+
+/**
+ * Index a model-card record by upper-case name so a lookup is
+ * case-insensitive (`2n3904` in a deck, `2N3904` on the symbol).
+ */
+export function normalizeModelCards(
+  cards: Readonly<Record<string, SpiceModelCard>> | undefined,
+): Map<string, SpiceModelCard> {
+  const normalized = new Map<string, SpiceModelCard>()
+  if (!cards) return normalized
+  for (const [key, card] of Object.entries(cards)) {
+    if (!card || typeof card.name !== 'string' || typeof card.type !== 'string') continue
+    normalized.set(key.trim().toUpperCase(), card)
+    normalized.set(card.name.trim().toUpperCase(), card)
+  }
+  return normalized
+}
+
+/**
+ * Find the card a component references.
+ *
+ * SPICE names the model on the element line; in a drawn schematic that name
+ * lives in the symbol's `model`/`part`/`mpn`/`type` property (a transistor's
+ * `type` property is its part number). A deck that names the card after the
+ * designator (`Q1`) is honoured by the final `component.name` candidate.
+ * `modelCard`/`modelName` are explicit escape hatches when a symbol needs both
+ * a part number and a custom card.
+ */
+export function resolveModelCard(
+  component: { name: string; parameters: Readonly<Record<string, string | number | boolean>> },
+  cards: ReadonlyMap<string, SpiceModelCard>,
+): SpiceModelCard | undefined {
+  if (cards.size === 0) return undefined
+  const candidates: string[] = []
+  const add = (value: string | number | boolean | undefined): void => {
+    if (typeof value !== 'string') return
+    const trimmed = value.trim()
+    if (trimmed) candidates.push(trimmed.toUpperCase())
+  }
+  add(pickParameter(component.parameters, 'modelCard', 'modelName'))
+  add(pickParameter(component.parameters, 'model', 'part', 'mpn', 'type'))
+  add(component.name)
+  for (const candidate of candidates) {
+    const exact = cards.get(candidate)
+    if (exact) return exact
+    const stripped = cards.get(stripPartSuffix(candidate))
+    if (stripped) return stripped
+  }
+  return undefined
 }

@@ -1,8 +1,9 @@
 import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react'
 import {
   Cpu, FolderOpen, Menu, Bot, BarChart3, Settings, Package, Users,
-  Download, Image, FileText, List, LogOut, Mic, MicOff,
-  Shield, Bell, RefreshCw, History, RotateCcw, Moon, Sun, AlertCircle
+  Download, Image, FileText, List, Lock, LogOut, Mic, MicOff,
+  Shield, Bell, RefreshCw, History, RotateCcw, Moon, Sun, AlertCircle, FlaskConical, Search,
+  MoreHorizontal,
 } from 'lucide-react'
 import { Button } from './components/ui/button'
 import type { PlacedComponent, Wire, User } from './types'
@@ -10,13 +11,17 @@ import { supabase, isSupabaseConfigured, type Project, type Schematic, type Comp
 import { offlineProjectStore } from './lib/offlineProjectStore'
 import { standardComponents } from './lib/componentLibrary'
 import { buildDemoBoard } from './lib/demo/demoBoard'
+import { isBoardDemoLoad, loadDemoScenario } from './lib/demo/loadDemo'
+import type { DemoScenario } from './lib/demo/demoScenarios'
 import { exportToImage, exportToNetlist, exportToJSON, exportToBOM, exportToGerber, downloadFile } from './lib/exportUtils'
 import { pluginManager } from './lib/plugins/pluginManager'
 import { collaborativeEditor } from './lib/collaboration/collaborativeEditor'
 import { nlpService } from './lib/nlp/nlpService'
 import { siemService } from './lib/siem/siemService'
+import { assetSecurity } from './lib/security/assetSecurity'
 import { backupService, type ProjectBackup } from './lib/backup/backupService'
-import { useAppStore, type WorkspaceMode } from './stores/useAppStore'
+import { useAppStore } from './stores/useAppStore'
+import { isWorkspaceMode, projectFromHash } from './stores/routing'
 import { useProjectStore } from './stores/useProjectStore'
 import type { CanvasComponent, CanvasWire } from './stores/useProjectStore'
 import { vcsService, type VcsCommit } from './lib/vcs/vcsService'
@@ -31,9 +36,12 @@ import {
 import DomainWorkspace from './components/workspace/DomainWorkspace'
 import ProjectManager from './components/ProjectManager'
 import AuthForm from './components/AuthForm'
+import VoiceCommandBar from './components/nlp/VoiceCommandBar'
+import { LoadingSpinner } from './components/ui/LoadingSpinner'
 import UserPresence from './components/collaboration/UserPresence'
 import { useTheme } from './lib/theme/useTheme'
 import { describeTheme } from './lib/theme/tokens'
+import { WORKSPACE_MODE_META } from './lib/workspace/modes'
 
 // On-demand panels keep their heavyweight deps (recharts, plugin runtimes)
 // out of the first paint until the user actually opens them.
@@ -42,6 +50,19 @@ const AIChatPanel = lazy(() => import('./components/ai/AIChatPanel'))
 const PluginPanel = lazy(() => import('./components/plugins/PluginPanel'))
 const CollaborativePanel = lazy(() => import('./components/collaboration/CollaborativePanel'))
 const SettingsPanel = lazy(() => import('./components/SettingsPanel'))
+const DemoGallery = lazy(() => import('./components/workspace/DemoGallery'))
+const CommandPalette = lazy(() => import('./components/workspace/CommandPalette'))
+
+const panelFallback = (
+  <div className="flex h-full items-center justify-center p-4">
+    <LoadingSpinner size="sm" />
+  </div>
+)
+
+/** Shortcut chips must match the platform's modifier keys. */
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent)
+const DEMO_SHORTCUT_LABEL = IS_MAC ? '⇧⌘D' : 'Ctrl+Shift+D'
+const PALETTE_SHORTCUT_LABEL = IS_MAC ? '⌘K' : 'Ctrl+K'
 
 function App() {
   // Without cloud credentials the app boots straight into local mode — there is
@@ -66,15 +87,29 @@ function App() {
   const [backupList, setBackupList] = useState<ProjectBackup[]>([])
   const [showProjectManager, setShowProjectManager] = useState(false)
   const [showPluginPanel, setShowPluginPanel] = useState(false)
+  const [showDemoGallery, setShowDemoGallery] = useState(false)
+  const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [showCollaborativePanel, setShowCollaborativePanel] = useState(false)
+  const [showMoreMenu, setShowMoreMenu] = useState(false)
   const [collaborativeUsers, setCollaborativeUsers] = useState<
     Array<{ id: string; name: string; email: string; avatar?: string; color: string; isActive: boolean; lastSeen: number }>
   >([])
   const [isVoiceActive, setIsVoiceActive] = useState(false)
+  const [showVoiceBar, setShowVoiceBar] = useState(false)
+  const [voiceError, setVoiceError] = useState('')
+  const [exportStatus, setExportStatus] = useState('')
   const [activeAlertCount, setActiveAlertCount] = useState(0)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
+  // The right-hand drawer is one slot: opening a tool replaces whatever is there.
+  const openPluginPanel = () => {
+    useAppStore.setState({ simulationPanelOpen: false, aiChatOpen: false })
+    setShowCollaborativePanel(false)
+    setShowPluginPanel(true)
+  }
+
   const {
+    workspaceMode,
     settings,
     activeTool,
     selectedComponents,
@@ -111,6 +146,14 @@ function App() {
    * colours directly — doing so is what produced the mixed light/dark UI.
    */
   const { preference: themePreference, theme: resolvedTheme, isDark: isDarkTheme, toggle: toggleTheme } = useTheme()
+
+  /* The browser tab doubles as a workspace readout: project, mode, unsaved. */
+  useEffect(() => {
+    const mode = WORKSPACE_MODE_META[workspaceMode].label
+    document.title = currentProject
+      ? `${isDirty ? '● ' : ''}${currentProject.name} — ${mode} · Folio`
+      : `${mode} · Folio`
+  }, [currentProject, isDirty, workspaceMode])
 
   // ── Auth ────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -232,12 +275,28 @@ function App() {
       examples: ['switch to pcb', 'open siem', 'go to robotics'],
       handler: async (entities) => {
         const mode = String(entities.mode || '').toLowerCase()
-        const validModes: WorkspaceMode[] = ['schematic', 'simulation', 'convert', 'pcb', 'mechanical', 'preview3d', 'embedded', 'fpga', 'hil', 'robotics', 'twin', 'siem', 'marketplace', 'dashboard', 'bom']
-        const workspaceMode = validModes.find(candidate => candidate === mode)
-        if (workspaceMode) useAppStore.getState().setWorkspaceMode(workspaceMode)
+        if (isWorkspaceMode(mode)) useAppStore.getState().setWorkspaceMode(mode)
         return { action: 'switch_workspace', mode }
       },
     })
+  }, [])
+
+  // ── Keyboard entry points: command palette (Ctrl/⌘+K) and demo gallery ─────
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const mod = event.metaKey || event.ctrlKey
+      if (mod && !event.shiftKey && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setShowCommandPalette((open) => !open)
+        return
+      }
+      if (mod && event.shiftKey && event.key.toLowerCase() === 'd') {
+        event.preventDefault()
+        setShowDemoGallery((open) => !open)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -303,6 +362,14 @@ function App() {
   const ensureProject = async (): Promise<boolean> => {
     if (!useProjectStore.getState().currentProject) await handleNewProject()
     return Boolean(useProjectStore.getState().currentProject)
+  }
+
+  // Gallery / palette entry point: a demo must be savable, and a board demo
+  // must never silently overwrite an unsaved schematic.
+  const openDemoScenario = async (scenario: DemoScenario) => {
+    if (isBoardDemoLoad(scenario.load) && !confirmReplace(scenario.title)) return
+    if (!(await ensureProject())) return
+    loadDemoScenario(scenario)
   }
 
   const handleLoadSampleCircuit = async () => {
@@ -593,7 +660,8 @@ function App() {
     const bom = exportToBOM(
       components.map(c => ({ ...c, position: { x: c.x, y: c.y }, scale: 1 } as unknown as PlacedComponent))
     )
-    downloadFile(bom, `${currentProject.name}_BOM.csv`, 'text/csv')
+    // `exportToBOM` is a formatted report, not a CSV; label it honestly.
+    downloadFile(bom, `${currentProject.name}_BOM.txt`, 'text/plain')
     setShowExportMenu(false)
   }
 
@@ -606,6 +674,24 @@ function App() {
     downloadFile(gerber, `${currentProject.name}.gbr`, 'text/plain')
     setShowExportMenu(false)
   }
+
+  /*
+   * Deep link restore: a reload of `#/robotics?project=...` used to land on the
+   * project list because the hash mode was applied inside the workspace, which
+   * only mounts after a project is open. Offline projects are local, so reopen
+   * them directly; cloud projects require a signed-in fetch and stay manual.
+   */
+  const deepLinkRestored = useRef(false)
+  useEffect(() => {
+    if (!offlineMode || deepLinkRestored.current) return
+    deepLinkRestored.current = true
+    const projectId = projectFromHash()
+    if (!projectId) return
+    const project = offlineProjectStore.get(projectId)
+    if (project) void handleSelectProject(project)
+    // The handler reads only stable setters and offline state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleSignOut = async () => {
     if (offlineMode) {
@@ -628,16 +714,47 @@ function App() {
   const themeToggleLabel = isDarkTheme ? 'Switch to light theme' : 'Switch to dark theme'
 
   const toggleVoice = async () => {
+    setShowVoiceBar(true)
     if (isVoiceActive) {
       nlpService.stopVoiceListening()
       setIsVoiceActive(false)
-    } else {
-      try {
-        await nlpService.startVoiceListening()
-        setIsVoiceActive(true)
-      } catch {
-        console.warn('Voice not available')
-      }
+      return
+    }
+    try {
+      await nlpService.startVoiceListening()
+      setIsVoiceActive(true)
+      setVoiceError('')
+    } catch (error) {
+      // The typed command bar stays usable even without SpeechRecognition.
+      setVoiceError(error instanceof Error ? error.message : 'Voice input unavailable')
+    }
+  }
+
+  const closeVoiceBar = () => {
+    nlpService.stopVoiceListening()
+    setIsVoiceActive(false)
+    setShowVoiceBar(false)
+    setVoiceError('')
+  }
+
+  const handleExportEncrypted = async () => {
+    if (!currentProject) return
+    const passphrase = window.prompt('Passphrase for the encrypted export (it cannot be recovered):')
+    if (!passphrase) return
+    const userId = user?.id ?? 'offline-local'
+    const assetId = currentProject.id
+    try {
+      assetSecurity.grant(userId, assetId, 'owner')
+      const plaintext = JSON.stringify(buildDesignSnapshot(), null, 2)
+      const encrypted = await assetSecurity.encryptAsset(userId, assetId, plaintext, passphrase)
+      downloadFile(
+        JSON.stringify(encrypted, null, 2),
+        `${currentProject.name}.folio.enc.json`,
+        'application/json',
+      )
+      setExportStatus(`Encrypted with ${encrypted.algorithm}.`)
+    } catch (error) {
+      setExportStatus(error instanceof Error ? error.message : 'Encrypted export failed.')
     }
   }
 
@@ -646,7 +763,7 @@ function App() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3" role="status" aria-live="polite">
-          <Cpu className="h-10 w-10 animate-pulse text-primary" />
+          <LoadingSpinner size="lg" />
           <span className="text-muted-foreground">Loading Folio…</span>
         </div>
       </div>
@@ -678,7 +795,7 @@ function App() {
         </header>
         <ProjectManager onSelectProject={handleSelectProject} onNewProject={handleNewProject} offlineMode={offlineMode} />
         {showSettings && (
-          <Suspense fallback={null}>
+          <Suspense fallback={panelFallback}>
             <SettingsPanel onClose={() => setShowSettings(false)} onRestartOnboarding={restartOnboarding} />
           </Suspense>
         )}
@@ -702,8 +819,8 @@ function App() {
     <div className="app-shell">
 
       {/* ── Header ── */}
-      <header className="app-chrome app-chrome-divider flex flex-shrink-0 items-center justify-between px-4 py-2">
-        <div className="flex items-center gap-3">
+      <header className="app-chrome app-chrome-divider flex min-w-0 flex-shrink-0 items-center justify-between gap-2 px-4 py-2">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => setShowProjectManager(true)} title="Projects" aria-label="Projects">
             <FolderOpen className="w-4 h-4" />
           </Button>
@@ -716,9 +833,9 @@ function App() {
           >
             <Menu className="w-4 h-4" />
           </Button>
-          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+          <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
           <div className="flex min-w-0 items-center gap-2">
-            <Cpu className="h-4 w-4 flex-shrink-0 text-primary" />
+            <Cpu className="hidden h-4 w-4 flex-shrink-0 text-primary sm:block" />
             <div className="min-w-0">
               <h1 className="truncate text-[13px] font-semibold leading-tight text-foreground" title={currentProject.name}>
                 {currentProject.name}
@@ -733,42 +850,51 @@ function App() {
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
-          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-          {/* Voice control */}
-          <Button
-            variant={isVoiceActive ? 'default' : 'ghost'}
-            size="icon"
-            onClick={toggleVoice}
-            title={isVoiceActive ? 'Stop voice control' : 'Start voice control'} aria-label={isVoiceActive ? 'Stop voice control' : 'Start voice control'}
-          >
-            {isVoiceActive ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-          </Button>
+        <div className="flex min-w-0 flex-shrink-0 items-center gap-1">
+          {/* Secondary actions stay out of the way on narrow viewports and are
+           * reachable from the More menu, so no control disappears. */}
+          <div className="hidden items-center gap-1 lg:flex">
+            <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+            {/* Voice control */}
+            <Button
+              variant={isVoiceActive ? 'default' : 'ghost'}
+              size="icon"
+              onClick={toggleVoice}
+              title={isVoiceActive ? 'Stop voice control' : 'Start voice control'} aria-label={isVoiceActive ? 'Stop voice control' : 'Start voice control'}
+            >
+              {isVoiceActive ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            </Button>
 
-          {/* Security alerts — shield itself flags active alerts (no floating count pill) */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => useAppStore.getState().setWorkspaceMode('siem')}
-            title={activeAlertCount > 0 ? `${activeAlertCount} active security alert${activeAlertCount === 1 ? '' : 's'}` : 'Security alerts'} aria-label={activeAlertCount > 0 ? `${activeAlertCount} active security alert${activeAlertCount === 1 ? '' : 's'}` : 'Security alerts'}
-          >
-            <Shield className={activeAlertCount > 0 ? 'w-4 h-4 text-destructive' : 'w-4 h-4'} />
-          </Button>
+            {/* Security alerts — shield itself flags active alerts (no floating count pill) */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => useAppStore.getState().setWorkspaceMode('siem')}
+              title={activeAlertCount > 0 ? `${activeAlertCount} active security alert${activeAlertCount === 1 ? '' : 's'}` : 'Security alerts'} aria-label={activeAlertCount > 0 ? `${activeAlertCount} active security alert${activeAlertCount === 1 ? '' : 's'}` : 'Security alerts'}
+            >
+              <Shield className={activeAlertCount > 0 ? 'w-4 h-4 text-destructive' : 'w-4 h-4'} />
+            </Button>
 
-          <Button variant="ghost" size="icon" onClick={toggleAiChat} title="AI Assistant" aria-label="AI Assistant">
-            <Bot className="w-4 h-4" />
-          </Button>
-          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-          <Button variant="ghost" size="icon" onClick={() => useAppStore.getState().setWorkspaceMode('simulation')} title="Open simulation workspace" aria-label="Open simulation workspace">
-            <BarChart3 className="w-4 h-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} title="Settings" aria-label="Settings">
-            <Settings className="w-4 h-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => setShowPluginPanel(true)} title="Plugins" aria-label="Plugins">
-            <Package className="w-4 h-4" />
-          </Button>
-          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+            <Button variant="ghost" size="icon" onClick={toggleAiChat} title="AI Assistant" aria-label="AI Assistant">
+              <Bot className="w-4 h-4" />
+            </Button>
+            <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+            <Button variant="ghost" size="icon" onClick={() => useAppStore.getState().setWorkspaceMode('simulation')} title="Open simulation workspace" aria-label="Open simulation workspace">
+              <BarChart3 className="w-4 h-4" />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} title="Settings" aria-label="Settings">
+              <Settings className="w-4 h-4" />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={openPluginPanel} title="Plugins" aria-label="Plugins">
+              <Package className="w-4 h-4" />
+            </Button>
+            <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+            <Button variant="ghost" size="icon" onClick={() => setShowCollaborativePanel(true)} title="Collaboration" aria-label="Collaboration">
+              <Users className="w-4 h-4" />
+            </Button>
+            <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+          </div>
+
           <div className="relative">
             <Button
               variant="ghost"
@@ -847,8 +973,29 @@ function App() {
               </div>
             )}
           </div>
-          <Button variant="ghost" size="icon" onClick={() => setShowCollaborativePanel(true)} title="Collaboration" aria-label="Collaboration">
-            <Users className="w-4 h-4" />
+          <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setShowCommandPalette(true)}
+            title={`Command palette (${PALETTE_SHORTCUT_LABEL})`}
+            aria-label="Command palette"
+            aria-haspopup="dialog"
+          >
+            <Search className="w-4 h-4" />
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex items-center gap-1 text-xs"
+            onClick={() => setShowDemoGallery(true)}
+            title={`Open the demo gallery (${DEMO_SHORTCUT_LABEL})`}
+            aria-label="Open the demo gallery"
+            aria-haspopup="dialog"
+          >
+            <FlaskConical className="h-4 w-4" />
+            <span className="hidden sm:inline">Demos</span>
           </Button>
 
           {/* Export menu */}
@@ -857,10 +1004,15 @@ function App() {
               variant="default"
               size="sm"
               className="flex items-center gap-1 text-xs"
-              onClick={() => setShowExportMenu(v => !v)}
+              onClick={() => {
+                setShowExportMenu(v => !v)
+                setExportStatus('')
+              }}
+              aria-label="Export design"
+              aria-expanded={showExportMenu}
             >
               <Download className="w-4 h-4" />
-              Export
+              <span className="hidden sm:inline">Export</span>
             </Button>
             {showExportMenu && (
               <div className="app-panel absolute right-0 z-50 mt-2 w-56 rounded-md border border-border py-2 shadow-xl">
@@ -870,6 +1022,7 @@ function App() {
                   { label: 'Export JSON', icon: FileText, action: handleExportJSON },
                   { label: 'Export Gerber (.gbr)', icon: FileText, action: handleExportGerber },
                   { label: 'Bill of Materials', icon: List, action: handleExportBOM },
+                  { label: 'Encrypted JSON…', icon: Lock, action: handleExportEncrypted },
                 ].map(({ label, icon: Icon, action }) => (
                   <button
                     key={label}
@@ -880,6 +1033,11 @@ function App() {
                     {label}
                   </button>
                 ))}
+                {exportStatus && (
+                  <p role="status" className="border-t border-border px-4 pt-2 text-xs text-muted-foreground">
+                    {exportStatus}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -887,67 +1045,153 @@ function App() {
           <Button variant="ghost" size="icon" onClick={toggleTheme} title={themeToggleLabel} aria-label={themeToggleLabel}>
             {themeIcon}
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => {
+          <Button variant="ghost" size="icon" className="hidden sm:inline-flex" onClick={() => {
             setCurrentProject(null)
             setCurrentSchematic(null)
           }} title="Back to Projects" aria-label="Back to Projects">
             <RefreshCw className="w-4 h-4" />
           </Button>
           {!offlineMode && (
-            <Button variant="ghost" size="icon" onClick={handleSignOut} title="Sign Out" aria-label="Sign Out">
+            <Button variant="ghost" size="icon" className="hidden md:inline-flex" onClick={handleSignOut} title="Sign Out" aria-label="Sign Out">
               <LogOut className="w-4 h-4" />
             </Button>
           )}
+
+          <div className="relative lg:hidden">
+            <Button
+              variant={showMoreMenu ? 'default' : 'ghost'}
+              size="icon"
+              onClick={() => setShowMoreMenu(value => !value)}
+              title="More tools"
+              aria-label="More tools"
+              aria-haspopup="menu"
+              aria-expanded={showMoreMenu}
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </Button>
+            {showMoreMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} aria-hidden="true" />
+                <div
+                  className="app-panel absolute right-0 top-full z-50 mt-1 w-60 rounded-md border border-border py-1 shadow-xl"
+                  role="menu"
+                  aria-label="More tools"
+                >
+                  {([
+                    { label: isVoiceActive ? 'Stop voice control' : 'Start voice control', icon: isVoiceActive ? MicOff : Mic, action: toggleVoice },
+                    { label: activeAlertCount > 0 ? `Security alerts (${activeAlertCount} active)` : 'Security alerts', icon: Shield, action: () => useAppStore.getState().setWorkspaceMode('siem') },
+                    { label: 'AI Assistant', icon: Bot, action: toggleAiChat },
+                    { label: 'Simulation workspace', icon: BarChart3, action: () => useAppStore.getState().setWorkspaceMode('simulation') },
+                    { label: 'Settings', icon: Settings, action: () => setShowSettings(true) },
+                    { label: 'Plugins', icon: Package, action: openPluginPanel },
+                    { label: 'Collaboration', icon: Users, action: () => setShowCollaborativePanel(true) },
+                    { label: 'Back to Projects', icon: RefreshCw, action: () => { setCurrentProject(null); setCurrentSchematic(null) } },
+                  ] as const).map(({ label, icon: Icon, action }) => (
+                    <button
+                      key={label}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => { action(); setShowMoreMenu(false) }}
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-foreground hover:bg-accent"
+                    >
+                      <Icon className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                      <span className="truncate">{label}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
-      {/* ── Main area ── */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Domain workspace with 13-mode tab routing */}
-        <DomainWorkspace libraryComponents={libraryComponents} onSave={handleSave} />
+      {showVoiceBar && (
+        <VoiceCommandBar
+          listening={isVoiceActive}
+          onToggleListening={() => { void toggleVoice() }}
+          onClose={closeVoiceBar}
+          error={voiceError}
+        />
+      )}
 
-        {/* Right panel stack */}
-        <div className="flex flex-shrink-0">
-          <Suspense fallback={null}>
+      {/* ── Main area ── */}
+      <main aria-label="Workspace" className="relative flex min-w-0 flex-1 overflow-hidden">
+        {/* Domain workspace with 13-mode tab routing */}
+        <DomainWorkspace
+          libraryComponents={libraryComponents}
+          onSave={handleSave}
+          onOpenDemos={() => setShowDemoGallery(true)}
+        />
+
+        {/* Right panel stack — docked on desktop, a drawer over the sheet below xl. */}
+        {(simulationPanelOpen || aiChatOpen || showCollaborativePanel || showPluginPanel) && (
+          <div
+            className="fixed inset-0 z-40 bg-overlay/40 xl:hidden"
+            onClick={() => {
+              useAppStore.setState({ simulationPanelOpen: false, aiChatOpen: false })
+              setShowCollaborativePanel(false)
+              setShowPluginPanel(false)
+            }}
+            aria-hidden="true"
+          />
+        )}
+        <div className="flex min-w-0 flex-shrink-0 max-xl:absolute max-xl:inset-y-0 max-xl:right-0 max-xl:z-40 max-xl:shadow-2xl">
+          <Suspense fallback={panelFallback}>
           {simulationPanelOpen && (
-            <div className="app-panel w-96 border-l border-border">
+            <div className="app-panel w-96 max-w-[calc(100vw-2rem)] border-l border-border max-xl:h-full">
               <SimulationPanel onClose={toggleSimulationPanel} />
             </div>
           )}
           {aiChatOpen && (
-            <div className="app-panel w-96 border-l border-border">
+            <div className="app-panel w-96 max-w-[calc(100vw-2rem)] border-l border-border max-xl:h-full">
               <AIChatPanel onClose={toggleAiChat} />
             </div>
           )}
           {showCollaborativePanel && (
-            <div className="app-panel w-80 border-l border-border">
+            <div className="app-panel w-80 max-w-[calc(100vw-2rem)] border-l border-border max-xl:h-full">
               <CollaborativePanel onClose={() => setShowCollaborativePanel(false)} />
+            </div>
+          )}
+          {showPluginPanel && (
+            <div className="app-panel w-96 max-w-[calc(100vw-2rem)] border-l border-border max-xl:h-full">
+              <PluginPanel onClose={() => setShowPluginPanel(false)} />
             </div>
           )}
           </Suspense>
         </div>
-      </div>
+      </main>
 
-      {/* ── Status bar ── */}
-      <div className="status-bar">
-        <span className="status-segment">
-          PARTS <span className="cad-readout">{components.length}</span>
+      {/* ── Status bar: document metrics on the sheet, workspace context elsewhere ── */}
+      <footer className="status-bar" aria-label="Workspace status">
+        <span className="status-segment text-foreground" title={WORKSPACE_MODE_META[workspaceMode].description}>
+          MODE <span className="cad-readout uppercase">{WORKSPACE_MODE_META[workspaceMode].label}</span>
         </span>
-        <span className="status-segment">
-          WIRES <span className="cad-readout">{wires.length}</span>
-        </span>
-        <span className="status-segment">
-          SEL <span className="cad-readout">{selectedComponents.length}</span>
-        </span>
-        <span className="status-segment">
-          TOOL <span className="cad-readout uppercase">{activeTool}</span>
-        </span>
-        <span className="status-segment">
-          GRID <span className="cad-readout">{settings.gridSize}</span>
-        </span>
-        <span className="status-segment">
-          SNAP <span className="cad-readout">{settings.snapToGrid ? 'ON' : 'OFF'}</span>
-        </span>
+        {workspaceMode === 'schematic' ? (
+          <>
+            <span className="status-segment">
+              PARTS <span className="cad-readout">{components.length}</span>
+            </span>
+            <span className="status-segment">
+              WIRES <span className="cad-readout">{wires.length}</span>
+            </span>
+            <span className="status-segment">
+              SEL <span className="cad-readout">{selectedComponents.length}</span>
+            </span>
+            <span className="status-segment">
+              TOOL <span className="cad-readout uppercase">{activeTool}</span>
+            </span>
+            <span className="status-segment hidden sm:inline-flex">
+              GRID <span className="cad-readout">{settings.gridSize}</span>
+            </span>
+            <span className="status-segment hidden sm:inline-flex">
+              SNAP <span className="cad-readout">{settings.snapToGrid ? 'ON' : 'OFF'}</span>
+            </span>
+          </>
+        ) : (
+          <span className="status-segment hidden truncate lg:inline-flex" title={WORKSPACE_MODE_META[workspaceMode].description}>
+            {WORKSPACE_MODE_META[workspaceMode].description}
+          </span>
+        )}
         <span className="status-segment hidden md:inline-flex">
           THEME <span className="cad-readout">{themeLabel}</span>
         </span>
@@ -962,10 +1206,18 @@ function App() {
             <AlertCircle className="h-3 w-3" /> {activeAlertCount} ALERT{activeAlertCount !== 1 ? 'S' : ''}
           </span>
         )}
-        <span className="status-segment ml-auto border-r-0">
-          <Bell className="w-3 h-3" />
+        <button
+          type="button"
+          onClick={() => setShowDemoGallery(true)}
+          className="status-segment ml-auto hidden border-l border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground lg:inline-flex"
+          title={`Open the demo gallery (${DEMO_SHORTCUT_LABEL})`}
+        >
+          <FlaskConical className="h-3 w-3" /> DEMOS <span className="cad-kbd ml-1">{DEMO_SHORTCUT_LABEL}</span>
+        </button>
+        <span className="status-segment hidden border-r-0 lg:inline-flex">
+          <Bell className="w-3 h-3" aria-hidden="true" />
         </span>
-      </div>
+      </footer>
 
       {/* Canvas ref for UserPresence */}
       <canvas ref={canvasRef} className="hidden" />
@@ -978,9 +1230,25 @@ function App() {
         canvasRef={canvasRef}
       />
 
-      <Suspense fallback={null}>
-        {showPluginPanel && <PluginPanel onClose={() => setShowPluginPanel(false)} />}
+      <Suspense fallback={panelFallback}>
         {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} onRestartOnboarding={restartOnboarding} />}
+        {showDemoGallery && (
+          <DemoGallery
+            open
+            onClose={() => setShowDemoGallery(false)}
+            onOpenScenario={openDemoScenario}
+          />
+        )}
+        {showCommandPalette && (
+          <CommandPalette
+            open
+            onClose={() => setShowCommandPalette(false)}
+            onSave={() => { void handleSave(getCheckpointData()) }}
+            onOpenDemos={() => setShowDemoGallery(true)}
+            onToggleTheme={toggleTheme}
+            onOpenScenario={openDemoScenario}
+          />
+        )}
       </Suspense>
       {showOnboarding && (
         <OnboardingTour

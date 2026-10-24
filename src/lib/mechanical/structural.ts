@@ -337,14 +337,24 @@ export function solveAxialChain(
 
   const held = new Set(constrained);
   for (const index of constrained) {
-    if (!(index >= 0 && index < nodeCount)) throw new Error(`Constraint ${index} is out of range.`);
+    if (!Number.isInteger(index) || index < 0 || index >= nodeCount) {
+      throw new Error(`Constraint ${index} is out of range.`);
+    }
   }
+  loads.forEach((load, index) => {
+    if (!Number.isFinite(load)) throw new Error(`Load ${index} must be finite, got ${load}.`);
+  });
   elements.forEach((element, i) => {
     positive(element.length, `element ${i} length`);
     positive(element.area, `element ${i} area`);
     positive(element.modulus, `element ${i} modulus`);
-    if (element.left < 0 || element.right >= nodeCount) {
+    const leftValid = Number.isInteger(element.left) && element.left >= 0 && element.left < nodeCount;
+    const rightValid = Number.isInteger(element.right) && element.right >= 0 && element.right < nodeCount;
+    if (!leftValid || !rightValid) {
       throw new Error(`Element ${i} references a node outside the model.`);
+    }
+    if (element.left === element.right) {
+      throw new Error(`Element ${i} connects node ${element.left} to itself.`);
     }
   });
 

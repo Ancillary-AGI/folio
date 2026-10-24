@@ -62,12 +62,6 @@ export interface GridPoint {
   y: number;
 }
 
-export interface RoutedPath {
-  points: GridPoint[];
-  lengthCells: number;
-  vias: Microvia[];
-}
-
 /**
  * Reconstruct the actual A* path instead of discarding it for an L-shape.
  * Takes the visited-parent map from a grid search and returns the cell path
@@ -97,8 +91,9 @@ export function reconstructPath(
 }
 
 /**
- * A* over a blocked-cell grid, returning the real path and its length.
- * `blocked[layer][y][x]` marks keepouts. Via cost models the layer change.
+ * A* over a single-layer blocked-cell grid (`blocked[y][x]`), returning the
+ * real Manhattan path and its length in cells. Layer changes are not modelled
+ * here; use the microvia rules above for span validation.
  */
 export function routeGrid(
   blocked: boolean[][],
@@ -116,12 +111,48 @@ export function routeGrid(
 
   const gScore = new Map<string, number>([[key(start), 0]]);
   const parent = new Map<string, GridPoint | null>([[key(start), null]]);
-  const open: Array<{ p: GridPoint; f: number }> = [{ p: start, f: Math.abs(end.x - start.x) + Math.abs(end.y - start.y) }];
+  const open: Array<{ p: GridPoint; f: number }> = [];
   const closed = new Set<string>();
 
+  /**
+   * Binary min-heap keyed on f. Sorting the open set on every expansion is
+   * O(n log n) per node and dominates on realistic escape grids; the heap
+   * keeps each push/pop logarithmic.
+   */
+  const pushOpen = (node: { p: GridPoint; f: number }): void => {
+    open.push(node);
+    let index = open.length - 1;
+    while (index > 0) {
+      const parentIndex = (index - 1) >> 1;
+      if (open[parentIndex].f <= open[index].f) break;
+      [open[parentIndex], open[index]] = [open[index], open[parentIndex]];
+      index = parentIndex;
+    }
+  };
+  const popOpen = (): { p: GridPoint; f: number } => {
+    const top = open[0];
+    const last = open.pop()!;
+    if (open.length > 0) {
+      open[0] = last;
+      let index = 0;
+      for (;;) {
+        const left = 2 * index + 1;
+        const right = left + 1;
+        let smallest = index;
+        if (left < open.length && open[left].f < open[smallest].f) smallest = left;
+        if (right < open.length && open[right].f < open[smallest].f) smallest = right;
+        if (smallest === index) break;
+        [open[smallest], open[index]] = [open[index], open[smallest]];
+        index = smallest;
+      }
+    }
+    return top;
+  };
+
+  pushOpen({ p: start, f: Math.abs(end.x - start.x) + Math.abs(end.y - start.y) });
+
   while (open.length > 0) {
-    open.sort((a, b) => a.f - b.f);
-    const current = open.shift()!.p;
+    const current = popOpen().p;
     const ckey = key(current);
     if (closed.has(ckey)) continue;
     closed.add(ckey);
@@ -141,7 +172,7 @@ export function routeGrid(
       if (tentative < (gScore.get(key(next)) ?? Infinity)) {
         gScore.set(key(next), tentative);
         parent.set(key(next), current);
-        open.push({ p: next, f: tentative + Math.abs(end.x - next.x) + Math.abs(end.y - next.y) });
+        pushOpen({ p: next, f: tentative + Math.abs(end.x - next.x) + Math.abs(end.y - next.y) });
       }
     }
   }

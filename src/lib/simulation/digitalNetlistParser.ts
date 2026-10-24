@@ -97,6 +97,9 @@ export function parseDigitalNetlist(text: string): ParsedDigitalNetlist {
         if (!output) throw new DigitalParseError('GATE requires out=<node>', lineNumber, rawLine)
         const inputs = (tokens.get('in') ?? '').split(',').filter((node) => node !== '')
         if (inputs.length === 0) throw new DigitalParseError('GATE requires in=<n1>[,n2...]', lineNumber, rawLine)
+        if ((type === 'NOT' || type === 'BUF') && inputs.length !== 1) {
+          throw new DigitalParseError(`${type} takes exactly one input`, lineNumber, rawLine)
+        }
         gates.push({ id, type, inputs, output, delay: parseDelay(tokens.get('delay'), lineNumber, rawLine) })
         break
       }
@@ -123,6 +126,10 @@ export function parseDigitalNetlist(text: string): ParsedDigitalNetlist {
             inputs[role.toUpperCase()] = node
           }
         }
+        const edgeRaw = (tokens.get('edge') ?? 'rising').toLowerCase()
+        if (edgeRaw !== 'rising' && edgeRaw !== 'falling') {
+          throw new DigitalParseError(`FF edge must be rising or falling, got "${tokens.get('edge')}"`, lineNumber, rawLine)
+        }
         flipFlops.push({
           id,
           type,
@@ -130,7 +137,7 @@ export function parseDigitalNetlist(text: string): ParsedDigitalNetlist {
           q,
           qbar,
           inputs,
-          edge: (tokens.get('edge') ?? 'rising') === 'falling' ? 'falling' : 'rising',
+          edge: edgeRaw,
           delay: parseDelay(tokens.get('delay'), lineNumber, rawLine),
         })
         break
@@ -145,8 +152,8 @@ export function parseDigitalNetlist(text: string): ParsedDigitalNetlist {
         }
         const dutyRaw = tokens.get('duty')
         const duty = dutyRaw === undefined ? undefined : Number(dutyRaw)
-        if (duty !== undefined && (!Number.isFinite(duty) || duty <= 0 || duty > 1)) {
-          throw new DigitalParseError('CLOCK duty must be in (0,1]', lineNumber, rawLine)
+        if (duty !== undefined && (!Number.isFinite(duty) || duty <= 0 || duty >= 1)) {
+          throw new DigitalParseError('CLOCK duty must be in (0,1)', lineNumber, rawLine)
         }
         const startRaw = tokens.get('start')
         const startState = startRaw === undefined ? undefined : parseLogicValue(startRaw, lineNumber, rawLine)
@@ -161,9 +168,12 @@ export function parseDigitalNetlist(text: string): ParsedDigitalNetlist {
         if (!node) throw new DigitalParseError('SET requires a node', lineNumber, rawLine)
         const value = parseLogicValue(stripped.split(/\s+/)[2] ?? '', lineNumber, rawLine)
         const atRaw = stripped.split(/\s+/)[3]
-        const at = atRaw?.startsWith('@') ? Number(atRaw.slice(1)) : 0
-        if (atRaw !== undefined && !Number.isFinite(at)) {
-          throw new DigitalParseError('SET time must be a number after @', lineNumber, rawLine)
+        if (atRaw !== undefined && !atRaw.startsWith('@')) {
+          throw new DigitalParseError('SET time must use @<time>', lineNumber, rawLine)
+        }
+        const at = atRaw === undefined ? 0 : Number(atRaw.slice(1))
+        if (!Number.isFinite(at) || at < 0) {
+          throw new DigitalParseError('SET time must be a non-negative number after @', lineNumber, rawLine)
         }
         stimuli.push({ node, value, time: at })
         break

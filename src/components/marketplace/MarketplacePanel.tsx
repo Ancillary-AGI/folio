@@ -3,6 +3,7 @@ import { designMarketplace } from '../../lib/marketplace/designMarketplace';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
+import { useDemoRequest } from '../workspace/useDemoRequest';
 
 export default function MarketplacePanel() {
   const [query, setQuery] = useState('');
@@ -19,6 +20,17 @@ export default function MarketplacePanel() {
     setInstalled(designMarketplace.getInstalled());
     setItems(designMarketplace.search(query));
   };
+
+  const publishDemoBundle = () => {
+    void import('../../lib/demo/demoMarketplace').then((m) => {
+      m.buildDemoMarketplaceBundle(designMarketplace);
+      setInstalled(designMarketplace.getInstalled());
+      setQuery('rectifier');
+      setItems(designMarketplace.search('rectifier'));
+    });
+  };
+
+  useDemoRequest('marketplace-bundle', publishDemoBundle);
 
   return (
     <div className="h-full overflow-auto p-4 space-y-4">
@@ -57,14 +69,7 @@ export default function MarketplacePanel() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => {
-              void import('../../lib/demo/demoMarketplace').then((m) => {
-                m.buildDemoMarketplaceBundle(designMarketplace);
-                setInstalled(designMarketplace.getInstalled());
-                setQuery('rectifier');
-                setItems(designMarketplace.search('rectifier'));
-              });
-            }}
+            onClick={publishDemoBundle}
           >
             Publish rectifier bundle
           </Button>

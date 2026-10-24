@@ -12,12 +12,18 @@
  *      booleans. X is the honest answer when a value is not yet known, and it
  *      propagates: an AND with one X input and no 0 input is X, never a guess.
  *   2. Propagation delay — a gate's output lands `delay` time units after its
- *      input changes. Without delay you cannot measure timing, build a ring
- *      oscillator, or catch a race; with it the waveform is a real timing
+ *      input changes. The delay is inertial: an input pulse shorter than the
+ *      delay is swallowed, and a later input change withdraws the transition
+ *      that was still in flight. Without delay you cannot measure timing, build
+ *      a ring oscillator, or catch a race; with it the waveform is a real timing
  *      diagram.
  *   3. Edge-triggered state — flip-flops sample their data inputs only on the
  *      configured clock edge and update after their own delay, so sequential
  *      circuits (counters, registers, state machines) behave as hardware does.
+ *      Events at the same timestamp run in insertion order, and clock edges are
+ *      seeded before stimuli, so a data/clock race resolves deterministically
+ *      rather than randomly — a documented convention, not a hardware race
+ *      model.
  *
  * Nothing here invents a result. An unmodelled construct, a combinational loop
  * that will not settle, or a runaway event storm returns `success: false` with
@@ -56,7 +62,7 @@ export interface Clock {
   id: string
   output: string
   period: number
-  /** Duty cycle in (0,1]; default 0.5. */
+  /** Duty cycle in (0,1); default 0.5. A duty of 1 would have no low phase. */
   duty?: number
   startState?: 0 | 1
 }
@@ -153,19 +159,23 @@ export function flipFlopNextState(
     case 'JK': {
       const j = inputs.J ?? 'X'
       const k = inputs.K ?? 'X'
-      if (j === 1 && k === 1) return { q: currentQbar, qbar: currentQ } // toggle
-      if (j === 1) return { q: 1, qbar: 0 }
-      if (k === 1) return { q: 0, qbar: 1 }
+      if (j === 1 && k === 0) return { q: 1, qbar: 0 }
+      if (j === 0 && k === 1) return { q: 0, qbar: 1 }
       if (j === 0 && k === 0) return { q: currentQ, qbar: currentQbar } // hold
+      if (j === 1 && k === 1) return { q: currentQbar, qbar: currentQ } // toggle
+      // Any X/Z input leaves the next state unknown instead of guessing a set,
+      // reset or toggle that the circuit cannot guarantee.
       return { q: 'X', qbar: 'X' }
     }
     case 'SR': {
       const s = inputs.S ?? 'X'
       const r = inputs.R ?? 'X'
-      if (s === 1 && r === 1) return { q: 'X', qbar: 'X' } // invalid
-      if (s === 1) return { q: 1, qbar: 0 }
-      if (r === 1) return { q: 0, qbar: 1 }
-      return { q: currentQ, qbar: currentQbar }
+      if (s === 1 && r === 0) return { q: 1, qbar: 0 }
+      if (s === 0 && r === 1) return { q: 0, qbar: 1 }
+      if (s === 0 && r === 0) return { q: currentQ, qbar: currentQbar }
+      // Both asserted is invalid, and any unknown input could resolve either
+      // way: both are X, never a hold guess.
+      return { q: 'X', qbar: 'X' }
     }
     default:
       return { q: 'X', qbar: 'X' }
@@ -181,6 +191,8 @@ interface ScheduledEvent {
   seq: number
   node: string
   value: LogicValue
+  /** Gate that produced this output transition, for inertial cancellation. */
+  gate?: Gate
 }
 
 class EventQueue {
@@ -271,6 +283,43 @@ export function simulateDigital(netlist: DigitalNetlist, stopTime: number): Digi
     transitions[node] = [{ time: 0, value: initial }]
   }
 
+  const fail = (error: string): DigitalResult => ({
+    success: false,
+    error,
+    transitions,
+    nodeValues: [...nodeNames],
+    eventCount: 0,
+    finalValues: Object.fromEntries(values),
+  })
+
+  // Validate every spec before scheduling. A malformed delay or timestamp would
+  // otherwise schedule events in the past, stall the clock loop, or silently
+  // drop timing information.
+  if (!Number.isFinite(stopTime) || stopTime <= 0) {
+    return fail('stopTime must be a finite value > 0')
+  }
+  for (const gate of gates) {
+    if (!Number.isFinite(gate.delay) || gate.delay < 0) {
+      return fail(`gate ${gate.id} has a non-finite or negative delay`)
+    }
+    if (gate.inputs.length === 0) {
+      return fail(`gate ${gate.id} has no inputs`)
+    }
+    if ((gate.type === 'NOT' || gate.type === 'BUF') && gate.inputs.length !== 1) {
+      return fail(`gate ${gate.id} is ${gate.type} and must have exactly one input`)
+    }
+  }
+  for (const ff of flipFlops) {
+    if (!Number.isFinite(ff.delay) || ff.delay < 0) {
+      return fail(`flip-flop ${ff.id} has a non-finite or negative delay`)
+    }
+  }
+  for (const stimulus of netlist.stimuli ?? []) {
+    if (!Number.isFinite(stimulus.time) || stimulus.time < 0) {
+      return fail(`stimulus on node "${stimulus.node}" has a non-finite or negative time`)
+    }
+  }
+
   // Fan-out: which gates read a node, which flip-flops clock off it.
   const gateFanout = new Map<string, Gate[]>()
   for (const gate of gates) {
@@ -289,25 +338,39 @@ export function simulateDigital(netlist: DigitalNetlist, stopTime: number): Digi
 
   const queue = new EventQueue()
   let seq = 0
-  const schedule = (time: number, node: string, value: LogicValue): void => {
-    queue.push({ time, seq: seq++, node, value })
+  /** Latest scheduled transition per gate: earlier ones are superseded. */
+  const pendingGateEvent = new Map<Gate, number>()
+  const schedule = (time: number, node: string, value: LogicValue, gate?: Gate): number => {
+    const eventSeq = seq++
+    queue.push({ time, seq: eventSeq, node, value, gate })
+    return eventSeq
   }
 
   // Seed clock edges and stimuli. Validate clocks up front so a bad spec fails
   // loud instead of silently producing a flat or infinite clock.
   for (const clock of clocks) {
-    if (!(clock.period > 0)) {
-      return { success: false, error: `clock ${clock.id} has non-positive period`, transitions, nodeValues: [...nodeNames], eventCount: 0, finalValues: Object.fromEntries(values) }
+    if (!Number.isFinite(clock.period) || clock.period <= 0) {
+      return fail(`clock ${clock.id} has a non-positive or non-finite period`)
     }
-    if (!(clock.duty === undefined || (clock.duty > 0 && clock.duty <= 1))) {
-      return { success: false, error: `clock ${clock.id} duty must be in (0,1]`, transitions, nodeValues: [...nodeNames], eventCount: 0, finalValues: Object.fromEntries(values) }
+    const duty = clock.duty ?? 0.5
+    if (!Number.isFinite(duty) || duty <= 0 || duty >= 1) {
+      return fail(`clock ${clock.id} duty must be in (0,1)`)
     }
-    const highTime = clock.period * (clock.duty ?? 0.5)
+    const highTime = clock.period * duty
+    const lowTime = clock.period - highTime
+    // A duty so close to 1 that floats round the low phase to zero would make
+    // the loop below stop advancing.
+    if (!(highTime > 0) || !(lowTime > 0)) {
+      return fail(`clock ${clock.id} period and duty leave a zero-length phase`)
+    }
+    if (Math.ceil(stopTime / Math.min(highTime, lowTime)) + 1 > MAX_EVENTS) {
+      return fail(`clock ${clock.id} would schedule more than ${MAX_EVENTS} edges — shorten stopTime or lengthen the period`)
+    }
     let state = clock.startState ?? 0
     for (let t = 0; t <= stopTime + 1e-9; ) {
       schedule(t, clock.output, state)
       state = state === 0 ? 1 : 0
-      t += state === 0 ? highTime : clock.period - highTime
+      t += state === 0 ? highTime : lowTime
     }
   }
   for (const stimulus of netlist.stimuli ?? []) {
@@ -330,6 +393,15 @@ export function simulateDigital(netlist: DigitalNetlist, stopTime: number): Digi
     }
 
     const previous = values.get(event.node) ?? 'X'
+    if (event.gate) {
+      /*
+       * Inertial delay: a transition superseded by a later input change never
+       * happened in hardware. Without this check a stale event would fire and
+       * drive the output to a value the inputs had already abandoned.
+       */
+      if (pendingGateEvent.get(event.gate) !== event.seq) continue
+      pendingGateEvent.delete(event.gate)
+    }
     if (previous === event.value) continue // no transition, nothing propagates
     values.set(event.node, event.value)
     transitions[event.node].push({ time: event.time, value: event.value })
@@ -354,7 +426,11 @@ export function simulateDigital(netlist: DigitalNetlist, stopTime: number): Digi
       const inputs = gate.inputs.map((node) => values.get(node) ?? 'X')
       const output = evalGate(gate.type, inputs)
       if (output !== (values.get(gate.output) ?? 'X')) {
-        schedule(event.time + gate.delay, gate.output, output)
+        pendingGateEvent.set(gate, schedule(event.time + gate.delay, gate.output, output, gate))
+      } else if (pendingGateEvent.has(gate)) {
+        // The inputs returned to the value the output already holds, so the
+        // in-flight transition must be withdrawn (inertial delay).
+        pendingGateEvent.delete(gate)
       }
     }
   }
@@ -372,10 +448,17 @@ export function simulateDigital(netlist: DigitalNetlist, stopTime: number): Digi
 export function valueAt(result: DigitalResult, node: string, time: number): LogicValue {
   const history = result.transitions[node]
   if (!history || history.length === 0) return 'X'
-  let value: LogicValue = history[0].value
-  for (const transition of history) {
-    if (transition.time > time + 1e-9) break
-    value = transition.value
+  let low = 0
+  let high = history.length - 1
+  let found = -1
+  while (low <= high) {
+    const middle = (low + high) >> 1
+    if (history[middle].time <= time + 1e-9) {
+      found = middle
+      low = middle + 1
+    } else {
+      high = middle - 1
+    }
   }
-  return value
+  return found >= 0 ? history[found].value : 'X'
 }

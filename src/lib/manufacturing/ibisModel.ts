@@ -47,6 +47,7 @@ export function parseSI(value: string, lineNumber: number, line: string): number
   const match = value.trim().match(/^([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s*([a-zA-Z]*)$/);
   if (!match) throw new IbisParseError(`bad numeric value "${value}"`, lineNumber, line);
   const num = Number(match[1]);
+  if (!Number.isFinite(num)) throw new IbisParseError(`non-finite numeric value "${value}"`, lineNumber, line);
   const unit = match[2];
   if (unit === '') return num;
   // Prefix is the first letter; the rest is the unit (V, A, F, Hz, ...).
@@ -54,8 +55,9 @@ export function parseSI(value: string, lineNumber: number, line: string): number
   const scale: Record<string, number> = {
     t: 1e12, g: 1e9, k: 1e3, m: 1e-3, u: 1e-6, n: 1e-9, p: 1e-12, f: 1e-15,
   };
-  // Bare unit letters carry no scale.
-  if (/^[vafhz]+$/i.test(unit)) return num;
+  // A bare unit carries no scale. Match whole unit names, not single letters:
+  // "fF" is femtofarad while "F" is farad, and "mF" is millifarad while "F" is not milli.
+  if (/^(?:v|a|f|h|hz|s|ohm|ohms)$/i.test(unit)) return num;
   // 'M'/'meg' is mega; lowercase 'm' is milli.
   if (unit[0] === 'M' || unit.toLowerCase().startsWith('meg')) return num * 1e6;
   const factor = scale[prefix];
@@ -158,6 +160,13 @@ export function parseIbis(text: string): IbisFile {
 export function ivCurrent(table: IbisIvPoint[], v: number): number {
   if (table.length < 2) throw new Error('I-V table needs at least two points.');
   if (!Number.isFinite(v)) throw new Error('voltage must be finite.');
+  // The interpolation and the binary-free scan below assume ascending voltage;
+  // an unsorted table would return a current from the wrong segment.
+  for (let k = 1; k < table.length; k += 1) {
+    if (!(table[k].voltage > table[k - 1].voltage)) {
+      throw new Error('I-V table voltages must be strictly increasing.');
+    }
+  }
   const lo = table[0].voltage;
   const hi = table[table.length - 1].voltage;
   if (v < lo || v > hi) throw new Error(`voltage ${v} outside I-V range [${lo}, ${hi}].`);

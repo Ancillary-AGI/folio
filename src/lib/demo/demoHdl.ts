@@ -1,14 +1,13 @@
 /**
- * Demo bitstream: half-adder in BOTH structural languages.
+ * Demo HDL: half-adder in BOTH structural languages.
  *
- * The panel's default text is behavioral Verilog (`always @(posedge ...)`)
- * that neither elaborator parses — so the first thing a user sees is red.
- * These two sources describe the SAME feed-forward half-adder (AND carry,
- * XOR sum, buffered carry-out), elaborate on the real parsers, verify on
- * the real digital engine, and synthesize to real LUT counts. Proven by
- * `demoHdl.test.ts`: both languages, same truth table, bitstream out.
+ * Both sources describe the SAME feed-forward half-adder (AND carry, XOR sum,
+ * buffered carry-out), elaborate on the real parsers, verify on the real
+ * digital engine, and produce netlist-derived resource estimates. The emitted
+ * artifact is a portable design manifest — vendor place-and-route and bitstream
+ * assembly are explicitly out of scope. Proven by `demoHdl.test.ts`.
  */
-import { fpgaDesignFlow, type SynthesisResult } from '../fpga/fpgaDesignFlow';
+import { fpgaDesignFlow, type DesignManifest, type SynthesisResult } from '../fpga/fpgaDesignFlow';
 import { parseVerilogModule } from '../fpga/verilogSubset';
 import { parseVhdl } from '../fpga/vhdlSubset';
 import { simulateDigital } from '../simulation/digitalLogic';
@@ -33,7 +32,8 @@ export interface DemoHdl {
   verilogGates: number;
   vhdlGates: number;
   synthesis: SynthesisResult;
-  bitstreamBytes: number;
+  manifest: DesignManifest;
+  manifestBytes: number;
   verdict: string;
 }
 
@@ -59,12 +59,13 @@ export function buildDemoHdl(deviceId = 'xc7a35t'): DemoHdl {
     deviceId,
   );
   if (!synthesis.success) throw new Error(`Demo HDL does not synthesize: ${synthesis.errors.join('; ')}`);
-  const bitstream = fpgaDesignFlow.generateBitstream(synthesis);
-  if (!bitstream) throw new Error('Demo synthesis produced no bitstream.');
-  const verdict = `PASS: Verilog ${v.netlist.gates?.length ?? 0} gates + VHDL ${h.netlist.gates?.length ?? 0} gates → ${synthesis.utilization.luts} LUTs, ${bitstream.sizeBytes} B bitstream.`;
+  const manifest = fpgaDesignFlow.generateManifest(synthesis);
+  if (!manifest) throw new Error('Demo synthesis produced no manifest.');
+  const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest)).length;
+  const verdict = `PASS: Verilog ${v.netlist.gates?.length ?? 0} gates + VHDL ${h.netlist.gates?.length ?? 0} gates → ${synthesis.utilization.luts} estimated LUTs, ${manifestBytes} B manifest (no vendor bitstream).`;
   return {
     verilogGates: v.netlist.gates?.length ?? 0,
     vhdlGates: h.netlist.gates?.length ?? 0,
-    synthesis, bitstreamBytes: bitstream.sizeBytes, verdict,
+    synthesis, manifest, manifestBytes, verdict,
   };
 }

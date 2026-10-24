@@ -153,13 +153,12 @@ class CollaborationService {
   removeCollaborator(projectId: string, userId: string): boolean {
     const project = this.projects.get(projectId)
     if (!project) return false
-    const before = project.collaborators.length
-    project.collaborators = project.collaborators.filter(
-      (c) => c.user.id !== userId && c.role !== 'owner'
-    )
+    const target = project.collaborators.find((c) => c.user.id === userId)
+    if (!target || target.role === 'owner') return false
+    project.collaborators = project.collaborators.filter((c) => c.user.id !== userId)
     project.updatedAt = Date.now()
     this.persist()
-    return project.collaborators.length < before
+    return true
   }
 
   getCollaborators(projectId: string): Collaborator[] {

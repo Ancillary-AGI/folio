@@ -61,36 +61,63 @@ export function holePrism(
   return faces;
 }
 
-/** Wraps a list of polygonal faces in a complete AP214 document. */
-export function stepDocument(faces: readonly number[][][], name: string): string {
+/** One solid in an assembly file. */
+export interface StepSolid {
+  name: string;
+  faces: readonly number[][][];
+}
+
+/**
+ * Wraps several closed shells in one AP214 document. Each part gets its own
+ * CLOSED_SHELL / MANIFOLD_SOLID_BREP; merging disjoint parts into a single
+ * shell would not be a valid solid.
+ */
+export function stepAssemblyDocument(
+  solids: readonly StepSolid[],
+  name: string,
+  /**
+   * FILE_NAME timestamp. Defaults to the STEP epoch rather than wall-clock time
+   * so exporting the same solid twice yields byte-identical files (reproducible
+   * builds, reviewable diffs). Pass `new Date().toISOString()` for traceability.
+   */
+  timestamp = '1970-01-01T00:00:00Z',
+): string {
   stepId = 0;
+  const escape = (value: string): string => value.replace(/'/g, "''");
   const lines: string[] = [
     'ISO-10303-21;',
     'HEADER;',
-    `FILE_DESCRIPTION(('${name}'),'2;1');`,
-    `FILE_NAME('${name}','${new Date().toISOString()}',('folio'),('folio'),' ',' ',' ');`,
+    `FILE_DESCRIPTION(('${escape(name)}'),'2;1');`,
+    `FILE_NAME('${escape(name)}','${escape(timestamp)}',('folio'),('folio'),' ',' ',' ');`,
     "FILE_SCHEMA(('AUTOMOTIVE_DESIGN'));",
     'ENDSEC;',
     'DATA;',
   ];
-  const faceIds: number[] = [];
-  for (const face of faces) {
-    const pointIds: number[] = [];
-    for (const [x, y, z] of face) {
-      const id = nextId();
-      lines.push(`#${id}=CARTESIAN_POINT('',(${fmt(x)},${fmt(y)},${fmt(z)}));`);
-      pointIds.push(id);
+  for (const solid of solids) {
+    const faceIds: number[] = [];
+    for (const face of solid.faces) {
+      const pointIds: number[] = [];
+      for (const [x, y, z] of face) {
+        const id = nextId();
+        lines.push(`#${id}=CARTESIAN_POINT('',(${fmt(x)},${fmt(y)},${fmt(z)}));`);
+        pointIds.push(id);
+      }
+      const poly = nextId();
+      lines.push(`#${poly}=POLYLINE('',(${pointIds.map((id) => `#${id}`).join(',')}));`);
+      const adv = nextId();
+      lines.push(`#${adv}=ADVANCED_FACE('',(#${poly}),.T.);`);
+      faceIds.push(adv);
     }
-    const poly = nextId();
-    lines.push(`#${poly}=POLYLINE('',(${pointIds.map((id) => `#${id}`).join(',')}));`);
-    const adv = nextId();
-    lines.push(`#${adv}=ADVANCED_FACE('',(#${poly}),.T.);`);
-    faceIds.push(adv);
+    const shell = nextId();
+    lines.push(`#${shell}=CLOSED_SHELL('',(${faceIds.map((id) => `#${id}`).join(',')}));`);
+    const brep = nextId();
+    lines.push(`#${brep}=MANIFOLD_SOLID_BREP('${escape(solid.name)}',#${shell});`);
   }
-  const shell = nextId();
-  lines.push(`#${shell}=CLOSED_SHELL('',(${faceIds.map((id) => `#${id}`).join(',')}));`);
-  const solid = nextId();
-  lines.push(`#${solid}=MANIFOLD_SOLID_BREP('',#${shell});`);
   lines.push('ENDSEC;', 'END-ISO-10303-21;');
   return lines.join('\n');
+}
+
+/** Wraps a list of polygonal faces in a complete AP214 document. */
+export function stepDocument(faces: readonly number[][][], name: string): string {
+  return stepAssemblyDocument([{ name, faces }], name);
 }

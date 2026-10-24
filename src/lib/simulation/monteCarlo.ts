@@ -10,9 +10,9 @@
  * and seed always yield the same distribution, which is what makes a Monte Carlo
  * result reviewable and regression-testable.
  *
- * Statistics use raw moments (Σx and Σx²) accumulated in one pass, so the sweep
- * is O(samples × points) in time and O(signals × points) in memory instead of
- * retaining every sample.
+ * Statistics use a one-pass Welford accumulator per point, so the sweep is
+ * O(samples × points) in time and O(signals × points) in memory instead of
+ * retaining every sample, without the cancellation of a raw-moment update.
  */
 
 import { createSeededRandom, gaussianFrom } from './numeric'
@@ -104,20 +104,16 @@ export function sampleOutcome(outcome: AnalysisOutcome): Map<string, SampledSign
     })
   }
 
-  if (signals.size === 0 && outcome.nodes.length > 0) {
-    for (const node of outcome.nodes) {
-      signals.set(`V(${node.name})`, { unit: 'V', points: [node.voltage ?? 0], x: [0] })
-    }
-  }
-
+  /* A node without a solved voltage is omitted, never defaulted to 0 V: a
+   * fabricated ground would silently drag the mean and inflate the spread. */
   const operatingPoint = (outcome.operatingPoint ?? {}) as Record<string, number>
   for (const node of outcome.nodes ?? []) {
     const voltage = node.voltage ?? operatingPoint[node.name]
-    if (typeof voltage !== 'number' || Number.isNaN(voltage)) continue
+    if (typeof voltage !== 'number' || !Number.isFinite(voltage)) continue
     signals.set(`V(${node.name})`, { unit: 'V', points: [voltage], x: [0] })
   }
   for (const [name, voltage] of Object.entries(operatingPoint)) {
-    if (typeof voltage !== 'number' || Number.isNaN(voltage)) continue
+    if (typeof voltage !== 'number' || !Number.isFinite(voltage)) continue
     if (!signals.has(`V(${name})`)) signals.set(`V(${name})`, { unit: 'V', points: [voltage], x: [0] })
   }
 
@@ -142,10 +138,36 @@ export function runMonteCarlo(
   options: MonteCarloOptions = {},
 ): MonteCarloResult {
   const seed = options.seed ?? DEFAULT_MONTE_CARLO_SEED
-  const iterations = Math.min(Math.max(1, Math.floor(options.iterations ?? 100)), MAX_MONTE_CARLO_ITERATIONS)
+  const requestedIterations = options.iterations ?? 100
   const tolerance = options.tolerance ?? 0.05
   const distribution = options.distribution ?? 'gaussian'
   const random = createSeededRandom(seed)
+
+  const reject = (reason: string): MonteCarloResult => ({
+    nodes: [],
+    waveforms: [],
+    iterations: 0,
+    converged: false,
+    notes: [`Monte Carlo: ${reason}`],
+  })
+  if (!Number.isFinite(requestedIterations)) {
+    return reject(`iteration count must be finite, got ${requestedIterations}.`)
+  }
+  /*
+   * A tolerance of 1 or more lets a component reach zero or change sign, which
+   * is not a manufacturing spread but a different (non-physical) circuit. Keep
+   * the band strictly inside ±100 %.
+   */
+  if (!Number.isFinite(tolerance) || tolerance < 0 || tolerance >= 1) {
+    return reject(`tolerance must be finite and in [0, 1), got ${tolerance}.`)
+  }
+  if (!Number.isFinite(seed)) {
+    return reject(`seed must be finite, got ${seed}.`)
+  }
+  if (distribution !== 'gaussian' && distribution !== 'uniform') {
+    return reject(`distribution must be "gaussian" or "uniform", got "${String(distribution)}".`)
+  }
+  const iterations = Math.min(Math.max(1, Math.floor(requestedIterations)), MAX_MONTE_CARLO_ITERATIONS)
 
   const notes: string[] = [
     `Monte Carlo: ${iterations} runs, ±${(tolerance * 100).toFixed(2)} % ${distribution} tolerance on R/C/L, ` +
@@ -155,9 +177,10 @@ export function runMonteCarlo(
   let signalNames: string[] = []
   let units = new Map<string, string>()
   let xGrid: number[] = []
-  let sums: number[][] = []
-  let sumSquares: number[][] = []
+  let means: number[][] = []
+  let m2: number[][] = []
   let completed = 0
+  let skippedRuns = 0
   let converged = true
 
   for (let runIndex = 0; runIndex < iterations; runIndex += 1) {
@@ -179,24 +202,43 @@ export function runMonteCarlo(
       signalNames = [...sampled.keys()]
       units = new Map([...sampled].map(([name, signal]) => [name, signal.unit]))
       xGrid = [...(sampled.values().next().value?.x ?? [])]
-      sums = signalNames.map(() => new Array<number>(xGrid.length).fill(0))
-      sumSquares = signalNames.map(() => new Array<number>(xGrid.length).fill(0))
+      means = signalNames.map(() => new Array<number>(xGrid.length).fill(0))
+      m2 = signalNames.map(() => new Array<number>(xGrid.length).fill(0))
     }
 
-    let used = false
+    /*
+     * A sample only contributes if *every* signal is present on the identical
+     * grid. Accumulating the signals that happen to match and dividing them all
+     * by one run count would silently bias the mean and σ of the missing ones.
+     */
+    const complete = signalNames.every((name) => {
+      const signal = sampled.get(name)
+      if (!signal || signal.points.length !== xGrid.length || signal.x.length !== xGrid.length) return false
+      return signal.x.every((value, index) => value === xGrid[index])
+    })
+    if (!complete) {
+      skippedRuns += 1
+      continue
+    }
+
+    completed += 1
+    /* Welford: one pass, O(1) state per point, and no E[x²] − E[x]²
+     * cancellation when a large DC offset carries a small spread. */
     signalNames.forEach((name, signalIndex) => {
       const signal = sampled.get(name)
-      // A differing point count means the perturbed circuit changed the grid
-      // (e.g. Newton bailed out early); skip that signal for this sample rather
-      // than blending incomparable data.
-      if (!signal || signal.points.length !== xGrid.length) return
+      if (!signal) return
       signal.points.forEach((value, pointIndex) => {
-        sums[signalIndex][pointIndex] += value
-        sumSquares[signalIndex][pointIndex] += value * value
+        const delta = value - means[signalIndex][pointIndex]
+        means[signalIndex][pointIndex] += delta / completed
+        m2[signalIndex][pointIndex] += delta * (value - means[signalIndex][pointIndex])
       })
-      used = true
     })
-    if (used) completed += 1
+  }
+
+  if (skippedRuns > 0) {
+    notes.push(
+      `${skippedRuns} run(s) were excluded because a signal was missing or its sample grid differed from the nominal run.`,
+    )
   }
 
   if (completed === 0) {
@@ -218,9 +260,9 @@ export function runMonteCarlo(
 
     for (let pointIndex = 0; pointIndex < xGrid.length; pointIndex += 1) {
       const x = xGrid[pointIndex]
-      const meanValue = sums[signalIndex][pointIndex] / completed
-      // σ² = E[x²] − (E[x])² with a floor of 0 to absorb floating-point noise.
-      const variance = Math.max(0, sumSquares[signalIndex][pointIndex] / completed - meanValue * meanValue)
+      const meanValue = means[signalIndex][pointIndex]
+      // Sample variance from the Welford accumulator, floored to absorb round-off.
+      const variance = Math.max(0, m2[signalIndex][pointIndex] / completed)
       const sigma = Math.sqrt(variance)
       mean.push({ x, y: meanValue })
       plusThreeSigma.push({ x, y: meanValue + 3 * sigma })

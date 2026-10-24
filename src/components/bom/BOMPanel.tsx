@@ -19,6 +19,9 @@ import { Badge } from '../ui/badge'
 import { Card, CardContent } from '../ui/card'
 import { useProjectStore } from '../../stores/useProjectStore'
 import { downloadFile } from '../../lib/exportUtils'
+import { buildDemoBom, type DemoBomRow } from '../../lib/demo/demoBom'
+import { describeError } from '../../lib/utils'
+import { useDemoRequest } from '../workspace/useDemoRequest'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -153,6 +156,38 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [editNotes, setEditNotes] = useState('')
+  const [demoAudit, setDemoAudit] = useState<{ verdict: string; coverage: string; rows: DemoBomRow[] } | null>(null)
+  const [demoAuditError, setDemoAuditError] = useState<string | null>(null)
+
+  /**
+   * Re-run the demo board through the fab package and report the audited BOM.
+   * Coverage is stated as reference presence only — the live canvas may hold
+   * the same designators with different parts, which this check does not claim
+   * to compare.
+   */
+  const handleDemoAudit = () => {
+    try {
+      const demo = buildDemoBom()
+      const live = new Set(components.map((component) => component.reference))
+      const demoReferences = demo.rows.map((row) => row.reference)
+      const present = demoReferences.filter((reference) => live.has(reference))
+      const coverage =
+        components.length === 0
+          ? 'No canvas parts to compare — this is the fab-audited demo board BOM.'
+          : `Reference coverage: ${present.length}/${demoReferences.length} demo designators are on the current canvas${
+              present.length === demoReferences.length
+                ? ''
+                : ` (missing ${demoReferences.filter((reference) => !live.has(reference)).join(', ')})`
+            }.`
+      setDemoAuditError(null)
+      setDemoAudit({ verdict: demo.verdict, coverage, rows: demo.rows })
+    } catch (error) {
+      setDemoAudit(null)
+      setDemoAuditError(describeError(error))
+    }
+  }
+
+  useDemoRequest('bom-audit', handleDemoAudit)
 
   // ── Filter + sort ─────────────────────────────────────────────────────────
 
@@ -233,6 +268,7 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={exportCSV} className="text-xs"><Download className="w-3 h-3 mr-1" />CSV</Button>
           <Button variant="outline" size="sm" onClick={exportJSON} className="text-xs"><Download className="w-3 h-3 mr-1" />JSON</Button>
+          <Button variant="outline" size="sm" onClick={handleDemoAudit} className="text-xs"><Search className="w-3 h-3 mr-1" />Audit demo BOM</Button>
           {components.length === 0 && (
             <Button
               variant="outline"
@@ -271,6 +307,54 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
           <div className="text-xs text-muted-foreground">Unique Line Items</div>
         </CardContent></Card>
       </div>
+
+      {/* Demo BOM × fab audit: the verified rectifier parts list with MPNs. */}
+      {demoAuditError && (
+        <p role="alert" className="border-b border-destructive/40 bg-destructive/10 px-4 py-2 text-xs text-destructive">
+          Demo BOM audit failed: {demoAuditError}
+        </p>
+      )}
+      {demoAudit && (
+        <div className="border-b border-border p-4" aria-live="polite">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold">Demo BOM × fab audit</h3>
+              <p role="status" className="text-xs text-success">{demoAudit.verdict}</p>
+              <p className="text-xs text-muted-foreground">{demoAudit.coverage}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Dismiss demo BOM audit"
+              onClick={() => setDemoAudit(null)}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead className="bg-muted/40">
+                <tr>
+                  {['Reference', 'Value', 'Footprint', 'Manufacturer', 'Part number'].map((label) => (
+                    <th key={label} className="p-2 text-left font-medium text-muted-foreground">{label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {demoAudit.rows.map((row) => (
+                  <tr key={row.reference} className="border-t border-border/50">
+                    <td className="p-2 font-medium">{row.reference}</td>
+                    <td className="p-2">{row.value}</td>
+                    <td className="p-2 font-mono">{row.footprint}</td>
+                    <td className="p-2 text-muted-foreground">{row.manufacturer}</td>
+                    <td className="p-2 font-mono text-muted-foreground">{row.partNumber}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex items-center gap-3 p-3 border-b border-border">

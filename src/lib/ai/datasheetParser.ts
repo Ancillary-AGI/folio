@@ -90,6 +90,7 @@ export function parseDatasheetText(rawText: string): IngestedDatasheet {
   let description = 'Datasheet-ingested component';
   const pins: ExtractedPin[] = [];
   const electrical: ExtractedElectricalSpecs = {};
+  let explicitPackage: string | undefined;
   const packaging: ExtractedPackage = {
     packageName: 'SOIC-8',
     pinCount: 8,
@@ -110,6 +111,10 @@ export function parseDatasheetText(rawText: string): IngestedDatasheet {
 
     const descMatch = line.match(/^(?:Description):\s*(.+)/i);
     if (descMatch) description = descMatch[1];
+
+    // Only the 1.27 mm dual-row family is modelled by the synthesized footprint.
+    const packageMatch = line.match(/^(?:Package|Package Type|Case):\s*((?:SOIC|SOP|SO)-?\d+)/i);
+    if (packageMatch) explicitPackage = packageMatch[1].toUpperCase();
 
     // Electrical limits
     const vddMatch = line.match(/(?:V(?:DD|CC)|Supply(?:\s+Voltage)?)\s*[:=]\s*(\d+(?:\.\d+)?)\s*V\s*(?:to|-)\s*(\d+(?:\.\d+)?)\s*V/i);
@@ -144,6 +149,17 @@ export function parseDatasheetText(rawText: string): IngestedDatasheet {
 
   if (pins.length > 0) {
     packaging.pinCount = pins.length;
+  } else if (explicitPackage) {
+    const declaredCount = explicitPackage.match(/(\d+)$/);
+    if (declaredCount) packaging.pinCount = parseInt(declaredCount[1], 10);
+  }
+
+  // The default package is an 8-pin SOIC; widen the name and body for larger
+  // dual-row parts instead of reporting "SOIC-8 (16 pins)".
+  packaging.packageName = explicitPackage ?? `SOIC-${packaging.pinCount}`;
+  if (packaging.pinCount > 8) {
+    const pinsPerSide = Math.ceil(packaging.pinCount / 2);
+    packaging.bodyHeightMm = 4.9 + (pinsPerSide - 4) * packaging.pitchMm;
   }
 
   return {

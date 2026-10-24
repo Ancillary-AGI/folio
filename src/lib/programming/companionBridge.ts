@@ -6,7 +6,10 @@
  *    SD/eMMC card flashing and OpenOCD JTAG/SWD hardware in-circuit debugging.
  */
 
-import { bytesToHex, type DaemonReply, type DaemonRequest, type FlashDevice } from './flashProtocol';
+import { bytesToHex, decodeFrame, type DaemonReply, type DaemonRequest, type FlashDevice } from './flashProtocol';
+
+/** Replies are small control frames; a longer silence means the daemon is wedged. */
+const REQUEST_TIMEOUT_MS = 30_000;
 
 export type ProgrammingTransport = 'browser-webserial' | 'browser-webusb' | 'companion-daemon';
 
@@ -30,6 +33,8 @@ export class CompanionBridge {
   private ws: WebSocket | null = null;
   private readonly daemonUrl: string;
   private connected = false;
+  /** Serialises requests: replies carry no id, so only one may be in flight. */
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(daemonUrl: string = 'ws://127.0.0.1:48123') {
     this.daemonUrl = daemonUrl;
@@ -83,6 +88,15 @@ export class CompanionBridge {
           this.connected = false;
           resolve(false);
         };
+
+        // If the daemon exits after a successful handshake, stop reporting it
+        // as connected instead of failing every later request with a silent send.
+        socket.onclose = () => {
+          if (this.ws === socket) {
+            this.ws = null;
+            this.connected = false;
+          }
+        };
       } catch {
         this.connected = false;
         resolve(false);
@@ -100,31 +114,56 @@ export class CompanionBridge {
 
   /**
    * Send a typed request to the daemon and await its reply.
+   *
+   * Requests are serialised because the wire protocol has no request ids: two
+   * concurrent sends would each accept the other's reply.
    */
-  async sendRequest(request: DaemonRequest): Promise<DaemonReply> {
-    if (!this.connected || !this.ws) {
+  sendRequest(request: DaemonRequest): Promise<DaemonReply> {
+    const run = this.queue.then(() => this.requestOnce(request));
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async requestOnce(request: DaemonRequest): Promise<DaemonReply> {
+    const sock = this.ws;
+    if (!this.connected || !sock) {
       throw new Error('Companion daemon is not connected. Launch folio-bridge companion on host.');
     }
+    const socket: WebSocket = sock;
 
     return new Promise((resolve, reject) => {
+      let settled = false;
+
+      function finish(settle: () => void): void {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        socket.removeEventListener('message', handler);
+        settle();
+      }
+
       const handler = (event: MessageEvent) => {
+        // Decode before finish() marks the request settled: a decode failure
+        // must still reach the catch block and reject the promise.
         try {
-          const reply = JSON.parse(event.data) as DaemonReply;
-          const sock = this.ws;
-          if (sock) sock.removeEventListener('message', handler);
-          resolve(reply);
+          if (typeof event.data !== 'string') {
+            throw new Error('Companion daemon sent a binary frame; the protocol is JSON text.');
+          }
+          const reply = decodeFrame(event.data) as DaemonReply;
+          finish(() => resolve(reply));
         } catch (err) {
-          reject(err);
+          finish(() => reject(err));
         }
       };
 
-      const sock = this.ws;
-      if (!sock) {
-        reject(new Error('Companion daemon is not connected. Launch folio-bridge companion on host.'));
-        return;
-      }
-      sock.addEventListener('message', handler);
-      sock.send(JSON.stringify(request));
+      const timer = setTimeout(() => {
+        finish(() => reject(new Error(
+          `Companion daemon did not reply to "${request.kind}" within ${REQUEST_TIMEOUT_MS} ms.`,
+        )));
+      }, REQUEST_TIMEOUT_MS);
+
+      socket.addEventListener('message', handler);
+      socket.send(JSON.stringify(request));
     });
   }
 
@@ -143,7 +182,7 @@ export class CompanionBridge {
     if (!this.connected || !this.ws) {
       throw new Error('Companion daemon is not connected. Launch folio-bridge companion on host.');
     }
-    if (chunkSize <= 0) throw new Error('Chunk size must be positive.');
+    if (!Number.isInteger(chunkSize) || chunkSize <= 0) throw new Error('Chunk size must be a positive integer.');
 
     const totalBytes = imageBytes.length;
     let bytesWritten = 0;

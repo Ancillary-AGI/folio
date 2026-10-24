@@ -3,7 +3,7 @@
  * Provides genetic algorithms, particle swarm optimization, and RL-based design optimization
  */
 
-import type { Component } from '../../types/domain';
+import type { Component } from '../../types';
 
 export interface DesignGenome {
   id: string;
@@ -78,7 +78,17 @@ export class EvolutionaryOptimizer {
   private rng: () => number = Math.random;
   private genomeCounter = 0;
 
-  constructor(private config: EvolutionaryConfig) {}
+  constructor(private config: EvolutionaryConfig) {
+    if (!Number.isInteger(config.populationSize) || config.populationSize < 1) {
+      throw new Error('Evolutionary population size must be a positive integer');
+    }
+    if (!Number.isInteger(config.generations) || config.generations < 0) {
+      throw new Error('Evolutionary generation count must be a non-negative integer');
+    }
+    if (!Number.isInteger(config.elitism) || config.elitism < 0 || config.elitism > config.populationSize) {
+      throw new Error('Elitism must be between zero and the population size');
+    }
+  }
 
   /** Override the RNG (e.g. with a seeded PRNG) for deterministic runs. */
   setRandomSource(rng: () => number): void {
@@ -99,12 +109,18 @@ export class EvolutionaryOptimizer {
   async evolve(
     evaluateFitness: (genome: DesignGenome) => Promise<number>
   ): Promise<DesignGenome> {
+    if (this.population.length === 0) {
+      throw new Error('No population to evolve; call initializePopulation first');
+    }
+
     // Evaluate initial population
     for (const genome of this.population) {
       genome.fitness = await evaluateFitness(genome);
     }
 
     this.sortPopulation();
+    // A zero-generation run must still return the best evaluated individual.
+    this.bestGenome = this.population[0];
 
     for (let gen = 0; gen < this.config.generations; gen++) {
       this.generation = gen + 1;
@@ -203,42 +219,59 @@ export class EvolutionaryOptimizer {
   }
 
   private rankSelection(): DesignGenome {
-    const ranks = this.population.map((_, index) => this.population.length - index);
-    const totalRank = ranks.reduce((sum, r) => sum + r, 0);
+    // Rank by fitness, not array order: the fittest individual gets weight N.
+    const ranked = [...this.population].sort((a, b) => b.fitness - a.fitness);
+    const totalRank = (ranked.length * (ranked.length + 1)) / 2;
     let random = this.rng() * totalRank;
-    
-    for (let i = 0; i < this.population.length; i++) {
-      random -= ranks[i];
+
+    for (let index = 0; index < ranked.length; index += 1) {
+      random -= ranked.length - index;
       if (random <= 0) {
-        return this.population[i];
+        return ranked[index];
       }
     }
 
-    return this.population[0];
+    return ranked[ranked.length - 1];
+  }
+
+  /**
+   * Copies genes so in-place array mutation cannot reach a parent or sibling.
+   * Genes are plain design data by contract; a function or class instance in a
+   * gene is not supported.
+   */
+  private cloneGenes(genes: Record<string, unknown>): Record<string, unknown> {
+    return structuredClone(genes);
   }
 
   private crossover(parent1: DesignGenome, parent2: DesignGenome): DesignGenome[] {
-    // Single-point crossover
-    const genes1 = Object.keys(parent1.genes);
+    // Single-point crossover over the union of gene names, so a gene carried
+    // by only one parent is not silently dropped from the children.
+    const genes1 = Array.from(new Set([
+      ...Object.keys(parent1.genes),
+      ...Object.keys(parent2.genes),
+    ]));
     const crossoverPoint = Math.floor(this.rng() * genes1.length);
 
     const child1Genes: Record<string, unknown> = {};
     const child2Genes: Record<string, unknown> = {};
 
     genes1.forEach((key, index) => {
+      const fromParent1 = parent1.genes[key];
+      const fromParent2 = key in parent2.genes ? parent2.genes[key] : fromParent1;
       if (index < crossoverPoint) {
-        child1Genes[key] = parent1.genes[key];
-        child2Genes[key] = parent2.genes[key];
+        child1Genes[key] = fromParent1;
+        child2Genes[key] = fromParent2;
       } else {
-        child1Genes[key] = parent2.genes[key];
-        child2Genes[key] = parent1.genes[key];
+        child1Genes[key] = fromParent2;
+        child2Genes[key] = fromParent1;
       }
     });
 
-    // Create child genomes (simplified - would need proper design reconstruction)
+    // Create child genomes; clone the assembled genes so two children never
+    // share a mutable array with a parent.
     const child1: DesignGenome = {
       id: this.nextGenomeId(),
-      genes: child1Genes,
+      genes: this.cloneGenes(child1Genes),
       fitness: 0,
       generation: this.generation,
       parentIds: [parent1.id, parent2.id]
@@ -246,7 +279,7 @@ export class EvolutionaryOptimizer {
 
     const child2: DesignGenome = {
       id: this.nextGenomeId(),
-      genes: child2Genes,
+      genes: this.cloneGenes(child2Genes),
       fitness: 0,
       generation: this.generation,
       parentIds: [parent1.id, parent2.id]
@@ -263,9 +296,12 @@ export class EvolutionaryOptimizer {
 
     // Mutate based on value type
     if (typeof value === 'number') {
-      // Gaussian mutation
+      // Multiplicative mutation around the current value; zero needs an
+      // additive kick or it could never leave 0.
       const mutationAmount = (this.rng() - 0.5) * 0.1;
-      genome.genes[keyToMutate] = value * (1 + mutationAmount);
+      genome.genes[keyToMutate] = value === 0
+        ? (this.rng() - 0.5) * 0.1
+        : value * (1 + mutationAmount);
     } else if (typeof value === 'boolean') {
       genome.genes[keyToMutate] = !value;
     } else if (Array.isArray(value)) {
@@ -273,7 +309,11 @@ export class EvolutionaryOptimizer {
       if (value.length > 0) {
         const index = Math.floor(this.rng() * value.length);
         if (typeof value[index] === 'number') {
-          value[index] = value[index] * (1 + (this.rng() - 0.5) * 0.1);
+          const element = value[index] as number;
+          const mutationAmount = (this.rng() - 0.5) * 0.1;
+          value[index] = element === 0
+            ? (this.rng() - 0.5) * 0.1
+            : element * (1 + mutationAmount);
         }
       }
     }
@@ -322,8 +362,33 @@ export class EvolutionaryOptimizer {
     generations: number;
     convergenceHistory: number[];
   } {
-    if (config.populationSize < 1) {
+    if (!Number.isInteger(config.populationSize) || config.populationSize < 1) {
       throw new Error('optimize requires a population size of at least 1');
+    }
+    if (!Number.isInteger(config.generations) || config.generations < 0) {
+      throw new Error('optimize requires a non-negative generation count');
+    }
+    if (!Number.isInteger(config.elitism) || config.elitism < 0 || config.elitism > config.populationSize) {
+      throw new Error('optimize requires elitism between zero and the population size');
+    }
+    for (const [name, value] of [
+      ['mutation rate', config.mutationRate],
+      ['crossover rate', config.crossoverRate],
+    ] as const) {
+      if (!Number.isFinite(value) || value < 0 || value > 1) {
+        throw new Error(`optimize requires a ${name} in [0,1]`);
+      }
+    }
+    if (objectives.length === 0) {
+      throw new Error('optimize requires at least one objective');
+    }
+    for (const objective of objectives) {
+      if (objective.name.trim() === '') {
+        throw new Error('optimize objectives need a non-empty name');
+      }
+      if (!Number.isFinite(objective.weight)) {
+        throw new Error(`objective "${objective.name}" needs a finite weight`);
+      }
     }
 
     const rawResults = new Map<string, { cost: number; performance: number }>();
@@ -425,6 +490,28 @@ export class ReinforcementLearningOptimizer {
   private rng: () => number = Math.random;
 
   constructor(private config: ReinforcementLearningConfig) {
+    const algorithms = ['q_learning', 'dqn', 'ppo', 'sac'];
+    if (!algorithms.includes(config.algorithm)) {
+      throw new Error(`Unknown reinforcement-learning algorithm "${config.algorithm}"`);
+    }
+    if (!Number.isFinite(config.learningRate) || config.learningRate <= 0 || config.learningRate > 1) {
+      throw new Error('Reinforcement-learning learning rate must be in (0,1]');
+    }
+    if (!Number.isFinite(config.discountFactor) || config.discountFactor < 0 || config.discountFactor > 1) {
+      throw new Error('Reinforcement-learning discount factor must be in [0,1]');
+    }
+    if (!Number.isFinite(config.explorationRate) || config.explorationRate < 0 || config.explorationRate > 1) {
+      throw new Error('Reinforcement-learning exploration rate must be in [0,1]');
+    }
+    if (!Number.isFinite(config.explorationDecay) || config.explorationDecay <= 0 || config.explorationDecay > 1) {
+      throw new Error('Reinforcement-learning exploration decay must be in (0,1]');
+    }
+    if (!Number.isInteger(config.batchSize) || config.batchSize < 1) {
+      throw new Error('Reinforcement-learning batch size must be a positive integer');
+    }
+    if (!Number.isInteger(config.memorySize) || config.memorySize < 1) {
+      throw new Error('Reinforcement-learning memory size must be a positive integer');
+    }
     this.explorationRate = config.explorationRate;
   }
 
@@ -439,6 +526,9 @@ export class ReinforcementLearningOptimizer {
     step: (state: RLState, action: RLAction) => Promise<{ nextState: RLState; reward: RLReward; done: boolean }>,
     episodes: number
   ): Promise<void> {
+    if (!Number.isInteger(episodes) || episodes < 0) {
+      throw new Error('Reinforcement-learning episode count must be a non-negative integer');
+    }
     for (let ep = 0; ep < episodes; ep++) {
       this.currentState = { ...initialState };
       let totalReward = 0;
@@ -496,6 +586,9 @@ export class ReinforcementLearningOptimizer {
   }
 
   private selectAction(state: RLState, actions: RLAction[]): RLAction {
+    if (actions.length === 0) {
+      throw new Error('Reinforcement learning received no actions for the current state');
+    }
     // Epsilon-greedy action selection
     if (this.rng() < this.explorationRate) {
       // Explore: random action
@@ -507,6 +600,9 @@ export class ReinforcementLearningOptimizer {
   }
 
   private getBestAction(state: RLState, actions: RLAction[]): RLAction {
+    if (actions.length === 0) {
+      throw new Error('Reinforcement learning received no actions for the current state');
+    }
     const stateKey = this.stateToKey(state);
     const qValues = this.qTable.get(stateKey) || new Map();
 
@@ -537,12 +633,11 @@ export class ReinforcementLearningOptimizer {
     const qValues = this.qTable.get(stateKey)!;
     const currentQ = qValues.get(actionKey) || 0;
 
-    // Q-learning update
+    // Q-learning update. Unvisited next-state actions default to 0; when the
+    // table does hold values, the maximum is taken as-is (even when negative).
     const nextQValues = this.qTable.get(nextStateKey) || new Map();
-    const maxNextQ = done ? 0 : Math.max(
-      ...Array.from(nextQValues.values()),
-      ...Array.from(nextQValues.keys()).map(() => 0)
-    );
+    const nextValues = Array.from(nextQValues.values());
+    const maxNextQ = done || nextValues.length === 0 ? 0 : Math.max(...nextValues);
 
     const newQ = currentQ + this.config.learningRate * (
       reward.value + this.config.discountFactor * maxNextQ - currentQ
@@ -574,10 +669,14 @@ export class ReinforcementLearningOptimizer {
   }
 
   private stateToKey(state: RLState): string {
-    // Convert state to string key for Q-table
+    // Q-learning must distinguish parameter *values*, not just their names.
+    // Round to six decimals so floating-point noise does not explode the table.
+    const parameters = Object.keys(state.parameters)
+      .sort()
+      .map((key) => [key, Number(state.parameters[key].toFixed(6))]);
     return JSON.stringify({
       components: state.design.length,
-      parameters: Object.keys(state.parameters).sort().join(',')
+      parameters
     });
   }
 
@@ -635,7 +734,23 @@ export class ParticleSwarmOptimizer {
       /** Optional per-iteration progress observer — keeps the library silent by default. */
       onProgress?: (info: { iteration: number; bestFitness: number }) => void;
     }
-  ) {}
+  ) {
+    if (!Number.isInteger(config.populationSize) || config.populationSize < 1) {
+      throw new Error('Particle-swarm population size must be a positive integer');
+    }
+    if (!Number.isInteger(config.iterations) || config.iterations < 0) {
+      throw new Error('Particle-swarm iteration count must be a non-negative integer');
+    }
+    for (const [name, value] of [
+      ['inertia', config.inertia],
+      ['cognitive weight', config.cognitiveWeight],
+      ['social weight', config.socialWeight],
+    ] as const) {
+      if (!Number.isFinite(value) || value < 0) {
+        throw new Error(`Particle-swarm ${name} must be finite and non-negative`);
+      }
+    }
+  }
 
   /** Override the RNG (e.g. with a seeded PRNG) for deterministic runs. */
   setRandomSource(rng: () => number): void {
@@ -647,8 +762,25 @@ export class ParticleSwarmOptimizer {
     evaluateFitness: (position: Record<string, number>) => Promise<number>,
     bounds: Record<string, { min: number; max: number }>
   ): Promise<Record<string, number>> {
-    // Initialize particles
-    this.particles = [];
+    const dimensions = Object.keys(initialPosition);
+    if (dimensions.length === 0) {
+      throw new Error('Particle-swarm optimisation needs at least one variable');
+    }
+    for (const key of dimensions) {
+      const bound = bounds[key];
+      if (!bound || !Number.isFinite(bound.min) || !Number.isFinite(bound.max)) {
+        throw new Error(`Particle-swarm bounds for "${key}" must be finite`);
+      }
+      if (bound.max < bound.min) {
+        throw new Error(`Particle-swarm bounds for "${key}" have max below min`);
+      }
+    }
+
+    // Initialize particles. The global best is per-run state: leaving it from a
+    // previous call would return a stale position, or read variables that the
+    // new run does not have.
+    this.particles = []
+    this.globalBest = null
     for (let i = 0; i < this.config.populationSize; i++) {
       const position: Record<string, number> = {};
       const velocity: Record<string, number> = {};

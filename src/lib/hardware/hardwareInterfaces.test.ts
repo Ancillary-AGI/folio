@@ -4,8 +4,28 @@ import {
   SPIInterface,
   UARTInterface,
   CANInterface,
-  hardwareInterfaceManager
+  WebSerialBridge,
+  hardwareInterfaceManager,
+  type ConnectionState,
 } from './hardwareInterfaces';
+
+class FakeBridge extends WebSerialBridge {
+  readonly commands: Array<Record<string, unknown>> = []
+  private responder: ((command: Record<string, unknown>) => Record<string, unknown> | null) | null = null
+
+  override get state(): ConnectionState { return 'connected' }
+
+  respond(responder: (command: Record<string, unknown>) => Record<string, unknown> | null): void {
+    this.responder = responder
+  }
+
+  override async write(data: Uint8Array): Promise<void> {
+    const command = JSON.parse(new TextDecoder().decode(data).trim()) as Record<string, unknown>
+    this.commands.push(command)
+    const reply = this.responder?.(command)
+    if (reply) this.simulateData(`${JSON.stringify(reply)}\n`)
+  }
+}
 
 describe('HardwareInterfaces', () => {
   describe('I2CInterface', () => {
@@ -237,6 +257,64 @@ describe('HardwareInterfaces', () => {
       });
       can.simulateReceive(message);
       expect(receivedMessage).toEqual(message);
+    });
+  });
+
+  describe('bridge-backed transactions', () => {
+    const i2cConfig = { address: 0x48, clockSpeed: 100000, sda: 21, scl: 22 }
+    const spiConfig = { mode: 0 as const, bitOrder: 'msb' as const, clockSpeed: 1000000, mosi: 23, miso: 19, sck: 18 }
+
+    it('reports the probe ACK the bridge actually sent', async () => {
+      const bridge = new FakeBridge()
+      bridge.respond(command => ({ id: command.id, ack: false }))
+      const i2c = new I2CInterface(i2cConfig, bridge)
+
+      await expect(i2c.probeDevice(0x48)).resolves.toBe(false);
+      expect(bridge.commands[0]).toMatchObject({ cmd: 'i2c_probe', address: 0x48 });
+    });
+
+    it('returns bridge bytes instead of zeros', async () => {
+      const bridge = new FakeBridge()
+      bridge.respond(command => ({ id: command.id, data: [0x12, 0x34] }))
+      const i2c = new I2CInterface(i2cConfig, bridge)
+
+      await expect(i2c.readRegister(0x48, 0x01, 2)).resolves.toEqual(new Uint8Array([0x12, 0x34]));
+    });
+
+    it('rejects a probe reply without a boolean ACK', async () => {
+      const bridge = new FakeBridge()
+      bridge.respond(command => ({ id: command.id }))
+      const i2c = new I2CInterface(i2cConfig, bridge)
+
+      await expect(i2c.probeDevice(0x48)).rejects.toThrow(/ack/);
+    });
+
+    it('rejects an I2C payload of the wrong length or with non-bytes', async () => {
+      const short = new FakeBridge()
+      short.respond(command => ({ id: command.id, data: [0x01] }))
+      await expect(new I2CInterface(i2cConfig, short).readRegister(0x48, 0x01, 2))
+        .rejects.toThrow(/exactly 2 bytes/);
+
+      const corrupt = new FakeBridge()
+      corrupt.respond(command => ({ id: command.id, data: [0x01, 0x1ff] }))
+      await expect(new I2CInterface(i2cConfig, corrupt).readRegister(0x48, 0x01, 2))
+        .rejects.toThrow(/non-byte/);
+    });
+
+    it('returns the SPI MISO bytes from the bridge', async () => {
+      const bridge = new FakeBridge()
+      bridge.respond(command => ({ id: command.id, data: [0xaa, 0x55] }))
+      const spi = new SPIInterface(spiConfig, bridge)
+
+      await expect(spi.transfer(new Uint8Array([0x01, 0x02]))).resolves.toEqual(new Uint8Array([0xaa, 0x55]));
+    });
+
+    it('rejects an SPI reply whose length does not match the transfer', async () => {
+      const bridge = new FakeBridge()
+      bridge.respond(command => ({ id: command.id, data: [0xaa] }))
+      const spi = new SPIInterface(spiConfig, bridge)
+
+      await expect(spi.transfer(new Uint8Array([0x01, 0x02]))).rejects.toThrow(/exactly 2 bytes/);
     });
   });
 
