@@ -91,7 +91,11 @@ function netsFromWires(components: CanvasComponent[], wires: ReturnType<typeof b
 
 export function buildDemoPcb(): DemoPcb {
   const schematic = buildDemoBoard()
-  const components = schematic.components.map(toPlacedComponent)
+  // A ground symbol is a net annotation, not a physical part: it has no
+  // footprint and must not become a router pad, a 3-D body or a BOM line.
+  const components = schematic.components
+    .filter((component) => component.component.name !== 'Ground')
+    .map(toPlacedComponent)
   const nets = netsFromWires(schematic.components, schematic.wires)
   const pads = buildRouterPads(components, nets)
 
@@ -151,20 +155,16 @@ export function buildDemoPcb(): DemoPcb {
       padDiameterMm: via.padMm,
       drillDiameterMm: via.drillMm,
     })),
-    components: components
-      // A ground symbol is a net annotation, not a physical part: it has no
-      // footprint and must not become a body in the 3-D scene.
-      .filter((component) => component.component.name !== 'Ground')
-      .map((component) => ({
-        id: component.id,
-        reference: component.reference,
-        footprint: String(component.properties.footprint ?? component.component.name),
-        category: component.component.category,
-        x: component.position.x,
-        y: component.position.y,
-        rotationDeg: component.rotation,
-        side: 'top',
-      })),
+    components: components.map((component) => ({
+      id: component.id,
+      reference: component.reference,
+      footprint: String(component.properties.footprint ?? component.component.name),
+      category: component.component.category,
+      x: component.position.x,
+      y: component.position.y,
+      rotationDeg: component.rotation,
+      side: 'top',
+    })),
   }
 
   return {

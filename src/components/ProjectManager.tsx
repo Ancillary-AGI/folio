@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase, Project } from '../lib/supabase'
 import { offlineProjectStore } from '../lib/offlineProjectStore'
+import { vcsService } from '../lib/vcs/vcsService'
+import { backupService } from '../lib/backup/backupService'
 import { Button } from './ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Plus, FolderOpen, Calendar, User, Search, Trash2, ArrowRight } from 'lucide-react'
@@ -16,6 +18,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedProject, setSelectedProject] = useState<string | null>(null)
+  const [projectError, setProjectError] = useState<string | null>(null)
 
   const loadProjects = useCallback(async () => {
     try {
@@ -31,7 +34,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
       if (error) throw error
       setProjects(data || [])
     } catch (error) {
-      console.error('Error loading projects:', error)
+      setProjectError(error instanceof Error ? error.message : 'Could not load projects.')
     } finally {
       setLoading(false)
     }
@@ -50,6 +53,8 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
 
     if (offlineMode) {
       offlineProjectStore.delete(projectId)
+      vcsService.removeRepo(projectId)
+      backupService.deleteProjectBackups(projectId)
       setProjects((current) => current.filter((project) => project.id !== projectId))
       return
     }
@@ -61,11 +66,16 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
         .eq('id', projectId)
 
       if (error) throw error
-      
+
+      // History and backups live in this browser even when the project row was
+      // cloud-owned, so deleting the project must purge them too.
+      vcsService.removeRepo(projectId)
+      backupService.deleteProjectBackups(projectId)
       setProjects(projects.filter(p => p.id !== projectId))
     } catch (error) {
-      console.error('Error deleting project:', error)
-      alert('Failed to delete project')
+      setProjectError(
+        `Could not delete the project: ${error instanceof Error ? error.message : 'unknown error'}`,
+      )
     }
   }
 
@@ -101,6 +111,22 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
           ))}
         </ul>
       </div>
+
+      {projectError && (
+        <div
+          role="alert"
+          className="mb-6 flex items-start justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+        >
+          <span>{projectError}</span>
+          <button
+            type="button"
+            onClick={() => setProjectError(null)}
+            className="text-xs font-semibold underline underline-offset-2"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative min-w-0 flex-1">

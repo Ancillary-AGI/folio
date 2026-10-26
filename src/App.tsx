@@ -3,7 +3,7 @@ import {
   Cpu, FolderOpen, Menu, Bot, BarChart3, Settings, Package, Users,
   Download, Image, FileText, List, Lock, LogOut, Mic, MicOff,
   Shield, Bell, RefreshCw, History, RotateCcw, Moon, Sun, AlertCircle, FlaskConical, Search,
-  MoreHorizontal,
+  MoreHorizontal, ShieldCheck, X,
 } from 'lucide-react'
 import { Button } from './components/ui/button'
 import type { PlacedComponent, Wire, User } from './types'
@@ -14,6 +14,7 @@ import { buildDemoBoard } from './lib/demo/demoBoard'
 import { isBoardDemoLoad, loadDemoScenario } from './lib/demo/loadDemo'
 import type { DemoScenario } from './lib/demo/demoScenarios'
 import { exportToImage, exportToNetlist, exportToJSON, exportToBOM, exportToGerber, downloadFile } from './lib/exportUtils'
+import { buildSchematicDrawing } from './lib/schematic/engineeringDrawing'
 import { pluginManager } from './lib/plugins/pluginManager'
 import { collaborativeEditor } from './lib/collaboration/collaborativeEditor'
 import { nlpService } from './lib/nlp/nlpService'
@@ -21,10 +22,20 @@ import { siemService } from './lib/siem/siemService'
 import { assetSecurity } from './lib/security/assetSecurity'
 import { backupService, type ProjectBackup } from './lib/backup/backupService'
 import { useAppStore } from './stores/useAppStore'
-import { isWorkspaceMode, projectFromHash } from './stores/routing'
+import {
+  ADMIN_ROUTE,
+  currentRoute,
+  isAdminPath,
+  isWorkspaceMode,
+  navigateTo,
+  PROJECTS_ROUTE,
+  subscribeToRoute,
+  writeWorkspaceRoute,
+} from './stores/routing'
 import { useProjectStore } from './stores/useProjectStore'
 import type { CanvasComponent, CanvasWire } from './stores/useProjectStore'
 import { vcsService, type VcsCommit } from './lib/vcs/vcsService'
+import { createDefaultMechanicalParts, type MechanicalPart } from './lib/mechanical/partModel'
 import OnboardingTour from './components/OnboardingTour'
 import { ONBOARDING_STEP_COUNT } from './lib/onboarding/onboardingSteps'
 import {
@@ -42,6 +53,10 @@ import UserPresence from './components/collaboration/UserPresence'
 import { useTheme } from './lib/theme/useTheme'
 import { describeTheme } from './lib/theme/tokens'
 import { WORKSPACE_MODE_META } from './lib/workspace/modes'
+import { resolveLocalRole } from './lib/admin/adminService'
+import { checkQuotaCapacity } from './lib/admin/quotaPolicy'
+import { countUsage } from './lib/admin/usageLedger'
+import { recordPlatformUsage } from './lib/admin/usageRecorder'
 
 // On-demand panels keep their heavyweight deps (recharts, plugin runtimes)
 // out of the first paint until the user actually opens them.
@@ -52,6 +67,7 @@ const CollaborativePanel = lazy(() => import('./components/collaboration/Collabo
 const SettingsPanel = lazy(() => import('./components/SettingsPanel'))
 const DemoGallery = lazy(() => import('./components/workspace/DemoGallery'))
 const CommandPalette = lazy(() => import('./components/workspace/CommandPalette'))
+const AdminConsole = lazy(() => import('./components/admin/AdminConsole'))
 
 const panelFallback = (
   <div className="flex h-full items-center justify-center p-4">
@@ -63,6 +79,58 @@ const panelFallback = (
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent)
 const DEMO_SHORTCUT_LABEL = IS_MAC ? '⇧⌘D' : 'Ctrl+Shift+D'
 const PALETTE_SHORTCUT_LABEL = IS_MAC ? '⌘K' : 'Ctrl+K'
+
+type PcbLayout = ReturnType<typeof useProjectStore.getState>['pcbLayout']
+
+/** Saved canvases and commits may predate layout persistence; reject junk. */
+function asPcbLayout(value: unknown): PcbLayout {
+  if (!value || typeof value !== 'object') return null
+  const layout = value as Record<string, unknown>
+  return Number.isFinite(layout.widthMm) && Number.isFinite(layout.heightMm)
+    && Array.isArray(layout.layers) && Array.isArray(layout.traces)
+    && Array.isArray(layout.vias) && Array.isArray(layout.components)
+    ? (value as PcbLayout)
+    : null
+}
+
+/** Saved mechanical assemblies and domain bags may be absent in older files. */
+function asMechanicalParts(value: unknown): MechanicalPart[] {
+  return Array.isArray(value) ? value as MechanicalPart[] : createDefaultMechanicalParts()
+}
+
+function asDomainDesigns(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
+
+function startOfToday(): number {
+  const date = new Date()
+  date.setHours(0, 0, 0, 0)
+  return date.getTime()
+}
+
+/** In-app, dismissible message. Native alerts block automation and the canvas. */
+function NoticeBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  if (!message) return null
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-3 border-b border-warning/40 bg-warning/10 px-6 py-2 text-xs text-foreground"
+    >
+      <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" aria-hidden="true" />
+      <p className="flex-1 leading-relaxed">{message}</p>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Dismiss message"
+        className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  )
+}
 
 function App() {
   // Without cloud credentials the app boots straight into local mode — there is
@@ -86,6 +154,8 @@ function App() {
   const [vcsStatus, setVcsStatus] = useState('')
   const [backupList, setBackupList] = useState<ProjectBackup[]>([])
   const [showProjectManager, setShowProjectManager] = useState(false)
+  const [showAdmin, setShowAdmin] = useState(false)
+  const [notice, setNotice] = useState('')
   const [showPluginPanel, setShowPluginPanel] = useState(false)
   const [showDemoGallery, setShowDemoGallery] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
@@ -99,6 +169,7 @@ function App() {
   const [voiceError, setVoiceError] = useState('')
   const [exportStatus, setExportStatus] = useState('')
   const [activeAlertCount, setActiveAlertCount] = useState(0)
+  const [activeAlertSummary, setActiveAlertSummary] = useState('')
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   // The right-hand drawer is one slot: opening a tool replaces whatever is there.
@@ -106,6 +177,50 @@ function App() {
     useAppStore.setState({ simulationPanelOpen: false, aiChatOpen: false })
     setShowCollaborativePanel(false)
     setShowPluginPanel(true)
+  }
+
+  /* The project list is a route, not a modal flag: back/forward and reload both
+   * land on the same screen. The open project stays loaded for a quick return. */
+  const openProjectManager = () => {
+    setShowProjectManager(true)
+    setShowAdmin(false)
+    navigateTo(PROJECTS_ROUTE)
+  }
+
+  /* Administration is a sibling route, not a modal: it survives reloads and
+   * Back returns to whichever screen opened it. */
+  const openAdmin = () => {
+    setShowAdmin(true)
+    setShowExportMenu(false)
+    setShowVcsMenu(false)
+    setShowMoreMenu(false)
+    navigateTo(ADMIN_ROUTE)
+  }
+
+  const closeAdmin = () => {
+    setShowAdmin(false)
+    const project = useProjectStore.getState().currentProject
+    if (showProjectManager || !project) {
+      navigateTo(PROJECTS_ROUTE)
+      setShowProjectManager(true)
+      return
+    }
+    writeWorkspaceRoute(useAppStore.getState().workspaceMode, project.id)
+  }
+
+  const simulationQuotaError = (): string | null => {
+    if (!user) return 'Sign in to run a simulation.'
+    const decision = checkQuotaCapacity('simulation', resolveLocalRole(user, offlineMode), {
+      projects: 0,
+      exportsToday: 0,
+      simulationsToday: countUsage('simulation.run', startOfToday(), user.id),
+      storageMb: 0,
+    })
+    return decision.allowed ? null : decision.reason ?? 'Your simulation quota is exhausted.'
+  }
+
+  const recordSimulationRun = () => {
+    recordPlatformUsage('simulation.run', user, offlineMode, { source: 'solver' })
   }
 
   const {
@@ -123,6 +238,7 @@ function App() {
 
   const {
     currentProject,
+    currentSchematic,
     setCurrentProject,
     setCurrentSchematic,
     isDirty,
@@ -131,14 +247,20 @@ function App() {
     wires,
   } = useProjectStore()
 
-  const buildDesignSnapshot = () => ({
-    components: useProjectStore.getState().components,
-    wires: useProjectStore.getState().wires,
-    code: useProjectStore.getState().firmwareCode || null,
-    netlist: null,
-    simConfig: null,
-    meta: { viewport: useAppStore.getState().viewport },
-  })
+  const buildDesignSnapshot = () => {
+    const live = useProjectStore.getState()
+    return {
+      components: live.components,
+      wires: live.wires,
+      code: live.firmwareCode || null,
+      pcbLayout: live.pcbLayout,
+      mechanicalParts: live.mechanicalParts,
+      domains: live.domainDesigns,
+      netlist: null,
+      simConfig: null,
+      meta: { viewport: useAppStore.getState().viewport },
+    }
+  }
 
   /*
    * Theming is entirely owned by `useTheme`, which writes validated tokens from
@@ -149,11 +271,21 @@ function App() {
 
   /* The browser tab doubles as a workspace readout: project, mode, unsaved. */
   useEffect(() => {
+    if (showAdmin) {
+      document.title = 'Administration · Folio'
+      return
+    }
     const mode = WORKSPACE_MODE_META[workspaceMode].label
     document.title = currentProject
       ? `${isDirty ? '● ' : ''}${currentProject.name} — ${mode} · Folio`
       : `${mode} · Folio`
-  }, [currentProject, isDirty, workspaceMode])
+  }, [currentProject, isDirty, showAdmin, workspaceMode])
+
+  /* Opening a workspace is the workbench's most meaningful usage signal. */
+  useEffect(() => {
+    if (!user || showAdmin) return
+    recordPlatformUsage('workspace.open', user, offlineMode, { mode: workspaceMode })
+  }, [user, offlineMode, showAdmin, workspaceMode])
 
   // ── Auth ────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -260,10 +392,13 @@ function App() {
   // ── SIEM monitoring ─────────────────────────────────────────────────────────
   useEffect(() => {
     siemService.startMonitoring()
-    const interval = setInterval(() => {
+    const refreshAlerts = () => {
       const alerts = siemService.getAlerts({ status: 'active' })
       setActiveAlertCount(alerts.length)
-    }, 15000)
+      setActiveAlertSummary(alerts[0]?.description ?? alerts[0]?.title ?? '')
+    }
+    refreshAlerts()
+    const interval = setInterval(refreshAlerts, 15000)
     return () => clearInterval(interval)
   }, [])
 
@@ -309,15 +444,32 @@ function App() {
 
   const handleNewProject = async () => {
     if (!user) return
+    setNotice('')
+    let projectCount = offlineProjectStore.list().filter((entry) => entry.user_id === user.id).length
+    if (!offlineMode) {
+      const { count } = await supabase.from('projects').select('id', { count: 'exact', head: true }).eq('user_id', user.id)
+      projectCount = count ?? 0
+    }
+    const quota = checkQuotaCapacity('project', resolveLocalRole(user, offlineMode), {
+      projects: projectCount, exportsToday: 0, simulationsToday: 0, storageMb: 0,
+    })
+    if (!quota.allowed) {
+      setNotice(quota.reason ?? 'Your project quota is exhausted.')
+      return
+    }
     if (offlineMode) {
       const project = offlineProjectStore.create(user.id, `New Project ${new Date().toLocaleDateString()}`)
-      useProjectStore.setState({ components: [], wires: [], isDirty: false })
+      useProjectStore.setState({
+        components: [], wires: [], firmwareCode: '', simulationRuns: [], pcbLayout: null,
+        simulationResults: [], isSimulating: false, liveFrame: null, isDirty: false,
+      })
       setCurrentSchematic(null)
       setCanvasData(project.canvas_data ?? null)
       useAppStore.getState().setZoom(1)
       useAppStore.getState().setPan({ x: 0, y: 0 })
       setCurrentProject(project)
       setShowProjectManager(false)
+      recordPlatformUsage('project.create', user, offlineMode, { name: project.name, storage: 'local' })
       siemService.logAuditEvent({ user: user.id, action: 'project:create', resource: project.id, details: { name: project.name } })
       return
     }
@@ -329,13 +481,17 @@ function App() {
       }).select().single()
       if (error) throw error
       await supabase.from('schematics').insert({ project_id: data.id, name: 'Main Schematic', order_index: 0 })
-      useProjectStore.setState({ components: [], wires: [], isDirty: false })
+      useProjectStore.setState({
+        components: [], wires: [], firmwareCode: '', simulationRuns: [], pcbLayout: null,
+        simulationResults: [], isSimulating: false, liveFrame: null, isDirty: false,
+      })
       setCurrentSchematic(null)
       setCanvasData(null)
       useAppStore.getState().setZoom(1)
       useAppStore.getState().setPan({ x: 0, y: 0 })
       setCurrentProject(data)
       setShowProjectManager(false)
+      recordPlatformUsage('project.create', user, offlineMode, { name: data.name, storage: 'cloud' })
       siemService.logAuditEvent({ user: user.id, action: 'project:create', resource: data.id, details: { name: data.name } })
     } catch (err) {
       console.error('Error creating project:', err)
@@ -346,6 +502,7 @@ function App() {
     markOnboardingComplete()
     setShowOnboarding(false)
     setOnboardingStep(0)
+    recordPlatformUsage('onboarding.complete', user, offlineMode, { steps: ONBOARDING_STEP_COUNT })
   }
 
   const restartOnboarding = () => {
@@ -370,6 +527,7 @@ function App() {
     if (isBoardDemoLoad(scenario.load) && !confirmReplace(scenario.title)) return
     if (!(await ensureProject())) return
     loadDemoScenario(scenario)
+    recordPlatformUsage('demo.load', user, offlineMode, { scenario: scenario.title })
   }
 
   const handleLoadSampleCircuit = async () => {
@@ -456,6 +614,12 @@ function App() {
         simulationRuns: Array.isArray(savedCanvas?.simulationRuns)
           ? savedCanvas.simulationRuns as ReturnType<typeof useProjectStore.getState>['simulationRuns']
           : [],
+        pcbLayout: asPcbLayout(savedCanvas?.pcbLayout),
+        mechanicalParts: asMechanicalParts(savedCanvas?.mechanicalParts),
+        domainDesigns: asDomainDesigns(savedCanvas?.domainDesigns),
+        simulationResults: [],
+        isSimulating: false,
+        liveFrame: null,
         isDirty: false,
       })
       setCurrentSchematic(schematic)
@@ -476,14 +640,99 @@ function App() {
       console.error('Error loading schematic:', err)
       return
     }
-    if (user) siemService.logAuditEvent({ user: user.id, action: 'project:open', resource: project.id, details: {} })
+    if (user) {
+      recordPlatformUsage('project.open', user, offlineMode, { name: project.name })
+      siemService.logAuditEvent({ user: user.id, action: 'project:open', resource: project.id, details: {} })
+    }
   }
+
+  /*
+   * URL ownership lives in App because App is mounted for every screen: the
+   * workspace (and its old hash router) only mounts after a project opens, so
+   * a `#/agents` reload landed on the project list before the mode could apply.
+   * Applying the location here also gives back/forward one stable owner.
+   */
+  const selectProjectRef = useRef<(project: Project) => void>(() => {})
+  useEffect(() => {
+    selectProjectRef.current = (project) => { void handleSelectProject(project) }
+  })
+
+  useEffect(() => {
+    const applyLocation = () => {
+      // Administration is not a workspace; keep it out of parseRoute's modes.
+      if (typeof window !== 'undefined' && isAdminPath(window.location.pathname)) {
+        setShowAdmin(true)
+        return
+      }
+      setShowAdmin(false)
+      const route = currentRoute()
+      if (route.isProjectList) {
+        setShowProjectManager(true)
+        return
+      }
+      if (!route.mode) {
+        // Unknown paths are not documents; canonicalise them to the project list.
+        navigateTo(PROJECTS_ROUTE, { replace: true })
+        setShowProjectManager(true)
+        return
+      }
+      setShowProjectManager(false)
+      // Re-setting the active mode clears a pending demo request, so only
+      // dispatch when the URL genuinely names a different workspace.
+      if (useAppStore.getState().workspaceMode !== route.mode) {
+        useAppStore.getState().setWorkspaceMode(route.mode)
+      }
+      if (route.projectId && offlineMode) {
+        const openProject = useProjectStore.getState().currentProject
+        if (openProject?.id !== route.projectId) {
+          const project = offlineProjectStore.get(route.projectId)
+          if (project) {
+            void selectProjectRef.current(project)
+          } else {
+            // A stale/deleted local project id cannot be opened; do not leave
+            // the address bar describing a document that is not shown.
+            navigateTo(PROJECTS_ROUTE, { replace: true })
+            setShowProjectManager(true)
+          }
+        }
+      } else if (!route.projectId && useProjectStore.getState().currentProject) {
+        // Back landed on a project-free view while a document is still loaded.
+        // Show the list over it instead of pretending `/` is that document.
+        setShowProjectManager(true)
+      }
+    }
+    applyLocation()
+    return subscribeToRoute(applyLocation)
+  }, [offlineMode])
+
+  /*
+   * Mirror the live document into history. pushState keeps Back meaningful;
+   * an already-canonical deep link compares equal and writes nothing, so a
+   * reload never adds a duplicate entry.
+   */
+  const routeProjectId = currentProject?.id ?? null
+  useEffect(() => {
+    if (!routeProjectId || showProjectManager || showAdmin) return
+    writeWorkspaceRoute(workspaceMode, routeProjectId)
+  }, [routeProjectId, workspaceMode, showProjectManager, showAdmin])
 
   const handleSave = useCallback(async (data: Record<string, unknown>) => {
     if (!currentProject) return
+    // Canvas autosave sends only components/wires/viewport. Merge the rest of
+    // the working design so moving a part cannot drop the firmware, simulation
+    // runs, or the routed board from the saved project.
+    const live = useProjectStore.getState()
+    const payload: Record<string, unknown> = {
+      ...data,
+      firmwareCode: data.firmwareCode === undefined ? live.firmwareCode : data.firmwareCode,
+      simulationRuns: data.simulationRuns === undefined ? live.simulationRuns : data.simulationRuns,
+      pcbLayout: data.pcbLayout === undefined ? live.pcbLayout : data.pcbLayout,
+      mechanicalParts: data.mechanicalParts === undefined ? live.mechanicalParts : data.mechanicalParts,
+      domainDesigns: data.domainDesigns === undefined ? live.domainDesigns : data.domainDesigns,
+    }
     if (offlineMode) {
-      offlineProjectStore.saveCanvas(currentProject.id, data)
-      setCanvasData(data)
+      offlineProjectStore.saveCanvas(currentProject.id, payload)
+      setCanvasData(payload)
       markClean()
       return
     }
@@ -491,9 +740,9 @@ function App() {
       const { data: schematic } = await supabase.from('schematics').select('id')
         .eq('project_id', currentProject.id).order('order_index', { ascending: true }).limit(1).maybeSingle()
       if (schematic) {
-        await supabase.from('schematics').update({ canvas_data: data, updated_at: new Date().toISOString() }).eq('id', schematic.id)
+        await supabase.from('schematics').update({ canvas_data: payload, updated_at: new Date().toISOString() }).eq('id', schematic.id)
         await supabase.from('projects').update({ updated_at: new Date().toISOString() }).eq('id', currentProject.id)
-        setCanvasData(data)
+        setCanvasData(payload)
         markClean()
         if (user) siemService.logAuditEvent({ user: user.id, action: 'project:save', resource: currentProject.id, details: {} })
       }
@@ -507,6 +756,9 @@ function App() {
     wires: useProjectStore.getState().wires,
     firmwareCode: useProjectStore.getState().firmwareCode,
     simulationRuns: useProjectStore.getState().simulationRuns,
+    pcbLayout: useProjectStore.getState().pcbLayout,
+    mechanicalParts: useProjectStore.getState().mechanicalParts,
+    domainDesigns: useProjectStore.getState().domainDesigns,
     viewport: useAppStore.getState().viewport,
   })
 
@@ -515,7 +767,13 @@ function App() {
     setVcsLog(vcsService.log(currentProject.id))
     setBackupList(backupService.listBackups(currentProject.id))
     const dirty = vcsService.status(currentProject.id, buildDesignSnapshot())
-    setVcsStatus(dirty.length === 0 ? 'clean' : `${dirty.length} change(s)`)
+    const storageNotes = [
+      vcsService.getPersistenceError() ? `Version history is not fully saved: ${vcsService.getPersistenceError()}.` : '',
+      backupService.getStorageError() ? `Backups are not fully saved: ${backupService.getStorageError()}.` : '',
+    ].filter(Boolean)
+    setVcsStatus(storageNotes.length > 0
+      ? storageNotes.join(' ')
+      : dirty.length === 0 ? 'clean' : `${dirty.length} change(s)`)
   }
 
   const handleVcsCommit = () => {
@@ -523,9 +781,14 @@ function App() {
     const message = vcsMessage.trim() || `Commit ${new Date().toLocaleString()}`
     try {
       const commit = vcsService.commit(currentProject.id, message, buildDesignSnapshot(), user?.id ?? 'local-user')
+      recordPlatformUsage('vcs.commit', user, offlineMode, { message: commit.message })
       setVcsMessage('')
       setVcsStatus('')
       refreshVcs()
+      const persistenceError = vcsService.getPersistenceError()
+      if (persistenceError) {
+        setVcsStatus(`Committed for this session only — ${persistenceError}. Export the project to keep a copy.`)
+      }
       siemService.logAuditEvent({
         user: user?.id || 'unknown',
         action: 'project:vcs:commit',
@@ -539,18 +802,62 @@ function App() {
 
   const handleVcsCheckout = (commit: VcsCommit) => {
     if (!currentProject || !window.confirm(`Restore commit “${commit.message}”? Unsaved work is kept in a backup first.`)) return
-    backupService.createBackup(currentProject.id, getCheckpointData(), 'Before VCS restore')
-    const snapshot = vcsService.checkout(currentProject.id, commit.id)
+    try {
+      backupService.createBackup(currentProject.id, getCheckpointData(), 'Before VCS restore')
+    } catch (err) {
+      setVcsStatus(`Restore cancelled: a safety backup could not be created (${err instanceof Error ? err.message : String(err)}).`)
+      return
+    }
+    let snapshot
+    try {
+      snapshot = vcsService.checkout(currentProject.id, commit.id)
+    } catch (err) {
+      setVcsStatus(err instanceof Error ? err.message : 'Restore failed')
+      return
+    }
     const comps = Array.isArray(snapshot.components) ? snapshot.components : []
     const wr = Array.isArray(snapshot.wires) ? snapshot.wires : []
+    const current = useProjectStore.getState()
     useProjectStore.setState({
       components: comps as typeof components,
       wires: wr as typeof wires,
       firmwareCode: typeof snapshot.code === 'string' ? snapshot.code : '',
+      pcbLayout: asPcbLayout(snapshot.pcbLayout),
+      // Pre-multidomain commits did not record these; keep the live design
+      // rather than silently replacing it with defaults.
+      mechanicalParts: snapshot.mechanicalParts === undefined
+        ? current.mechanicalParts
+        : asMechanicalParts(snapshot.mechanicalParts),
+      domainDesigns: snapshot.domains === undefined
+        ? current.domainDesigns
+        : asDomainDesigns(snapshot.domains),
+      simulationResults: [],
+      isSimulating: false,
+      liveFrame: null,
       isDirty: true,
     })
+    const viewportMeta = snapshot.meta?.viewport
+    if (viewportMeta && typeof viewportMeta === 'object') {
+      const viewport = viewportMeta as { zoom?: unknown; pan?: unknown }
+      if (typeof viewport.zoom === 'number' && Number.isFinite(viewport.zoom)) {
+        useAppStore.getState().setZoom(viewport.zoom)
+      }
+      const pan = viewport.pan as { x?: unknown; y?: unknown } | undefined
+      if (pan && typeof pan.x === 'number' && Number.isFinite(pan.x) && typeof pan.y === 'number' && Number.isFinite(pan.y)) {
+        useAppStore.getState().setPan({ x: pan.x, y: pan.y })
+      }
+    }
+    // Keep the export/import canvas in step with the restored design; otherwise
+    // netlist export would still describe the pre-restore sheet.
+    const restoredData = getCheckpointData()
+    setCanvasData(restoredData)
+    void handleSave(restoredData)
     refreshVcs()
     setShowVcsMenu(false)
+    const backupError = backupService.getStorageError()
+    if (backupError) {
+      setVcsStatus(`Restored “${commit.message}”. The safety backup is session-only — ${backupError}.`)
+    }
     siemService.logAuditEvent({
       user: user?.id || 'unknown',
       action: 'project:vcs:checkout',
@@ -563,13 +870,19 @@ function App() {
     if (!currentProject) return
     const label = `Checkpoint ${new Date().toLocaleString()}`
     const checkpoint = backupService.createBackup(currentProject.id, getCheckpointData(), label)
-    setVcsStatus(`Backed up as ${checkpoint.label} (also committed below for history)`)
+    let status = `Backed up as ${checkpoint.label} (also committed below for history)`
     try {
       vcsService.commit(currentProject.id, label, buildDesignSnapshot(), user?.id ?? 'local-user')
-    } catch {
-      /* backup already saved; commit is best-effort */
+      recordPlatformUsage('vcs.commit', user, offlineMode, { message: label, checkpoint: true })
+    } catch (err) {
+      status += `; history commit failed (${err instanceof Error ? err.message : String(err)})`
     }
     refreshVcs()
+    const vcsError = vcsService.getPersistenceError()
+    const backupError = backupService.getStorageError()
+    if (vcsError) status += `; history is session-only (${vcsError})`
+    if (backupError) status += `; backup is session-only (${backupError})`
+    setVcsStatus(status)
     siemService.logAuditEvent({
       user: user?.id || 'unknown',
       action: 'project:checkpoint:create',
@@ -579,7 +892,7 @@ function App() {
   }
 
   const restoreCheckpoint = async (checkpoint: ProjectBackup) => {
-    if (!currentProject || !window.confirm(`Restore “${checkpoint.label}”? A safety commit of the current state is created first.`)) return
+    if (!currentProject || !window.confirm(`Restore “${checkpoint.label}”? A safety backup of the current state is created first.`)) return
 
     const restored = backupService.restore(checkpoint.id, currentProject.id)
     if (!restored || !Array.isArray(restored.components) || !Array.isArray(restored.wires)) {
@@ -595,6 +908,16 @@ function App() {
       simulationRuns: Array.isArray(restored.simulationRuns)
         ? restored.simulationRuns as ReturnType<typeof useProjectStore.getState>['simulationRuns']
         : useProjectStore.getState().simulationRuns,
+      pcbLayout: asPcbLayout(restored.pcbLayout),
+      mechanicalParts: restored.mechanicalParts === undefined
+        ? useProjectStore.getState().mechanicalParts
+        : asMechanicalParts(restored.mechanicalParts),
+      domainDesigns: restored.domainDesigns === undefined
+        ? useProjectStore.getState().domainDesigns
+        : asDomainDesigns(restored.domainDesigns),
+      simulationResults: [],
+      isSimulating: false,
+      liveFrame: null,
       isDirty: true,
     })
     const viewport = restored.viewport as { zoom?: unknown; pan?: unknown } | undefined
@@ -611,7 +934,10 @@ function App() {
     setCanvasData(restored)
     refreshVcs()
     setShowVcsMenu(false)
-    setVcsStatus(`Restored ${checkpoint.label}`)
+    const backupError = backupService.getStorageError()
+    setVcsStatus(backupError
+      ? `Restored ${checkpoint.label}. The safety backup is session-only — ${backupError}.`
+      : `Restored ${checkpoint.label}`)
     await handleSave(restored)
     siemService.logAuditEvent({
       user: user?.id || 'unknown',
@@ -622,76 +948,104 @@ function App() {
   }
 
   // ── Export handlers ──────────────────────────────────────────────────────────
+  /* Quotas are checked before the file is produced; usage is recorded only after
+   * it actually exists, so a failed export does not consume the daily allowance. */
+  const exportQuotaError = (): string | null => {
+    if (!user) return 'Sign in to export a design.'
+    const decision = checkQuotaCapacity('export', resolveLocalRole(user, offlineMode), {
+      projects: 0,
+      exportsToday: countUsage('export.run', startOfToday(), user.id),
+      simulationsToday: 0,
+      storageMb: 0,
+    })
+    return decision.allowed ? null : decision.reason ?? 'Your export quota is exhausted.'
+  }
+
+  const finishExport = (format: string) => {
+    recordPlatformUsage('export.run', user, offlineMode, { format })
+    setShowExportMenu(false)
+  }
+
   const handleExportImage = () => {
     const canvas = document.querySelector('canvas')
     if (!canvas || !currentProject) return
+    const quotaError = exportQuotaError()
+    if (quotaError) { setNotice(quotaError); setShowExportMenu(false); return }
     const dataUrl = exportToImage(canvas)
     const a = document.createElement('a')
     a.href = dataUrl
     a.download = `${currentProject.name}.png`
     a.click()
-    setShowExportMenu(false)
+    finishExport('png')
   }
 
   const handleExportNetlist = () => {
     if (!canvasData || !currentProject) return
+    const quotaError = exportQuotaError()
+    if (quotaError) { setNotice(quotaError); setShowExportMenu(false); return }
     const netlist = exportToNetlist(
       (canvasData.components as PlacedComponent[]) || [],
       (canvasData.wires as Wire[]) || [],
       currentProject.name,
     )
     downloadFile(netlist, `${currentProject.name}.net`, 'text/plain')
-    setShowExportMenu(false)
+    finishExport('netlist')
   }
 
   const handleExportJSON = () => {
     if (!currentProject) return
+    const quotaError = exportQuotaError()
+    if (quotaError) { setNotice(quotaError); setShowExportMenu(false); return }
     const json = exportToJSON(
       components.map(c => ({ ...c, position: { x: c.x, y: c.y }, scale: 1 } as unknown as PlacedComponent)),
       wires.map(w => ({ ...w, points: w.points } as unknown as Wire)),
       currentProject.name,
     )
     downloadFile(json, `${currentProject.name}.json`, 'application/json')
-    setShowExportMenu(false)
+    finishExport('json')
   }
 
   const handleExportBOM = () => {
     if (!currentProject) return
+    const quotaError = exportQuotaError()
+    if (quotaError) { setNotice(quotaError); setShowExportMenu(false); return }
     const bom = exportToBOM(
       components.map(c => ({ ...c, position: { x: c.x, y: c.y }, scale: 1 } as unknown as PlacedComponent))
     )
     // `exportToBOM` is a formatted report, not a CSV; label it honestly.
     downloadFile(bom, `${currentProject.name}_BOM.txt`, 'text/plain')
-    setShowExportMenu(false)
+    finishExport('bom')
   }
 
   const handleExportGerber = () => {
     if (!currentProject) return
+    const quotaError = exportQuotaError()
+    if (quotaError) { setNotice(quotaError); setShowExportMenu(false); return }
     const gerber = exportToGerber(
       components.map(c => ({ ...c, position: { x: c.x, y: c.y }, scale: 1 } as unknown as PlacedComponent)),
       wires.map(w => ({ ...w } as unknown as Wire)),
     )
     downloadFile(gerber, `${currentProject.name}.gbr`, 'text/plain')
-    setShowExportMenu(false)
+    finishExport('gerber')
   }
 
   /*
-   * Deep link restore: a reload of `#/robotics?project=...` used to land on the
-   * project list because the hash mode was applied inside the workspace, which
-   * only mounts after a project is open. Offline projects are local, so reopen
-   * them directly; cloud projects require a signed-in fetch and stay manual.
+   * Vector engineering drawing, not a canvas screenshot: sheet border, zone
+   * references, title block, haloed labels and print-registration ink all come
+   * from the same layout module the interactive canvas draws with.
    */
-  const deepLinkRestored = useRef(false)
-  useEffect(() => {
-    if (!offlineMode || deepLinkRestored.current) return
-    deepLinkRestored.current = true
-    const projectId = projectFromHash()
-    if (!projectId) return
-    const project = offlineProjectStore.get(projectId)
-    if (project) void handleSelectProject(project)
-    // The handler reads only stable setters and offline state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const handleExportDrawing = () => {
+    if (!currentProject) return
+    const quotaError = exportQuotaError()
+    if (quotaError) { setNotice(quotaError); setShowExportMenu(false); return }
+    const svg = buildSchematicDrawing(components, wires, {
+      title: currentSchematic?.name || currentProject.name,
+      projectName: currentProject.name,
+      notes: ['Crossings without a junction dot are not connected.'],
+    })
+    downloadFile(svg, `${currentProject.name}_drawing.svg`, 'image/svg+xml')
+    finishExport('drawing-svg')
+  }
 
   const handleSignOut = async () => {
     if (offlineMode) {
@@ -699,7 +1053,7 @@ function App() {
       setCurrentProject(null)
       setCurrentSchematic(null)
       setCanvasData(null)
-      setShowProjectManager(true)
+      openProjectManager()
       return
     }
     if (user) siemService.logAuditEvent({ user: user.id, action: 'auth:signout', resource: 'session', details: {} })
@@ -707,6 +1061,7 @@ function App() {
     setCurrentProject(null)
     setCurrentSchematic(null)
     setCanvasData(null)
+    navigateTo(PROJECTS_ROUTE, { replace: true })
   }
 
   const themeIcon = isDarkTheme ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />
@@ -739,6 +1094,8 @@ function App() {
 
   const handleExportEncrypted = async () => {
     if (!currentProject) return
+    const quotaError = exportQuotaError()
+    if (quotaError) { setNotice(quotaError); setShowExportMenu(false); return }
     const passphrase = window.prompt('Passphrase for the encrypted export (it cannot be recovered):')
     if (!passphrase) return
     const userId = user?.id ?? 'offline-local'
@@ -752,6 +1109,7 @@ function App() {
         `${currentProject.name}.folio.enc.json`,
         'application/json',
       )
+      recordPlatformUsage('export.run', user, offlineMode, { format: 'encrypted-json' })
       setExportStatus(`Encrypted with ${encrypted.algorithm}.`)
     } catch (error) {
       setExportStatus(error instanceof Error ? error.message : 'Encrypted export failed.')
@@ -772,10 +1130,27 @@ function App() {
 
   if (!user) return <AuthForm onAuthSuccess={() => {}} />
 
+  if (showAdmin) {
+    return (
+      <Suspense
+        fallback={(
+          <div className="flex min-h-screen items-center justify-center bg-background">
+            <div className="flex flex-col items-center gap-3" role="status" aria-live="polite">
+              <LoadingSpinner size="lg" />
+              <span className="text-muted-foreground">Loading administration…</span>
+            </div>
+          </div>
+        )}
+      >
+        <AdminConsole user={user} offlineMode={offlineMode} onBack={closeAdmin} />
+      </Suspense>
+    )
+  }
+
   if (!currentProject || showProjectManager) {
     return (
       <div className="flex min-h-screen flex-col bg-background">
-        <header className="app-chrome app-chrome-divider flex flex-shrink-0 items-center justify-between px-6 py-4">
+        <header className="app-chrome app-chrome-divider flex flex-shrink-0 items-center justify-between px-6 py-4" data-tour="app-header">
           <div className="flex items-center gap-3">
             <Cpu className="h-7 w-7 text-primary" />
             <div>
@@ -784,6 +1159,9 @@ function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" onClick={openAdmin} title="Administration" aria-label="Administration">
+              <ShieldCheck className="h-4 w-4" />
+            </Button>
             <Button variant="ghost" size="icon" onClick={toggleTheme} title={themeToggleLabel} aria-label={themeToggleLabel}>{themeIcon}</Button>
             <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} title="Settings" aria-label="Settings"><Settings className="w-4 h-4" /></Button>
             {!offlineMode && (
@@ -793,6 +1171,7 @@ function App() {
             )}
           </div>
         </header>
+        <NoticeBanner message={notice} onDismiss={() => setNotice('')} />
         <ProjectManager onSelectProject={handleSelectProject} onNewProject={handleNewProject} offlineMode={offlineMode} />
         {showSettings && (
           <Suspense fallback={panelFallback}>
@@ -819,9 +1198,9 @@ function App() {
     <div className="app-shell">
 
       {/* ── Header ── */}
-      <header className="app-chrome app-chrome-divider flex min-w-0 flex-shrink-0 items-center justify-between gap-2 px-4 py-2">
+      <header className="app-chrome app-chrome-divider flex min-w-0 flex-shrink-0 items-center justify-between gap-2 px-4 py-2" data-tour="app-header">
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => setShowProjectManager(true)} title="Projects" aria-label="Projects">
+          <Button variant="ghost" size="icon" onClick={openProjectManager} title="Projects" aria-label="Projects">
             <FolderOpen className="w-4 h-4" />
           </Button>
           <Button
@@ -875,11 +1254,14 @@ function App() {
               <Shield className={activeAlertCount > 0 ? 'w-4 h-4 text-destructive' : 'w-4 h-4'} />
             </Button>
 
-            <Button variant="ghost" size="icon" onClick={toggleAiChat} title="AI Assistant" aria-label="AI Assistant">
+            <Button variant="ghost" size="icon" onClick={toggleAiChat} title="AI Assistant" aria-label="AI Assistant" data-tour="agent-button">
               <Bot className="w-4 h-4" />
             </Button>
+            <Button variant="ghost" size="icon" onClick={openAdmin} title="Administration" aria-label="Administration">
+              <ShieldCheck className="w-4 h-4" />
+            </Button>
             <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-            <Button variant="ghost" size="icon" onClick={() => useAppStore.getState().setWorkspaceMode('simulation')} title="Open simulation workspace" aria-label="Open simulation workspace">
+            <Button variant="ghost" size="icon" onClick={() => useAppStore.getState().setWorkspaceMode('simulation')} title="Open simulation workspace" aria-label="Open simulation workspace" data-tour="simulation-toggle">
               <BarChart3 className="w-4 h-4" />
             </Button>
             <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} title="Settings" aria-label="Settings">
@@ -895,7 +1277,7 @@ function App() {
             <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
           </div>
 
-          <div className="relative">
+          <div className="relative" data-tour="version-history">
             <Button
               variant="ghost"
               size="icon"
@@ -910,7 +1292,11 @@ function App() {
               <div className="app-panel absolute right-0 z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-md border border-border shadow-xl">
                 <div className="p-3 border-b border-border">
                   <h2 className="text-sm font-semibold">Version history</h2>
-                  <p className="text-xs text-muted-foreground mt-1">Content-addressed commits of schematic, firmware and sim config, stored on this device.</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Content-addressed commits of the whole project — schematic, PCB, mechanical assembly,
+                    firmware and every CAD domain — stored on this device. Restore brings the design back
+                    as one consistent state.
+                  </p>
                   <form
                     className="flex gap-2 mt-3"
                     onSubmit={event => { event.preventDefault(); handleVcsCommit() }}
@@ -981,6 +1367,7 @@ function App() {
             title={`Command palette (${PALETTE_SHORTCUT_LABEL})`}
             aria-label="Command palette"
             aria-haspopup="dialog"
+            data-tour="command-palette"
           >
             <Search className="w-4 h-4" />
           </Button>
@@ -1018,6 +1405,7 @@ function App() {
               <div className="app-panel absolute right-0 z-50 mt-2 w-56 rounded-md border border-border py-2 shadow-xl">
                 {[
                   { label: 'Export as Image', icon: Image, action: handleExportImage },
+                  { label: 'Export Drawing (SVG)', icon: FileText, action: handleExportDrawing },
                   { label: 'Export Netlist (.net)', icon: FileText, action: handleExportNetlist },
                   { label: 'Export JSON', icon: FileText, action: handleExportJSON },
                   { label: 'Export Gerber (.gbr)', icon: FileText, action: handleExportGerber },
@@ -1048,6 +1436,8 @@ function App() {
           <Button variant="ghost" size="icon" className="hidden sm:inline-flex" onClick={() => {
             setCurrentProject(null)
             setCurrentSchematic(null)
+            setCanvasData(null)
+            openProjectManager()
           }} title="Back to Projects" aria-label="Back to Projects">
             <RefreshCw className="w-4 h-4" />
           </Button>
@@ -1081,11 +1471,12 @@ function App() {
                     { label: isVoiceActive ? 'Stop voice control' : 'Start voice control', icon: isVoiceActive ? MicOff : Mic, action: toggleVoice },
                     { label: activeAlertCount > 0 ? `Security alerts (${activeAlertCount} active)` : 'Security alerts', icon: Shield, action: () => useAppStore.getState().setWorkspaceMode('siem') },
                     { label: 'AI Assistant', icon: Bot, action: toggleAiChat },
+                    { label: 'Administration', icon: ShieldCheck, action: openAdmin },
                     { label: 'Simulation workspace', icon: BarChart3, action: () => useAppStore.getState().setWorkspaceMode('simulation') },
                     { label: 'Settings', icon: Settings, action: () => setShowSettings(true) },
                     { label: 'Plugins', icon: Package, action: openPluginPanel },
                     { label: 'Collaboration', icon: Users, action: () => setShowCollaborativePanel(true) },
-                    { label: 'Back to Projects', icon: RefreshCw, action: () => { setCurrentProject(null); setCurrentSchematic(null) } },
+                    { label: 'Back to Projects', icon: RefreshCw, action: () => { setCurrentProject(null); setCurrentSchematic(null); setCanvasData(null); openProjectManager() } },
                   ] as const).map(({ label, icon: Icon, action }) => (
                     <button
                       key={label}
@@ -1105,6 +1496,8 @@ function App() {
         </div>
       </header>
 
+      <NoticeBanner message={notice} onDismiss={() => setNotice('')} />
+
       {showVoiceBar && (
         <VoiceCommandBar
           listening={isVoiceActive}
@@ -1121,6 +1514,8 @@ function App() {
           libraryComponents={libraryComponents}
           onSave={handleSave}
           onOpenDemos={() => setShowDemoGallery(true)}
+          beforeSimulationRun={simulationQuotaError}
+          onSimulationRun={recordSimulationRun}
         />
 
         {/* Right panel stack — docked on desktop, a drawer over the sheet below xl. */}
@@ -1139,7 +1534,11 @@ function App() {
           <Suspense fallback={panelFallback}>
           {simulationPanelOpen && (
             <div className="app-panel w-96 max-w-[calc(100vw-2rem)] border-l border-border max-xl:h-full">
-              <SimulationPanel onClose={toggleSimulationPanel} />
+              <SimulationPanel
+                onClose={toggleSimulationPanel}
+                beforeRun={simulationQuotaError}
+                onRunComplete={recordSimulationRun}
+              />
             </div>
           )}
           {aiChatOpen && (
@@ -1162,7 +1561,7 @@ function App() {
       </main>
 
       {/* ── Status bar: document metrics on the sheet, workspace context elsewhere ── */}
-      <footer className="status-bar" aria-label="Workspace status">
+      <footer className="status-bar" aria-label="Workspace status" data-tour="status-bar">
         <span className="status-segment text-foreground" title={WORKSPACE_MODE_META[workspaceMode].description}>
           MODE <span className="cad-readout uppercase">{WORKSPACE_MODE_META[workspaceMode].label}</span>
         </span>
@@ -1202,9 +1601,15 @@ function App() {
           </span>
         )}
         {activeAlertCount > 0 && (
-          <span className="status-segment text-destructive">
+          <button
+            type="button"
+            onClick={() => useAppStore.getState().setWorkspaceMode('siem')}
+            title={`${activeAlertCount} active alert${activeAlertCount === 1 ? '' : 's'}${activeAlertSummary ? `: ${activeAlertSummary}` : ''}`}
+            aria-label={`Open security alerts: ${activeAlertCount} active${activeAlertSummary ? ` - ${activeAlertSummary}` : ''}`}
+            className="status-segment text-destructive transition-colors hover:bg-accent"
+          >
             <AlertCircle className="h-3 w-3" /> {activeAlertCount} ALERT{activeAlertCount !== 1 ? 'S' : ''}
-          </span>
+          </button>
         )}
         <button
           type="button"

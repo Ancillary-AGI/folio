@@ -13,6 +13,7 @@ export type DemoLoad =
   | 'demo-board'
   | 'demo-pcb'
   | 'pcb-autoroute'
+  | 'rectifier-transient'
   | 'fpga-verilog'
   | 'fpga-vhdl'
   | 'embedded-rectifier'
@@ -28,6 +29,7 @@ export type DemoLoad =
   | 'visual-blocks'
   | 'ic-device-lab'
   | 'hil-suite'
+  | 'mechanical-enclosure'
 
 export interface DemoScenario {
   id: string
@@ -38,6 +40,12 @@ export interface DemoScenario {
   /** Concrete capabilities the demo exercises, shown on its card. */
   proves: readonly string[]
   load?: DemoLoad
+  /**
+   * One-shot request for a panel that has its own bootstrap (for example the
+   * agent verifier). Independent of `load`, so a scenario can load the board
+   * and still ask its panel to run something specific.
+   */
+  request?: string
 }
 
 export const DEMO_SCENARIOS: readonly DemoScenario[] = [
@@ -57,7 +65,7 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     group: 'design',
     summary: 'Run a transient analysis on the rectifier and inspect the input, output and capacitor ripple.',
     proves: ['MNA transient solver', 'Waveform probes', 'Ripple and diode drop'],
-    load: 'demo-board',
+    load: 'rectifier-transient',
   },
   {
     id: 'rectifier-convert',
@@ -73,9 +81,9 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     title: 'Route and verify the rectifier PCB',
     mode: 'pcb',
     group: 'design',
-    summary: 'Autoroute the rectifier, then run DRC, EMC, thermal and signal-integrity checks.',
+    summary: 'Inspect the A*-routed rectifier with real pads and silkscreen, then run DRC, EMC, thermal and signal-integrity checks.',
     proves: ['A* autorouting', 'DRC rules', 'Thermal and SI analysis'],
-    load: 'pcb-autoroute',
+    load: 'demo-pcb',
   },
   {
     id: 'rectifier-3d',
@@ -153,6 +161,7 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     group: 'electrical',
     summary: 'Elaborate structural Verilog or VHDL, run four-state simulation and map to SKY130 cells.',
     proves: ['HDL parsing', 'Digital simulation', 'Gate mapping'],
+    request: 'hdl-half-adder',
   },
   {
     id: 'fpga-half-adder',
@@ -188,14 +197,15 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     group: 'mechanical',
     summary: 'Size a PCB enclosure, check beam deflection, slice the tray to G-code and export STEP/STL.',
     proves: ['Beam analysis', 'Enclosure workflow', 'FDM slicing'],
+    load: 'mechanical-enclosure',
   },
   {
     id: 'robotics-two-link',
     title: 'Two-link arm and trajectory',
     mode: 'robotics',
     group: 'mechanical',
-    summary: 'Solve FK/IK, step a trajectory, check tool-point collision and replay the mechanism.',
-    proves: ['Damped-least-squares IK', 'Trajectory records', 'Collision checks'],
+    summary: 'Load the planar two-link arm, run forward kinematics, step a timed joint move and export the mechanism.',
+    proves: ['Planar forward kinematics', 'Timed trajectory', 'STEP export'],
     load: 'robotics-demo',
   },
   {
@@ -203,8 +213,8 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     title: 'Rectifier monitor firmware',
     mode: 'embedded',
     group: 'mechanical',
-    summary: 'Load the proven rectifier sketch, compile it for an Arduino target and inspect the Intel HEX image.',
-    proves: ['Sketch generation', 'Compilation pipeline', 'HEX artifact'],
+    summary: 'Load the proven rectifier sketch, run the deterministic build analysis and inspect flash/RAM headroom. Exact machine code needs arduino-cli.',
+    proves: ['Sketch generation', 'Static build analysis', 'Toolchain caveat'],
     load: 'embedded-rectifier',
   },
   {
@@ -214,6 +224,7 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     group: 'mechanical',
     summary: 'Inspect the chunked image-flash workflow and the Linux boot contract; live flashing needs the local companion daemon.',
     proves: ['Chunked image plan', 'Boot-file contract', 'Serial handshake'],
+    request: 'imaging-pipeline',
   },
   {
     id: 'visual-blocks',
@@ -229,8 +240,8 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     title: 'Rectifier HIL suite',
     mode: 'hil',
     group: 'mechanical',
-    summary: 'Run the proven rectifier hardware-in-the-loop test cases and inspect per-case results.',
-    proves: ['HIL scenarios', 'Assertions and timing', 'Pass/fail summary'],
+    summary: 'Run the rectifier HIL cases; with no bench attached each hardware loop reports a refusal and the panel says why, while the twin check covers the model.',
+    proves: ['HIL scenarios', 'Assertions and timing', 'Pass/fail reporting'],
     load: 'hil-suite',
   },
   {
@@ -250,6 +261,27 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     summary: 'Inspect the EDA tool harness and run the symbolic verifier against a design claim.',
     proves: ['Tool registry', 'Symbolic checks', 'Evidence output'],
     load: 'demo-board',
+    request: 'agents-verifier',
+  },
+  {
+    id: 'agents-autopilot',
+    title: 'Agent autopilot: ripple search',
+    mode: 'agents',
+    group: 'ops',
+    summary: 'Run the bounded autopilot on the rectifier: it edits the live sheet, solves every candidate and keeps the best measured filter capacitor with schematic and waveform evidence.',
+    proves: ['Closed-loop design', 'Measured iterations', 'Per-iteration evidence'],
+    load: 'demo-board',
+    request: 'agents-autopilot',
+  },
+  {
+    id: 'agents-mechanical-autopilot',
+    title: 'Agent mechanical sizing',
+    mode: 'agents',
+    group: 'ops',
+    summary:
+      'Size the main beam under strength and deflection limits: the closed loop writes each candidate to the live assembly, redraws it, and keeps the lightest feasible section.',
+    proves: ['Bounded sizing search', 'Constraint checks', 'Per-iteration assembly drawing'],
+    request: 'agents-mechanical-autopilot',
   },
   {
     id: 'datasheet-importer',
@@ -267,6 +299,7 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     group: 'ops',
     summary: 'Review manifests, declared permissions and lifecycle hooks; install a local plugin.',
     proves: ['Manifest validation', 'Permission gating', 'Install/uninstall'],
+    request: 'plugins-permissions',
   },
   {
     id: 'dashboard-acceleration',
@@ -275,6 +308,7 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     group: 'ops',
     summary: 'Probe WebGPU, Workers and shared memory, and see the recommended thermal execution path.',
     proves: ['Adapter detection', 'Worker support', 'Acceleration fallback'],
+    request: 'dashboard-acceleration',
   },
   {
     id: 'siem-audit',

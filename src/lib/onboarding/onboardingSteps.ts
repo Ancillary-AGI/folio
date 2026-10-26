@@ -1,5 +1,5 @@
 import {
-  Activity, CircuitBoard, Cpu, GitBranch, Layers3, Shield,
+  Activity, Bot, CircuitBoard, Cpu, GitBranch, History, Layers3, Shield,
   type LucideIcon,
 } from 'lucide-react'
 import type { WorkspaceMode } from '../../stores/useAppStore'
@@ -13,7 +13,10 @@ import type { WorkspaceMode } from '../../stores/useAppStore'
  *   - a new step cannot silently desynchronise the progress indicator.
  *
  * `mode` is the workspace the step teaches, and the tour switches to it so the
- * user sees the domain being described rather than a blank shell.
+ * user sees the domain being described rather than a blank shell. `target` is
+ * a `data-tour` marker in the shell: the spotlight finds the element at
+ * runtime and the coach mark moves next to it. A step without a target (or
+ * whose target is not on screen) falls back to a centred card.
  */
 export interface OnboardingStep {
   id: string
@@ -23,6 +26,12 @@ export interface OnboardingStep {
   checklist: string[]
   mode: WorkspaceMode
   icon: LucideIcon
+  /** `data-tour` value of the element to spotlight. */
+  target?: string
+  /** Used when the primary target is absent at this viewport width. */
+  fallbackTarget?: string
+  /** Preferred side of the target for the coach mark. */
+  placement?: 'top' | 'right' | 'bottom' | 'left'
   /** Optional interactive affordance rendered inside the step. */
   action?: 'load-sample-circuit'
 }
@@ -41,6 +50,8 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     ],
     mode: 'schematic',
     icon: Layers3,
+    target: 'app-header',
+    placement: 'bottom',
   },
   {
     id: 'schematic',
@@ -55,6 +66,8 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     ],
     mode: 'schematic',
     icon: CircuitBoard,
+    target: 'component-library',
+    placement: 'right',
     action: 'load-sample-circuit',
   },
   {
@@ -70,6 +83,9 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     ],
     mode: 'schematic',
     icon: Activity,
+    target: 'simulation-toggle',
+    fallbackTarget: 'workspace-nav',
+    placement: 'bottom',
   },
   {
     id: 'convert',
@@ -84,6 +100,8 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     ],
     mode: 'convert',
     icon: GitBranch,
+    target: 'workspace-nav',
+    placement: 'bottom',
   },
   {
     id: 'mechanical',
@@ -98,6 +116,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     ],
     mode: 'mechanical',
     icon: Cpu,
+    target: 'workspace-canvas',
   },
   {
     id: 'evidence',
@@ -112,6 +131,41 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     ],
     mode: 'hil',
     icon: Shield,
+    target: 'status-bar',
+    placement: 'top',
+  },
+  {
+    id: 'version-control',
+    title: 'Version the whole project, not just the schematic',
+    summary: 'Every commit captures the complete multi-domain design state.',
+    detail:
+      'One content-addressed commit stores schematic, routed PCB, mechanical assembly, firmware and every other CAD domain together. Check out any commit to restore a consistent state, and branch when an alternative should not disturb the current design.',
+    checklist: [
+      'Commit a named milestone before a risky edit',
+      'Keep one branch per alternative, review the diff before merging',
+      'Treat local history as working storage, not a backup you have verified',
+    ],
+    mode: 'schematic',
+    icon: History,
+    target: 'version-history',
+    placement: 'bottom',
+  },
+  {
+    id: 'agent',
+    title: 'Drive the CAD with an agent, visually',
+    summary: 'The assistant reads the sheet and board back as images after every edit.',
+    detail:
+      'The assistant is a closed loop over the same CAD tools you use: it observes the schematic or board image, proposes a change, applies it, then re-reads the result. Autopilot and multi-step runs stay on this device; any cloud model needs credentials you provide and is labelled as such.',
+    checklist: [
+      'Describe the goal and the constraints in engineering terms',
+      'Require visual feedback after every structural change',
+      'Review the diff and run verification before accepting a design',
+    ],
+    mode: 'agents',
+    icon: Bot,
+    target: 'agent-button',
+    fallbackTarget: 'workspace-canvas',
+    placement: 'bottom',
   },
 ]
 

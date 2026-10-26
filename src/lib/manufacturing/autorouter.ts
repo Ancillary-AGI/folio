@@ -24,6 +24,7 @@
  */
 
 import type { PlacedComponent, Net } from '../../types'
+import { resolveFootprint, type Footprint, type FootprintPad } from './footprintLibrary'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -340,6 +341,20 @@ function pathToTracesAndVias(
   return { traces, vias }
 }
 
+/** True when `point` lies on the closed segment a–b. */
+function onSegment(
+  point: { x: number; y: number },
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  epsilon = 1e-9,
+): boolean {
+  const cross = (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x)
+  if (Math.abs(cross) > epsilon) return false
+  const dot = (point.x - a.x) * (b.x - a.x) + (point.y - a.y) * (b.y - a.y)
+  const lengthSq = (b.x - a.x) ** 2 + (b.y - a.y) ** 2
+  return dot >= -epsilon && dot <= lengthSq + epsilon
+}
+
 // ─── Pad blocking ─────────────────────────────────────────────────────────────
 
 interface PadKeepout {
@@ -565,6 +580,33 @@ export function autoroute(
         grid.layers,
       )
 
+      // A* starts and ends on grid nodes; pad centres rarely sit on the grid.
+      // Extend the end copper to the actual pad centres so the trace visibly
+      // lands on the land pattern instead of stopping up to half a cell short.
+      // Skip the extension when the first/last segment already passes over the
+      // pad: prepending a point between the segment's ends would draw a
+      // zero-area stub, a 0° spike that DRC reports as an acute angle.
+      if (traces.length > 0) {
+        const first = traces[0]
+        const last = traces[traces.length - 1]
+        const start = first.points[0]
+        const next = first.points[1]
+        if (
+          (!start || Math.hypot(start.x - padA.x, start.y - padA.y) > 1e-9)
+          && !(start && next && onSegment(padA, start, next))
+        ) {
+          first.points.unshift({ x: padA.x, y: padA.y })
+        }
+        const end = last.points[last.points.length - 1]
+        const previous = last.points[last.points.length - 2]
+        if (
+          (!end || Math.hypot(end.x - padB.x, end.y - padB.y) > 1e-9)
+          && !(previous && end && onSegment(padB, previous, end))
+        ) {
+          last.points.push({ x: padB.x, y: padB.y })
+        }
+      }
+
       allTraces.push(...traces)
       allVias.push(...vias)
       netVias.push(...vias)
@@ -639,6 +681,50 @@ function spanOf(pads: RouterPad[]): number {
  * Build the flat list of router pads from placed components and their net
  * assignments.  Each component pin that has a net connection becomes a pad.
  */
+/** Last numeric group in an id: `pad3` -> 3, `p1` -> 1, `anode` -> null. */
+function pinNumber(id: string): number | null {
+  const match = id.match(/(\d+)(?!.*\d)/)
+  return match ? Number(match[1]) : null
+}
+
+/** Simple `padN` ids only; grid ids like `pad_1_2` are paired by order. */
+function padNumber(id: string): number | null {
+  const match = id.match(/^pad_?(\d+)$/i)
+  return match ? Number(match[1]) : null
+}
+
+function routingLayer(pad: FootprintPad): string {
+  if (pad.layers.includes('top_copper')) return 'F.Cu'
+  if (pad.layers.includes('bottom_copper')) return 'B.Cu'
+  return 'F.Cu'
+}
+
+/**
+ * Locate the physical copper a schematic pin lands on. Pad ids match pin
+ * numbers when both expose them (SOIC pad3 <-> pin p3); otherwise pins pair
+ * with pads in declaration order. Symbols with no package return undefined so
+ * the caller keeps the symbol-coordinate fallback.
+ */
+function footprintPadForPin(
+  footprint: Footprint | undefined,
+  pinId: string,
+  pinIndex: number,
+  pinCount: number,
+): FootprintPad | undefined {
+  if (!footprint || footprint.pads.length === 0) return undefined
+  const numbered = new Map<number, FootprintPad>()
+  for (const pad of footprint.pads) {
+    const number = padNumber(pad.id)
+    if (number !== null) numbered.set(number, pad)
+  }
+  const pin = pinNumber(pinId)
+  if (pin !== null) {
+    const match = numbered.get(pin)
+    if (match) return match
+  }
+  return footprint.pads.length === pinCount ? footprint.pads[pinIndex] : undefined
+}
+
 export function buildRouterPads(
   components: PlacedComponent[],
   nets: Net[],
@@ -652,26 +738,38 @@ export function buildRouterPads(
 
   const pads: RouterPad[] = []
   for (const comp of components) {
+    const footprint = resolveFootprint(
+      String(comp.properties.footprint ?? comp.component.name),
+      typeof comp.component.category === 'string' ? comp.component.category : undefined,
+    )
     const radians = (comp.rotation * Math.PI) / 180
     const cos = Math.cos(radians)
     const sin = Math.sin(radians)
     const scale = Number.isFinite(comp.scale) ? comp.scale : 1
-    for (const pin of comp.component.pins) {
+    comp.component.pins.forEach((pin, pinIndex) => {
       const netId = pinToNet.get(`${comp.id}:${pin.id}`)
-      if (!netId) continue
+      if (!netId) return
 
-      const localX = pin.x * scale
-      const localY = pin.y * scale
+      // Route to the land pattern, not the symbol: a resistor symbol is 8 mm
+      // between pins while its 0805 pads are 1.8 mm apart, so traces aimed at
+      // symbol geometry would miss the copper the fab actually prints.
+      const packagePad = footprintPadForPin(footprint, pin.id, pinIndex, comp.component.pins.length)
+      const localX = packagePad ? packagePad.position.x : pin.x * scale
+      const localY = packagePad ? packagePad.position.y : pin.y * scale
+
       pads.push({
         netId,
         componentId: comp.id,
         pinId: pin.id,
-        // Rotate pin position by component rotation and translate to placement
+        // Rotate the pad offset by component rotation and translate to placement
         x: comp.position.x + localX * cos - localY * sin,
         y: comp.position.y + localX * sin + localY * cos,
-        layer: 'F.Cu',  // default to front copper (through-hole goes both sides)
+        layer: packagePad ? routingLayer(packagePad) : 'F.Cu',
+        padDiameterMm: packagePad
+          ? Math.max(packagePad.size.width, packagePad.size.height)
+          : undefined,
       })
-    }
+    })
   }
 
   return pads

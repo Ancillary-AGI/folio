@@ -2,6 +2,7 @@ import { useRef, useEffect, useState, useMemo } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid } from '@react-three/drei';
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { 
@@ -22,6 +23,7 @@ import { STLExporter } from '../../lib/3d/stlExporter';
 import { objExporter } from '../../lib/3d/objExporter';
 import { arvrPreviewService } from '../../lib/arvr/arvrPreview';
 import { buildPcbScene, type PcbScene } from '../../lib/pcb/pcbScene';
+import { buildPcbGroup } from '../../lib/pcb/pcb3dModel';
 
 interface XRSessionLike {
   addEventListener(type: 'end', listener: () => void): void;
@@ -161,130 +163,6 @@ function Trace3D({
   );
 }
 
-interface BoardGroupOptions {
-  showPCB: boolean;
-  showTraces: boolean;
-  showComponents: boolean;
-  hiddenLayerIds: ReadonlySet<string>;
-  hiddenComponentIds: ReadonlySet<string>;
-  componentScale: number;
-}
-
-/**
- * Real routed-board geometry in scene units (millimetres, Y up). The viewport
- * and the STL/OBJ exporters both consume this group, so what is exported is
- * exactly what is displayed: outline, traces per copper layer, via barrels,
- * footprint pads and component bodies.
- */
-function buildBoardGroup(scene: PcbScene, options: BoardGroupOptions): THREE.Group {
-  const group = new THREE.Group();
-  group.name = 'pcb-layout';
-  const { board } = scene;
-  const copperMaterial = new THREE.MeshStandardMaterial({
-    color: '#c8873a',
-    metalness: 0.75,
-    roughness: 0.35,
-  });
-
-  if (options.showPCB) {
-    const substrate = new THREE.Mesh(
-      new THREE.BoxGeometry(board.widthMm, board.thicknessMm, board.heightMm),
-      new THREE.MeshStandardMaterial({ color: '#1b4d2e', roughness: 0.85, metalness: 0.05 }),
-    );
-    substrate.name = 'pcb-substrate';
-    group.add(substrate);
-
-    for (const layer of scene.layers) {
-      if (layer.kind === 'copper' || options.hiddenLayerIds.has(layer.id)) continue;
-      const surface = new THREE.Mesh(
-        new THREE.BoxGeometry(board.widthMm, layer.thicknessMm, board.heightMm),
-        new THREE.MeshStandardMaterial({
-          color: layer.color,
-          transparent: true,
-          opacity: layer.kind === 'mask' ? 0.22 : 0.4,
-          roughness: 0.6,
-          depthWrite: false,
-        }),
-      );
-      surface.name = `layer-${layer.id}`;
-      surface.position.y = layer.yMm;
-      group.add(surface);
-    }
-  }
-
-  if (options.showTraces) {
-    for (const segment of scene.traces) {
-      if (options.hiddenLayerIds.has(segment.layerId)) continue;
-      const layer = scene.layers.find((entry) => entry.id === segment.layerId);
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(segment.lengthMm, layer?.thicknessMm ?? 0.035, segment.widthMm),
-        copperMaterial,
-      );
-      mesh.name = `trace-${segment.id}`;
-      mesh.position.set(
-        (segment.start.x + segment.end.x) / 2,
-        segment.start.y,
-        (segment.start.z + segment.end.z) / 2,
-      );
-      mesh.rotation.y = (segment.rotationYDeg * Math.PI) / 180;
-      group.add(mesh);
-    }
-
-    for (const via of scene.vias) {
-      const barrel = new THREE.Mesh(
-        new THREE.CylinderGeometry(via.padDiameterMm / 2, via.padDiameterMm / 2, via.heightMm, 16),
-        copperMaterial,
-      );
-      barrel.name = `via-${via.id}`;
-      barrel.position.set(via.position.x, 0, via.position.z);
-      group.add(barrel);
-
-      const drill = new THREE.Mesh(
-        new THREE.CylinderGeometry(via.drillDiameterMm / 2, via.drillDiameterMm / 2, via.heightMm + 0.02, 12),
-        new THREE.MeshStandardMaterial({ color: '#111111', roughness: 0.9 }),
-      );
-      drill.position.copy(barrel.position);
-      group.add(drill);
-    }
-  }
-
-  if (options.showComponents) {
-    const scale = options.componentScale;
-    for (const component of scene.components) {
-      if (options.hiddenComponentIds.has(component.id)) continue;
-      const bodyGeometry = component.bodyShape === 'cylinder'
-        ? new THREE.CylinderGeometry(component.bodyWidthMm / 2, component.bodyWidthMm / 2, component.bodyHeightMm, 20)
-        : new THREE.BoxGeometry(component.bodyWidthMm, component.bodyHeightMm, component.bodyDepthMm);
-      const body = new THREE.Mesh(
-        bodyGeometry,
-        new THREE.MeshStandardMaterial({ color: component.color, roughness: 0.55, metalness: 0.1 }),
-      );
-      body.name = `component-${component.id}`;
-      body.position.set(component.position.x, component.position.y, component.position.z);
-      body.rotation.y = (component.rotationYDeg * Math.PI) / 180;
-      if (component.bodyShape === 'cylinder' && component.bodyDepthMm > 0) {
-        body.scale.set(1, 1, component.bodyDepthMm / component.bodyWidthMm);
-      }
-      if (scale !== 1) body.scale.multiplyScalar(scale);
-      group.add(body);
-
-      for (const pad of component.pads) {
-        const padGeometry = pad.shape === 'circle'
-          ? new THREE.CylinderGeometry(pad.widthMm / 2, pad.widthMm / 2, 0.035, 12)
-          : new THREE.BoxGeometry(pad.widthMm, 0.035, pad.depthMm);
-        const padMesh = new THREE.Mesh(padGeometry, copperMaterial);
-        padMesh.name = `pad-${pad.id}`;
-        padMesh.position.set(pad.position.x, pad.position.y, pad.position.z);
-        padMesh.rotation.y = (component.rotationYDeg * Math.PI) / 180;
-        group.add(padMesh);
-      }
-    }
-  }
-
-  group.updateMatrixWorld(true);
-  return group;
-}
-
 const VIEW_POSITIONS: Record<string, [number, number, number]> = {
   iso: [1, 1, 1],
   top: [0, 1.4, 0.001],
@@ -292,44 +170,107 @@ const VIEW_POSITIONS: Record<string, [number, number, number]> = {
   side: [1, 0.35, 0],
 };
 
+const CAMERA_FOV_DEG = 42;
+const CAMERA_FIT_MARGIN = 1.25;
+
+/** Axis-aligned box in scene millimeters: centre plus half extents. */
+interface Framing {
+  center: [number, number, number];
+  half: [number, number, number];
+}
+
+interface OrbitLikeControls {
+  target: THREE.Vector3;
+  update: () => void;
+}
+
+/**
+ * Distance needed to fit `frame` on screen for a given view and aspect ratio.
+ * Using the projected half extents (instead of a bounding sphere) keeps a wide,
+ * shallow circuit filling a wide viewport rather than shrinking to a dot.
+ */
+function fitDistance(frame: Framing, view: string, aspect: number): number {
+  const direction = new THREE.Vector3(...(VIEW_POSITIONS[view] ?? VIEW_POSITIONS.iso)).normalize();
+  const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), direction);
+  // Looking straight down makes world-up parallel to the view direction.
+  if (right.lengthSq() < 1e-8) right.set(1, 0, 0);
+  else right.normalize();
+  const up = new THREE.Vector3().crossVectors(direction, right).normalize();
+  const [halfX, halfY, halfZ] = frame.half;
+  const halfWidth = Math.abs(halfX * right.x) + Math.abs(halfY * right.y) + Math.abs(halfZ * right.z);
+  const halfHeight = Math.abs(halfX * up.x) + Math.abs(halfY * up.y) + Math.abs(halfZ * up.z);
+  const tanHalfFov = Math.tan((CAMERA_FOV_DEG * Math.PI) / 360);
+  const safeAspect = Number.isFinite(aspect) && aspect > 0 ? aspect : 1.6;
+  return Math.max(
+    5,
+    Math.max(halfWidth / (tanHalfFov * safeAspect), halfHeight / tanHalfFov) * CAMERA_FIT_MARGIN + 1,
+  );
+}
+
 // Camera controller — the canonical viewpoints are unit vectors scaled to the
-// board so a 100 mm board is framed the same way a 50 mm one is.
+// framed box, and OrbitControls' target follows it so zoom stays centred on
+// the circuit instead of drifting around the board origin.
 function CameraController({
   view,
   zoom,
   reframe,
-  radius,
+  frame,
 }: {
   view: string;
   zoom: number;
   reframe: number;
-  radius: number;
+  frame: Framing;
 }) {
-  const { camera } = useThree();
+  const camera = useThree((state) => state.camera);
+  const controls = useThree((state) => state.controls) as OrbitLikeControls | null;
+  const size = useThree((state) => state.size) as { width: number; height: number } | undefined;
+  const [centerX, centerY, centerZ] = frame.center;
+  const [halfX, halfY, halfZ] = frame.half;
 
   useEffect(() => {
-    const base = VIEW_POSITIONS[view] ?? VIEW_POSITIONS.iso;
-    const distance = (radius * 1.9) / zoom;
-    camera.position.set(base[0] * distance, base[1] * distance, base[2] * distance);
-    camera.lookAt(0, 0, 0);
-  }, [view, zoom, reframe, radius, camera]);
+    const aspect = size && size.height > 0 ? size.width / size.height : 1.6;
+    const distance = fitDistance({ center: [centerX, centerY, centerZ], half: [halfX, halfY, halfZ] }, view, aspect) / zoom;
+    const base = new THREE.Vector3(...(VIEW_POSITIONS[view] ?? VIEW_POSITIONS.iso)).normalize();
+    camera.position.set(
+      centerX + base.x * distance,
+      centerY + base.y * distance,
+      centerZ + base.z * distance,
+    );
+    camera.lookAt(centerX, centerY, centerZ);
+    if (controls) {
+      controls.target.set(centerX, centerY, centerZ);
+      controls.update();
+    }
+  }, [view, zoom, reframe, centerX, centerY, centerZ, halfX, halfY, halfZ, camera, controls, size]);
 
   return null;
 }
 
-// Lighting setup
+// Lighting setup: a soft studio key/fill/rim plus the environment map from the
+// canvas. Punctual lights alone leave a metallic pad either flat or blown to
+// white at the mirror angle; the room capture gives every metal a broad
+// reflection to pick up instead.
 function Lighting() {
   return (
     <>
-      <ambientLight intensity={0.4} />
-      <directionalLight 
-        position={[10, 10, 5]} 
-        intensity={1} 
+      <hemisphereLight args={['#dbeafe', '#1b2029', 0.5]} />
+      <ambientLight intensity={0.16} />
+      <directionalLight
+        position={[28, 44, 24]}
+        intensity={1.7}
         castShadow
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
+        shadow-camera-left={-90}
+        shadow-camera-right={90}
+        shadow-camera-top={90}
+        shadow-camera-bottom={-90}
+        shadow-camera-near={1}
+        shadow-camera-far={220}
+        shadow-bias={-0.0004}
       />
-      <pointLight position={[-10, -10, -10]} intensity={0.5} />
+      <directionalLight position={[-30, 20, -24]} intensity={0.6} color="#cfe3ff" />
+      <pointLight position={[0, 22, 0]} intensity={0.2} distance={180} />
     </>
   );
 }
@@ -348,12 +289,20 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
   const [hiddenLayerIds, setHiddenLayerIds] = useState<string[]>([]);
   const [zoom, setZoom] = useState(1);
   const [reframe, setReframe] = useState(0);
+  const [frameMode, setFrameMode] = useState<'board' | 'circuit'>('circuit');
   const [shadows, setShadows] = useState(true);
-  const [pixelRatio, setPixelRatio] = useState(1);
+  const [pixelRatio, setPixelRatio] = useState(1.5);
   const [componentScale, setComponentScale] = useState(1);
   const [xrStatus, setXrStatus] = useState('');
   const [xrBusy, setXrBusy] = useState(false);
   const glRef = useRef<THREE.WebGLRenderer | null>(null);
+  const environmentRef = useRef<{ texture: THREE.Texture; generator: THREE.PMREMGenerator } | null>(null);
+
+  useEffect(() => () => {
+    environmentRef.current?.texture.dispose();
+    environmentRef.current?.generator.dispose();
+    environmentRef.current = null;
+  }, []);
 
   // The routed layout wins: it is the only representation that matches the
   // copper the fab package contains. The schematic projection below is a
@@ -376,7 +325,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
   const boardGroup = useMemo(
     () => scene === null
       ? null
-      : buildBoardGroup(scene, {
+      : buildPcbGroup(scene, {
         showPCB,
         showTraces,
         showComponents,
@@ -387,12 +336,86 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
     [scene, showPCB, showTraces, showComponents, hiddenLayerSet, hiddenComponentSet, componentScale],
   );
 
-  const boardRadius = scene
-    ? Math.max(scene.board.widthMm, scene.board.heightMm) * 0.5
-    : 30;
+  // A schematic-scale circuit on a 100 x 80 mm outline is a few millimetres
+  // tall: framing the board alone makes the parts sub-pixel. Frame the routed
+  // content by default and keep the whole outline one click away.
+  const boardFrame = useMemo<Framing>(() => {
+    if (!scene) return { center: [0, 0, 0], half: [30, 1, 26.5] };
+    return {
+      center: [0, 0, 0],
+      half: [scene.board.widthMm / 2, scene.board.thicknessMm / 2 + 2, scene.board.heightMm / 2],
+    };
+  }, [scene]);
+
+  const circuitFrame = useMemo<Framing | null>(() => {
+    if (!scene) return null;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    let minY = -scene.board.thicknessMm / 2;
+    let maxY = scene.board.thicknessMm / 2;
+    const include = (x: number, z: number, radius: number) => {
+      minX = Math.min(minX, x - radius);
+      maxX = Math.max(maxX, x + radius);
+      minZ = Math.min(minZ, z - radius);
+      maxZ = Math.max(maxZ, z + radius);
+    };
+    for (const component of scene.components) {
+      include(
+        component.position.x,
+        component.position.z,
+        Math.max(component.bodyWidthMm, component.bodyDepthMm) / 2,
+      );
+      for (const pad of component.pads) {
+        include(pad.position.x, pad.position.z, Math.max(pad.widthMm, pad.depthMm) / 2);
+      }
+      minY = Math.min(minY, component.position.y - component.bodyHeightMm / 2);
+      maxY = Math.max(maxY, component.position.y + component.bodyHeightMm / 2);
+    }
+    for (const trace of scene.traces) {
+      include(trace.start.x, trace.start.z, trace.widthMm / 2);
+      include(trace.end.x, trace.end.z, trace.widthMm / 2);
+    }
+    for (const via of scene.vias) {
+      include(via.position.x, via.position.z, via.padDiameterMm / 2);
+    }
+    if (!Number.isFinite(minX)) return null;
+    return {
+      center: [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2],
+      half: [
+        Math.max((maxX - minX) / 2, 1),
+        Math.max((maxY - minY) / 2, 1),
+        Math.max((maxZ - minZ) / 2, 1),
+      ],
+    };
+  }, [scene]);
+
+  const framing = useMemo<Framing>(
+    () => (frameMode === 'circuit' && circuitFrame ? circuitFrame : boardFrame),
+    [frameMode, circuitFrame, boardFrame],
+  );
+
   const gridSize = scene
     ? Math.max(scene.board.widthMm, scene.board.heightMm) * 1.4
     : 50;
+
+  // Every toggle rebuilds the group; dispose the replaced GPU buffers so a long
+  // review session does not accumulate one board per click. Disposal happens
+  // only when a *new* group takes over, never on mount/unmount, so React's
+  // strict-mode double effect cannot free the geometry that is still on screen.
+  const previousBoardGroup = useRef<THREE.Group | null>(null);
+  useEffect(() => {
+    const previous = previousBoardGroup.current;
+    previousBoardGroup.current = boardGroup;
+    if (!previous || previous === boardGroup) return;
+    previous.traverse((object) => {
+      if (!(object instanceof THREE.Mesh || object instanceof THREE.LineSegments)) return;
+      object.geometry.dispose();
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of materials) material.dispose();
+    });
+  }, [boardGroup]);
 
   // Convert 2D components to 3D — the board fills the viewport (60x53 mm
   // centred at the origin), so canvas (0..800, 0..500) maps onto it and
@@ -574,6 +597,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
     const meshes: Array<{ name: string; vertices: Array<{ x: number; y: number; z: number }>; faces: number[][] }> = [];
 
     scene.traverse(object => {
+      if (object.userData.excludeFromExport) return;
       if (!(object instanceof THREE.Mesh) || !object.geometry) return;
       const position = object.geometry.getAttribute('position');
       if (!position) return;
@@ -657,17 +681,51 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
           <Canvas
             shadows={shadows}
             dpr={pixelRatio}
-            camera={{ position: [15, 15, 15], fov: 50 }}
-            gl={{ preserveDrawingBuffer: true }}
-            onCreated={({ gl }) => { glRef.current = gl; }}
-            style={{ background: 'linear-gradient(to bottom, #87CEEB, #E0F6FF)' }}
+            camera={{ position: [28, 22, 28], fov: CAMERA_FOV_DEG }}
+            gl={{ preserveDrawingBuffer: true, antialias: true }}
+            onCreated={({ gl, scene: threeScene }) => {
+              gl.toneMapping = THREE.ACESFilmicToneMapping;
+              gl.toneMappingExposure = 1.08;
+              gl.outputColorSpace = THREE.SRGBColorSpace;
+              glRef.current = gl;
+              environmentRef.current?.texture.dispose();
+              environmentRef.current?.generator.dispose();
+              environmentRef.current = null;
+              let generator: THREE.PMREMGenerator | null = null;
+              try {
+                // A captured room gives the gold pads and part bodies broad
+                // reflections instead of one punctual specular hotspot.
+                generator = new THREE.PMREMGenerator(gl);
+                const texture = generator.fromScene(new RoomEnvironment(), 0.04).texture;
+                threeScene.environment = texture;
+                threeScene.environmentIntensity = 0.4;
+                environmentRef.current = { texture, generator };
+              } catch (error) {
+                generator?.dispose();
+                console.warn('PCB environment map unavailable:', error);
+              }
+            }}
+            style={{ background: 'linear-gradient(160deg, #0b1220 0%, #19212d 52%, #2c3545 100%)' }}
           >
-            <CameraController view={currentView} zoom={zoom} reframe={reframe} radius={boardRadius} />
+            <CameraController view={currentView} zoom={zoom} reframe={reframe} frame={framing} />
             <Lighting />
-            
+
             {showGrid && (
-              <Grid args={[gridSize, gridSize]} cellSize={5} sectionSize={25} fadeDistance={gridSize * 2} />
+              <Grid
+                position={[0, -1.15, 0]}
+                args={[gridSize, gridSize]}
+                cellSize={5}
+                sectionSize={25}
+                cellColor="#2b3648"
+                sectionColor="#46566e"
+                fadeDistance={gridSize * 1.6}
+                infiniteGrid
+              />
             )}
+            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -1.05, 0]} receiveShadow>
+              <planeGeometry args={[gridSize * 2, gridSize * 2]} />
+              <shadowMaterial transparent opacity={0.24} />
+            </mesh>
 
             {boardGroup ? (
               <primitive object={boardGroup} />
@@ -689,7 +747,8 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
               </>
             )}
             
-            <OrbitControls 
+            <OrbitControls
+              makeDefault
               enablePan={true}
               enableZoom={true}
               enableRotate={true}
@@ -747,17 +806,35 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                 <RotateCcw className="w-4 h-4" />
               </Button>
             </div>
+
+            <div className="flex gap-2">
+              <Button
+                variant={frameMode === 'circuit' && circuitFrame ? 'default' : 'outline'}
+                size="sm"
+                disabled={!circuitFrame}
+                onClick={() => { setFrameMode('circuit'); setZoom(1); }}
+                title="Frame the placed components and routed copper"
+              >
+                Circuit
+              </Button>
+              <Button
+                variant={frameMode === 'board' || !circuitFrame ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => { setFrameMode('board'); setZoom(1); }}
+                title="Frame the whole board outline"
+              >
+                Board
+              </Button>
+            </div>
           </div>
 
-          {/* Info Overlay */}
-          <div className="absolute bottom-4 left-4 bg-card/90 backdrop-blur-sm p-3 rounded-lg border border-border">
-            <div className="text-sm space-y-1">
-              <div>Components: {scene ? scene.counts.components : components3D.length}</div>
-              <div>Traces: {scene ? scene.counts.segments : traces3D.length}</div>
-              {scene && <div>Board: {scene.board.widthMm} × {scene.board.heightMm} mm · {scene.counts.copperLayers} copper</div>}
-              {scene && <div>Vias: {scene.counts.vias} · Pads: {scene.counts.pads}</div>}
-              <div>View: {currentView.toUpperCase()}</div>
-            </div>
+          {/* Info Overlay — compact, over the sky rather than the board */}
+          <div className="absolute right-4 top-4 rounded-md border border-border bg-card/80 px-2.5 py-1.5 text-[11px] leading-4 text-muted-foreground backdrop-blur-sm">
+            <div>Components: {scene ? scene.counts.components : components3D.length}</div>
+            <div>Traces: {scene ? scene.counts.segments : traces3D.length}</div>
+            {scene && <div>Board: {scene.board.widthMm} × {scene.board.heightMm} mm · {scene.counts.copperLayers} copper</div>}
+            {scene && <div>Vias: {scene.counts.vias} · Pads: {scene.counts.pads}</div>}
+            <div>View: {currentView.toUpperCase()} · {framing === circuitFrame ? 'circuit' : 'board'}</div>
           </div>
         </div>
 

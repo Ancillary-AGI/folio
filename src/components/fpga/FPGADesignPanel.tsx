@@ -5,11 +5,27 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { useDemoRequest } from '../workspace/useDemoRequest';
+import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign';
+
+type FpgaLanguage = 'verilog' | 'vhdl';
+
+interface FpgaDesign {
+  deviceId: string;
+  source: string;
+  language: FpgaLanguage;
+}
 
 export default function FPGADesignPanel() {
-  const [deviceId, setDeviceId] = useState(FPGA_DEVICES[0].id);
-  const [source, setSource] = useState(DEMO_VERILOG);
-  const [language, setLanguage] = useState<'verilog' | 'vhdl'>('verilog');
+  const saved = loadDomainDesign<FpgaDesign>('fpga');
+  const [deviceId, setDeviceId] = useState(
+    saved?.deviceId && FPGA_DEVICES.some((device) => device.id === saved.deviceId)
+      ? saved.deviceId
+      : FPGA_DEVICES[0].id,
+  );
+  const [source, setSource] = useState(typeof saved?.source === 'string' ? saved.source : DEMO_VERILOG);
+  const [language, setLanguage] = useState<FpgaLanguage>(
+    saved?.language === 'verilog' || saved?.language === 'vhdl' ? saved.language : 'verilog',
+  );
   const [log, setLog] = useState(() => {
     try {
       return buildDemoHdl(FPGA_DEVICES[0].id).verdict;
@@ -17,6 +33,13 @@ export default function FPGADesignPanel() {
       return 'Ready.';
     }
   });
+
+  usePublishDomainDesign('fpga', { deviceId, source, language }, (next) => {
+    if (next.deviceId && FPGA_DEVICES.some((device) => device.id === next.deviceId)) setDeviceId(next.deviceId);
+    if (typeof next.source === 'string') setSource(next.source);
+    if (next.language === 'verilog' || next.language === 'vhdl') setLanguage(next.language);
+  });
+
 
   const result = useMemo(
     () => fpgaDesignFlow.synthesize([{ name: 'half_adder', language, source }], deviceId),

@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import {
-  buildPcbScene,
-  resolveFootprint,
-  stackLayers,
-  type PcbSceneInput,
-} from './pcbScene'
+import { resolveFootprint } from '../manufacturing/footprintLibrary'
+import { buildPcbScene, stackLayers, type PcbSceneInput } from './pcbScene'
 
 const BASE: PcbSceneInput = {
   widthMm: 100,
@@ -41,6 +37,25 @@ describe('stackLayers', () => {
     const silk = layers.find((layer) => layer.id === 'top-silk')
     const mask = layers.find((layer) => layer.id === 'top-mask')
     expect(silk && mask && silk.yMm > mask.yMm).toBe(true)
+  })
+
+  it('stacks films by material rather than declaration order', () => {
+    const forward = stackLayers(BASE.layers, 1.6, 0.035)
+    const reversed = stackLayers([...BASE.layers].reverse(), 1.6, 0.035)
+    // Copper still follows declaration order (first entry is the top copper);
+    // only the cosmetic films are pinned to the surface they are printed on.
+    const forwardY = new Map(forward.map((layer) => [layer.id, layer.yMm]))
+    for (const layer of reversed) {
+      if (layer.kind === 'copper') continue
+      expect(layer.yMm).toBeCloseTo(forwardY.get(layer.id) ?? Number.NaN, 9)
+    }
+    const silk = reversed.find((layer) => layer.id === 'top-silk')
+    const mask = reversed.find((layer) => layer.id === 'top-mask')
+    expect(silk).toBeDefined()
+    expect(mask).toBeDefined()
+    expect((silk?.yMm ?? 0) - (silk?.thicknessMm ?? 0) / 2).toBeCloseTo(
+      (mask?.yMm ?? 0) + (mask?.thicknessMm ?? 0) / 2, 9,
+    )
   })
 })
 
@@ -138,6 +153,20 @@ describe('buildPcbScene', () => {
     expect(pad.position.x).toBeCloseTo(component.position.x, 9)
     expect(component.onBoard).toBe(true)
     expect(scene.counts.pads).toBe(component.pads.length)
+  })
+
+  it('uses the package body height when a footprint declares one', () => {
+    const scene = buildPcbScene({
+      ...BASE,
+      components: [{
+        id: 'd1', reference: 'D1', footprint: 'SMC', category: 'semiconductor', x: 50, y: 40,
+      }],
+    })
+    const component = scene.components[0]
+    expect(component.bodyWidthMm).toBeCloseTo(7.1, 9)
+    expect(component.bodyDepthMm).toBeCloseTo(2.6, 9)
+    expect(component.bodyHeightMm).toBeCloseTo(2.3, 9)
+    expect(component.position.y).toBeCloseTo(0.835 + 2.3 / 2, 9)
   })
 
   it('falls back to a generic body and warns for an unknown footprint', () => {

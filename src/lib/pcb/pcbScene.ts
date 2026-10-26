@@ -9,7 +9,7 @@
  * origin, and every warning names the element that falls outside the outline
  * instead of silently clamping it.
  */
-import { footprintLibrary, type Footprint } from '../manufacturing/footprintLibrary'
+import { resolveFootprint } from '../manufacturing/footprintLibrary'
 
 export interface PcbSceneInputLayer {
   id: string
@@ -88,6 +88,8 @@ export interface PcbSceneLayer {
   thicknessMm: number
   /** Scene Y where the layer's mid-plane sits. */
   yMm: number
+  /** Cosmetic layers only: which board face the film sits on. */
+  side?: 'top' | 'bottom'
 }
 
 export interface PcbSceneTraceSegment {
@@ -208,21 +210,6 @@ function insideBoard(x: number, y: number, width: number, height: number): boole
   )
 }
 
-/** Resolution order: exact footprint id, footprint name, then family category. */
-export function resolveFootprint(footprint: string, category?: string): Footprint | undefined {
-  const direct = footprintLibrary.getFootprint(footprint)
-  if (direct) return direct
-  const byName = footprintLibrary
-    .getAllFootprints()
-    .find((entry) => entry.name.toLowerCase() === footprint.toLowerCase())
-  if (byName) return byName
-  if (category) {
-    const byCategory = footprintLibrary.getFootprintsByCategory(category)
-    if (byCategory.length > 0) return byCategory[0]
-  }
-  return undefined
-}
-
 /**
  * Assign scene Y to every declared layer. Copper stacks outward from the
  * substrate; the first declared copper layer is the top copper, the last is
@@ -253,8 +240,36 @@ export function stackLayers(
 
   let maskTopY = substrateHalf + copperThicknessMm
   let maskBottomY = -substrateHalf - copperThicknessMm
-  let silkTopY = maskTopY + 0.05
-  let silkBottomY = maskBottomY - 0.05
+
+  // Cosmetic films are stacked by material, not by declaration order: every
+  // mask goes on the copper, then silkscreen is printed on the outermost mask.
+  // Reading the array front-to-back let a silk listed before its mask float
+  // 25 um above the mask with a gap under it.
+  const cosmeticY = new Map<string, number>()
+  for (const layer of layers) {
+    if (layer.kind !== 'mask') continue
+    const thickness = layer.thicknessMm ?? 0.025
+    const bottom = layer.side === 'bottom'
+    const yMm = bottom
+      ? maskBottomY - thickness / 2
+      : maskTopY + thickness / 2
+    cosmeticY.set(layer.id, yMm)
+    if (bottom) maskBottomY = yMm - thickness / 2
+    else maskTopY = yMm + thickness / 2
+  }
+  let silkTopY = maskTopY
+  let silkBottomY = maskBottomY
+  for (const layer of layers) {
+    if (layer.kind !== 'silk') continue
+    const thickness = layer.thicknessMm ?? 0.01
+    const bottom = layer.side === 'bottom'
+    const yMm = bottom
+      ? silkBottomY - thickness / 2
+      : silkTopY + thickness / 2
+    cosmeticY.set(layer.id, yMm)
+    if (bottom) silkBottomY = yMm - thickness / 2
+    else silkTopY = yMm + thickness / 2
+  }
 
   return layers.map((layer) => {
     const thickness = layer.thicknessMm ?? (
@@ -264,22 +279,7 @@ export function stackLayers(
     if (layer.kind === 'copper') {
       yMm = placed.get(layer.id) ?? substrateHalf + thickness / 2
     } else {
-      // Masks and silkscreen are cosmetic surfaces: silk sits just above the
-      // mask on the declared side so the two never z-fight.
-      const bottom = layer.side === 'bottom'
-      if (layer.kind === 'mask') {
-        yMm = bottom
-          ? maskBottomY - thickness / 2
-          : maskTopY + thickness / 2
-        if (bottom) maskBottomY = yMm - thickness / 2
-        else maskTopY = yMm + thickness / 2
-      } else {
-        yMm = bottom
-          ? silkBottomY - thickness / 2
-          : silkTopY + thickness / 2
-        if (bottom) silkBottomY = yMm - thickness / 2
-        else silkTopY = yMm + thickness / 2
-      }
+      yMm = cosmeticY.get(layer.id) ?? (layer.side === 'bottom' ? -substrateHalf : substrateHalf)
     }
     return {
       id: layer.id,
@@ -289,6 +289,7 @@ export function stackLayers(
       visible: layer.visible ?? true,
       thicknessMm: thickness,
       yMm,
+      side: layer.side ?? (layer.kind === 'copper' ? (yMm < 0 ? 'bottom' : 'top') : undefined),
     }
   })
 }
@@ -410,7 +411,7 @@ export function buildPcbScene(input: PcbSceneInput): PcbScene {
     const bodyWidth = footprint?.dimensions.width ?? 2
     const bodyDepth = footprint?.dimensions.height ?? 1
     const category = footprint?.category ?? component.category ?? 'ic'
-    const bodyHeight = CATEGORY_BODY_HEIGHT_MM[category] ?? 1.0
+    const bodyHeight = footprint?.bodyHeightMm ?? CATEGORY_BODY_HEIGHT_MM[category] ?? 1.0
     const side = component.side ?? 'top'
     const rotationDeg = component.rotationDeg ?? 0
     const radians = (rotationDeg * Math.PI) / 180

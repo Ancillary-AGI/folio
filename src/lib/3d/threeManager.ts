@@ -58,14 +58,24 @@ export class ThreeManager {
 
   createScene(name: string, canvas: HTMLCanvasElement): ThreeDScene {
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1a1a1a);
+    scene.background = new THREE.Color(0x0d1117);
+    scene.fog = new THREE.Fog(0x0d1117, 14, 42);
 
-    const camera = new THREE.PerspectiveCamera(75, canvas.width / canvas.height, 0.1, 1000);
+    // The canvas starts at its intrinsic 300×150 buffer. Size the renderer from
+    // the laid-out CSS box and leave the stylesheet alone (`updateStyle=false`);
+    // letting three write inline width/height froze the viewport at 300×150.
+    const width = canvas.clientWidth || canvas.width || 640;
+    const height = canvas.clientHeight || canvas.height || 360;
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.05, 500);
     camera.position.set(5, 5, 5);
     camera.lookAt(0, 0, 0);
 
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    renderer.setSize(canvas.width, canvas.height);
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(typeof window !== 'undefined' ? window.devicePixelRatio : 1, 2));
+    renderer.setSize(width, height, false);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -87,25 +97,31 @@ export class ThreeManager {
   }
 
   private addDefaultLighting(scene: ThreeDScene): void {
-    // Ambient light
-    const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
-    scene.scene.add(ambientLight);
-    scene.lights.push(ambientLight);
+    // Studio-style three-point rig: soft sky/ground fill, a shadow-casting key
+    // and a cool rim so machined edges read against the dark canvas.
+    const hemisphere = new THREE.HemisphereLight(0xdbeafe, 0x1f2937, 1.1);
+    scene.scene.add(hemisphere);
+    scene.lights.push(hemisphere);
 
-    // Directional light
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(10, 10, 5);
-    directionalLight.castShadow = true;
-    directionalLight.shadow.mapSize.width = 2048;
-    directionalLight.shadow.mapSize.height = 2048;
-    scene.scene.add(directionalLight);
-    scene.lights.push(directionalLight);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
+    keyLight.position.set(6, 9, 5);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(2048, 2048);
+    keyLight.shadow.camera.left = -8;
+    keyLight.shadow.camera.right = 8;
+    keyLight.shadow.camera.top = 8;
+    keyLight.shadow.camera.bottom = -8;
+    keyLight.shadow.camera.near = 0.5;
+    keyLight.shadow.camera.far = 40;
+    keyLight.shadow.bias = -0.0004;
+    keyLight.shadow.radius = 3;
+    scene.scene.add(keyLight);
+    scene.lights.push(keyLight);
 
-    // Point light
-    const pointLight = new THREE.PointLight(0xffaa00, 0.6, 100);
-    pointLight.position.set(-10, 10, -10);
-    scene.scene.add(pointLight);
-    scene.lights.push(pointLight);
+    const rimLight = new THREE.DirectionalLight(0x93c5fd, 0.9);
+    rimLight.position.set(-7, 4, -6);
+    scene.scene.add(rimLight);
+    scene.lights.push(rimLight);
   }
 
   createModel(name: string, geometryType: 'box' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'extruded' | 'revolved', size: Size, options?: { depth?: number; segments?: number; profile?: Point[] }): ThreeDModel {
@@ -137,10 +153,11 @@ export class ThreeManager {
         geometry = new THREE.BoxGeometry(size.width, size.height, 10);
     }
 
-    const material = new THREE.MeshPhongMaterial({
+    const material = new THREE.MeshStandardMaterial({
       color: ThreeManager.MODEL_COLORS[this.modelCounter % ThreeManager.MODEL_COLORS.length],
-      shininess: 100,
-      specular: 0x111111,
+      roughness: 0.43,
+      metalness: 0.35,
+      envMapIntensity: 1.0,
       transparent: false,
       opacity: 1.0
     });

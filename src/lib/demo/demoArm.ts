@@ -111,6 +111,64 @@ function sphereInertia(mass: number, radius: number): THREE.Matrix3 {
  * Geometry is shared with the solver tests so the FK/IK regression covers the
  * exact arm the UI draws.
  */
+/** Planar two-link arm matching the kinematics used by `buildDemoArm`. */
+export function buildTwoLinkDemoMechanism(): Mechanism {
+  const l1 = ARM_L1_MM / 1000;
+  const l2 = ARM_L2_MM / 1000;
+  const joints: Omit<Joint, 'id'>[] = [
+    {
+      name: 'Shoulder',
+      type: 'revolute',
+      position: new THREE.Vector3(0, 0, 0),
+      axis: new THREE.Vector3(0, 0, 1),
+      limits: { min: -Math.PI, max: Math.PI },
+      velocity: 1.5,
+      acceleration: 3,
+      torque: 0,
+      angle: 0,
+    },
+    {
+      name: 'Elbow',
+      type: 'revolute',
+      position: new THREE.Vector3(l1, 0, 0),
+      axis: new THREE.Vector3(0, 0, 1),
+      limits: { min: -Math.PI / 2, max: Math.PI / 2 },
+      velocity: 1.5,
+      acceleration: 3,
+      torque: 0,
+      angle: 0,
+    },
+  ];
+  const links: Omit<Link, 'id'>[] = [
+    {
+      name: 'Upper Arm',
+      geometry: new THREE.BoxGeometry(l1, 0.03, 0.03).translate(l1 / 2, 0, 0),
+      material: new THREE.MeshPhongMaterial({ color: 0x888888 }),
+      mass: 0.15,
+      centerOfMass: new THREE.Vector3(l1 / 2, 0, 0),
+      inertiaTensor: boxInertia(0.15, new THREE.Vector3(l1, 0.03, 0.03)),
+      childJoints: [],
+    },
+    {
+      name: 'Forearm',
+      geometry: new THREE.BoxGeometry(l2, 0.025, 0.025).translate(l2 / 2, 0, 0),
+      material: new THREE.MeshPhongMaterial({ color: 0xaaaaaa }),
+      mass: 0.1,
+      centerOfMass: new THREE.Vector3(l2 / 2, 0, 0),
+      inertiaTensor: boxInertia(0.1, new THREE.Vector3(l2, 0.025, 0.025)),
+      childJoints: [],
+    },
+  ];
+  return advancedRobotics.createMechanism({
+    name: '2-Link Planar Arm',
+    type: 'serial',
+    joints,
+    links,
+    basePosition: new THREE.Vector3(0, 0.05, 0),
+    endEffectorOffset: new THREE.Vector3(l2, 0, 0),
+  });
+}
+
 export function buildSixDofDemoMechanism(): Mechanism {
   const joints: Omit<Joint, 'id'>[] = [
     {

@@ -30,6 +30,7 @@ import {
   simulateStepper,
 } from '../../lib/electronics/machineDynamics'
 import { describeError } from '../../lib/utils'
+import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign'
 
 interface MachineSimulatorPanelProps {
   onClose: () => void
@@ -61,21 +62,78 @@ function format(value: number, digits = 2, unit = ''): string {
   return `${value.toFixed(digits)}${unit}`
 }
 
+interface MachineDesign {
+  family?: Family
+  dcPresetId?: string
+  bldcPresetId?: string
+  stepperPresetId?: string
+  voltage?: number
+  loadTorque?: number
+  loadResistance?: number
+  busVoltage?: number
+  modulation?: number
+  bldcLoad?: number
+  stepRate?: number
+  stepperLoad?: number
+  duration?: number
+  dt?: number
+}
+
+const machineNumber = (value: unknown, fallback: number): number =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback
+
+const FAMILY_IDS: Family[] = ['dc-motor', 'dc-generator', 'bldc', 'stepper']
+
 export default function MachineSimulatorPanel({ onClose }: MachineSimulatorPanelProps) {
-  const [family, setFamily] = useState<Family>('dc-motor')
-  const [dcPresetId, setDcPresetId] = useState(DC_MACHINE_PRESETS[0].id)
-  const [bldcPresetId, setBldcPresetId] = useState(BLDC_PRESETS[0].id)
-  const [stepperPresetId, setStepperPresetId] = useState(STEPPER_PRESETS[0].id)
-  const [voltage, setVoltage] = useState(12)
-  const [loadTorque, setLoadTorque] = useState(0.05)
-  const [loadResistance, setLoadResistance] = useState(10)
-  const [busVoltage, setBusVoltage] = useState(24)
-  const [modulation, setModulation] = useState(0.9)
-  const [bldcLoad, setBldcLoad] = useState(0.02)
-  const [stepRate, setStepRate] = useState(100)
-  const [stepperLoad, setStepperLoad] = useState(0)
-  const [duration, setDuration] = useState(1)
-  const [dt, setDt] = useState(0.001)
+  const saved = loadDomainDesign<MachineDesign>('machines')
+  const [family, setFamily] = useState<Family>(
+    saved?.family && FAMILY_IDS.includes(saved.family) ? saved.family : 'dc-motor',
+  )
+  const [dcPresetId, setDcPresetId] = useState(
+    saved?.dcPresetId && DC_MACHINE_PRESETS.some((preset) => preset.id === saved.dcPresetId)
+      ? saved.dcPresetId
+      : DC_MACHINE_PRESETS[0].id,
+  )
+  const [bldcPresetId, setBldcPresetId] = useState(
+    saved?.bldcPresetId && BLDC_PRESETS.some((preset) => preset.id === saved.bldcPresetId)
+      ? saved.bldcPresetId
+      : BLDC_PRESETS[0].id,
+  )
+  const [stepperPresetId, setStepperPresetId] = useState(
+    saved?.stepperPresetId && STEPPER_PRESETS.some((preset) => preset.id === saved.stepperPresetId)
+      ? saved.stepperPresetId
+      : STEPPER_PRESETS[0].id,
+  )
+  const [voltage, setVoltage] = useState(machineNumber(saved?.voltage, 12))
+  const [loadTorque, setLoadTorque] = useState(machineNumber(saved?.loadTorque, 0.05))
+  const [loadResistance, setLoadResistance] = useState(machineNumber(saved?.loadResistance, 10))
+  const [busVoltage, setBusVoltage] = useState(machineNumber(saved?.busVoltage, 24))
+  const [modulation, setModulation] = useState(machineNumber(saved?.modulation, 0.9))
+  const [bldcLoad, setBldcLoad] = useState(machineNumber(saved?.bldcLoad, 0.02))
+  const [stepRate, setStepRate] = useState(machineNumber(saved?.stepRate, 100))
+  const [stepperLoad, setStepperLoad] = useState(machineNumber(saved?.stepperLoad, 0))
+  const [duration, setDuration] = useState(machineNumber(saved?.duration, 1))
+  const [dt, setDt] = useState(machineNumber(saved?.dt, 0.001))
+
+  usePublishDomainDesign('machines', {
+    family, dcPresetId, bldcPresetId, stepperPresetId, voltage, loadTorque, loadResistance,
+    busVoltage, modulation, bldcLoad, stepRate, stepperLoad, duration, dt,
+  }, (next) => {
+    if (next.family && FAMILY_IDS.includes(next.family)) setFamily(next.family)
+    if (next.dcPresetId && DC_MACHINE_PRESETS.some((preset) => preset.id === next.dcPresetId)) setDcPresetId(next.dcPresetId)
+    if (next.bldcPresetId && BLDC_PRESETS.some((preset) => preset.id === next.bldcPresetId)) setBldcPresetId(next.bldcPresetId)
+    if (next.stepperPresetId && STEPPER_PRESETS.some((preset) => preset.id === next.stepperPresetId)) setStepperPresetId(next.stepperPresetId)
+    setVoltage(machineNumber(next.voltage, voltage))
+    setLoadTorque(machineNumber(next.loadTorque, loadTorque))
+    setLoadResistance(machineNumber(next.loadResistance, loadResistance))
+    setBusVoltage(machineNumber(next.busVoltage, busVoltage))
+    setModulation(machineNumber(next.modulation, modulation))
+    setBldcLoad(machineNumber(next.bldcLoad, bldcLoad))
+    setStepRate(machineNumber(next.stepRate, stepRate))
+    setStepperLoad(machineNumber(next.stepperLoad, stepperLoad))
+    setDuration(machineNumber(next.duration, duration))
+    setDt(machineNumber(next.dt, dt))
+  })
 
   useDemoRequest('machines-bldc', () => setFamily('bldc'))
   useDemoRequest('machines-stepper', () => setFamily('stepper'))

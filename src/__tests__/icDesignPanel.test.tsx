@@ -26,12 +26,13 @@ describe('ICDesignPanel', () => {
     expect(await screen.findByText(/GDSII summary/)).toBeInTheDocument()
   })
 
-  it('runs synthesis and lands on the floorplan when the full-flow demo opens', async () => {
+  it('runs the whole flow when the full-flow demo opens', async () => {
     useAppStore.setState({ demoRequest: 'ic-full-flow' })
     render(<ICDesignPanel />)
 
     expect(await screen.findByText(/Synthesis complete/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Plan Floorplan' })).toBeInTheDocument()
+    expect(await screen.findByText(/GDSII summary/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Generate GDSII/ })).toBeInTheDocument()
     expect(useAppStore.getState().demoRequest).toBeNull()
   })
 

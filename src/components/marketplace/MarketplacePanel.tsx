@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { designMarketplace } from '../../lib/marketplace/designMarketplace';
+import type { DemoMarketplaceBundle } from '../../lib/demo/demoMarketplace';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
@@ -9,6 +10,8 @@ export default function MarketplacePanel() {
   const [query, setQuery] = useState('');
   const [items, setItems] = useState(designMarketplace.search());
   const [installed, setInstalled] = useState(designMarketplace.getInstalled());
+  const [verdict, setVerdict] = useState<DemoMarketplaceBundle | null>(null);
+  const [publishError, setPublishError] = useState<string | null>(null);
 
   const search = (value: string) => {
     setQuery(value);
@@ -22,12 +25,19 @@ export default function MarketplacePanel() {
   };
 
   const publishDemoBundle = () => {
-    void import('../../lib/demo/demoMarketplace').then((m) => {
-      m.buildDemoMarketplaceBundle(designMarketplace);
-      setInstalled(designMarketplace.getInstalled());
-      setQuery('rectifier');
-      setItems(designMarketplace.search('rectifier'));
-    });
+    setPublishError(null);
+    void import('../../lib/demo/demoMarketplace')
+      .then((m) => {
+        const result = m.buildDemoMarketplaceBundle(designMarketplace);
+        setVerdict(result);
+        setInstalled(designMarketplace.getInstalled());
+        setQuery('rectifier');
+        setItems(designMarketplace.search('rectifier'));
+      })
+      .catch((error: unknown) => {
+        setVerdict(null);
+        setPublishError(error instanceof Error ? error.message : 'Publish round-trip failed.');
+      });
   };
 
   useDemoRequest('marketplace-bundle', publishDemoBundle);
@@ -73,8 +83,25 @@ export default function MarketplacePanel() {
           >
             Publish rectifier bundle
           </Button>
+          {publishError && <p role="alert" className="text-destructive">{publishError}</p>}
         </CardContent>
       </Card>
+      {verdict && (
+        <Card>
+          <CardContent role="status" aria-label="Publish verdict" className="space-y-1 p-4 text-sm">
+            <p className={verdict.installedOk ? 'font-medium text-success' : 'font-medium text-destructive'}>
+              {verdict.verdict}
+            </p>
+            <p className="text-muted-foreground">
+              Listing <span className="font-mono">{verdict.listingId}</span> · {verdict.parts} parts ·{' '}
+              {verdict.sketchBytes} firmware bytes · round-trip {verdict.installedOk ? 'byte-identical' : 'failed'}.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              The listing and its install state live in this browser's local marketplace; nothing was uploaded.
+            </p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

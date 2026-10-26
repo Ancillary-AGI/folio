@@ -16,6 +16,8 @@ export interface Footprint {
   category: string;
   pads: FootprintPad[];
   dimensions: { width: number; height: number };
+  /** Physical body height for 3-D display; falls back to a category default. */
+  bodyHeightMm?: number;
   courtyard?: Point[]; // Polygon defining component boundary
   silkScreen?: unknown[]; // Silk screen elements
   assembly?: unknown[]; // Assembly layer elements
@@ -323,7 +325,10 @@ export class FootprintLibrary {
         { id: 'pad1', shape: 'rectangle', position: { x: -3.4, y: 0 }, size: { width: 2.4, height: 3.4 }, layers: ['top_copper'] },
         { id: 'pad2', shape: 'rectangle', position: { x: 3.4, y: 0 }, size: { width: 2.4, height: 3.4 }, layers: ['top_copper'] },
       ],
-      dimensions: { width: 7.9, height: 5.9 },
+      dimensions: { width: 7.1, height: 2.6 },
+      // DO-214AB body is 7.11 x 2.62 x 2.3 mm; it sits over the inner half of
+      // each land, leaving the lead tails exposed.
+      bodyHeightMm: 2.3,
       metadata: { ipcStandard: 'IPC-7351', thermalPad: false },
     });
 
@@ -490,3 +495,18 @@ export class FootprintLibrary {
 }
 
 export const footprintLibrary = new FootprintLibrary();
+
+/** Resolution order: exact footprint id, footprint name, then family category. */
+export function resolveFootprint(footprint: string, category?: string): Footprint | undefined {
+  const direct = footprintLibrary.getFootprint(footprint)
+  if (direct) return direct
+  const byName = footprintLibrary
+    .getAllFootprints()
+    .find((entry) => entry.name.toLowerCase() === footprint.toLowerCase())
+  if (byName) return byName
+  if (category) {
+    const byCategory = footprintLibrary.getFootprintsByCategory(category)
+    if (byCategory.length > 0) return byCategory[0]
+  }
+  return undefined
+}

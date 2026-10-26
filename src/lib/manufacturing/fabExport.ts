@@ -71,12 +71,26 @@ export interface FabPackage {
   shippable: boolean
 }
 
+/**
+ * Routed plated through-hole. Copper exists on both sides; the mask is left
+ * closed (tented vias), which is the JLCPCB default.
+ */
+export interface FabVia {
+  x: number
+  y: number
+  drillDiameter: number
+  padDiameter: number
+  netName?: string
+}
+
 export interface FabOptions {
   boardWidth?: number
   boardHeight?: number
   traceWidth?: number
   profile?: FabProfile
   projectName?: string
+  /** Vias from the routed board; omitting them would export open layers. */
+  vias?: FabVia[]
 }
 
 export interface PlacedPad {
@@ -245,7 +259,7 @@ export function buildFabPackage(
   wires: Wire[],
   options: FabOptions = {},
 ): FabPackage {
-  const { boardWidth = 100, boardHeight = 80, traceWidth = 0.2, profile = JLCPCB_1OZ, projectName = 'folio-pcb' } = options
+  const { boardWidth = 100, boardHeight = 80, traceWidth = 0.2, profile = JLCPCB_1OZ, projectName = 'folio-pcb', vias = [] } = options
   const violations: FabViolation[] = []
   const traces = wires
     .filter((wire) => wire.points.length >= 2)
@@ -301,9 +315,28 @@ export function buildFabPackage(
   // in this model. Flashing every pad on B_Cu would short a board that only
   // has top-side parts.
   const throughHolePads = pads.filter((pad) => pad.drill !== undefined)
+  const viaPads: PlacedPad[] = []
+  for (const via of vias) {
+    if (via.drillDiameter < profile.minDrill) {
+      violations.push({ rule: 'drill', severity: 'error', message: `Via at ${via.x.toFixed(2)}, ${via.y.toFixed(2)} drill ${via.drillDiameter} mm below minimum.`, elementId: `${via.x}-${via.y}` })
+    }
+    const ring = (via.padDiameter - via.drillDiameter) / 2
+    if (ring < profile.minAnnularRing) {
+      violations.push({ rule: 'annular-ring', severity: 'error', message: `Via at ${via.x.toFixed(2)}, ${via.y.toFixed(2)} ring ${ring.toFixed(3)} mm below minimum.`, elementId: `${via.x}-${via.y}` })
+    }
+    viaPads.push({
+      x: via.x,
+      y: via.y,
+      w: via.padDiameter,
+      h: via.padDiameter,
+      round: true,
+      drill: via.drillDiameter,
+    })
+    drills.push({ x: via.x, y: via.y, diameter: via.drillDiameter })
+  }
   const files = new Map<string, string>()
-  files.set(`${projectName}-F_Cu.gtl`, gerberCopper('Top copper', traces, pads))
-  files.set(`${projectName}-B_Cu.gbl`, gerberCopper('Bottom copper', [], throughHolePads))
+  files.set(`${projectName}-F_Cu.gtl`, gerberCopper('Top copper', traces, [...pads, ...viaPads]))
+  files.set(`${projectName}-B_Cu.gbl`, gerberCopper('Bottom copper', [], [...throughHolePads, ...viaPads]))
   files.set(`${projectName}-F_Mask.gts`, gerberMask('Top mask', pads, profile.maskClearance))
   files.set(`${projectName}-B_Mask.gbs`, gerberMask('Bottom mask', throughHolePads, profile.maskClearance))
   files.set(`${projectName}-F_Silk.gto`, gerberSilk('Top silk', components.map((c) => ({ x: c.position.x, y: c.position.y + 2, text: c.reference }))))

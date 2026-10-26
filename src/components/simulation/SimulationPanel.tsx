@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ChangeEvent } from 'react'
+import { useState, useEffect, useMemo, useRef, type ChangeEvent } from 'react'
 import { Play, Download, Zap, BarChart3, X, AlertCircle, Info } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
@@ -26,12 +26,21 @@ import type { AnalogToDigitalProbe, DigitalToAnalogDrive } from '../../lib/simul
 import { playbackDuration, playbackFrame } from '../../lib/simulation/playback'
 import { measureWaveform, waveformsToCsv } from '../../lib/simulation/scopeAnalysis'
 import { useProjectStore } from '../../stores/useProjectStore'
+import type { CanvasComponent, CanvasWire } from '../../stores/useProjectStore'
+import { captureDesignSnapshot, stableStringify } from '../../lib/agents/designSnapshot'
+import { assessDesignMargins, type MarginItem, type MarginStatus } from '../../lib/electronics/designMargins'
 import { useTheme } from '../../lib/theme/useTheme'
 import { chartSeriesColors } from '../../lib/theme/tokens'
 import { describeError } from '../../lib/utils'
+import { formatEngineering } from '../../lib/simulation/formatEngineering'
+import { useDemoRequest } from '../workspace/useDemoRequest'
 
 interface SimulationPanelProps {
   onClose: () => void
+  /** Returns a blocking reason when policy forbids another solver run. */
+  beforeRun?: () => string | null
+  /** Called after a run was solved and persisted, even if its tab was superseded. */
+  onRunComplete?: () => void
 }
 
 /** Analyses the solver actually implements, in menu order. */
@@ -59,6 +68,43 @@ const ANALYSIS_SUMMARY: Record<AnalysisType, string> = {
 /** Component types whose value a DC sweep can step, by normalised symbol name. */
 const SWEEPABLE_TYPES = new Set(['voltage_source', 'current_source', 'resistor'])
 
+const MARGIN_STATUS_LABEL: Record<MarginStatus, string> = {
+  ok: 'inside limit',
+  warn: 'near limit',
+  fail: 'over limit',
+}
+
+const MARGIN_STATUS_CLASS: Record<MarginStatus, string> = {
+  ok: 'text-success',
+  warn: 'text-warning',
+  fail: 'text-destructive',
+}
+
+const MARGIN_BAR_CLASS: Record<MarginStatus, string> = {
+  ok: 'bg-success',
+  warn: 'bg-warning',
+  fail: 'bg-destructive',
+}
+
+/** Engineering-friendly watts: mW below 1 W, kW above 1 kW. */
+function formatWatts(value: number): string {
+  if (!Number.isFinite(value)) return '—'
+  const magnitude = Math.abs(value)
+  if (magnitude >= 1000) return `${(value / 1000).toPrecision(3)} kW`
+  if (magnitude > 0 && magnitude < 1) return `${(value * 1000).toPrecision(3)} mW`
+  return `${value.toPrecision(3)} W`
+}
+
+function formatMarginValue(item: MarginItem): string {
+  if (item.quantity === 'power') return formatWatts(item.value)
+  return `${item.value.toPrecision(3)} ${item.unit}`
+}
+
+function formatMarginLimit(item: MarginItem): string {
+  if (item.quantity === 'power') return formatWatts(item.limit)
+  return `${item.limit.toPrecision(3)} ${item.unit}`
+}
+
 /**
  * Default scope probes: input-like nets first, then output-like, then the
  * rest — so a transient opens on SRC vs OUT, not on the first
@@ -79,13 +125,40 @@ function pickDefaultWaveforms(names: string[]): string[] {
   return ranked.slice(0, 2)
 }
 
+/**
+ * Electrical identity of a sheet: values, model/type and pin-to-net wiring.
+ * Symbol positions are deliberately excluded — moving a part around the canvas
+ * does not invalidate a solved result, changing its value does.
+ */
+function electricalSignature(parts: readonly CanvasComponent[], connections: readonly CanvasWire[]): string {
+  return stableStringify({
+    parts: [...parts]
+      .map((part) => ({
+        id: part.id,
+        reference: part.reference,
+        symbol: part.component.name,
+        properties: part.properties,
+      }))
+      .sort((a, b) => a.reference.localeCompare(b.reference) || a.id.localeCompare(b.id)),
+    wires: [...connections]
+      .map((wire) => ({
+        net: wire.netName ?? '',
+        pins: [...wire.connectedPins].map((pin) => `${pin.componentId}:${pin.pinId}`).sort(),
+      }))
+      .sort((a, b) => a.net.localeCompare(b.net) || a.pins.join(',').localeCompare(b.pins.join(','))),
+  })
+}
+
 /** A ready-to-run digital deck so the timing card is useful on first open. */
 const DIGITAL_EXAMPLE = [
   '# 2-bit ripple counter: CLOCK drives two T flip-flops, Q0 toggles every rising edge.',
+  '# A T flip-flop cannot toggle out of X, so the state bits are initialized.',
   'CLOCK c0 out=CLK period=20',
   'FF q0 T clock=CLK q=Q0 qbar=Q0B T=one delay=3',
   'FF q1 T clock=Q0 q=Q1 qbar=Q1B T=one delay=3',
   'SET one 1',
+  'SET Q0 0',
+  'SET Q1 0',
   'RUN until=120',
 ].join('\n')
 
@@ -105,9 +178,15 @@ function readFileText(file: File): Promise<string> {
   })
 }
 
-export default function SimulationPanel({ onClose }: SimulationPanelProps) {
+export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: SimulationPanelProps) {
   const [isSimulating, setIsSimulating] = useState(false)
   const [simulationResults, setSimulationResults] = useState<SimulationResult | null>(null)
+  // Margins must describe the design that was actually solved. The drawn sheet
+  // is captured at run time because it can be edited while the solver is busy.
+  const [marginDesign, setMarginDesign] = useState<{
+    components: CanvasComponent[]
+    wires: CanvasWire[]
+  } | null>(null)
   const [selectedAnalysis, setSelectedAnalysis] = useState<AnalysisType>('transient')
   const [error, setError] = useState<string | null>(null)
   // Transient opens on a 20 ms window of the demo's 1 kHz source: 20 cycles
@@ -134,6 +213,10 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
   useEffect(() => {
     useProjectStore.getState().setLiveFrame(liveFrame)
   }, [liveFrame])
+
+  // Closing the panel mid-playback must not leave the sheet glowing at the
+  // last frame from a simulation that is no longer open.
+  useEffect(() => () => useProjectStore.getState().setLiveFrame(null), [])
 
   useEffect(() => {
     if (!playing || playDuration <= 0) return
@@ -197,8 +280,38 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
     [components],
   )
 
+  /*
+   * A result belongs to the analysis that produced it. Without this token an
+   * AC sweep that finishes after the user switched to Transient would render
+   * under the Transient tab with the wrong axes and controls.
+   */
+  const runTokenRef = useRef(0)
+  // `null` until the first commit settles. StrictMode replays mount effects,
+  // and treating that replay as a tab change would invalidate the run a demo
+  // request just started — leaving the panel busy forever with no result.
+  const analysisRef = useRef<AnalysisType | null>(null)
+
   useEffect(() => {
-    setParameters((previous) => ({ ...previous, type: selectedAnalysis }))
+    const previousAnalysis = analysisRef.current
+    analysisRef.current = selectedAnalysis
+    setParameters((previous) => {
+      const next: SimulationParameters = { ...previous, type: selectedAnalysis }
+      // The picker shows Temperature when nothing is chosen; make that the
+      // actual parameter too, or the engine receives no sweep target and
+      // rejects a run the form appeared ready to perform.
+      if (selectedAnalysis === 'dc-sweep' && !next.sweepSource) next.sweepSource = 'TEMP'
+      return next
+    })
+    if (previousAnalysis === null || previousAnalysis === selectedAnalysis) return
+    // Anything already running belongs to the previous tab. Its result must
+    // not surface here; it is still persisted in the run history when it ends.
+    runTokenRef.current += 1
+    setSimulationResults((previous) =>
+      previous && previous.analysis !== selectedAnalysis ? null : previous,
+    )
+    setSelectedWaveforms([])
+    setMarginDesign(null)
+    setError(null)
   }, [selectedAnalysis])
 
   const handleRunSimulation = async () => {
@@ -206,31 +319,50 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
       setError(`Fix the model-card errors first: ${modelLibrary.errors.join(' ')}`)
       return
     }
+    const blocked = beforeRun?.()
+    if (blocked) {
+      setError(blocked)
+      return
+    }
+    const runToken = ++runTokenRef.current
+    const runAnalysis = selectedAnalysis
+    const runParameters = parameters
     setIsSimulating(true)
     setError(null)
 
     try {
-      const netlist = attachModelCards(buildCircuitNetlist('Circuit Simulation', components, wires, parameters))
+      const solvedDesign = { components, wires }
+      const netlist = attachModelCards(buildCircuitNetlist('Circuit Simulation', components, wires, runParameters))
       const result = await spiceEngine.simulate(netlist)
-      setSimulationResults(result)
-      setSelectedWaveforms(pickDefaultWaveforms(result.waveforms.map((w) => w.name)))
-      // Persist the run into the design so it survives save/load and VCS commits.
+      // Persist the run into the design so it survives save/load and VCS
+      // commits. A solve that finishes after a tab switch still happened, so it
+      // belongs in the history even though it must not surface on the new tab.
       addSimulationRun({
-        name: `${ANALYSIS_LABELS[selectedAnalysis]} — ${new Date().toLocaleString()}`,
-        type: selectedAnalysis,
-        parameters: parameters as unknown as Record<string, unknown>,
+        name: `${ANALYSIS_LABELS[runAnalysis]} — ${new Date().toLocaleString()}`,
+        type: runAnalysis,
+        parameters: runParameters as unknown as Record<string, unknown>,
         results: result as unknown as Record<string, unknown>,
         status: 'completed',
       })
+      onRunComplete?.()
+      if (runToken !== runTokenRef.current) return
+      setMarginDesign(solvedDesign)
+      setSimulationResults(result)
+      setSelectedWaveforms(pickDefaultWaveforms(result.waveforms.map((w) => w.name)))
     } catch (thrown) {
+      if (runToken !== runTokenRef.current) return
       // Building the netlist can fail (conflicting net names). Report it here
       // rather than in an `alert`, so it stays attached to the panel.
       setError(describeError(thrown))
+      setMarginDesign(null)
       setSimulationResults(null)
     } finally {
-      setIsSimulating(false)
+      // A superseded run must not clear the busy flag of the run that replaced it.
+      if (runToken === runTokenRef.current) setIsSimulating(false)
     }
   }
+
+  useDemoRequest('rectifier-transient', () => { void handleRunSimulation() })
 
   const [benchInput, setBenchInput] = useState<string>('')
   const [benchVerdict, setBenchVerdict] = useState<string | null>(null)
@@ -313,6 +445,9 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
     setInterchangeError(null)
     setStitchVerdict(null)
     setStitching(true)
+    // A stitched solve supersedes any running single-sheet solve, and must not
+    // land under a different analysis tab if the user switches mid-solve.
+    const runToken = ++runTokenRef.current
     try {
       const sheets: SchematicSheet[] = importedSheets.map((entry) =>
         interchangeToSheet(entry.name, entry.netlist),
@@ -325,9 +460,13 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
       }
       const netlist = buildMultiSheetNetlist('Multi-sheet circuit', sheets, parameters)
       const result = await spiceEngine.simulate(netlist)
+      if (runToken !== runTokenRef.current) return
       if (!result.success) {
         throw new Error(result.error ?? 'The stitched netlist did not solve.')
       }
+      // The stitched deck spans imported sheets whose parts are not on the
+      // canvas, so rating margins are unavailable for this result.
+      setMarginDesign(null)
       setSimulationResults(result)
       setSelectedWaveforms(pickDefaultWaveforms(result.waveforms.map((w) => w.name)))
       const iterations = result.convergenceInfo?.iterations
@@ -339,9 +478,11 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
         }`,
       )
     } catch (thrown) {
+      if (runToken !== runTokenRef.current) return
       setInterchangeError(describeError(thrown))
     } finally {
-      setStitching(false)
+      // A superseded stitch must not clear the busy flag of the newer one.
+      if (runToken === runTokenRef.current) setStitching(false)
     }
   }
 
@@ -515,6 +656,48 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
     }, {})
   }
 
+  // Magnitude and phase share a chart only if they get separate axes; otherwise
+  // a ±90° phase curve flattens a millivolt Bode magnitude onto the zero line.
+  const selectedWaveformUnits = selectedWaveforms
+    .map((name) => simulationResults?.waveforms.find((waveform) => waveform.name === name)?.unit)
+    .filter((unit): unit is string => unit !== undefined)
+  const hasMagnitudeSeries = selectedWaveformUnits.some((unit) => unit !== 'deg')
+  const hasPhaseSeries = selectedWaveformUnits.some((unit) => unit === 'deg')
+  const phaseAxisId = hasMagnitudeSeries && hasPhaseSeries ? 'right' : 'left'
+  const logFrequencyAxis = selectedAnalysis === 'ac' || selectedAnalysis === 'noise'
+
+  // A tolerance sweep is a distribution of DC biases, not a waveform: one point
+  // per signal, so a line chart would draw nothing. Tabulate mean and spread.
+  const monteCarloRows = (() => {
+    if (selectedAnalysis !== 'montecarlo' || !simulationResults) return []
+    const byName = new Map(simulationResults.waveforms.map((waveform) => [waveform.name, waveform]))
+    return simulationResults.waveforms
+      .filter((waveform) => waveform.name.endsWith(' mean'))
+      .map((meanWaveform) => {
+        const base = meanWaveform.name.slice(0, -' mean'.length)
+        const mean = meanWaveform.data[0]?.y
+        const plus = byName.get(`${base} mean +3σ`)?.data[0]?.y
+        const minus = byName.get(`${base} mean −3σ`)?.data[0]?.y
+        const spread = plus !== undefined && minus !== undefined ? (plus - minus) / 2 : undefined
+        // A relative spread is meaningless when the mean is itself numerical
+        // noise around zero: report the absolute envelope, not "±1060 %".
+        const percent =
+          mean !== undefined &&
+          spread !== undefined &&
+          Math.abs(mean) > spread
+            ? (spread / Math.abs(mean)) * 100
+            : undefined
+        return { name: base, unit: meanWaveform.unit, mean, spread, percent }
+      })
+  })()
+
+  // A bias-only Monte Carlo on an AC-driven circuit reports numerical noise
+  // (yoctovolts), which is correct but tells the user nothing about their
+  // design. Say so next to the table instead of leaving a row of zeros.
+  const monteCarloCarriesBias = monteCarloRows.some(
+    (row) => row.mean !== undefined && Math.abs(row.mean) > 1e-12,
+  )
+
   // ── Scope measurements + power + CSV export ──────────────────────────────
   const scopeMeasurements = useMemo(() => {
     if (!simulationResults?.waveforms) return []
@@ -526,6 +709,34 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
       return []
     }
   }, [simulationResults, selectedWaveforms])
+
+  /**
+   * Rating margins, junction-temperature estimates and the power budget for the
+   * exact design that was solved. `assessDesignMargins` reports "not rated"
+   * rather than guessing, and labels thermal numbers as first-order estimates.
+   */
+  const designMargins = useMemo(() => {
+    if (!simulationResults || !marginDesign) return null
+    try {
+      const snapshot = captureDesignSnapshot(marginDesign.components, marginDesign.wires)
+      return assessDesignMargins(snapshot, simulationResults)
+    } catch {
+      return null
+    }
+  }, [simulationResults, marginDesign])
+
+  /** Warn instead of pretending an old solve describes a sheet that changed. */
+  const solvedSignature = useMemo(
+    () => (marginDesign ? electricalSignature(marginDesign.components, marginDesign.wires) : null),
+    [marginDesign],
+  )
+  const currentSignature = useMemo(
+    () => electricalSignature(components, wires),
+    [components, wires],
+  )
+  const designChangedSinceRun = Boolean(
+    simulationResults && marginDesign && solvedSignature !== null && solvedSignature !== currentSignature,
+  )
 
   const handleExportCsv = () => {
     if (!simulationResults?.waveforms) return
@@ -1167,6 +1378,18 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
         {/* Results */}
         {simulationResults && (
           <div className="flex-1 flex flex-col space-y-4">
+            {designChangedSinceRun && (
+              <p
+                role="status"
+                className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
+              >
+                <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                The sheet changed after this analysis ran. The plots and margins below
+                describe the design that was solved; run the analysis again to measure
+                the current sheet.
+              </p>
+            )}
+
             {simulationResults.success ? (
               <>
                 {/* Operating Point */}
@@ -1177,15 +1400,58 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
                       {Object.entries(simulationResults.operatingPoint).map(([node, value]) => (
                         <div key={node} className="bg-muted p-2 rounded">
                           <div className="font-medium">{node}</div>
-                          <div className="text-muted-foreground">{value.toFixed(6)} V</div>
+                          <div className="font-mono text-muted-foreground">{formatEngineering(value)} V</div>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
+
+                {/* Monte Carlo: a distribution of DC biases, one number per signal. */}
+                {selectedAnalysis === 'montecarlo' && monteCarloRows.length > 0 && (
+                  <div>
+                    <h4 className="mb-2 text-sm font-medium">Tolerance envelope</h4>
+                    <div className="overflow-x-auto rounded-md border border-border">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-muted/60 text-muted-foreground">
+                          <tr>
+                            <th scope="col" className="px-2 py-1.5 font-medium">Signal</th>
+                            <th scope="col" className="px-2 py-1.5 font-medium">Mean</th>
+                            <th scope="col" className="px-2 py-1.5 font-medium">±3σ</th>
+                            <th scope="col" className="px-2 py-1.5 font-medium">Spread</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {monteCarloRows.map((row) => (
+                            <tr key={row.name} className="border-t border-border/60">
+                              <td className="px-2 py-1.5 font-medium">{row.name}</td>
+                              <td className="px-2 py-1.5 font-mono">
+                                {row.mean === undefined ? '—' : `${formatEngineering(row.mean)} ${row.unit}`}
+                              </td>
+                              <td className="px-2 py-1.5 font-mono">
+                                {row.spread === undefined ? '—' : `±${formatEngineering(row.spread)} ${row.unit}`}
+                              </td>
+                              <td className="px-2 py-1.5 font-mono text-muted-foreground">
+                                {row.percent === undefined ? '—' : `±${row.percent.toPrecision(3)} %`}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {!monteCarloCarriesBias && (
+                      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                        Every DC node reads zero: this circuit is driven by a time-varying
+                        source, and a bias-only Monte Carlo has no operating point to vary.
+                        Add a DC source, or inspect a transient, to see a meaningful tolerance
+                        envelope.
+                      </p>
+                    )}
+                  </div>
+                )}
                 
                 {/* Waveform Selection */}
-                {simulationResults.waveforms.length > 0 && (
+                {selectedAnalysis !== 'montecarlo' && simulationResults.waveforms.length > 0 && (
                   <div>
                     <h4 className="text-sm font-medium mb-2">Waveforms</h4>
                     <div className="flex flex-wrap gap-2">
@@ -1212,7 +1478,7 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
                 )}
                 
                 {/* Waveform Plot */}
-                {selectedWaveforms.length > 0 && (
+                {selectedAnalysis !== 'montecarlo' && selectedWaveforms.length > 0 && (
                   <div className="flex-1 min-h-0">
                     <h4 className="text-sm font-medium mb-2">Waveform Plot</h4>
                     <div className="h-64 w-full">
@@ -1222,29 +1488,39 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
                           <XAxis
                             dataKey="x"
                             type="number"
-                            scale="linear"
-                            domain={['dataMin', 'dataMax']}
+                            // A frequency sweep spans decades; a linear x axis
+                            // squeezes 10 Hz–1 kHz into the first pixel.
+                            scale={logFrequencyAxis ? 'log' : 'linear'}
+                            domain={logFrequencyAxis ? ['auto', 'auto'] : ['dataMin', 'dataMax']}
                             tickFormatter={(value) => {
-                              if (selectedAnalysis === 'ac') {
-                                return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value.toFixed(0)
-                              }
+                              if (logFrequencyAxis) return formatEngineering(value)
                               // A sweep's x axis is a component value, not a time:
                               // scientific notation on "2 volts" reads as noise.
                               if (selectedAnalysis === 'dc-sweep') return value.toPrecision(4)
-                              return value.toExponential(2)
+                              return formatEngineering(value)
                             }}
                           />
                           <YAxis
-                            tickFormatter={(value) => value.toFixed(2)}
+                            yAxisId="left"
+                            width={62}
+                            tickFormatter={formatEngineering}
                           />
+                          {hasPhaseSeries && hasMagnitudeSeries && (
+                            <YAxis
+                              yAxisId="right"
+                              orientation="right"
+                              width={56}
+                              tickFormatter={formatEngineering}
+                            />
+                          )}
                           <Tooltip
                             formatter={(value: number, name: string) => [
-                              typeof value === 'number' ? value.toFixed(4) : value,
+                              typeof value === 'number' ? formatEngineering(value) : value,
                               name
                             ]}
                             labelFormatter={(value: number) => {
-                              if (selectedAnalysis === 'ac') {
-                                return `Frequency: ${value >= 1000 ? `${(value / 1000).toFixed(1)}kHz` : `${value}Hz`}`
+                              if (logFrequencyAxis) {
+                                return `Frequency: ${formatEngineering(value)}Hz`
                               }
                               if (selectedAnalysis === 'dc-sweep') {
                                 return `${parameters.sweepSource ?? 'TEMP'} = ${value}`
@@ -1256,6 +1532,13 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
                           {selectedWaveforms.map(name => (
                             <Line
                               key={name}
+                              yAxisId={
+                                simulationResults?.waveforms.find(
+                                  (waveform) => waveform.name === name,
+                                )?.unit === 'deg'
+                                  ? phaseAxisId
+                                  : 'left'
+                              }
                               type="monotone"
                               dataKey={name}
                               stroke={getWaveformColors()[name]}
@@ -1307,7 +1590,7 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
                 )}
                 
                 {/* Scope measurements: min/max/pp/RMS/frequency/duty per trace. */}
-                {scopeMeasurements.length > 0 && (
+                {scopeMeasurements.length > 0 && selectedAnalysis !== 'montecarlo' && (
                   <div>
                     <div className="mb-2 flex items-center justify-between">
                       <h4 className="text-sm font-medium">Scope measurements</h4>
@@ -1318,7 +1601,7 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
                         <div key={name} className="rounded bg-muted p-2">
                           <div className="font-medium">{name} <span className="text-muted-foreground">({unit})</span></div>
                           <div className="mt-1 font-mono leading-relaxed text-muted-foreground">
-                            pk-pk {measurement.peakToPeak.toPrecision(4)} · RMS {measurement.rms.toPrecision(4)} · mean {measurement.mean.toPrecision(4)}
+                            pk-pk {formatEngineering(measurement.peakToPeak)} · RMS {formatEngineering(measurement.rms)} · mean {formatEngineering(measurement.mean)}
                             {measurement.frequencyHz !== null && (
                               <> · f {measurement.frequencyHz >= 1000 ? `${(measurement.frequencyHz / 1000).toFixed(2)} kHz` : `${measurement.frequencyHz.toFixed(1)} Hz`}</>
                             )}
@@ -1331,6 +1614,138 @@ export default function SimulationPanel({ onClose }: SimulationPanelProps) {
                     </div>
                   </div>
                 )}
+
+                {/* Ratings, heating and the power budget: measured against
+                    declared limits, with unrated parts called out explicitly. */}
+                <div>
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="text-sm font-medium">Ratings, heating &amp; power</h4>
+                    {designMargins && (
+                      <span className="text-xs text-muted-foreground">
+                        {designMargins.items.length === 0
+                          ? 'No rated part measured'
+                          : (() => {
+                              const failures = designMargins.items.filter((item) => item.status === 'fail').length
+                              const warnings = designMargins.items.filter((item) => item.status === 'warn').length
+                              if (failures > 0) return `${failures} over limit`
+                              if (warnings > 0) return `${warnings} near limit`
+                              return `All ${designMargins.items.length} checks inside limits`
+                            })()}
+                      </span>
+                    )}
+                  </div>
+
+                  {designMargins ? (
+                    <div className="space-y-2 text-xs">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <div className="rounded bg-muted p-2">
+                          <div className="text-muted-foreground">Limiting factor</div>
+                          <div className="mt-1 font-mono leading-relaxed">
+                            {designMargins.limitingFactor ?? 'No comparable rating declared'}
+                          </div>
+                        </div>
+                        <div className="rounded bg-muted p-2">
+                          <div className="text-muted-foreground">Hottest part (estimate)</div>
+                          <div className="mt-1 font-mono leading-relaxed">
+                            {designMargins.hottest
+                              ? `${designMargins.hottest.reference}: ${designMargins.hottest.thermal.junctionC.toFixed(1)} °C (+${designMargins.hottest.thermal.riseC.toFixed(1)} K)`
+                              : 'No part had both power and θJA'}
+                            {designMargins.hottest && (
+                              <span className="text-muted-foreground">
+                                {' '}· θJA {designMargins.hottest.thermal.thetaJa} K/W
+                                {designMargins.hottest.thermal.estimated ? ' typical package' : ' declared'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="rounded bg-muted p-2 sm:col-span-2">
+                          <div className="text-muted-foreground">
+                            Power budget · {designMargins.power.basis}
+                          </div>
+                          <div className="mt-1 font-mono leading-relaxed">
+                            supplied {designMargins.power.suppliedW === undefined ? 'not solved' : formatWatts(designMargins.power.suppliedW)}
+                            {' · '}dissipated {designMargins.power.dissipatedW === undefined ? 'not solved' : formatWatts(designMargins.power.dissipatedW)}
+                            {' · '}{designMargins.power.sourceCount} source{designMargins.power.sourceCount === 1 ? '' : 's'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {designMargins.items.length > 0 && (
+                        <ul className="space-y-1.5">
+                          {designMargins.items.map((item) => (
+                            <li key={item.id} className="rounded border border-border p-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="font-medium">
+                                  {item.reference}{' '}
+                                  <span className="text-muted-foreground">
+                                    {item.quantity === 'junction-temperature' ? 'Tj' : item.quantity}
+                                  </span>
+                                </div>
+                                <div className={`text-right font-mono ${MARGIN_STATUS_CLASS[item.status]}`}>
+                                  {formatMarginValue(item)} / {formatMarginLimit(item)}
+                                  <span className="block text-muted-foreground">
+                                    {(item.utilization * 100).toFixed(1)} % · {MARGIN_STATUS_LABEL[item.status]}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="mt-1 h-1.5 overflow-hidden rounded bg-border" aria-hidden="true">
+                                <div
+                                  className={`h-full ${MARGIN_BAR_CLASS[item.status]}`}
+                                  style={{ width: `${Math.min(100, Math.max(0, item.utilization * 100))}%` }}
+                                />
+                              </div>
+                              <div className="mt-1 leading-relaxed text-muted-foreground">{item.basis}</div>
+                              {item.thermal && (
+                                <div className="mt-0.5 leading-relaxed text-muted-foreground">
+                                  Tj {item.thermal.junctionC.toFixed(1)} °C at {item.thermal.ambientC.toFixed(1)} °C ambient
+                                  {item.thermal.limitC !== undefined ? `, limit ${item.thermal.limitC.toFixed(0)} °C` : ''}
+                                </div>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+
+                      {designMargins.coverage.unrated.length > 0 && (
+                        <div className="rounded border border-border p-2">
+                          <div className="font-medium">
+                            Not rated ({designMargins.coverage.unrated.length})
+                          </div>
+                          <ul className="mt-1 space-y-0.5 leading-relaxed text-muted-foreground">
+                            {designMargins.coverage.unrated.map((entry) => (
+                              <li key={entry.reference}>
+                                <span className="font-mono">{entry.reference}</span> — {entry.reason}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {designMargins.notes.map((note) => (
+                        <p key={note} className="text-warning">
+                          {note}
+                        </p>
+                      ))}
+
+                      <details className="rounded border border-border p-2">
+                        <summary className="cursor-pointer text-muted-foreground">
+                          How these numbers were obtained
+                        </summary>
+                        <ul className="mt-1 space-y-0.5 leading-relaxed text-muted-foreground">
+                          {designMargins.assumptions.map((assumption) => (
+                            <li key={assumption}>{assumption}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    </div>
+                  ) : (
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      This result came from a stitched or imported deck, so its parts cannot be
+                      matched to the ratings declared on the drawn sheet. Run the drawn sheet to
+                      measure margins.
+                    </p>
+                  )}
+                </div>
 
                 {/* Convergence Info */}
                 {simulationResults.convergenceInfo && (

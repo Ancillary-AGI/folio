@@ -126,6 +126,7 @@ export function measureProbes(
   probes: ProbeRequest[],
   voltages: Map<string, number>,
   branchCurrents: Map<string, number>,
+  deviceCurrents?: Map<string, number>,
 ): ProbeResult[] {
   const v = (node: string): number => voltages.get(node) ?? 0
   const deviceByName = new Map(model.devices.map((d) => [d.name.toUpperCase(), d]))
@@ -144,6 +145,10 @@ export function measureProbes(
     const rowCurrent = branchCurrents.get(name) ?? branchCurrents.get(device.name)
     if (rowCurrent !== undefined) {
       return { id: probe.id, label: probe.label, kind: probe.kind, target: name, value: rowCurrent, unit: 'A' }
+    }
+    const solvedCurrent = deviceCurrents?.get(name) ?? deviceCurrents?.get(device.name)
+    if (solvedCurrent !== undefined) {
+      return { id: probe.id, label: probe.label, kind: probe.kind, target: name, value: solvedCurrent, unit: 'A' }
     }
     if (device.kind === 'resistor' && typeof device.resistance === 'number' && device.resistance !== 0) {
       const current = (v(device.p) - v(device.n)) / device.resistance

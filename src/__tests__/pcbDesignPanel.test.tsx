@@ -6,10 +6,11 @@
  * engines are stubbed where the point of the test is the UI's reaction to
  * them — wire→trace routing, DRC verdicts and export plumbing stay real.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import PCBDesignPanel from '../components/pcb/PCBDesignPanel'
+import { useProjectStore } from '../stores/useProjectStore'
 import { emcSimulationEngine } from '../lib/emc/emcSimulation'
 import type { EMCResult } from '../lib/emc/emcSimulation'
 import { thermalAnalysisEngine } from '../lib/pcb/thermalAnalysis'
@@ -26,6 +27,10 @@ import { planeLoopInductance, stitchingGrid } from '../lib/manufacturing/powerIn
 import { dogboneFanout, MICROVIA_FANOUT_RULES } from '../lib/manufacturing/bgaFanout'
 import { SOC_256 } from '../lib/electronics/socPackages'
 import type { PlacedComponent, Wire, Net } from '../types'
+import { buildDemoBoard } from '../lib/demo/demoBoard'
+import { buildDemoPcb } from '../lib/demo/demoPcb'
+import { AgentHarness } from '../lib/agents/agentHarness'
+import { registerEdaTools } from '../lib/agents/edaTools'
 
 const exportSpies = vi.hoisted(() => ({
   exportToGerber: vi.fn(() => 'G04 test*'),
@@ -96,7 +101,44 @@ const openTab = (name: string) => {
   fireEvent.click(tab)
 }
 
+/**
+ * jsdom has no SVG CTMs and reports a zero-sized box. A 1:1-mapping 1000 px
+ * square lets pointer gestures resolve to board millimetres deterministically.
+ */
+const mockBoardRect = (): SVGSVGElement => {
+  const svg = document.querySelector('svg[aria-label^="PCB layout"]') as SVGSVGElement
+  expect(svg).not.toBeNull()
+  Object.defineProperty(svg, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => ({
+      width: 1000, height: 1000, left: 0, top: 0, right: 1000, bottom: 1000,
+      x: 0, y: 0, toJSON: () => ({}),
+    }),
+  })
+  return svg
+}
+
+/** Board millimetre → client pixel for a 100 × 80 board in the mock box. */
+const boardToClient = (boardWidth: number, boardHeight: number) => {
+  const margin = Math.max(4, Math.min(boardWidth, boardHeight) * 0.08)
+  const viewWidth = boardWidth + margin * 2
+  const viewHeight = boardHeight + margin * 2
+  const scale = Math.min(1000 / viewWidth, 1000 / viewHeight)
+  const offsetX = (1000 - viewWidth * scale) / 2
+  const offsetY = (1000 - viewHeight * scale) / 2
+  return (x: number, y: number) => ({
+    clientX: offsetX + (x + margin) * scale,
+    clientY: offsetY + (y + margin) * scale,
+  })
+}
+
 describe('PCBDesignPanel', () => {
+  beforeEach(() => {
+    // The panel adopts a stored routed layout on mount, so each test starts
+    // from a clean board rather than inheriting the previous test's copper.
+    useProjectStore.setState({ components: [], wires: [], pcbLayout: null })
+  })
+
   afterEach(() => {
     vi.restoreAllMocks()
     exportSpies.exportToGerber.mockClear()
@@ -196,8 +238,8 @@ describe('PCBDesignPanel', () => {
 
     // One trace per net, layer-locked to top copper, endpoint-anchored on the
     // pad grid cells (the lucide toolbar icons render their own polylines, so
-    // scope to the board svg with the 100 × 80 viewBox).
-    const boardSvg = document.querySelector('svg[viewBox="0 0 100 80"]')
+    // scope to the board overview).
+    const boardSvg = document.querySelector('svg[aria-label^="PCB layout"]')
     expect(boardSvg).not.toBeNull()
     const traceLines = boardSvg!.querySelectorAll('polyline')
     expect(traceLines).toHaveLength(2)
@@ -350,7 +392,7 @@ describe('PCBDesignPanel', () => {
 
     // The panel analyses traces[0], whose length and width are the routed
     // values — not a fictional reference line.
-    const boardSvg = document.querySelector('svg[viewBox="0 0 100 80"]')
+    const boardSvg = document.querySelector('svg[aria-label^="PCB layout"]')
     expect(boardSvg).not.toBeNull()
     const polyline = boardSvg!.querySelector('polyline')
     expect(polyline).not.toBeNull()
@@ -549,6 +591,96 @@ describe('PCBDesignPanel', () => {
     expect(screen.getByRole('button', { name: 'Run DRC' })).toBeEnabled()
   })
 
+  it('draws parts at the routed layout positions, matching its copper', () => {
+    const board = buildDemoBoard()
+    const pcb = buildDemoPcb()
+    useProjectStore.setState({
+      components: board.components,
+      wires: board.wires,
+      pcbLayout: pcb.scene,
+    })
 
+    render(<PCBDesignPanel onClose={vi.fn()} />)
 
+    for (const placed of pcb.scene.components) {
+      const group = document.querySelector(`[data-component-id="${placed.id}"]`)
+      expect(group).not.toBeNull()
+      expect(group!.getAttribute('transform')).toBe(
+        `translate(${placed.x} ${placed.y}) rotate(${placed.rotationDeg ?? 0})`,
+      )
+    }
+  })
+
+  it('adopts copper routed by the agent harness without a reload', async () => {
+    const board = buildDemoBoard()
+    useProjectStore.setState({ components: board.components, wires: board.wires, pcbLayout: null })
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+    expect(screen.getByText('Traces: 0 | Vias: 0')).toBeInTheDocument()
+
+    const harness = new AgentHarness()
+    registerEdaTools(harness)
+    let routed: { traces: number; vias: number } | undefined
+    await act(async () => {
+      const call = await harness.call(
+        'eda.route', {}, { maxCalls: 10, maxWallMs: 60_000, startedAt: Date.now() }, () => true,
+      )
+      expect(call.error).toBeUndefined()
+      routed = call.result as { traces: number; vias: number }
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText(`Traces: ${routed!.traces} | Vias: ${routed!.vias}`)).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/Parts moved after routing/)).toBeNull()
+  })
+
+  it('drops a via where the board is clicked', () => {
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+    const svg = mockBoardRect()
+    fireEvent.click(screen.getByRole('button', { name: 'via' }))
+
+    fireEvent.pointerDown(svg, { button: 0, ...boardToClient(100, 80)(50, 40) })
+
+    expect(screen.getByText('Traces: 0 | Vias: 1')).toBeInTheDocument()
+  })
+
+  it('lays a two-point trace with the route tool and finishes it', () => {
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+    const svg = mockBoardRect()
+    fireEvent.click(screen.getByRole('button', { name: 'route' }))
+    const at = boardToClient(100, 80)
+
+    fireEvent.pointerDown(svg, { button: 0, ...at(50, 40) })
+    fireEvent.pointerDown(svg, { button: 0, ...at(60, 40) })
+    fireEvent.click(screen.getByRole('button', { name: 'Finish trace' }))
+
+    expect(screen.getByText('Traces: 1 | Vias: 0')).toBeInTheDocument()
+    const boardSvg = document.querySelector('svg[aria-label^="PCB layout"]')
+    expect(boardSvg!.querySelector('polyline')?.getAttribute('points')).toBe('50,40 60,40')
+  })
+
+  it('moves a part on the move tool and flags copper as stale', () => {
+    render(
+      <PCBDesignPanel
+        onClose={vi.fn()}
+        components={[partAt('r1', 20, 20)]}
+        wires={[]}
+      />,
+    )
+    const svg = mockBoardRect()
+    fireEvent.click(screen.getByRole('button', { name: 'move' }))
+    const at = boardToClient(100, 80)
+    const start = at(20, 20)
+    const group = document.querySelector('[data-component-id="r1"]') as SVGGElement
+
+    fireEvent.pointerDown(group, { button: 0, ...start })
+    fireEvent.pointerMove(svg.parentElement!, {
+      clientX: start.clientX + 2 * (at(21, 20).clientX - start.clientX),
+      clientY: start.clientY,
+    })
+    fireEvent.pointerUp(svg.parentElement!)
+
+    expect(group.getAttribute('transform')).toBe('translate(22 20) rotate(0)')
+    expect(screen.getByRole('status')).toHaveTextContent(/Parts moved after routing/)
+  })
 })

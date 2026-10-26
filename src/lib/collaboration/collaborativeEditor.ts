@@ -320,9 +320,6 @@ class CollaborativeEditor extends TypedEventEmitter {
   getCurrentUser(): CollabUser | null { return this.currentUser }
   getConnectedUsers(): CollabUser[] { return this.currentSession ? Array.from(this.currentSession.users.values()) : [] }
   isUsingRealtime(): boolean { return this.useRealtime }
-
-  /** Legacy no-op — kept so existing callers don't break */
-  receiveOperation(): void { /* handled internally via channel subscription */ }
 }
 
 export const collaborativeEditor = new CollaborativeEditor()

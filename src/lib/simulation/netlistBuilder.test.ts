@@ -115,7 +115,7 @@ describe('buildCircuitNetlist', () => {
     expect(q1.type).toBe('npn_transistor')
     // nodes[0] is the collector net, nodes[1] the base net, nodes[2] the
     // emitter: the emitter-first symbol storage must not leak into order.
-    expect(q1.nodes).toEqual(['N_c', 'N_b', 'N_e'])
+    expect(q1.nodes).toEqual(['N_C', 'N_B', 'N_E'])
   })
 
   it('simulates a canvas common-emitter stage with a stock 2N3904 card', async () => {

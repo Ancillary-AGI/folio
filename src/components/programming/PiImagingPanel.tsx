@@ -27,6 +27,8 @@ import {
   type BootPartitionFile,
 } from '../../lib/programming/linuxBringUp'
 import type { FlashDevice } from '../../lib/programming/flashProtocol'
+import { useDemoRequest } from '../workspace/useDemoRequest'
+import { buildDemoBootFiles, buildDemoImagingImage, DEMO_SERIAL_LOG } from '../../lib/demo/demoImaging'
 
 interface PiImagingPanelProps {
   onClose: () => void
@@ -90,6 +92,7 @@ export default function PiImagingPanel({ onClose }: PiImagingPanelProps) {
   const [bootError, setBootError] = useState<string | null>(null)
   const [consoleOutput, setConsoleOutput] = useState('')
   const [bringUp, setBringUp] = useState<{ ok: boolean; failures: string[] } | null>(null)
+  const [demoStaged, setDemoStaged] = useState(false)
 
   const loadDevices = useCallback(async () => {
     try {
@@ -203,6 +206,39 @@ export default function PiImagingPanel({ onClose }: PiImagingPanelProps) {
     }
   }, [bootFiles, consoleOutput])
 
+  /*
+   * Gallery demo: stage a real MBR image and a complete boot file set through
+   * the same parsers the file picker uses, then run the bring-up verdict. It
+   * deliberately does not touch the daemon or claim a flash — the banner says
+   * the image is staged in memory.
+   */
+  const stageDemo = useCallback(async () => {
+    setPlanning(true)
+    try {
+      const bytes = buildDemoImagingImage()
+      const mbr = parseMbr(bytes)
+      const files = buildDemoBootFiles()
+      setImage({ name: 'folio-pi-demo.img', bytes })
+      setPartitions(mbr.partitions)
+      setImageNotice(mbr.error ? `No MBR partition table: ${mbr.error}.` : null)
+      setPlan(await flashPlan(bytes))
+      setBootFiles(files)
+      setConsoleOutput(DEMO_SERIAL_LOG)
+      setBringUp(bringUpVerdict(files, DEMO_SERIAL_LOG))
+      setBootError(null)
+      setProgress(null)
+      setFlashError(null)
+      setFlashSuccess(null)
+      setDemoStaged(true)
+    } catch (error) {
+      setImageNotice(describeError(error))
+    } finally {
+      setPlanning(false)
+    }
+  }, [])
+
+  useDemoRequest('imaging-pipeline', () => { void stageDemo() })
+
   const statusBadge =
     daemonState === 'online' ? (
       <Badge className="bg-success text-success-foreground">Daemon online</Badge>
@@ -230,6 +266,17 @@ export default function PiImagingPanel({ onClose }: PiImagingPanelProps) {
 
         <div className="grid flex-1 gap-4 overflow-y-auto p-4 lg:grid-cols-2">
           <div className="space-y-4">
+            {demoStaged && (
+              <div
+                role="status"
+                aria-label="Imaging demo status"
+                className="rounded-md border border-chart-4/40 bg-chart-4/10 px-3 py-2 text-xs leading-relaxed text-foreground"
+              >
+                <strong className="text-chart-4">Demo:</strong> a 4 MiB sample image with a real MBR and a
+                complete boot file set are staged in browser memory; the chunk plan and bring-up verdict ran
+                for real. No device was written — live flashing needs folio-bridge on the host.
+              </div>
+            )}
             <Card>
               <CardHeader className="pb-2 pt-3 px-3">
                 <CardTitle className="flex items-center justify-between text-sm">

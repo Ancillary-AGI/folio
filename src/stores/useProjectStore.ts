@@ -3,6 +3,10 @@ import { devtools } from 'zustand/middleware'
 import { Component, Project, Schematic } from '../lib/supabase'
 import { generateId } from '../lib/utils'
 import type { PcbSceneInput } from '../lib/pcb/pcbScene'
+import {
+  createDefaultMechanicalParts,
+  type MechanicalPart,
+} from '../lib/mechanical/partModel'
 
 export interface CanvasComponent {
   id: string
@@ -55,6 +59,19 @@ export interface ProjectState {
   // export paths preview the layout the designer actually made.
   pcbLayout: PcbSceneInput | null
   setPcbLayout: (layout: PcbSceneInput | null) => void
+
+  // Mechanical assembly. Parts are the same bodies the mechanical workspace
+  // draws in 3-D, so an agent editing them gives the human live feedback.
+  mechanicalParts: MechanicalPart[]
+  setMechanicalParts: (
+    next: MechanicalPart[] | ((current: MechanicalPart[]) => MechanicalPart[]),
+  ) => void
+
+  // Design state of the other CAD domains (RF, control, machines, HDL, FPGA,
+  // IC, robotics, visual programs, …), keyed by domain id. Versioned by VCS and
+  // restored by checkout, so one project can carry a whole multidomain design.
+  domainDesigns: Record<string, unknown>
+  setDomainDesign: (key: string, value: unknown) => void
   
   // Component management
   addComponent: (component: CanvasComponent) => void
@@ -66,6 +83,11 @@ export interface ProjectState {
   addWire: (wire: CanvasWire) => void
   updateWire: (id: string, updates: Partial<CanvasWire>) => void
   removeWire: (id: string) => void
+  /**
+   * Replace the whole sheet in one undoable step. Agents use this to commit a
+   * multi-part edit atomically (and to restore a known-good iteration).
+   */
+  replaceDesign: (next: { components: CanvasComponent[]; wires: CanvasWire[] }) => void
   undo: () => void
   redo: () => void
   canUndo: () => boolean
@@ -149,6 +171,20 @@ export const useProjectStore = create<ProjectState>()(
 
     pcbLayout: null,
     setPcbLayout: (layout) => set({ pcbLayout: layout }),
+
+    mechanicalParts: createDefaultMechanicalParts(),
+    setMechanicalParts: (next) =>
+      set((state) => ({
+        mechanicalParts: typeof next === 'function' ? next(state.mechanicalParts) : next,
+        isDirty: true,
+      })),
+
+    domainDesigns: {},
+    setDomainDesign: (key, value) =>
+      set((state) => ({
+        domainDesigns: { ...state.domainDesigns, [key]: value },
+        isDirty: true,
+      })),
     
     // Component management
     addComponent: (component) => {
@@ -215,6 +251,27 @@ export const useProjectStore = create<ProjectState>()(
     removeWire: (id) => {
       pushUndo()
       set((state) => ({ wires: state.wires.filter((wire) => wire.id !== id), isDirty: true }))
+    },
+    replaceDesign: (next) => {
+      pushUndo()
+      // Deep-clone the incoming sheet so a caller reusing its arrays cannot
+      // mutate committed canvas state through a later edit.
+      set({
+        components: next.components.map((component) => ({
+          ...component,
+          properties: { ...component.properties },
+          component: {
+            ...component.component,
+            pins: component.component.pins.map((pin) => ({ ...pin })),
+          },
+        })),
+        wires: next.wires.map((wire) => ({
+          ...wire,
+          points: wire.points.map((point) => ({ ...point })),
+          connectedPins: wire.connectedPins.map((pin) => ({ ...pin })),
+        })),
+        isDirty: true,
+      })
     },
     undo: () => {
       const prev = undoStack.pop()

@@ -1,0 +1,4 @@
+# SPA fallback for Netlify and Cloudflare Pages.
+# Static files (including hashed /assets/*) are served first; only unknown
+# paths reach the app shell. Folio routes are client-side History-API paths.
+/* /index.html 200

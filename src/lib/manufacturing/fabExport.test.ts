@@ -212,6 +212,37 @@ describe('fab package — DRC gates the order (fail-loud)', () => {
     expect(flashes('folio-pcb-B_Mask.gbs')).toBe(8)
   })
 
+  it('flashes routed vias through both copper layers and drills them', () => {
+    const pkg = buildFabPackage([resistor('R1', 10)], [], {
+      vias: [{ x: 20, y: 20, drillDiameter: 0.3, padDiameter: 0.6, netName: 'A' }],
+    })
+    const flashes = (name: string): number =>
+      (pkg.files.get(name) ?? '').split('\n').filter((line) => line.includes('D03*')).length
+    expect(flashes('folio-pcb-F_Cu.gtl')).toBe(3) // 2 SMD pads + the via
+    expect(flashes('folio-pcb-B_Cu.gbl')).toBe(1) // SMD stays top-side
+    expect(flashes('folio-pcb-F_Mask.gts')).toBe(2) // via is tented
+    expect(flashes('folio-pcb-B_Mask.gbs')).toBe(0)
+    const drill = pkg.files.get('folio-pcb.drl') ?? ''
+    assertExcellon(drill)
+    expect(drill).toContain('T1C0.300')
+    expect(drill.split('\n').filter((line) => /^X[\d.]+Y[\d.]+$/.test(line))).toEqual(['X20.000Y20.000'])
+    expect(pkg.shippable).toBe(true)
+  })
+
+  it('rejects vias below the fab annular ring or drill minimum', () => {
+    const thinRing = buildFabPackage([resistor('R1', 10)], [], {
+      vias: [{ x: 20, y: 20, drillDiameter: 0.3, padDiameter: 0.5 }],
+    })
+    expect(thinRing.shippable).toBe(false)
+    expect(thinRing.violations.some((v) => v.rule === 'annular-ring')).toBe(true)
+
+    const micro = buildFabPackage([resistor('R1', 10)], [], {
+      vias: [{ x: 20, y: 20, drillDiameter: 0.2, padDiameter: 0.6 }],
+    })
+    expect(micro.shippable).toBe(false)
+    expect(micro.violations.some((v) => v.rule === 'drill')).toBe(true)
+  })
+
   it('refuses to invent pads for an unknown footprint', () => {
     const bad = resistor('R9', 10, { footprint: 'no-such-footprint' })
     bad.component.category = 'unobtainium'

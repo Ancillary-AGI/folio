@@ -9,6 +9,7 @@
     "build": "vite build",
     "lint": "eslint . --max-warnings 0",
     "a11y:buttons": "node scripts/check-button-labels.mjs",
+    "verify": "npm run typecheck && npm run typecheck:node && npm run lint && npm run a11y:buttons && npm test && npm run build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",

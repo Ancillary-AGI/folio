@@ -33,6 +33,7 @@ import {
   type ShiftRegister595Inputs,
   type ShiftRegister595Outputs,
 } from '../../lib/electronics/memoryBehavior'
+import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign'
 
 const HDLEditor = lazy(() => import('./HDLEditor'))
 
@@ -63,17 +64,100 @@ interface ICDesignPanelProps {
   onClose?: () => void
 }
 
+type ICTab = 'entry' | 'synthesis' | 'floorplan' | 'packaging' | 'export' | 'devices'
+
+interface ICDesign {
+  activeTab?: ICTab
+  hdlCode?: string
+  hdlLanguage?: 'verilog' | 'vhdl'
+  devicePartId?: string
+  shiftInputs?: ShiftRegister595Inputs
+  parallelBits?: number[]
+  parallelControls?: { plBar: boolean; ceBar: boolean; cp: boolean; ser: boolean }
+  decoderInputs?: { a: boolean; b: boolean; c: boolean; g1: boolean; g2aBar: boolean; g2bBar: boolean }
+  memoryAddress?: number
+  memoryValue?: number
+}
+
+const IC_TABS: ICTab[] = ['entry', 'synthesis', 'floorplan', 'packaging', 'export', 'devices']
+
+const icBool = (value: unknown, fallback: boolean): boolean =>
+  typeof value === 'boolean' ? value : fallback
+
+const icInt = (value: unknown, fallback: number, min: number, max: number): number =>
+  typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(max, Math.max(min, Math.round(value)))
+    : fallback
+
+const sanitizeShift = (
+  value: unknown,
+  fallback: ShiftRegister595Inputs,
+): ShiftRegister595Inputs => {
+  if (!value || typeof value !== 'object') return fallback
+  const raw = value as Record<string, unknown>
+  return {
+    ser: icBool(raw.ser, fallback.ser),
+    srclk: icBool(raw.srclk, fallback.srclk),
+    rclk: icBool(raw.rclk, fallback.rclk),
+    oeBar: icBool(raw.oeBar, fallback.oeBar),
+    srclrBar: icBool(raw.srclrBar, fallback.srclrBar),
+  }
+}
+
+const sanitizeParallelControls = (
+  value: unknown,
+  fallback: { plBar: boolean; ceBar: boolean; cp: boolean; ser: boolean },
+) => {
+  if (!value || typeof value !== 'object') return fallback
+  const raw = value as Record<string, unknown>
+  return {
+    plBar: icBool(raw.plBar, fallback.plBar),
+    ceBar: icBool(raw.ceBar, fallback.ceBar),
+    cp: icBool(raw.cp, fallback.cp),
+    ser: icBool(raw.ser, fallback.ser),
+  }
+}
+
+const sanitizeDecoder = (
+  value: unknown,
+  fallback: { a: boolean; b: boolean; c: boolean; g1: boolean; g2aBar: boolean; g2bBar: boolean },
+) => {
+  if (!value || typeof value !== 'object') return fallback
+  const raw = value as Record<string, unknown>
+  return {
+    a: icBool(raw.a, fallback.a),
+    b: icBool(raw.b, fallback.b),
+    c: icBool(raw.c, fallback.c),
+    g1: icBool(raw.g1, fallback.g1),
+    g2aBar: icBool(raw.g2aBar, fallback.g2aBar),
+    g2bBar: icBool(raw.g2bBar, fallback.g2bBar),
+  }
+}
+
+const DEFAULT_SHIFT: ShiftRegister595Inputs = {
+  ser: false, srclk: false, rclk: false, oeBar: false, srclrBar: true,
+}
+const DEFAULT_PARALLEL_CONTROLS = { plBar: true, ceBar: false, cp: false, ser: false }
+const DEFAULT_DECODER = { a: false, b: false, c: false, g1: true, g2aBar: false, g2bBar: false }
+
 export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
-  const [activeTab, setActiveTab] = useState<'entry' | 'synthesis' | 'floorplan' | 'packaging' | 'export' | 'devices'>('entry')
+  const saved = loadDomainDesign<ICDesign>('ic')
+  const [activeTab, setActiveTab] = useState<ICTab>(
+    saved?.activeTab && IC_TABS.includes(saved.activeTab) ? saved.activeTab : 'entry',
+  )
   const flowTabsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const active = flowTabsRef.current?.querySelector<HTMLElement>('[aria-current="page"]')
     active?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
   }, [activeTab])
-  useDemoRequest('ic-device-lab', () => setActiveTab('devices'))
-  const [hdlCode, setHdlCode] = useState(DEFAULT_VERILOG)
-  const [hdlLanguage, setHdlLanguage] = useState<'verilog' | 'vhdl'>('verilog')
+  useDemoRequest('ic-device-lab', runDeviceLabDemo)
+  const [hdlCode, setHdlCode] = useState(
+    typeof saved?.hdlCode === 'string' ? saved.hdlCode : DEFAULT_VERILOG,
+  )
+  const [hdlLanguage, setHdlLanguage] = useState<'verilog' | 'vhdl'>(
+    saved?.hdlLanguage === 'vhdl' ? 'vhdl' : 'verilog',
+  )
   const [synthResult, setSynthResult] = useState<SynthesisResult | null>(null)
   const [floorplanResult, setFloorplanResult] = useState<FloorplanResult | null>(null)
   const [selectedPackage, setSelectedPackage] = useState<ChipPackage | null>(null)
@@ -82,29 +166,77 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
   const [log, setLog] = useState<string[]>([])
 
   // ── Device lab: behavioural logic and memory chips ─────────────────────────
-  const [devicePartId, setDevicePartId] = useState('hc595')
+  const [devicePartId, setDevicePartId] = useState(
+    saved?.devicePartId && STANDARD_MEMORY.some((part) => part.id === saved.devicePartId)
+      ? saved.devicePartId
+      : 'hc595',
+  )
   const deviceSpec = useMemo(
     () => STANDARD_MEMORY.find((part) => part.id === devicePartId) ?? STANDARD_MEMORY[0],
     [devicePartId],
   )
-  const [shiftInputs, setShiftInputs] = useState<ShiftRegister595Inputs>({
-    ser: false, srclk: false, rclk: false, oeBar: false, srclrBar: true,
-  })
+  const [shiftInputs, setShiftInputs] = useState<ShiftRegister595Inputs>(
+    sanitizeShift(saved?.shiftInputs, DEFAULT_SHIFT),
+  )
   const [shiftOutput, setShiftOutput] = useState<ShiftRegister595Outputs | null>(null)
-  const [parallelBits, setParallelBits] = useState<number[]>([1, 0, 1, 0, 0, 1, 1, 0])
-  const [parallelControls, setParallelControls] = useState({ plBar: true, ceBar: false, cp: false, ser: false })
+  const [parallelBits, setParallelBits] = useState<number[]>(
+    Array.isArray(saved?.parallelBits)
+      && saved.parallelBits.length === 8
+      && saved.parallelBits.every((bit) => bit === 0 || bit === 1)
+      ? [...saved.parallelBits]
+      : [1, 0, 1, 0, 0, 1, 1, 0],
+  )
+  const [parallelControls, setParallelControls] = useState(
+    sanitizeParallelControls(saved?.parallelControls, DEFAULT_PARALLEL_CONTROLS),
+  )
   const [parallelOutput, setParallelOutput] = useState<ShiftRegister165Outputs | null>(null)
-  const [decoderInputs, setDecoderInputs] = useState({
-    a: false, b: false, c: false, g1: true, g2aBar: false, g2bBar: false,
-  })
+  const [decoderInputs, setDecoderInputs] = useState(
+    sanitizeDecoder(saved?.decoderInputs, DEFAULT_DECODER),
+  )
   const shiftRef = useRef(new ShiftRegister595())
   const parallelRef = useRef(new ShiftRegister165())
   const memoryRef = useRef<MemoryDevice | null>(null)
-  const [memoryAddress, setMemoryAddress] = useState(0)
-  const [memoryValue, setMemoryValue] = useState(0x5a)
+  const [memoryAddress, setMemoryAddress] = useState(icInt(saved?.memoryAddress, 0, 0, 0xffff))
+  const [memoryValue, setMemoryValue] = useState(icInt(saved?.memoryValue, 0x5a, 0, 0xff))
   const [memoryMessage, setMemoryMessage] = useState<string | null>(null)
+  const [deviceLabReport, setDeviceLabReport] = useState<string[]>([])
   const [, setMemoryRevision] = useState(0)
-  useEffect(() => {
+
+  usePublishDomainDesign('ic', {
+    activeTab, hdlCode, hdlLanguage, devicePartId, shiftInputs, parallelBits,
+    parallelControls, decoderInputs, memoryAddress, memoryValue,
+  }, (next) => {
+    if (next.activeTab && IC_TABS.includes(next.activeTab)) setActiveTab(next.activeTab)
+    if (typeof next.hdlCode === 'string') setHdlCode(next.hdlCode)
+    if (next.hdlLanguage === 'verilog' || next.hdlLanguage === 'vhdl') setHdlLanguage(next.hdlLanguage)
+    if (next.devicePartId && STANDARD_MEMORY.some((part) => part.id === next.devicePartId)) {
+      setDevicePartId(next.devicePartId)
+    }
+    setShiftInputs(sanitizeShift(next.shiftInputs, DEFAULT_SHIFT))
+    if (Array.isArray(next.parallelBits) && next.parallelBits.length === 8) {
+      setParallelBits(next.parallelBits.map((bit) => (bit === 1 ? 1 : 0)))
+    }
+    setParallelControls(sanitizeParallelControls(next.parallelControls, DEFAULT_PARALLEL_CONTROLS))
+    setDecoderInputs(sanitizeDecoder(next.decoderInputs, DEFAULT_DECODER))
+    setMemoryAddress(icInt(next.memoryAddress, 0, 0, 0xffff))
+    setMemoryValue(icInt(next.memoryValue, 0x5a, 0, 0xff))
+    // Behavioural models are runtime state; start them clean for the restored inputs.
+    shiftRef.current = new ShiftRegister595()
+    parallelRef.current = new ShiftRegister165()
+    setShiftOutput(null)
+    setParallelOutput(null)
+    setMemoryMessage(null)
+  })
+
+  /*
+   * Part changes reset the behavioural models explicitly. This used to be an
+   * effect on `deviceSpec`, but the demo stages a whole sequence (shift, load,
+   * decode, then flash) in one handler; an effect would wipe each step as the
+   * next part rendered. The user path and the demo now share this function.
+   */
+  const loadDevicePart = (partId: string) => {
+    const spec = STANDARD_MEMORY.find((part) => part.id === partId) ?? STANDARD_MEMORY[0]
+    setDevicePartId(partId)
     shiftRef.current = new ShiftRegister595()
     parallelRef.current = new ShiftRegister165()
     setShiftOutput(null)
@@ -112,11 +244,92 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
     setMemoryAddress(0)
     setMemoryMessage(null)
     try {
-      memoryRef.current = memoryDeviceFromSpec(deviceSpec)
+      memoryRef.current = memoryDeviceFromSpec(spec)
     } catch {
       memoryRef.current = null
     }
-  }, [deviceSpec])
+  }
+
+  /**
+   * Gallery demo: run one real operation on each behavioural model, then leave
+   * the flash device selected so the page-inspect/erase/program semantics are
+   * visible. The report is the evidence for the parts whose UI is no longer on
+   * screen; every line is produced by the model, never hard-coded.
+   */
+  function runDeviceLabDemo() {
+    setActiveTab('devices')
+    const report: string[] = []
+
+    // 74HC595: shift 0xA6 LSB-first, latch it into the output register.
+    shiftRef.current = new ShiftRegister595()
+    let shiftIn: ShiftRegister595Inputs = {
+      ser: false, srclk: false, rclk: false, oeBar: false, srclrBar: true,
+    }
+    let shiftOut = shiftRef.current.step(shiftIn)
+    for (let bit = 0; bit < 8; bit += 1) {
+      const level = (0xa6 >> bit) & 1
+      shiftIn = { ...shiftIn, ser: level === 1, srclk: true }
+      shiftRef.current.step(shiftIn)
+      shiftIn = { ...shiftIn, srclk: false }
+      shiftOut = shiftRef.current.step(shiftIn)
+    }
+    shiftIn = { ...shiftIn, rclk: true }
+    shiftRef.current.step(shiftIn)
+    shiftIn = { ...shiftIn, rclk: false }
+    shiftOut = shiftRef.current.step(shiftIn)
+    setShiftInputs(shiftIn)
+    setShiftOutput(shiftOut)
+    report.push(
+      `74HC595: shifted 0xA6 LSB-first, latched 0x${shiftOut.latchRegister.toString(16).padStart(2, '0')}, ` +
+      `QH′ ${shiftOut.serialOut}, outputs ${shiftOut.outputsEnabled ? 'enabled' : 'high-Z'}.`,
+    )
+
+    // 74HC165: parallel-load the D0..D7 switches, then clock one bit out.
+    parallelRef.current = new ShiftRegister165()
+    const loaded = parallelRef.current.step({ ...parallelControls, plBar: false, parallel: parallelBits })
+    const shifted = parallelRef.current.step({
+      ...parallelControls, plBar: true, ceBar: false, cp: true, parallel: parallelBits,
+    })
+    setParallelOutput(shifted)
+    report.push(
+      `74HC165: parallel-loaded 0x${loaded.register.toString(16).padStart(2, '0')} from D0..D7, ` +
+      `one clock → 0x${shifted.register.toString(16).padStart(2, '0')} (QH ${shifted.qh}).`,
+    )
+
+    // 74HC138: decode CBA=101 while enabled; Y5 must be the only low output.
+    const decodeInputs = { a: true, b: false, c: true, g1: true, g2aBar: false, g2bBar: false }
+    setDecoderInputs(decodeInputs)
+    const decoded = decode138(decodeInputs)
+    report.push(
+      `74HC138: CBA=101 with G1 high selects Y${decoded.selected} (active low); ` +
+      `${decoded.outputs.filter((level) => level === 0).length} output low.`,
+    )
+
+    // NOR flash: erase, program 0x5A, then try to set bits without erasing.
+    loadDevicePart('flash-w25q128')
+    const flash = memoryRef.current
+    if (flash) {
+      const erased = flash.eraseSector(0)
+      flash.writeByte(0, 0x5a)
+      const stored = flash.writeByte(0, 0xf0)
+      setMemoryAddress(0)
+      setMemoryValue(0xf0)
+      setMemoryMessage(
+        `Erased sector 0 (${erased.bytesErased} bytes, ${erased.timeMs} ms), wrote 0x5a, then 0xf0 → ` +
+        `0x${stored.stored.toString(16).padStart(2, '0')} because NOR flash can only clear bits; ` +
+        `read back 0x${flash.readByte(0).toString(16).padStart(2, '0')}.`,
+      )
+      report.push(
+        `W25Q128JV: sector erase ${erased.bytesErased} bytes in ${erased.timeMs} ms; ` +
+        `0x5a then 0xf0 stored 0x${stored.stored.toString(16).padStart(2, '0')} (AND semantics, ${stored.timeMs} ms).`,
+      )
+      setMemoryRevision((revision) => revision + 1)
+    } else {
+      report.push('W25Q128JV: no byte-addressed model available.')
+    }
+
+    setDeviceLabReport(report)
+  }
 
   const stepShift595 = () => {
     setShiftOutput(shiftRef.current.step(shiftInputs))
@@ -209,19 +422,43 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
       appendLog(`Synthesis complete: ${result.cells.length} cells, ${result.totalArea.toFixed(2)} µm², critical path ${result.criticalPathPs.toFixed(0)} ps`)
       setStep('synthesis', { done: true, running: false, error: undefined })
       setActiveTab('floorplan')
+      return result
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       appendLog(`Synthesis failed: ${msg}`)
       setStep('synthesis', { running: false, error: msg })
+      return null
     }
   }, [hdlCode, hdlLanguage])
 
-  // The full-flow demo opens on the preloaded full adder and runs synthesis so
-  // the next tab already holds a real result instead of an empty flow.
+  // The full-flow demo runs every stage on the preloaded full adder, stopping
+  // on the GDSII summary rather than leaving an empty floorplan tab.
   useDemoRequest('ic-full-flow', () => {
     setHdlCode(DEFAULT_VERILOG)
     setHdlLanguage('verilog')
-    void handleSynthesize(DEFAULT_VERILOG, 'verilog')
+    setLog([])
+    setStatus({})
+    setSynthResult(null)
+    setFloorplanResult(null)
+    setSelectedPackage(null)
+    setGdsContent(null)
+    void (async () => {
+      const synthesized = await handleSynthesize(DEFAULT_VERILOG, 'verilog')
+      if (!synthesized) return
+      const plan = planFloorplan(synthesized)
+      setFloorplanResult(plan)
+      appendLog(`Floorplan: die ${plan.dieWidthUm.toFixed(1)}×${plan.dieHeightUm.toFixed(1)} µm, utilization ${plan.utilizationPercent.toFixed(1)}%`)
+      setStep('floorplan', { done: true, running: false, error: undefined })
+      const pkg = PACKAGE_TYPES.find((candidate) => candidate.id === 'qfn-32') ?? PACKAGE_TYPES[0]
+      setSelectedPackage(pkg)
+      appendLog(`Package selected: ${pkg.name}`)
+      setStep('packaging', { done: true, running: false, error: undefined })
+      const gds = exportGDSII(synthesized, plan)
+      setGdsContent(gds)
+      appendLog(`GDSII generated: ${gds.binary.byteLength} bytes`)
+      setStep('export', { done: true, running: false, error: undefined })
+      setActiveTab('export')
+    })()
   })
 
   const handleFloorplan = useCallback(async () => {
@@ -492,7 +729,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                 <select
                   id="device-part"
                   value={devicePartId}
-                  onChange={(event) => setDevicePartId(event.target.value)}
+                  onChange={(event) => loadDevicePart(event.target.value)}
                   className="w-full rounded border border-border bg-card px-2 py-1.5 text-sm text-foreground"
                 >
                   {STANDARD_MEMORY.map((part) => (
@@ -501,6 +738,21 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                 </select>
                 <p className="text-xs text-muted-foreground mt-1">{deviceSpec.description}</p>
               </div>
+
+              {deviceLabReport.length > 0 && (
+                <div
+                  role="status"
+                  aria-label="Device lab demo report"
+                  className="space-y-1 rounded border border-chart-4/40 bg-chart-4/10 p-3 text-xs"
+                >
+                  <p className="font-medium text-chart-4">
+                    Device lab demo — every line below comes from the behavioural models:
+                  </p>
+                  {deviceLabReport.map((line) => (
+                    <p key={line} className="font-mono leading-relaxed text-foreground/90">{line}</p>
+                  ))}
+                </div>
+              )}
 
               {deviceSpec.partNumber === '74HC595' && (
                 <div className="bg-card rounded p-3 space-y-3">

@@ -117,7 +117,43 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
     setSchematicNotice(null);
   };
 
-  useDemoRequest('embedded-rectifier', () => handleTemplateChange('demo_rectifier'));
+  /** Build one source string; shared by the button and the gallery demo. */
+  const compileSource = async (source: string) => {
+    setIsCompiling(true);
+    setCompilationResult(null);
+    setShowOutput(true);
+
+    try {
+      const result = await boardProgrammer.compileSketch(source);
+      setCompilationResult(result);
+    } catch (error) {
+      setCompilationResult({
+        success: false,
+        output: 'Compilation failed',
+        errors: [error instanceof Error ? error.message : 'Unknown error'],
+        warnings: [],
+        binarySize: 0,
+        memoryUsage: {
+          flash: { used: 0, total: 0, percentage: 0 },
+          ram: { used: 0, total: 0, percentage: 0 }
+        },
+        compilationTime: 0
+      });
+    } finally {
+      setIsCompiling(false);
+    }
+  };
+
+  useDemoRequest('embedded-rectifier', () => {
+    setSelectedTemplate('demo_rectifier');
+    // Load the proven sketch and analyse it in one shot: the demo card promises
+    // a build result, not an editor with a file open.
+    void import('../../lib/demo/demoFirmware').then((m) => {
+      handleCodeChange(m.DEMO_SKETCH);
+      setToolchainError(null);
+      void compileSource(m.DEMO_SKETCH);
+    });
+  });
 
   /** Generate a sketch from the schematic netlist into the editor. */
   const handleGenerateFromSchematic = async () => {
@@ -176,31 +212,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
     );
   };
 
-  const handleCompile = async () => {
-    setIsCompiling(true);
-    setCompilationResult(null);
-    setShowOutput(true);
-
-    try {
-      const result = await boardProgrammer.compileSketch(code);
-      setCompilationResult(result);
-    } catch (error) {
-      setCompilationResult({
-        success: false,
-        output: 'Compilation failed',
-        errors: [error instanceof Error ? error.message : 'Unknown error'],
-        warnings: [],
-        binarySize: 0,
-        memoryUsage: {
-          flash: { used: 0, total: 0, percentage: 0 },
-          ram: { used: 0, total: 0, percentage: 0 }
-        },
-        compilationTime: 0
-      });
-    } finally {
-      setIsCompiling(false);
-    }
-  };
+  const handleCompile = () => { void compileSource(code); };
 
   const [serialStatus, setSerialStatus] = useState<string>('No serial port connected.')
 
@@ -232,15 +244,16 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
 
   const handleUpload = async () => {
     if (!selectedPort) {
-      alert('Please select a port');
+      setToolchainError('Select a serial port before uploading.');
       return;
     }
 
     if (!compilationResult?.success) {
-      alert('Please compile the sketch first');
+      setToolchainError('Compile the sketch successfully before uploading.');
       return;
     }
 
+    setToolchainError(null);
     setIsUploading(true);
     setUploadResult(null);
 
@@ -263,6 +276,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
     setIsCompiling(true);
     setCompilationResult(null);
     setShowOutput(true);
+    setToolchainError(null);
     try {
       const result = await boardProgrammer.compileSketch(code);
       setCompilationResult(result);
@@ -298,11 +312,14 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
     try {
       const success = await ArduinoIDEIntegration.openInArduinoIDE(code);
       if (!success) {
-        alert('Failed to open Arduino IDE. Make sure it is installed.');
+        setToolchainError('Could not open the Arduino IDE. Install it, or use the downloadable .ino sketch.');
+      } else {
+        setToolchainError(null);
       }
     } catch (error) {
-      console.error('Failed to open Arduino IDE:', error);
-      alert('Failed to open Arduino IDE');
+      setToolchainError(
+        `Could not open the Arduino IDE: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
     }
   };
 

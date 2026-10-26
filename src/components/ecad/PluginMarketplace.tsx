@@ -21,7 +21,8 @@ import { Input } from '../ui/input'
 import { Badge } from '../ui/badge'
 import { designMarketplace, type MarketplaceListing } from '../../lib/marketplace/designMarketplace'
 import { marketplaceService } from '../../lib/marketplace/marketplaceService'
-import type { PluginManifest } from '../../types/plugins'
+import { PLUGIN_EVENTS, PLUGIN_PERMISSIONS, type PluginManifest } from '../../types/plugins'
+import { useDemoRequest } from '../workspace/useDemoRequest'
 
 // ─── Built-in plugin descriptors ─────────────────────────────────────────────
 
@@ -225,6 +226,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
   const [installError, setInstallError] = useState('')
   const [draft, setDraft] = useState({ name: '', category: 'tool', description: '', entry: 'dist/index.js' })
   const [publishStatus, setPublishStatus] = useState('')
+  const [demoStatus, setDemoStatus] = useState<{ pluginId: string; message: string } | null>(null)
 
   useEffect(() => {
     setCommunityItems(designMarketplace.search(searchQuery))
@@ -245,6 +247,33 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
   const syncInstalled = () => {
     setInstalledIds(new Set(marketplaceService.listInstalled().map((entry) => entry.id)))
   }
+
+  /*
+   * Gallery demo: open a real package, show its manifest and declared
+   * permissions, then install it through the same permission-gated service the
+   * Install button uses. Installing here is a local registry operation, not a
+   * download; native engines still need the companion daemon.
+   */
+  const runPermissionsDemo = () => {
+    setTab('browse')
+    setSearchQuery('')
+    setInstallError('')
+    const plugin = BUILTIN_PLUGINS.find((entry) => entry.id === 'kicad-import') ?? BUILTIN_PLUGINS[0]
+    setSelectedPlugin(plugin)
+    try {
+      const result = marketplaceService.installPackage(plugin.id)
+      syncInstalled()
+      setDemoStatus({
+        pluginId: plugin.id,
+        message: `Installed ${plugin.name}: manifest validated, ${result.activatedToolsCount} tool(s) activated under its declared permissions.`,
+      })
+    } catch (error) {
+      setDemoStatus(null)
+      setInstallError(error instanceof Error ? error.message : `Could not install ${plugin.name}.`)
+    }
+  }
+
+  useDemoRequest('plugins-permissions', runPermissionsDemo)
 
   const handleInstall = (plugin: BuiltinPluginDescriptor) => {
     try {
@@ -541,32 +570,85 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
       </div>
 
       {/* Detail panel for selected plugin */}
-      {selectedPlugin && tab === 'browse' && (
-        <div className="border-t border-border bg-surface p-4 shrink-0">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <p className="font-semibold text-sm">{selectedPlugin.name}</p>
-              <p className="text-xs text-muted-foreground mt-1">{selectedPlugin.description}</p>
-              <div className="flex flex-wrap gap-1 mt-2">
-                {selectedPlugin.tags.map(tag => (
-                  <span key={tag} className="text-xs bg-muted text-muted-foreground px-1 py-0.5 rounded">{tag}</span>
-                ))}
+      {selectedPlugin && tab === 'browse' && (() => {
+        const manifest = marketplaceService.getPackage(selectedPlugin.id)?.manifest
+        const permissionEntries = manifest?.permissions ?? []
+        return (
+          <div className="max-h-[45%] shrink-0 overflow-y-auto border-t border-border bg-surface p-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="font-semibold text-sm">{selectedPlugin.name}</p>
+                <p className="text-xs text-muted-foreground mt-1">{selectedPlugin.description}</p>
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {selectedPlugin.tags.map(tag => (
+                    <span key={tag} className="text-xs bg-muted text-muted-foreground px-1 py-0.5 rounded">{tag}</span>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Tools: {selectedPlugin.tools.map((tool) => tool.name).join(', ')}
+                </p>
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                Tools: {selectedPlugin.tools.map((tool) => tool.name).join(', ')}
-              </p>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedPlugin(null)} aria-label="Close plugin details" className="shrink-0 text-muted-foreground">✕</Button>
             </div>
-            <Button size="sm" variant="ghost" onClick={() => setSelectedPlugin(null)} aria-label="Close plugin details" className="shrink-0 text-muted-foreground">✕</Button>
+
+            {manifest && (
+              <div className="mt-3 grid gap-3 border-t border-border pt-3 text-xs md:grid-cols-2">
+                <div>
+                  <p className="mb-1 text-muted-foreground">Manifest</p>
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 font-mono">
+                    <dt className="text-muted-foreground">id</dt><dd className="text-foreground">{manifest.id}</dd>
+                    <dt className="text-muted-foreground">version</dt><dd className="text-foreground">{manifest.version}</dd>
+                    <dt className="text-muted-foreground">api</dt><dd className="text-foreground">{manifest.apiVersion ?? '—'}</dd>
+                    <dt className="text-muted-foreground">entry</dt><dd className="text-foreground">{manifest.entry}</dd>
+                    <dt className="text-muted-foreground">publisher</dt>
+                    <dd className="text-foreground">
+                      {marketplaceService.getPackage(selectedPlugin.id)?.isVerifiedPublisher ? 'verified' : 'unverified'}
+                    </dd>
+                  </dl>
+                </div>
+                <div>
+                  <p className="mb-1 text-muted-foreground">Declared permissions ({permissionEntries.length})</p>
+                  {permissionEntries.length === 0 ? (
+                    <p className="text-warning">No permissions declared — every capability is denied.</p>
+                  ) : (
+                    <ul className="space-y-0.5">
+                      {permissionEntries.map((permission) => (
+                        <li key={permission} className="font-mono text-foreground">
+                          {permission}
+                          <span className="ml-1 font-sans text-muted-foreground">
+                            — {PLUGIN_PERMISSIONS[permission as keyof typeof PLUGIN_PERMISSIONS] ?? 'unknown'}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="mt-2 text-muted-foreground">
+                    Lifecycle: <span className="font-mono">{PLUGIN_EVENTS.INITIALIZED}</span> →{' '}
+                    <span className="font-mono">{PLUGIN_EVENTS.ENABLED}</span> →{' '}
+                    <span className="font-mono">{PLUGIN_EVENTS.CLEANUP}</span>
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {demoStatus?.pluginId === selectedPlugin.id && (
+              <p role="status" aria-label="Plugin demo status" className="mt-3 rounded border border-success/40 bg-success/10 px-2 py-1 text-xs text-success">
+                {demoStatus.message}
+              </p>
+            )}
+
+            {!installedIds.has(selectedPlugin.id) ? (
+              <Button size="sm" className="mt-3 bg-primary hover:bg-primary/90 w-full text-sm"
+                onClick={() => handleInstall(selectedPlugin)}>
+                <Download size={14} className="mr-1" />
+                Install — {selectedPlugin.size}
+              </Button>
+            ) : (
+              <p className="mt-3 text-xs text-success">Installed locally — tools are available while the manifest stays valid.</p>
+            )}
           </div>
-          {!installedIds.has(selectedPlugin.id) && (
-            <Button size="sm" className="mt-3 bg-primary hover:bg-primary/90 w-full text-sm"
-              onClick={() => handleInstall(selectedPlugin)}>
-              <Download size={14} className="mr-1" />
-              Install — {selectedPlugin.size}
-            </Button>
-          )}
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

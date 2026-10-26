@@ -46,7 +46,10 @@ export function orderedTerminalPins(
 const normalizeNetName = (name: string): string => {
   const trimmed = name.trim()
   if (/^(?:0|gnd|ground)$/i.test(trimmed)) return '0'
-  return trimmed.replace(/[^a-zA-Z0-9_]/g, '_')
+  // SPICE is case-insensitive and the solver upper-cases every node before it
+  // exposes operating points and waveforms. Emit the same spelling here, or a
+  // snapshot net named `out` cannot be matched to the solver's `OUT`.
+  return trimmed.replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase()
 }
 
 export function buildCircuitNetlist(
@@ -139,14 +142,14 @@ export function buildCircuitNetlist(
 
   const nodeForPin = (componentId: string, pinId: string): string => {
     const wireId = firstWireByPin.get(pinKey(componentId, pinId))
-    if (!wireId) return `NC_${componentId}_${pinId}`.replace(/[^a-zA-Z0-9_]/g, '_')
+    if (!wireId) return `NC_${componentId}_${pinId}`.replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase()
     const root = find(wireId)
     const named = namesByRoot.get(root)?.values().next().value
     if (named) return named
     // Anonymous wires keep the historical `N_<root>` name — never a wire-id
     // derived name, because two different canvas sessions could otherwise map
     // unrelated nets onto colliding node names.
-    return `N_${root}`.replace(/[^a-zA-Z0-9_]/g, '_')
+    return `N_${root}`.replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase()
   }
 
   return {

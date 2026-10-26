@@ -10,7 +10,6 @@ import ComponentLibrary from '../ComponentLibrary'
 import PropertiesPanel from '../PropertiesPanel'
 import ToolRail from './ToolRail'
 import { useAppStore, type WorkspaceMode } from '../../stores/useAppStore'
-import { modeFromHash, projectFromHash, writeHash } from '../../stores/routing'
 import { useProjectStore } from '../../stores/useProjectStore'
 import {
   WORKSPACE_GROUPS,
@@ -59,6 +58,8 @@ interface DomainWorkspaceProps {
   libraryComponents: Component[]
   onSave: (data: Record<string, unknown>) => void
   onOpenDemos: () => void
+  beforeSimulationRun?: () => string | null
+  onSimulationRun?: () => void
 }
 
 const MODE_ICONS: Readonly<Record<WorkspaceMode, LucideIcon>> = {
@@ -96,7 +97,7 @@ const GROUP_ICONS: Readonly<Record<WorkspaceGroupId, LucideIcon>> = {
   ops: ShieldCheck,
 }
 
-export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos }: DomainWorkspaceProps) {
+export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos, beforeSimulationRun, onSimulationRun }: DomainWorkspaceProps) {
   const {
     workspaceMode,
     setWorkspaceMode,
@@ -224,33 +225,6 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
     })
   }, [onSave])
 
-  /* Read the mode from the URL on load; follow back/forward afterwards.
-   * Re-setting the mode we are already on would clear a pending demo request,
-   * so hash sync only dispatches on a genuine change. */
-  useEffect(() => {
-    const syncModeFromHash = () => {
-      const next = modeFromHash()
-      if (!next || next === useAppStore.getState().workspaceMode) return
-      useAppStore.getState().setWorkspaceMode(next)
-    }
-    syncModeFromHash()
-    window.addEventListener('hashchange', syncModeFromHash)
-    return () => window.removeEventListener('hashchange', syncModeFromHash)
-  }, [])
-
-  /* Keep the URL in step with the active tab (+ project id when present).
-   * The first commit is skipped: on a deep-linked load it still carries the
-   * persisted mode and would overwrite the hash before the sync above has
-   * applied, snapping a reloaded `#/pcb` back to the default workspace. */
-  const hashWriteReady = useRef(false)
-  useEffect(() => {
-    if (!hashWriteReady.current) {
-      hashWriteReady.current = true
-      return
-    }
-    writeHash(workspaceMode, currentProject?.id ?? projectFromHash())
-  }, [workspaceMode, currentProject?.id])
-
   /*
    * CAD shortcuts. Registered only while the sheet is the active workspace and
    * never while the user is typing in a field.
@@ -350,7 +324,7 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       {/* Workspace families + the modes inside the selected family */}
-      <nav className="app-chrome flex w-full min-w-0 flex-shrink-0 flex-col overflow-hidden border-b border-border" aria-label="Workspace">
+      <nav className="app-chrome flex w-full min-w-0 flex-shrink-0 flex-col overflow-hidden border-b border-border" aria-label="Workspace" data-tour="workspace-nav">
         <div className="flex min-w-0 items-stretch gap-1 px-2 pt-1">
           <div className="scrollbar-none flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto" role="group" aria-label="Workspace families">
             {WORKSPACE_GROUPS.map((group) => {
@@ -448,7 +422,7 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
         )}
 
         {isSchematic && sidebarOpen && (
-          <aside className="cad-dock" aria-label="Component library">
+          <aside className="cad-dock" aria-label="Component library" data-tour="component-library">
             <ComponentLibrary
               components={libraryComponents}
               selectedComponent={pendingComponent}
@@ -460,7 +434,7 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
           </aside>
         )}
 
-        <div className="relative min-h-0 min-w-0 flex-1">
+        <div className="relative min-h-0 min-w-0 flex-1" data-tour="workspace-canvas">
           <Suspense
             fallback={
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground" role="status">
@@ -483,7 +457,11 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
           {workspaceMode === 'rf' && <RFDesignPanel onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'simulation' && (
             <div className="h-full overflow-auto p-4">
-              <SimulationPanel onClose={() => setWorkspaceMode('schematic')} />
+              <SimulationPanel
+                onClose={() => setWorkspaceMode('schematic')}
+                beforeRun={beforeSimulationRun}
+                onRunComplete={onSimulationRun}
+              />
             </div>
           )}
           {workspaceMode === 'convert' && (

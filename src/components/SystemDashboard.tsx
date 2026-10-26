@@ -31,6 +31,7 @@ import {
   queryAccelerationCapabilities,
   type AccelerationCapabilities,
 } from '../lib/acceleration/acceleratedSimulation'
+import { useDemoRequest } from './workspace/useDemoRequest'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -185,6 +186,9 @@ export const SystemDashboard: React.FC = () => {
       setProbingCompute(false)
     }
   }, [])
+
+  // The gallery card promises a probe, not a button labelled Detect.
+  useDemoRequest('dashboard-acceleration', () => { void probeCompute() })
 
   // Live SIEM metrics from store (no poll needed for these)
   const recentSIEMEvents = siemService.getEvents({ limit: 10 })

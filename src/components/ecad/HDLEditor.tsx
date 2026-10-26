@@ -17,6 +17,8 @@ import { parseVhdl } from '../../lib/fpga/vhdlSubset'
 import { simulateDigital, valueAt, type DigitalNetlist, type LogicValue } from '../../lib/simulation/digitalLogic'
 import { synthesize } from '../../lib/ic/icFlowAdapter'
 import { fpgaDesignFlow, FPGA_DEVICES } from '../../lib/fpga/fpgaDesignFlow'
+import { useDemoRequest } from '../workspace/useDemoRequest'
+import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign'
 
 const VERILOG_TEMPLATE = `// Verilog structural module
 module half_adder (
@@ -93,16 +95,58 @@ function elaborate(code: string, language: 'verilog' | 'vhdl'): ElaboratedDesign
 
 const formatValue = (value: LogicValue): string => (value === 'X' || value === 'Z' ? String(value) : String(value))
 
+/**
+ * Deterministic testbench for combinational demos: drive each input port as a
+ * binary count, least-significant input toggling fastest. Without this an
+ * interactive simulation of a structural module has no drivers, so every node
+ * correctly stays X and the waveform proves nothing. Inputs already driven by
+ * the netlist are left alone.
+ */
+function autoInputStimuli(
+  ports: ReadonlyArray<{ name: string; direction: 'input' | 'output' }>,
+  stopTime: number,
+): Array<{ node: string; time: number; value: 0 | 1 }> {
+  const inputs = ports.filter((port) => port.direction === 'input')
+  const stimuli: Array<{ node: string; time: number; value: 0 | 1 }> = []
+  for (const [index, port] of inputs.entries()) {
+    const halfPeriod = 2 ** (index + 1)
+    for (let time = 0; time <= stopTime; time += halfPeriod) {
+      stimuli.push({ node: port.name, time, value: (time / halfPeriod) % 2 === 0 ? 0 : 1 })
+    }
+  }
+  return stimuli
+}
+
 export default function HDLEditor({ initialCode, language: initialLanguage = 'verilog', onCodeChange, onClose }: HDLEditorProps) {
-  const [language, setLanguage] = useState<'verilog' | 'vhdl'>(initialLanguage)
-  const [code, setCode] = useState(initialCode ?? (initialLanguage === 'vhdl' ? VHDL_TEMPLATE : VERILOG_TEMPLATE))
+  const saved = loadDomainDesign<{ language?: 'verilog' | 'vhdl'; code?: string; driveInputs?: boolean }>('hdl')
+  const savedLanguage = saved?.language === 'vhdl' || saved?.language === 'verilog' ? saved.language : initialLanguage
+  const resolvedLanguage = initialCode ? initialLanguage : savedLanguage
+  const [language, setLanguage] = useState<'verilog' | 'vhdl'>(resolvedLanguage)
+  const [code, setCode] = useState(
+    initialCode ?? (typeof saved?.code === 'string' ? saved.code : (resolvedLanguage === 'vhdl' ? VHDL_TEMPLATE : VERILOG_TEMPLATE)),
+  )
   const [output, setOutput] = useState('')
   const [signals, setSignals] = useState<SimSignal[]>([])
   const [parseOk, setParseOk] = useState<boolean | null>(null)
   const [activeTarget, setActiveTarget] = useState('simulate')
+  const [driveInputs, setDriveInputs] = useState(saved?.driveInputs !== false)
   const [loading, setLoading] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  usePublishDomainDesign('hdl', { language, code, driveInputs }, (next) => {
+    const nextLanguage = next.language === 'vhdl' ? 'vhdl' : next.language === 'verilog' ? 'verilog' : language
+    if (nextLanguage !== language) setLanguage(nextLanguage)
+    if (typeof next.code === 'string') {
+      setCode(next.code)
+      onCodeChange?.(next.code, nextLanguage)
+    }
+    if (typeof next.driveInputs === 'boolean') setDriveInputs(next.driveInputs)
+    setOutput('')
+    setParseOk(null)
+  })
+
+  useDemoRequest('hdl-half-adder', () => { void runCompile() })
 
   const updateCode = useCallback((next: string, nextLanguage: 'verilog' | 'vhdl' = language) => {
     setCode(next)
@@ -122,9 +166,26 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
       appendOutput(`  Ports: ${design.ports.map(p => `${p.direction} ${p.name}`).join(', ')}`)
 
       if (target === 'simulate') {
-        const result = simulateDigital(design.netlist, 20)
+        const stopTime = 20
+        const netlist = { ...design.netlist }
+        const existingStimuli = netlist.stimuli?.length ?? 0
+        const generated = driveInputs && existingStimuli === 0
+          ? autoInputStimuli(design.ports, stopTime)
+          : []
+        if (generated.length > 0) netlist.stimuli = generated
+        const result = simulateDigital(netlist, stopTime)
         if (!result.success) throw new Error(result.error ?? 'digital simulation failed')
-        appendOutput(`\n📊 Digital simulation (0–20 time units, ${result.eventCount} events):`)
+        appendOutput(`\n📊 Digital simulation (0–${stopTime} time units, ${result.eventCount} events):`)
+        if (generated.length > 0) {
+          appendOutput(
+            `  Auto testbench: ${design.ports
+              .filter((port) => port.direction === 'input')
+              .map((port) => port.name)
+              .join(', ')} driven as a binary count (LSB fastest).`,
+          )
+        } else if (driveInputs && existingStimuli > 0) {
+          appendOutput('  Inputs already driven by the netlist — auto testbench skipped.')
+        }
         for (const node of Object.keys(result.transitions)) {
           const bus = Array.from({ length: 21 }, (_, t) => formatValue(valueAt(result, node, t))).join('')
           appendOutput(`  ${node.padEnd(12)}: ${bus}`)
@@ -172,7 +233,7 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
     } finally {
       setLoading(false)
     }
-  }, [code, language, activeTarget])
+  }, [code, language, activeTarget, driveInputs])
 
   const handleExport = () => {
     const extension = language === 'verilog' ? 'v' : 'vhd'
@@ -239,6 +300,18 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
               <option key={device.id} value={`fpga:${device.id}`}>{device.part}</option>
             ))}
           </select>
+          <label
+            className="flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground"
+            title="Drive every input port as a binary count so combinational waveforms are measurable"
+          >
+            <input
+              type="checkbox"
+              checked={driveInputs}
+              onChange={event => setDriveInputs(event.target.checked)}
+              aria-label="Auto-drive input ports"
+            />
+            Drive inputs
+          </label>
         </div>
 
         <Button size="sm" onClick={() => { void runCompile() }} disabled={loading}

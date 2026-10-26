@@ -25,6 +25,7 @@ import {
 import { useTheme } from '../../lib/theme/useTheme'
 import { chartSeriesColors } from '../../lib/theme/tokens'
 import { describeError } from '../../lib/utils'
+import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign'
 
 interface RFDesignPanelProps {
   onClose: () => void
@@ -290,26 +291,80 @@ function PolarPattern({
   )
 }
 
+interface RFDesign {
+  tab?: PanelTab
+  antennaKind?: AntennaKind
+  frequencyMHz?: number
+  substrateHeightMM?: number
+  dielectricConstant?: number
+  yagiElements?: number
+  arrayElements?: number
+  arrayLayout?: 'linear' | 'circular'
+  filterKind?: FilterKind
+  cutoffMHz?: number
+  bandwidthMHz?: number
+  order?: number
+  impedance?: number
+}
+
+const rfNumber = (value: unknown, fallback: number): number =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback
+
 export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
   const { theme } = useTheme()
   const seriesColors = useMemo(() => chartSeriesColors(theme), [theme])
 
-  const [tab, setTab] = useState<PanelTab>('antenna')
+  const saved = loadDomainDesign<RFDesign>('rf')
+  const savedTab = saved?.tab === 'filter' ? 'filter' : 'antenna'
+  const [tab, setTab] = useState<PanelTab>(savedTab)
   useDemoRequest('rf-filter', () => setTab('filter'))
 
-  const [antennaKind, setAntennaKind] = useState<AntennaKind>('dipole')
-  const [frequencyMHz, setFrequencyMHz] = useState(2400)
-  const [substrateHeightMM, setSubstrateHeightMM] = useState(1.6)
-  const [dielectricConstant, setDielectricConstant] = useState(4.4)
-  const [yagiElements, setYagiElements] = useState(5)
-  const [arrayElements, setArrayElements] = useState(4)
-  const [arrayLayout, setArrayLayout] = useState<'linear' | 'circular'>('linear')
+  const [antennaKind, setAntennaKind] = useState<AntennaKind>(
+    saved?.antennaKind && ['dipole', 'monopole', 'patch', 'yagi', 'phased'].includes(saved.antennaKind)
+      ? saved.antennaKind
+      : 'dipole',
+  )
+  const [frequencyMHz, setFrequencyMHz] = useState(rfNumber(saved?.frequencyMHz, 2400))
+  const [substrateHeightMM, setSubstrateHeightMM] = useState(rfNumber(saved?.substrateHeightMM, 1.6))
+  const [dielectricConstant, setDielectricConstant] = useState(rfNumber(saved?.dielectricConstant, 4.4))
+  const [yagiElements, setYagiElements] = useState(rfNumber(saved?.yagiElements, 5))
+  const [arrayElements, setArrayElements] = useState(rfNumber(saved?.arrayElements, 4))
+  const [arrayLayout, setArrayLayout] = useState<'linear' | 'circular'>(
+    saved?.arrayLayout === 'circular' ? 'circular' : 'linear',
+  )
 
-  const [filterKind, setFilterKind] = useState<FilterKind>('lowpass')
-  const [cutoffMHz, setCutoffMHz] = useState(1000)
-  const [bandwidthMHz, setBandwidthMHz] = useState(100)
-  const [order, setOrder] = useState(5)
-  const [impedance, setImpedance] = useState(50)
+  const [filterKind, setFilterKind] = useState<FilterKind>(
+    saved?.filterKind && ['lowpass', 'highpass', 'bandpass'].includes(saved.filterKind)
+      ? saved.filterKind
+      : 'lowpass',
+  )
+  const [cutoffMHz, setCutoffMHz] = useState(rfNumber(saved?.cutoffMHz, 1000))
+  const [bandwidthMHz, setBandwidthMHz] = useState(rfNumber(saved?.bandwidthMHz, 100))
+  const [order, setOrder] = useState(rfNumber(saved?.order, 5))
+  const [impedance, setImpedance] = useState(rfNumber(saved?.impedance, 50))
+
+  usePublishDomainDesign('rf', {
+    tab, antennaKind, frequencyMHz, substrateHeightMM, dielectricConstant, yagiElements,
+    arrayElements, arrayLayout, filterKind, cutoffMHz, bandwidthMHz, order, impedance,
+  }, (next) => {
+    setTab(next.tab === 'filter' ? 'filter' : 'antenna')
+    if (next.antennaKind && ['dipole', 'monopole', 'patch', 'yagi', 'phased'].includes(next.antennaKind)) {
+      setAntennaKind(next.antennaKind)
+    }
+    setFrequencyMHz(rfNumber(next.frequencyMHz, frequencyMHz))
+    setSubstrateHeightMM(rfNumber(next.substrateHeightMM, substrateHeightMM))
+    setDielectricConstant(rfNumber(next.dielectricConstant, dielectricConstant))
+    setYagiElements(rfNumber(next.yagiElements, yagiElements))
+    setArrayElements(rfNumber(next.arrayElements, arrayElements))
+    setArrayLayout(next.arrayLayout === 'circular' ? 'circular' : 'linear')
+    if (next.filterKind && ['lowpass', 'highpass', 'bandpass'].includes(next.filterKind)) {
+      setFilterKind(next.filterKind)
+    }
+    setCutoffMHz(rfNumber(next.cutoffMHz, cutoffMHz))
+    setBandwidthMHz(rfNumber(next.bandwidthMHz, bandwidthMHz))
+    setOrder(rfNumber(next.order, order))
+    setImpedance(rfNumber(next.impedance, impedance))
+  })
 
   const antenna = useMemo<AntennaResult | { error: string }>(() => {
     try {

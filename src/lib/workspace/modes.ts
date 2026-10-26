@@ -50,7 +50,7 @@ const MODES: readonly WorkspaceModeMeta[] = [
   { id: 'visual', label: 'Blocks', group: 'mechanical', description: 'Compose behaviour from blocks and compile it to executable code.' },
   { id: 'hil', label: 'HIL', group: 'mechanical', description: 'Run hardware-in-the-loop suites against the modeled board.' },
   { id: 'twin', label: 'Twin / IIoT', group: 'ops', description: 'Synchronize digital twins and monitor a device fleet.' },
-  { id: 'agents', label: 'Agents', group: 'ops', description: 'Inspect the EDA tool harness and run the symbolic verifier.' },
+  { id: 'agents', label: 'Agents', group: 'ops', description: 'Run the closed-loop autopilot, inspect the EDA tool harness and verify a design claim.' },
   { id: 'components', label: 'Parts', group: 'ops', description: 'Import datasheets and extend the local part library.' },
   { id: 'plugins', label: 'Plugins', group: 'ops', description: 'Review, install and manage permission-gated plugins.' },
   { id: 'dashboard', label: 'System', group: 'ops', description: 'Compute capabilities, acceleration paths and project metrics.' },

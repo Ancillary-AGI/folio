@@ -8,12 +8,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import MechanicalDesignPanel from '../components/mechanical/MechanicalDesignPanel'
+import { useAppStore } from '../stores/useAppStore'
+import { useProjectStore } from '../stores/useProjectStore'
+import { createDefaultMechanicalParts } from '../lib/mechanical/partModel'
 
 const exportSpies = vi.hoisted(() => ({ downloadFile: vi.fn() }))
 vi.mock('../lib/exportUtils', () => exportSpies)
 
 beforeEach(() => {
   exportSpies.downloadFile.mockClear()
+  useAppStore.setState({ demoRequest: null })
+  useProjectStore.setState({ mechanicalParts: createDefaultMechanicalParts() })
 })
 
 describe('MechanicalDesignPanel', () => {
@@ -125,6 +130,32 @@ describe('MechanicalDesignPanel', () => {
     const status = screen.getByRole('status', { name: 'Print status' })
     expect(status).toHaveTextContent(/G-code ready/)
     expect(status).toHaveTextContent(/58 layers/)
+  })
+
+  it('loads the enclosure solids and its thermal verdict', () => {
+    render(<MechanicalDesignPanel onClose={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: /Load rectifier enclosure/ }))
+
+    expect(screen.getAllByText('Enclosure floor').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Enclosure left wall').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Enclosure front wall').length).toBeGreaterThan(0)
+    expect(screen.getByText(/PASS: lid at/)).toBeInTheDocument()
+
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'static' } })
+    fireEvent.click(screen.getByRole('button', { name: /Run Analysis/ }))
+    expect(screen.getByText(/Max von Mises:/)).toBeInTheDocument()
+  })
+
+  it('opens the enclosure and prepares its G-code and STEP artifacts', async () => {
+    useAppStore.setState({ demoRequest: 'mechanical-enclosure' })
+    render(<MechanicalDesignPanel onClose={() => {}} />)
+
+    expect((await screen.findAllByText('Enclosure floor')).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Enclosure back wall').length).toBeGreaterThan(0)
+    // The card promises slicing and STEP export: both ran without downloading.
+    expect(screen.getByRole('status', { name: 'Print status' })).toHaveTextContent(/G-code sliced:/)
+    expect(screen.getByRole('status', { name: 'STEP export status' })).toHaveTextContent(/STEP validated:/)
+    expect(useAppStore.getState().demoRequest).toBeNull()
   })
 
   it('selects a component from the list', () => {

@@ -86,10 +86,4 @@ describe('CollaborativeEditor local session', () => {
     expect(second.operations).toHaveLength(1);
     expect(second.users.has('user-2')).toBe(true);
   });
-
-  it('treats the legacy receiveOperation helper as a no-op', async () => {
-    await collaborativeEditor.connect(user(), 'project-g');
-    expect(() => collaborativeEditor.receiveOperation()).not.toThrow();
-    expect(collaborativeEditor.getCurrentSession()?.operations).toEqual([]);
-  });
 });

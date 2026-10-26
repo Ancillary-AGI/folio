@@ -37,6 +37,37 @@ describe('autoroute', () => {
     }
   })
 
+  it('lands on off-grid pad centres without a zero-area stub', () => {
+    // Pad A is 0.1 mm past the first grid node in the direction of travel.
+    // Prepending the pad centre unconditionally drew 2.1 -> 2.0 -> 2.5, a
+    // collinear reversal that DRC reports as a 0° acute-angle spike.
+    const pads: RouterPad[] = [
+      { netId: 'N1', componentId: 'A', pinId: '1', x: 2.1, y: 2, layer: 'F.Cu', padDiameterMm: 0.6 },
+      { netId: 'N1', componentId: 'B', pinId: '1', x: 8, y: 2, layer: 'F.Cu', padDiameterMm: 0.6 },
+    ]
+
+    const result = autoroute(pads, config)
+
+    expect(result.unrouted).toEqual([])
+    const points = result.traces[0].points
+    for (let i = 1; i < points.length - 1; i += 1) {
+      const a = points[i - 1]
+      const b = points[i]
+      const c = points[i + 1]
+      const ab = { x: b.x - a.x, y: b.y - a.y }
+      const bc = { x: c.x - b.x, y: c.y - b.y }
+      const reverses = ab.x * bc.x + ab.y * bc.y < 0 && Math.abs(ab.x * bc.y - ab.y * bc.x) < 1e-9
+      expect(reverses, `vertex ${i} reverses along the same line`).toBe(false)
+    }
+    const start = points[0]
+    const next = points[1]
+    const pad = { x: 2.1, y: 2 }
+    const onFirstSegment = Math.abs((next.x - start.x) * (pad.y - start.y) - (next.y - start.y) * (pad.x - start.x)) < 1e-9
+      && pad.x >= Math.min(start.x, next.x) - 1e-9 && pad.x <= Math.max(start.x, next.x) + 1e-9
+      && pad.y >= Math.min(start.y, next.y) - 1e-9 && pad.y <= Math.max(start.y, next.y) + 1e-9
+    expect(onFirstSegment || Math.hypot(start.x - pad.x, start.y - pad.y) < 1e-9).toBe(true)
+  })
+
   it('reports nets that cannot be connected without inventing a path', () => {
     // Both pads sit outside the board, so no legal grid cell exists.
     const pads: RouterPad[] = [
@@ -156,5 +187,50 @@ describe('buildRouterPads', () => {
 
     expect(pad.x).toBeCloseTo(100, 9)
     expect(pad.y).toBeCloseTo(120, 9)
+  })
+
+  it('uses footprint land geometry, rotated with the package, when a package exists', () => {
+    const component = {
+      id: 'r1',
+      componentId: 'resistor',
+      component: {
+        id: 'resistor',
+        name: 'Resistor',
+        category: 'passive',
+        symbol: { width: 80, height: 30, paths: [] },
+        pins: [
+          { id: 'p1', name: '1', x: 0, y: 15, type: 'passive' },
+          { id: 'p2', name: '2', x: 80, y: 15, type: 'passive' },
+        ],
+        properties: {},
+      },
+      position: { x: 20, y: 10 },
+      rotation: 90,
+      scale: 0.1,
+      reference: 'R1',
+      properties: { footprint: '0805' },
+    } as PlacedComponent
+    const nets = [
+      {
+        id: 'N1',
+        name: 'N1',
+        connectedPins: [
+          { componentId: 'r1', pinId: 'p1' },
+          { componentId: 'r1', pinId: 'p2' },
+        ],
+        wires: [],
+      },
+    ] as Net[]
+
+    const pads = buildRouterPads([component], nets)
+
+    expect(pads).toHaveLength(2)
+    // 0805 pads are 1.8 mm apart — not the 8 mm symbol span.
+    expect(pads[0].x).toBeCloseTo(20, 9)
+    expect(pads[0].y).toBeCloseTo(9.1, 9)
+    expect(pads[1].x).toBeCloseTo(20, 9)
+    expect(pads[1].y).toBeCloseTo(10.9, 9)
+    expect(pads[0].padDiameterMm).toBeCloseTo(1.0, 9)
+    expect(pads[0].layer).toBe('F.Cu')
   })
 })

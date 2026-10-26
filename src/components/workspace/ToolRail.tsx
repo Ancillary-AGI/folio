@@ -99,7 +99,7 @@ export default function ToolRail({ onSave }: ToolRailProps) {
   const { activeTool, setActiveTool, settings, updateSettings, viewport, setZoom } = useAppStore()
 
   return (
-    <div className="cad-rail" role="toolbar" aria-orientation="vertical" aria-label="Editor tools">
+    <div className="cad-rail" role="toolbar" aria-orientation="vertical" aria-label="Editor tools" data-tour="tool-rail">
       {/* Pointer tools */}
       {POINTER_TOOLS.map((tool) => (
         <RailButton

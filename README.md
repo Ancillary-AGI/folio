@@ -4,7 +4,7 @@ Browser-based, offline-first engineering workbench for electronic CAD, mechanica
 design, simulation, robotics, and embedded development. Everything runs locally
 unless you explicitly configure a backend; no account is required for local use.
 
-**Status:** active development. Lint, both typechecks, 1,564 tests across 174
+**Status:** active development. Lint, both typechecks, 1,783 tests across 195
 files, the icon-button accessibility audit, and the production build all pass.
 
 ---
@@ -34,7 +34,7 @@ rules); it makes no model or network call, and its output is advisory.
 
 ### Demos and navigation
 
-- **Demo gallery** (header **Demos**, or **Ctrl/⌘+Shift+D**): 29 runnable
+- **Demo gallery** (header **Demos**, or **Ctrl/⌘+Shift+D**): 31 runnable
   scenarios covering every one of the 25 workspace modes, searchable and grouped
   by family. A scenario seeds the stores or stages a one-shot request for the
   panel that owns the feature, so the demo exercises the real engine rather than
@@ -43,14 +43,25 @@ rules); it makes no model or network call, and its output is advisory.
   autorouted 3-D scene → BOM audit → HIL → digital twin.
 - **Grouped workspaces**: Design, Electrical, Mechanical and Ops & AI families
   with icons and descriptions instead of a flat tab ribbon.
+- **Clean, linkable routes**: `/projects/:id/pcb`, `/projects/:id/agents`,
+  `/agents`, `/projects`, plus the separate `/admin` console — no `#` fragments.
+  Reload and Back/Forward preserve the project and workspace; legacy `#/…`
+  bookmarks are rewritten on boot. The workbench deliberately stays one
+  code-split SPA because the sheet, board, undo history and agent sessions are
+  shared live state; see
+  [docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md#url-scheme-and-why-the-workbench-stays-one-spa).
 - **Command palette** (**Ctrl/⌘+K**): search and run any workspace mode, demo or
   document action with the keyboard.
+- **Guided tour** (first run, replayable from Settings): eight steps with an
+  animated spotlight that follows the real control or panel each step describes,
+  switches workspaces as it goes, and persists or resumes progress. Arrow keys,
+  Esc and a tab trap work; reduced-motion users get instant positioning.
 - A contextual status bar reports the active mode, schematic metrics, theme and
   unsaved state.
 
 ### Schematic & circuit simulation
 
-- Drag/drop or click-to-arm placement, searchable 39-part library, grid snap,
+- Drag/drop or click-to-arm placement, searchable 69-part library, grid snap,
   click-to-click wiring with junctions, properties inspector, undo/redo, rulers.
 - MNA SPICE-style solver written in TypeScript: DC operating point, DC sweep,
   transient, AC, noise, and Monte Carlo, with 51 validated semiconductor models
@@ -59,6 +70,11 @@ rules); it makes no model or network call, and its output is advisory.
   X propagation, combinational-loop detection) and a lockstep mixed-signal bridge
   to the analog solver.
 - Netlist import/export, waveform viewer with measurements, per-net PCB feedback.
+- Every solved DC/transient/sweep run reports declared-rating margins, a
+  first-order junction-temperature estimate, the supplied/dissipated power
+  budget, and an explicit list of parts that could not be rated. All of it is
+  measured from the solved circuit against declared limits or a vendor model —
+  never assumed, and thermal numbers are labelled as estimates.
 - Multi-sheet schematics and KiCad netlist round-tripping.
 
 ### PCB & manufacturing
@@ -187,8 +203,54 @@ rules); it makes no model or network call, and its output is advisory.
 
 - Agent harness with EDA tools and a symbolic verifier; AI chat, datasheet
   importer, and marketplace panels.
-- Local project store, autosave, version history with restore, backup snapshots.
+- Agents operate the CAD like a human: observe the canonical sheet and an SVG,
+  add/move/remove parts, wire pins and T-tap named rails, simulate, read
+  ratings/thermal margins, run ERC, export SPICE, and undo. After routing,
+  `eda.observe` returns the board as canonical JSON (`folio.pcb/1`: outline,
+  resolved layer stack, parts/pads, copper and warnings) plus an SVG top view
+  built from the same scene the PCB editor and 3-D preview draw. Off-board and
+  unknown-footprint geometry is reported, never silently clamped. `eda.movePart`
+  moves or rotates one placed part and re-routes in the same call, so copper can
+  never silently lag the pads; `eda.addTrace` and `eda.addVia` add agent-authored
+  copper with on-board validation. DRC remains the gate before fabrication, and
+  removing copper is still human-only. Route, DRC, and fab export all consume
+  that published layout. The agent workbench shows the routed-board view beside
+  the schematic and waveform previews. The same tools drive a deterministic
+  bounded autopilot that scores each iteration, restores the best design, and
+  reports that a bounded search is not a global optimum. The Assistant harness
+  registers those `cad.*` tools against the live store too, so an inspection
+  call returns the same schematic SVG the canvas shows — drawn with explicit
+  ink and upright labels — straight into the transcript.
+- Mechanical design is store-backed as well: `mech.observe` returns the assembly
+  as canonical JSON (`folio.mechanical/1`: parts, materials, supports, loads,
+  mass properties, closed-form stress/deflection/safety factor/modes/buckling,
+  and warnings) plus a millimetre front-elevation SVG. `mech.addPart`,
+  `mech.movePart`, `mech.resizePart`, `mech.setSupport`, and `mech.setLoad`
+  publish to the same store the mechanical workspace and its 3-D viewport render,
+  and `mech.analyze` re-runs the closed forms after every edit. `mech.autopilot`
+  sizes one part through a bounded dimension/material grid under safety-factor,
+  deflection, stress, natural-frequency, buckling, and mass limits; it writes
+  every candidate to the live assembly, returns a drawing per iteration, and
+  restores the best measured section while saying the result is not a global
+  optimum. An unsupported part is reported as a warning so the agent can fix it
+  rather than losing the rest of the assembly; removing parts remains human-only.
+  The autopilot tab switches between circuit tuning and mechanical sizing, and
+  shows the assembly drawing beside the schematic, waveforms, and routed board.
+- Durable agent-session timeline in local storage (bounded history, quota-aware
+  writes). Always-on/background agents need a server-side runner; the exact job
+  protocol, security requirements, and worker checklist are in
+  [docs/AGENT_CLOUD.md](docs/AGENT_CLOUD.md). Without `VITE_AGENT_CLOUD_URL`
+  the UI says so and local autopilot still works.
+- Local project store, autosave, content-addressed version history and backup
+  snapshots. A commit captures the whole multi-domain design — schematic, routed
+  PCB, mechanical assembly, firmware and every registered CAD domain — with diff,
+  branch, tag, three-way merge and restore. Where the Git remote, browser VCS,
+  optional Supabase data and a costed hosting topology live is documented in
+  [docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md).
 - Sharing/roles (owner, admin, editor, reviewer, viewer) with permission checks.
+  These are collaboration roles; the governance roles used by `/admin` are
+  owner, administrator, engineer and viewer, documented in
+  [docs/ADMINISTRATION.md](docs/ADMINISTRATION.md).
   Real-time presence and operation broadcast use Supabase Realtime **when
   configured**; otherwise the sharing model is local-only.
 - Plugin system with manifest validation, declared-permission gating, lifecycle
@@ -196,6 +258,32 @@ rules); it makes no model or network call, and its output is advisory.
   gate host API actions, not a security sandbox.
 - Asset RBAC and encrypted exports. The in-session audit trail records grants,
   encryptions, decryptions, and refusals.
+
+### Administration
+
+- **Administration console** at `/admin` (header shield, or the More menu on
+  narrow screens). It is a sibling surface to the CAD workspaces and opens with
+  or without a project loaded.
+- **Local mode**: the device owner is the administrator. The console reports
+  people, the device's usage ledger, quota policies, the SIEM audit trail, and
+  the real environment (storage estimate, agent-runner capability).
+- **Cloud mode**: apply
+  `supabase/migrations/20261026120000_admin_governance.sql` for `profiles`,
+  `usage_events` and `quota_policies`, with RLS, a self-demotion guard and
+  Postgres quota triggers. New sign-ups become viewers; an owner promotes them
+  from the People tab.
+- **Measured usage**: workspace opens, demos, projects, version commits, exports,
+  solver runs, agent runs, onboarding and admin opens. The ledger is append-only,
+  capped at 5,000 events per browser, and never leaves the device unless a cloud
+  deployment is configured. The Usage tab has day windows, filters, CSV export
+  and a daily chart.
+- **Enforced quotas**: project creation, exports and solver runs are checked in
+  the browser against the role policy, and cloud activity is enforced again by
+  the database triggers. Owner and administrator limits are fixed at unlimited;
+  storage is reported as advisory because the browser owns the quota.
+- Invitations are **not** faked: they require a service-role server function.
+  The console labels that capability honestly. Full contract and bootstrap SQL:
+  [docs/ADMINISTRATION.md](docs/ADMINISTRATION.md).
 
 ### Compute acceleration
 
@@ -219,8 +307,9 @@ npm run lint            # ESLint, zero warnings
 npm run a11y:buttons    # every icon-only button has an accessible name
 npm run typecheck       # app TypeScript
 npm run typecheck:node  # Vite/build config TypeScript
-npm test                # Vitest, 1,564 tests / 174 files
+npm test                # Vitest, 1,783 tests / 195 files
 npm run build           # production build
+npm run verify          # all of the gates above, in order
 npm run preview         # preview the build on port 4173
 ```
 
@@ -229,6 +318,10 @@ CI (`.github/workflows/ci.yml`) runs all of the above on every push and PR.
 The acceleration paths have been checked in a real browser (Chrome/Electron
 WebGPU): the GPU thermal grid matches the CPU reference peak and average within
 0.01 °C and is only labelled `webgpu` when converged.
+
+All 31 gallery scenarios were also opened in the in-app Chromium session against
+the dev server (2026-10-26): every workspace rendered without a console error or
+uncaught exception, and the 3D demo exposed its routed scene and STL/OBJ export.
 
 ---
 
@@ -248,6 +341,7 @@ src/
     electronics/     part catalogs, machine dynamics, logic/memory behaviour
     ic/ fpga/        IC flow, standard cells, GDS, HDL/synthesis
     security/        asset RBAC + AES-GCM encryption
+    admin/           usage ledger, quota policy, governance data access
     collaboration/   local sharing model + optional Supabase Realtime
     plugins/         plugin system and permission checks
   stores/            Zustand state and undo
@@ -303,6 +397,11 @@ src/
 - Real-time collaboration needs Supabase Realtime; the role/share UI works
   locally without it.
 - The installable plugin surface is permission-gated but not sandboxed.
+- The agent tool surface is electrical-first: schematic capture, SPICE, ERC,
+  ratings/thermal margins and PCB plan commands. Its live feedback is the
+  canonical schematic snapshot and waveforms; mechanical, robotics, RF, HDL/IC
+  and 3-D PCB surfaces are not yet agent-driven. Extending the harness to those
+  domains is future work.
 - The language selector stores a preference; only English strings ship.
 - No GDPR, ISO 27001, or IEC 62443 certification is claimed.
 

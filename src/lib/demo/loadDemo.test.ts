@@ -16,14 +16,14 @@ describe('loadDemoScenario', () => {
     useProjectStore.setState({ components: [], wires: [], pcbLayout: null })
   })
 
-  it('loads the board and requests autorouting for the PCB demo', () => {
+  it('loads the board and its routed layout for the PCB demo', () => {
     loadDemoScenario(scenario('rectifier-pcb'))
 
     expect(useAppStore.getState().workspaceMode).toBe('pcb')
-    expect(useAppStore.getState().demoRequest).toBe('pcb-autoroute')
+    expect(useAppStore.getState().demoRequest).toBeNull()
     expect(useProjectStore.getState().components).toHaveLength(6)
     expect(useProjectStore.getState().wires.length).toBeGreaterThan(0)
-    expect(useProjectStore.getState().pcbLayout).toBeNull()
+    expect(useProjectStore.getState().pcbLayout?.traces.length).toBeGreaterThan(0)
     expect(isBoardDemoLoad('pcb-autoroute')).toBe(true)
   })
 

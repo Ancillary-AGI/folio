@@ -6,7 +6,7 @@
 
 ## 🧭 Demo Gallery & Workspace Navigation ✅
 
-- **Demo gallery**: 29 runnable scenarios — at least one per workspace mode —
+- **Demo gallery**: 31 runnable scenarios — at least one per workspace mode —
   searchable by title, summary or analysis name and filterable by family.
   Open with the header **Demos** button or **Ctrl/⌘+Shift+D**.
 - **One proven board across domains**: the half-wave rectifier demo seeds the
@@ -175,7 +175,9 @@
 ## 🗂 Projects, Collaboration, Plugins & Security ✅ / 🟡
 
 - **Offline-first projects**: create/open/save/delete, autosave, dirty state
-- **Version history**: commit-style local history with restore and snapshots
+- **Version history**: content-addressed commits of the whole project — schematic,
+  routed PCB, mechanical assembly, firmware and every CAD domain — with diff,
+  branch, tag, three-way merge and restore. Stored locally per device ✅
 - **Cloud (optional)**: Supabase auth and project persistence when configured 🟡
 - **Sharing & roles**: owner/admin/editor/reviewer/viewer with permission checks
   and collaborator management (`collaborationService` tests)
@@ -187,12 +189,42 @@
   audit trail (unit-tested)
 - **Encrypted export** wired into the app export menu
 
+## 🛡 Administration & Governance ✅ / 🟡
+
+- **Separate surface**: `/admin` opens without a project and is deliberately not
+  a CAD mode; the shield button appears in the project list, IDE toolbar and
+  More menu
+- **Access check**: local mode resolves the device owner; cloud mode requires an
+  active `profiles.role` of owner or administrator
+- **People**: list accounts and roles, promote/demote, suspend/restore, with
+  self-demotion and self-suspension refused; invitations require a service-role
+  function and are labelled as not shipped
+- **Usage ledger**: append-only, 5,000-event device ledger (3-second duplicate
+  collapse, backdated events preserved) covering workspace/demo opens, projects,
+  VCS commits, exports, solver runs, agent runs, onboarding and admin opens;
+  7/14/30/90-day windows, filters, CSV export and per-workspace totals
+- **Quota policies**: owner/administrator unlimited, engineer 100 projects /
+  200 exports / 1,000 simulations per day, viewer 3 / 20 / 50; browser checks
+  before project creation, exports and solver runs, plus Postgres triggers in
+  cloud mode; storage is reported as advisory 🟡
+- **Cloud governance schema**: `profiles`, `usage_events`, `quota_policies` with
+  RLS, SECURITY DEFINER role helpers, profile-change guards, new-user trigger and
+  quota triggers; first owner is promoted once with the service role
+- **Environment report**: deployment mode, always-on runner capability, browser
+  storage estimate, ledger size and per-mode capability labels
+- **Tests**: ledger, policy parsing/enforcement, service access paths, console
+  render flows, `/admin` deep link and routing isolation
+
 ## ⚙️ Settings, Theming & Accessibility ✅
 
 - **Themes**: light, dark, high-contrast, system preference, migration of retired
   theme names
 - **Units & behavior**: metric/imperial, animation toggle, autosave interval,
   onboarding replay
+- **Guided tour**: eight-step first-run walkthrough with an animated spotlight
+  that follows real controls across workspaces, reveals the component library,
+  and persists or resumes progress; keyboard arrows, Esc, tab trapping and
+  reduced-motion support
 - **Accessibility**: keyboard-operable toolbars; every icon-only button must have
   an accessible name, enforced by `npm run a11y:buttons` in CI
 - **Language selector**: preference stored; English strings only today 🟡
@@ -201,7 +233,7 @@
 
 - **CI**: lint (zero warnings), typecheck (app + build config), button-label
   audit, full test suite, production build
-- **Tests**: 1,564 tests across 174 files, including engine truth tests and React
+- **Tests**: 1,783 tests across 195 files, including engine truth tests and React
   render/integration tests
 - **Build**: heavily code-split; feature panels and vendor chunks load on demand
 
@@ -217,7 +249,16 @@
   foundry-validated device-model certification
 - Crosstalk, IBIS transient, or full-wave EM analysis
 - 3-D FEA, CFD, or contact solvers for mechanical and thermal work
+- Quantum-electronic device/transmon simulation, photonic waveguide/laser
+  design, room/structural acoustics, HVAC psychrometric load design, avionics
+  flight dynamics, and process-plant flowsheet simulation — these are not
+  domains in the workbench today and are not represented by placeholder panels
+- Nano/micro-scale TCAD, atomistic or molecular dynamics, and multi-scale
+  coupling between them and the board-level tools
+- A general cross-domain optimiser that jointly sizes electrical, mechanical,
+  thermal and control variables under coupled constraints
 
 This document tracks what Folio actually is: a browser-based, offline-first
-engineering workbench for circuits, PCB, mechanical, robotics, RF, and embedded
-work, with tested simulation and manufacturing toolchains.
+engineering workbench for circuits, PCB, mechanical, robotics, RF, embedded work
+and deployment administration, with tested simulation and manufacturing
+toolchains.

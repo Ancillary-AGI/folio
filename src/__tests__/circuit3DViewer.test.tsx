@@ -10,11 +10,18 @@ import '@testing-library/jest-dom/vitest'
 import Circuit3DViewer from '../components/3d/Circuit3DViewer'
 import { useProjectStore } from '../stores/useProjectStore'
 
-vi.mock('@react-three/fiber', () => ({
-  Canvas: ({ children }: { children: React.ReactNode }) => <div data-testid="r3f-canvas">{children}</div>,
-  useFrame: () => {},
-  useThree: () => ({ camera: { position: { set: () => {} }, lookAt: () => {} } }),
-}))
+vi.mock('@react-three/fiber', () => {
+  const state = {
+    camera: { position: { set: () => {} }, lookAt: () => {} },
+    controls: null,
+    size: { width: 800, height: 600 },
+  }
+  return {
+    Canvas: ({ children }: { children: React.ReactNode }) => <div data-testid="r3f-canvas">{children}</div>,
+    useFrame: () => {},
+    useThree: (selector?: (value: typeof state) => unknown) => (selector ? selector(state) : state),
+  }
+})
 
 vi.mock('@react-three/drei', () => ({
   OrbitControls: () => null,
@@ -53,6 +60,36 @@ describe('Circuit3DViewer', () => {
     render(<Circuit3DViewer onClose={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: 'top' }))
     expect(screen.getByRole('button', { name: 'top' })).toHaveClass('bg-primary')
+  })
+
+  it('frames the routed circuit by default and can fall back to the board outline', () => {
+    useProjectStore.setState({
+      pcbLayout: {
+        widthMm: 100,
+        heightMm: 80,
+        thicknessMm: 1.6,
+        layers: [{ id: 'top-cu', name: 'Top Copper', kind: 'copper', color: '#cc0000' }],
+        traces: [{
+          id: 't1', net: 'OUT', layerId: 'top-cu', widthMm: 0.25,
+          points: [{ x: 10, y: 20 }, { x: 40, y: 20 }],
+        }],
+        vias: [],
+        components: [{
+          id: 'r1', reference: 'R1', footprint: '0805', category: 'resistor',
+          x: 25, y: 20, rotationDeg: 0,
+        }],
+      },
+    })
+
+    render(<Circuit3DViewer onClose={() => {}} />)
+    const circuit = screen.getByRole('button', { name: 'Circuit' })
+    const board = screen.getByRole('button', { name: 'Board' })
+    expect(circuit).toHaveClass('bg-primary')
+    expect(board).not.toHaveClass('bg-primary')
+
+    fireEvent.click(board)
+    expect(board).toHaveClass('bg-primary')
+    expect(circuit).not.toHaveClass('bg-primary')
   })
 
   it('exports STL through the real export path', () => {

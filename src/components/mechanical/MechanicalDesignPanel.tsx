@@ -18,11 +18,10 @@ import {
 import ThreeCanvas, { type MechanicalSupportMarker, type ThreeView } from '../3d/ThreeCanvas';
 import { buildDemoEnclosure } from '../../lib/demo/demoEnclosure';
 import {
-  analyseBeam,
-  beamBucklingLoad,
-  beamNaturalFrequencies,
-  type BeamSupport,
-} from '../../lib/mechanical/mechanicalAnalysis';
+  analysePart,
+  buildPart,
+  type MechanicalPart,
+} from '../../lib/mechanical/partModel';
 import { MechanicalDesignEngine } from '../../lib/mechanical/mechanicalDesign';
 import {
   mateHolds,
@@ -44,46 +43,15 @@ import {
 } from '../../lib/optimization/designSearch';
 import { GCodeExporter } from '../../lib/3d/gcodeExporter';
 import { buildEnclosureTrayMesh } from '../../lib/3d/printableEnclosure';
+import { buildPartDrawing } from '../../lib/mechanical/partDrawing';
 import { downloadFile } from '../../lib/exportUtils';
 import { describeError } from '../../lib/utils';
-import type { Material, MechanicalComponent as ViewMechanicalComponent } from '../../types/toolbox';
+import { useDemoRequest } from '../workspace/useDemoRequest';
+import { useProjectStore } from '../../stores/useProjectStore';
+import type { MechanicalComponent as ViewMechanicalComponent } from '../../types/toolbox';
 
 interface MechanicalDesignPanelProps {
   onClose: () => void;
-}
-
-interface PartLoads {
-  forces: Array<{ x: number; y: number; z: number; magnitude: number }>;
-  moments: Array<{ x: number; y: number; z: number; magnitude: number }>;
-  pressure: number;
-  temperature: number;
-}
-
-interface PartConstraints {
-  fixed: boolean;
-  pinned: boolean;
-  roller: boolean;
-  displacement: { x: boolean; y: boolean; z: boolean };
-  rotation: { x: boolean; y: boolean; z: boolean };
-}
-
-interface MechanicalPart {
-  id: string;
-  name: string;
-  kind: 'beam' | 'plate';
-  dimensions: { length: number; width: number; height: number };
-  position: [number, number, number];
-  rotation: [number, number, number];
-  materialKey: string;
-  material: Material;
-  properties: {
-    mass: number;
-    volume: number;
-    centerOfMass: [number, number, number];
-    momentOfInertia: [number, number, number];
-  };
-  loads: PartLoads;
-  constraints: PartConstraints;
 }
 
 interface AnalysisResult {
@@ -100,60 +68,6 @@ interface AnalysisResult {
     resistanceKW: number;
     dissipationW: number;
     verdict: string;
-  };
-}
-
-/** The support a part's constraint flags describe, or `null` when it is unsupported. */
-function supportFor(part: MechanicalPart): BeamSupport | null {
-  if (part.constraints.fixed) return 'cantilever';
-  if (part.constraints.pinned || part.constraints.roller) return 'simply-supported';
-  return null;
-}
-
-function buildPart(config: {
-  id: string;
-  name: string;
-  kind: 'beam' | 'plate';
-  dimensions: { length: number; width: number; height: number };
-  position: [number, number, number];
-  materialKey: string;
-  pressure?: number;
-  forces?: PartLoads['forces'];
-  constraints: Pick<PartConstraints, 'fixed' | 'pinned' | 'roller'>;
-}): MechanicalPart {
-  const { length, width, height } = config.dimensions;
-  const material = getMaterial(config.materialKey);
-  const volume = length * width * height;
-  return {
-    id: config.id,
-    name: config.name,
-    kind: config.kind,
-    dimensions: config.dimensions,
-    position: config.position,
-    rotation: [0, 0, 0],
-    materialKey: config.materialKey,
-    material,
-    properties: {
-      mass: volume * material.density,
-      volume,
-      centerOfMass: [...config.position],
-      momentOfInertia: [
-        (volume * material.density * (width ** 2 + height ** 2)) / 12,
-        (volume * material.density * (length ** 2 + height ** 2)) / 12,
-        (volume * material.density * (length ** 2 + width ** 2)) / 12,
-      ],
-    },
-    loads: {
-      forces: config.forces ?? [],
-      moments: [],
-      pressure: config.pressure ?? 0,
-      temperature: 293.15,
-    },
-    constraints: {
-      ...config.constraints,
-      displacement: { x: config.constraints.fixed, y: true, z: config.constraints.fixed },
-      rotation: { x: true, y: config.constraints.pinned, z: true },
-    },
   };
 }
 
@@ -286,31 +200,80 @@ function enclosureThermalResult(): AnalysisResult {
   });
 }
 
+/**
+ * The demo enclosure as five printable solids (floor + four walls) so the
+ * assembly viewport shows the same outer dimensions the G-code and STEP
+ * exports use. The tray slicer still consumes the watertight mesh; these boxes
+ * are for inspection, selection, and drawings.
+ */
+function enclosureAssemblyParts(): MechanicalPart[] {
+  const spec = buildDemoEnclosure().spec;
+  const tray = buildEnclosureTrayMesh(spec);
+  const outerW = tray.outerMm.width / 1000;
+  const outerD = tray.outerMm.depth / 1000;
+  const outerH = tray.outerMm.height / 1000;
+  const wall = tray.wallMm / 1000;
+  const floor = tray.floorMm / 1000;
+  const wallHeight = outerH - floor;
+  const wallCenterY = -outerH / 2 + floor + wallHeight / 2;
+  const fixed = { fixed: true, pinned: false, roller: false };
+  return [
+    buildPart({
+      id: 'enclosure-floor',
+      name: 'Enclosure floor',
+      kind: 'plate',
+      dimensions: { length: outerW, width: outerD, height: floor },
+      position: [0, -outerH / 2 + floor / 2, 0],
+      materialKey: 'abs',
+      constraints: fixed,
+    }),
+    buildPart({
+      id: 'enclosure-left',
+      name: 'Enclosure left wall',
+      kind: 'plate',
+      dimensions: { length: wall, width: outerD, height: wallHeight },
+      position: [-outerW / 2 + wall / 2, wallCenterY, 0],
+      materialKey: 'abs',
+      constraints: fixed,
+    }),
+    buildPart({
+      id: 'enclosure-right',
+      name: 'Enclosure right wall',
+      kind: 'plate',
+      dimensions: { length: wall, width: outerD, height: wallHeight },
+      position: [outerW / 2 - wall / 2, wallCenterY, 0],
+      materialKey: 'abs',
+      constraints: fixed,
+    }),
+    buildPart({
+      id: 'enclosure-back',
+      name: 'Enclosure back wall',
+      kind: 'plate',
+      dimensions: { length: outerW - 2 * wall, width: wall, height: wallHeight },
+      position: [0, wallCenterY, -outerD / 2 + wall / 2],
+      materialKey: 'abs',
+      constraints: fixed,
+    }),
+    buildPart({
+      id: 'enclosure-front',
+      name: 'Enclosure front wall',
+      kind: 'plate',
+      dimensions: { length: outerW - 2 * wall, width: wall, height: wallHeight },
+      position: [0, wallCenterY, outerD / 2 - wall / 2],
+      materialKey: 'abs',
+      constraints: fixed,
+    }),
+  ];
+}
+
 export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanelProps) {
   const [enclosureVerdict] = useState(() => buildDemoEnclosure().summary.verdict.split(':')[0]);
-  const [parts, setParts] = useState<MechanicalPart[]>(() => [
-    buildPart({
-      id: 'beam-1',
-      name: 'Main Beam',
-      kind: 'beam',
-      dimensions: { length: 2, width: 0.1, height: 0.1 },
-      position: [1, 0, 0],
-      materialKey: 'aluminum',
-      forces: [{ x: 0, y: -1, z: 0, magnitude: 1000 }],
-      constraints: { fixed: true, pinned: false, roller: false },
-    }),
-    buildPart({
-      id: 'plate-1',
-      name: 'Support Plate',
-      kind: 'plate',
-      dimensions: { length: 0.5, width: 0.5, height: 0.02 },
-      position: [1, -0.06, 0],
-      materialKey: 'aluminum',
-      pressure: 10000,
-      constraints: { fixed: false, pinned: true, roller: false },
-    }),
-  ]);
+  // Parts live in the project store so an agent editing them and the 3D
+  // viewport a human is watching are always the same bodies.
+  const parts = useProjectStore((state) => state.mechanicalParts);
+  const setParts = useProjectStore((state) => state.setMechanicalParts);
   const [selectedComponent, setSelectedComponent] = useState<string>('beam-1');
+  const sizingTarget = parts.find(part => part.kind === 'beam');
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -367,8 +330,11 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
   const [printSkirt, setPrintSkirt] = useState(false);
   const [printBrim, setPrintBrim] = useState(0);
   const [printStatus, setPrintStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [stepStatus, setStepStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [drawingStatus, setDrawingStatus] = useState<string | null>(null);
 
-  const handleExportPrint = () => {
+  /** Slice the tray; the demo runs this without triggering a download. */
+  const runPrintExport = (download: boolean) => {
     try {
       const exporter = new GCodeExporter({
         upAxis: 'y',
@@ -388,15 +354,17 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
       }
       const gcode = exporter.exportMeshToGCode(printPart.mesh);
       const warnings = exporter.getWarnings();
-      downloadFile(gcode, 'enclosure_tray.gcode', 'text/plain');
+      if (download) downloadFile(gcode, 'enclosure_tray.gcode', 'text/plain');
       setPrintStatus({
         ok: true,
-        message: `G-code ready: ${printPart.outerMm.width.toFixed(0)} × ${printPart.outerMm.depth.toFixed(0)} × ${printPart.outerMm.height.toFixed(1)} mm tray, ${printableLayers} layers${warnings.length > 0 ? `, ${warnings.length} warning(s)` : ''}.`,
+        message: `G-code ${download ? 'ready' : 'sliced'}: ${printPart.outerMm.width.toFixed(0)} × ${printPart.outerMm.depth.toFixed(0)} × ${printPart.outerMm.height.toFixed(1)} mm tray, ${printableLayers} layers, ${gcode.length.toLocaleString()} bytes${warnings.length > 0 ? `, ${warnings.length} warning(s)` : ''}.`,
       });
     } catch (error) {
       setPrintStatus({ ok: false, message: describeError(error) });
     }
   };
+
+  const handleExportPrint = () => runPrintExport(true);
 
   const handleOptimizeSection = async () => {
     setSizingBusy(true);
@@ -430,16 +398,16 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
   const handleApplySection = () => {
     if (!sizingResult || !sizingResult.feasible) return;
     const material = MATERIALS[sizingMaterialKey];
-    const selected = parts.find(part => part.id === 'beam-1');
+    const selected = parts.find(part => part.kind === 'beam');
     if (!material || !selected) {
-      setSizingError('The Main Beam and its material must exist before applying a section.');
+      setSizingError('A beam part must exist before applying a searched section.');
       return;
     }
     const volume = sizingSpanM * sizingResult.widthM * sizingResult.heightM;
     const mass = volume * material.density;
     setParts(current =>
       current.map(part =>
-        part.id !== 'beam-1'
+        part.id !== selected.id
           ? part
           : {
               ...part,
@@ -712,45 +680,22 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
   };
 
   const runStructuralAnalysis = (): AnalysisResult => {
-    const analysed = parts.map(part => {
-      const support = supportFor(part);
-      if (!support) {
-        throw new Error(
-          `"${part.name}" has no support. Set it to fixed, pinned, or roller before analysing.`,
-        );
-      }
-      const span = part.dimensions.length;
-      const transverseForce = part.loads.forces.reduce((sum, load) => sum + load.magnitude, 0);
-      const appliedMoment = part.loads.moments.reduce((sum, load) => sum + load.magnitude, 0);
-      // Pressure acts on the span × width face, so it is a line load of p·b N/m.
-      const distributedLoad = part.loads.pressure * part.dimensions.width;
-      const beam = analyseBeam(
-        { width: part.dimensions.width, height: span, depth: part.dimensions.height },
-        {
-          youngsModulus: part.material.youngsModulus,
-          yieldStrength: part.material.yieldStrength,
-          density: part.material.density,
-        },
-        { transverseForce, moment: appliedMoment, distributedLoad, span },
-        { support },
-      );
-      return { part, beam, support, span, stressPa: Math.abs(beam.totalStress) };
-    });
+    const analysed = parts.map(part => ({ part, result: analysePart(part) }));
 
-    const displacement = analysed.map(({ part, beam }) => ({
+    const displacement = analysed.map(({ part, result }) => ({
       nodeId: part.id,
       x: 0,
-      y: -beam.deflection,
+      y: -result.deflectionM,
       z: 0,
     }));
-    const stress = analysed.map(({ part, beam }) => {
-      const vonMises = Math.abs(beam.totalStress) / 1e6;
+    const stress = analysed.map(({ part, result }) => {
+      const vonMises = result.stressPa / 1e6;
       return { nodeId: part.id, vonMises, principal: [vonMises, 0, 0] as [number, number, number] };
     });
-    const strain = analysed.map(({ part, beam }) => ({
+    const strain = analysed.map(({ part, result }) => ({
       nodeId: part.id,
       x: 0,
-      y: -beam.totalStress / part.material.youngsModulus,
+      y: -result.signedStressPa / part.material.youngsModulus,
       z: 0,
     }));
 
@@ -762,47 +707,21 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
       ? {
           partId: modalEntry.part.id,
           partName: modalEntry.part.name,
-          naturalFrequencies: beamNaturalFrequencies(
-            {
-              width: modalEntry.part.dimensions.width,
-              height: modalEntry.span,
-              depth: modalEntry.part.dimensions.height,
-            },
-            {
-              youngsModulus: modalEntry.part.material.youngsModulus,
-              yieldStrength: modalEntry.part.material.yieldStrength,
-              density: modalEntry.part.material.density,
-            },
-            modalEntry.support,
-            modalEntry.span,
-          ),
+          naturalFrequencies: modalEntry.result.naturalFrequenciesHz,
         }
       : { partId: '', partName: 'No part', naturalFrequencies: [] };
     const bucklingEntry = modalEntry
       ? {
           partId: modalEntry.part.id,
           partName: modalEntry.part.name,
-          criticalLoad: beamBucklingLoad(
-            {
-              width: modalEntry.part.dimensions.width,
-              height: modalEntry.span,
-              depth: modalEntry.part.dimensions.height,
-            },
-            {
-              youngsModulus: modalEntry.part.material.youngsModulus,
-              yieldStrength: modalEntry.part.material.yieldStrength,
-              density: modalEntry.part.material.density,
-            },
-            modalEntry.support,
-            modalEntry.span,
-          ),
+          criticalLoad: modalEntry.result.bucklingLoadN,
           mode: 1,
         }
       : { partId: '', partName: 'No part', criticalLoad: 0, mode: 1 };
 
-    const maxStressPa = Math.max(0, ...analysed.map(item => item.stressPa));
+    const maxStressPa = Math.max(0, ...analysed.map(item => item.result.stressPa));
     const safetyFactors = analysed
-      .map(item => item.beam.safetyFactor)
+      .map(item => item.result.safetyFactor)
       .filter((factor): factor is number => factor !== null && Number.isFinite(factor));
     const safetyFactor = safetyFactors.length > 0 ? Math.min(...safetyFactors) : 0;
     const minYield = Math.min(...parts.map(part => part.material.yieldStrength));
@@ -839,10 +758,25 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
     }
   };
 
+  /*
+   * Loading the enclosure also slices the tray and builds the STEP block in
+   * memory, so the demo lands on measured fabrication evidence instead of an
+   * empty print panel. Neither export downloads a file here; the buttons do.
+   */
   const handleLoadEnclosure = () => {
+    const enclosureParts = enclosureAssemblyParts();
+    setParts(enclosureParts);
+    setSelectedComponent('enclosure-floor');
+    setMateFixedId('enclosure-floor');
+    setMateMovingId('enclosure-left');
+    setMateVerdict(null);
     setAnalysisResult(enclosureThermalResult());
     setAnalysisType('thermal');
+    runPrintExport(false);
+    runStepExport(false, enclosureParts);
   };
+
+  useDemoRequest('mechanical-enclosure', handleLoadEnclosure);
 
   const handleExportResults = () => {
     if (!analysisResult) return;
@@ -873,11 +807,10 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
    * part dimensions map to the engine's width × height × thickness solid, so
    * the STEP block is the same geometry the viewport draws.
    */
-  const handleExportStep = () => {
-    if (parts.length === 0) return;
+  const buildStepExport = (partList: MechanicalPart[] = parts) => {
     const engine = new MechanicalDesignEngine();
     const assembly = engine.createAssembly('folio-mechanical');
-    for (const part of parts) {
+    for (const part of partList) {
       const component = engine.createComponent(
         part.kind === 'plate' ? 'enclosure' : 'structural',
         { width: part.dimensions.length, height: part.dimensions.width },
@@ -888,14 +821,70 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
       component.rotation = part.rotation[2];
       engine.addComponentToAssembly(assembly.id, component);
     }
-    const step = engine.exportToSTEP(assembly.id);
-    const blob = new Blob([step], { type: 'application/step' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${assembly.name}.step`;
-    link.click();
-    URL.revokeObjectURL(url);
+    return { step: engine.exportToSTEP(assembly.id), filename: `${assembly.name}.step` };
+  };
+
+  /** Export the assembly; the demo builds it without triggering a download. */
+  const runStepExport = (download: boolean, partList: MechanicalPart[] = parts) => {
+    if (partList.length === 0) {
+      setStepStatus({ ok: false, message: 'Load an assembly before exporting STEP.' });
+      return;
+    }
+    try {
+      const { step, filename } = buildStepExport(partList);
+      if (download) {
+        const blob = new Blob([step], { type: 'application/step' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+      setStepStatus({
+        ok: true,
+        message: `STEP ${download ? 'ready' : 'validated'}: ${(step.length / 1024).toFixed(1)} KiB AP214 text for ${partList.length} part(s) (${filename}).`,
+      });
+    } catch (error) {
+      setStepStatus({ ok: false, message: describeError(error) });
+    }
+  };
+
+  const handleExportStep = () => runStepExport(true);
+
+  /**
+   * Orthographic third-angle drawing of the selected part: front/top/right
+   * views with real millimetre dimensions, a title block and manufacturing
+   * notes. Nominal model geometry only — it does not invent tolerances.
+   */
+  const handleExportDrawing = () => {
+    const part = parts.find(candidate => candidate.id === selectedComponent);
+    if (!part) {
+      setDrawingStatus('Select a part before exporting a drawing.');
+      return;
+    }
+    try {
+      const isMetal = /alum|steel|titan|copper|brass|iron|alloy/i.test(part.material.name);
+      const svg = buildPartDrawing(
+        {
+          id: part.id,
+          name: part.name,
+          dimensions: part.dimensions,
+          materialName: part.material.name,
+          massKg: part.properties.mass,
+        },
+        {
+          paperSize: 'A3',
+          revision: 'A',
+          finish: isMetal ? 'AS MACHINED' : 'AS PRINTED',
+        },
+      );
+      const filename = `${part.name.replace(/[^a-z0-9]+/gi, '_')}_drawing.svg`;
+      downloadFile(svg, filename, 'image/svg+xml');
+      setDrawingStatus(`${filename} — third-angle views, dimensions in millimetres.`);
+    } catch (error) {
+      setDrawingStatus(describeError(error));
+    }
   };
 
   const selectedComponentData = parts.find(c => c.id === selectedComponent);
@@ -1033,6 +1022,29 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
                   <Download className="w-4 h-4" />
                   Export Assembly STEP
                 </Button>
+                {stepStatus && (
+                  <p
+                    role={stepStatus.ok ? 'status' : 'alert'}
+                    aria-label="STEP export status"
+                    className={`text-xs leading-relaxed ${stepStatus.ok ? 'text-success' : 'text-destructive'}`}
+                  >
+                    {stepStatus.message}
+                  </p>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={handleExportDrawing}
+                  disabled={!selectedComponentData}
+                  className="w-full flex items-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  Export Part Drawing (SVG)
+                </Button>
+                {drawingStatus && (
+                  <p role="status" aria-label="Drawing status" className="text-xs leading-relaxed text-muted-foreground">
+                    {drawingStatus}
+                  </p>
+                )}
               </CardContent>
             </Card>
 
@@ -1380,9 +1392,9 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
                         </span>
                       </div>
                     </div>
-                    {sizingResult.feasible && (
+                    {sizingResult.feasible && sizingTarget && (
                       <Button variant="outline" size="sm" className="w-full" onClick={handleApplySection}>
-                        Apply to Main Beam
+                        Apply to {sizingTarget.name}
                       </Button>
                     )}
                   </div>

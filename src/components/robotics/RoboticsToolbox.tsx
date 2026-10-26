@@ -6,6 +6,7 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Play, Pause, RotateCcw, Settings, Zap, Cpu, X, Download, Upload } from 'lucide-react';
 import { stepJointDynamics } from '../../lib/robotics/jointDynamics';
+import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign';
 
 interface RoboticsToolboxProps {
   onClose: () => void;
@@ -312,14 +313,36 @@ function Environment() {
 }
 
 export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
+  const saved = loadDomainDesign<{ robotConfig?: unknown }>('robotics-toolbox');
+  const initialRobot = (() => {
+    if (!saved?.robotConfig) return DEFAULT_ROBOT;
+    try {
+      return parseRobotConfiguration(saved.robotConfig);
+    } catch {
+      return DEFAULT_ROBOT;
+    }
+  })();
   const [isSimulating, setIsSimulating] = useState(false);
   const [simulationSpeed, setSimulationSpeed] = useState(1);
   const [dynamicsMode, setDynamicsMode] = useState(false);
   const [showSensors, setShowSensors] = useState(true);
-  const [robotConfig, setRobotConfig] = useState<RobotConfiguration>(DEFAULT_ROBOT);
+  const [robotConfig, setRobotConfig] = useState<RobotConfiguration>(initialRobot);
   const [loadError, setLoadError] = useState('');
-  const liveValues = useRef<number[]>(DEFAULT_ROBOT.joints.map((joint) => joint.currentValue));
-  const liveVelocities = useRef<number[]>(DEFAULT_ROBOT.joints.map(() => 0));
+  const liveValues = useRef<number[]>(initialRobot.joints.map((joint) => joint.currentValue));
+  const liveVelocities = useRef<number[]>(initialRobot.joints.map(() => 0));
+
+  usePublishDomainDesign('robotics-toolbox', { robotConfig }, (next) => {
+    try {
+      const config = parseRobotConfiguration(next.robotConfig);
+      setRobotConfig(config);
+      setIsSimulating(false);
+      liveValues.current = config.joints.map((joint) => joint.currentValue);
+      liveVelocities.current = config.joints.map(() => 0);
+      setLoadError('');
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error));
+    }
+  });
 
   const handleJointChange = (jointId: string, value: number) => {
     setRobotConfig((prev) => ({

@@ -54,6 +54,13 @@ export interface AnalysisOutcome {
   waveforms: Waveform[]
   operatingPoint?: Record<string, number>
   branchCurrents?: Record<string, number>
+  /**
+   * Current through each device at the final solved point, A, including
+   * nonlinear devices that have no MNA branch row (diode, BJT, MOSFET, JFET),
+   * derived from their converged bias point. Absent for devices whose current
+   * is not defined by the model (an ideal open capacitor at DC).
+   */
+  deviceCurrents?: Record<string, number>
   iterations: number
   converged: boolean
   notes: string[]
@@ -209,6 +216,62 @@ export function readNodeVoltages(model: CircuitModel, solution: readonly number[
 export function readBranchCurrents(model: CircuitModel, solution: readonly number[]): Map<string, number> {
   const currents = new Map<string, number>()
   for (const [name, row] of model.branchRows) currents.set(name, solution[row])
+  return currents
+}
+
+/**
+ * Current through each device at a solved point, keyed by designator.
+ *
+ * Branch-row devices (sources, inductors) come from the MNA solution; a
+ * resistor from Ohm's law; a diode/BJT/MOSFET/JFET from its own converged
+ * bias point. This is the current a power/thermal check needs, and it is the
+ * same number the model used to stamp the matrix — not a waveform guess.
+ * A capacitor is added only during transient, where its companion current is
+ * carried in the integration state.
+ */
+export function readDeviceCurrents(
+  model: CircuitModel,
+  voltages: ReadonlyMap<string, number>,
+  branchCurrents: ReadonlyMap<string, number>,
+  diodeOperatingPoints?: ReadonlyMap<string, DiodeOperatingPoint>,
+  semiconductor?: SemiconductorState,
+  state?: TransientState,
+): Map<string, number> {
+  const currents = new Map<string, number>()
+  const voltage = (node: string): number => voltages.get(node) ?? 0
+  for (const device of model.devices) {
+    let current: number | undefined
+    switch (device.kind) {
+      case 'voltage-source':
+      case 'inductor':
+        current = branchCurrents.get(device.name)
+        break
+      case 'current-source':
+        current = device.dcCurrent ?? 0
+        break
+      case 'resistor':
+        current = device.resistance > 0 ? (voltage(device.p) - voltage(device.n)) / device.resistance : undefined
+        break
+      case 'capacitor':
+        current = state ? state.capacitorCurrents.get(device.name) ?? 0 : undefined
+        break
+      case 'diode':
+        current = diodeOperatingPoints?.get(device.name)?.current
+        break
+      case 'bjt':
+        current = semiconductor?.bjt.get(device.name)?.ic
+        break
+      case 'mosfet':
+        current = semiconductor?.mosfet.get(device.name)?.id
+        break
+      case 'jfet':
+        current = semiconductor?.jfet.get(device.name)?.id
+        break
+      default:
+        current = undefined
+    }
+    if (current !== undefined && Number.isFinite(current)) currents.set(device.name, current)
+  }
   return currents
 }
 
@@ -458,6 +521,15 @@ export function runOperatingPoint(model: CircuitModel, options: OperatingPointOp
       waveforms: [],
       operatingPoint: Object.fromEntries(visible),
       branchCurrents: Object.fromEntries(readBranchCurrents(model, newton.solution)),
+      deviceCurrents: Object.fromEntries(
+        readDeviceCurrents(
+          model,
+          voltages,
+          readBranchCurrents(model, newton.solution),
+          newton.diodeOperatingPoints,
+          newton.semiconductor,
+        ),
+      ),
       iterations: newton.iterations,
       converged: newton.converged,
       notes,
@@ -941,6 +1013,39 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
     }
   }
 
+  const voltageSeries = new Map<string, Array<{ x: number; y: number }>>()
+  for (const node of model.nodeNames) voltageSeries.set(node, [])
+  /*
+   * Current through every device the model can report, sampled on the same
+   * accepted time points as the node voltages. This is what makes heating,
+   * rating margins, and source power visible from a transient rather than
+   * only from a DC operating point.
+   */
+  const currentSeries = new Map<string, Array<{ x: number; y: number }>>()
+  let lastDeviceCurrents = new Map<string, number>()
+
+  const recordDeviceCurrents = (
+    time: number,
+    voltages: ReadonlyMap<string, number>,
+    currents: ReadonlyMap<string, number>,
+    bias?: { diodeOperatingPoints: ReadonlyMap<string, DiodeOperatingPoint>; semiconductor: SemiconductorState },
+  ): void => {
+    const deviceCurrents = readDeviceCurrents(
+      model,
+      voltages,
+      currents,
+      bias?.diodeOperatingPoints,
+      bias?.semiconductor,
+      state,
+    )
+    for (const [name, current] of deviceCurrents) {
+      const series = currentSeries.get(name) ?? []
+      series.push({ x: time, y: current })
+      currentSeries.set(name, series)
+    }
+    lastDeviceCurrents = deviceCurrents
+  }
+
   /*
    * Accept one solved time point into the history the next companion reads.
    * The stored current is the one the companion just implied, so trapezoidal
@@ -948,10 +1053,12 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
    * from the same discrete derivative (including the backward-Euler startup).
    */
   const commitStep = (
+    time: number,
     voltages: ReadonlyMap<string, number>,
     currents: ReadonlyMap<string, number>,
     dtUsed: number,
     methodUsed: TransientIntegration,
+    bias?: { diodeOperatingPoints: ReadonlyMap<string, DiodeOperatingPoint>; semiconductor: SemiconductorState },
   ): void => {
     const factor = integrationFactor(methodUsed)
     const trapezoidal = methodUsed === 'trapezoidal'
@@ -985,10 +1092,8 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
       }
     }
     updateTransientState(model, state, voltages, thermal, { dt: dtUsed, method: methodUsed })
+    if (bias) recordDeviceCurrents(time, voltages, currents, bias)
   }
-
-  const voltageSeries = new Map<string, Array<{ x: number; y: number }>>()
-  for (const node of model.nodeNames) voltageSeries.set(node, [])
 
   let iterations = 0
   let converged = true
@@ -1052,6 +1157,7 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
       let subDt = dt / 2
       let sub = warmStart
       let subSolution: number[] | undefined
+      let subBias: { diodeOperatingPoints: ReadonlyMap<string, DiodeOperatingPoint>; semiconductor: SemiconductorState } | undefined
       let subIterations = newton?.iterations ?? 0
       let subbed = false
       while (subDt >= minStep && subDt > 0) {
@@ -1081,8 +1187,15 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
           }
           const attemptVoltages = readNodeVoltages(model, attempt.solution)
           const attemptCurrents = readBranchCurrents(model, attempt.solution)
-          commitStep(attemptVoltages, attemptCurrents, subDt, cursorMethod)
+          /*
+           * The current trace is recorded only once the whole subdivision
+           * succeeds. A failed smaller-dt retry rolls the integration state
+           * back; recording its accepted substeps first would leave points
+           * from an abandoned attempt in the plot.
+           */
+          commitStep(cursor, attemptVoltages, attemptCurrents, subDt, cursorMethod)
           recordTransmissionLines(model, state, attempt.solution, cursor)
+          subBias = attempt
           cursorStart = attempt.solution
           cursorSteps += 1
           cursorMethod = cursorSteps < startupSteps ? 'backward-euler' : method
@@ -1114,6 +1227,12 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
           if (isInternalNode(node)) continue
           voltageSeries.get(node)?.push({ x: time, y: voltages.get(node) ?? 0 })
         }
+        recordDeviceCurrents(
+          time,
+          voltages,
+          readBranchCurrents(model, subSolution as number[]),
+          subBias,
+        )
         continue
       }
     }
@@ -1134,7 +1253,7 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
     warmStart = newton.solution
     const voltages = readNodeVoltages(model, newton.solution)
     const currents = readBranchCurrents(model, newton.solution)
-    commitStep(voltages, currents, dt, stepMethod)
+    commitStep(time, voltages, currents, dt, stepMethod, newton)
     recordTransmissionLines(model, state, newton.solution, time)
     stepsAtCurrentDt += 1
     stepMethod = stepsAtCurrentDt < startupSteps ? 'backward-euler' : method
@@ -1150,8 +1269,20 @@ export function runTransient(model: CircuitModel, options: TransientOptions): An
     if (data.length === 0) continue
     waveforms.push({ name: `V(${node})`, type: 'voltage', unit: 'V', data })
   }
+  for (const [name, data] of currentSeries) {
+    if (data.length === 0) continue
+    waveforms.push({ name: `I(${name})`, type: 'current', unit: 'A', data })
+  }
 
-  return { nodes: [], waveforms, iterations, converged, notes }
+  return {
+    nodes: [],
+    waveforms,
+    iterations,
+    converged,
+    notes,
+    branchCurrents: warmStart ? Object.fromEntries(readBranchCurrents(model, warmStart)) : undefined,
+    deviceCurrents: Object.fromEntries(lastDeviceCurrents),
+  }
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

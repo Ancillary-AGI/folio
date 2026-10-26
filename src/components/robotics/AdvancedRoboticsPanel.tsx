@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { Button } from '../ui/button';
@@ -15,14 +15,39 @@ import {
   exportMechanismStep,
   type LinkMeasurement,
 } from '../../lib/robotics/mechanismExport';
-import { buildDemoArm, buildSixDofDemoMechanism } from '../../lib/demo/demoArm';
+import { buildDemoArm, buildSixDofDemoMechanism, buildTwoLinkDemoMechanism } from '../../lib/demo/demoArm';
 import { useDemoRequest } from '../workspace/useDemoRequest';
 import type { Finding } from '../../lib/robotics/manufacturability';
 import { checkTaskPath } from '../../lib/robotics/taskCheck';
 import RoboticsToolbox from './RoboticsToolbox';
+import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign';
 
 interface AdvancedRoboticsPanelProps {
   onClose?: () => void;
+}
+
+interface RoboticsDesign {
+  selectedMechanismId?: string | null;
+  jointAngles?: number[];
+  targetPosition?: { x: number; y: number; z: number };
+  clearanceEnabled?: boolean;
+  obstacle?: { x: number; y: number; z: number; size: number };
+}
+
+const roboticsNumber = (value: unknown, fallback: number): number =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+function roboticsPoint(
+  value: unknown,
+  fallback: { x: number; y: number; z: number },
+): { x: number; y: number; z: number } {
+  if (!value || typeof value !== 'object') return fallback;
+  const raw = value as Record<string, unknown>;
+  return {
+    x: roboticsNumber(raw.x, fallback.x),
+    y: roboticsNumber(raw.y, fallback.y),
+    z: roboticsNumber(raw.z, fallback.z),
+  };
 }
 
 /** Saves text to the user's disk, cleaning the object URL immediately. */
@@ -54,13 +79,52 @@ function formatJointValue(joint: Joint | undefined, value: number): string {
   return `${((value * 180) / Math.PI).toFixed(1)}°`;
 }
 
+const VIEW_DIRECTION = new THREE.Vector3(1, 0.55, 1).normalize();
+
+/** Frames the arm from its reachable workspace so a 0.7 m arm fills the view. */
+function cameraFit(mechanism: Mechanism): { center: THREE.Vector3; distance: number } {
+  const box = mechanism.workspace.reachable;
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const extent = Math.max(size.x, size.y, size.z, 0.5);
+  return { center, distance: extent * 1.5 };
+}
+
+/**
+ * Fits the view when a mechanism is selected. Joint sliders deliberately do
+ * not re-frame: a camera that chases the tool would make the arm impossible
+ * to inspect while dragging a slider.
+ */
+const CameraFit: React.FC<{ mechanism: Mechanism | null }> = ({ mechanism }) => {
+  const camera = useThree((state) => state.camera);
+  const controls = useThree((state) => state.controls) as unknown as
+    | { target: THREE.Vector3; update: () => void }
+    | null;
+
+  useEffect(() => {
+    if (!mechanism) return;
+    const { center, distance } = cameraFit(mechanism);
+    camera.position.copy(center).addScaledVector(VIEW_DIRECTION, distance);
+    camera.lookAt(center);
+    if (controls) {
+      controls.target.copy(center);
+      controls.update();
+    }
+  }, [mechanism, camera, controls]);
+
+  return null;
+};
+
 export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ onClose }) => {
+  const saved = loadDomainDesign<RoboticsDesign>('robotics');
   const [mechanisms, setMechanisms] = useState<Mechanism[]>([]);
   const [selectedMechanism, setSelectedMechanism] = useState<Mechanism | null>(null);
   const [jointAngles, setJointAngles] = useState<number[]>([]);
   const [isSimulating, setIsSimulating] = useState(false);
   const [, setSimulationResults] = useState<ReturnType<typeof advancedRobotics.simulateMechanism>>([]);
-  const [targetPosition, setTargetPosition] = useState({ x: 0.5, y: 0.3, z: 0.2 });
+  const [targetPosition, setTargetPosition] = useState(() =>
+    roboticsPoint(saved?.targetPosition, { x: 0.5, y: 0.3, z: 0.2 }),
+  );
   const [trajectory, setTrajectory] = useState<Trajectory | null>(null);
   const [plannedMove, setPlannedMove] = useState<{ start: number[]; target: number[] } | null>(null);
   const [showWorkspace, setShowWorkspace] = useState(false);
@@ -70,12 +134,47 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
   /** Findings from the last refused STEP export; empty when the last export succeeded. */
   const [exportBlocked, setExportBlocked] = useState<Finding[]>([]);
   const [showToolbox, setShowToolbox] = useState(false);
-  const [clearanceEnabled, setClearanceEnabled] = useState(false);
-  const [obstacle, setObstacle] = useState({ x: 0.35, y: 0.2, z: 0.25, size: 0.16 });
+  const [clearanceEnabled, setClearanceEnabled] = useState(saved?.clearanceEnabled === true);
+  const [obstacle, setObstacle] = useState(() => {
+    const point = roboticsPoint(saved?.obstacle, { x: 0.35, y: 0.2, z: 0.25 });
+    return { ...point, size: roboticsNumber((saved?.obstacle as { size?: unknown } | undefined)?.size, 0.16) };
+  });
   const [pathResult, setPathResult] = useState<Awaited<ReturnType<typeof checkTaskPath>> | null>(null);
   const [pathBusy, setPathBusy] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  usePublishDomainDesign('robotics', {
+    selectedMechanismId: selectedMechanism?.id ?? null,
+    jointAngles,
+    targetPosition,
+    clearanceEnabled,
+    obstacle,
+  }, (next) => {
+    if (typeof next.selectedMechanismId === 'string') {
+      const found = mechanisms.find((mechanism) => mechanism.id === next.selectedMechanismId)
+        ?? advancedRobotics.getMechanism(next.selectedMechanismId);
+      if (found) {
+        setSelectedMechanism(found);
+        if (!Array.isArray(next.jointAngles)) {
+          setJointAngles(Array.from(found.joints.values()).map((joint) => joint.angle));
+        }
+      }
+    }
+    if (Array.isArray(next.jointAngles) && next.jointAngles.every((angle) => Number.isFinite(angle))) {
+      setJointAngles([...next.jointAngles]);
+    }
+    setTargetPosition(roboticsPoint(next.targetPosition, { x: 0.5, y: 0.3, z: 0.2 }));
+    if (typeof next.clearanceEnabled === 'boolean') setClearanceEnabled(next.clearanceEnabled);
+    const point = roboticsPoint(next.obstacle, { x: 0.35, y: 0.2, z: 0.25 });
+    setObstacle({
+      ...point,
+      size: roboticsNumber((next.obstacle as { size?: unknown } | undefined)?.size, 0.16),
+    });
+    setTrajectory(null);
+    setPathResult(null);
+    setRunMessage(null);
+  });
 
   const initializeJointAngles = (mechanism: Mechanism) => {
     const angles = Array.from(mechanism.joints.values()).map(joint => joint.angle);
@@ -106,11 +205,17 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
     initializeJointAngles(mechanism);
   };
 
-  useDemoRequest('robotics-demo', () => {
-    createSampleMechanism();
+  /** Load the planar arm the demo and its card actually describe. */
+  const loadTwoLinkDemo = () => {
+    const mechanism = buildTwoLinkDemoMechanism();
+    loadMechanisms();
+    setSelectedMechanism(mechanism);
+    initializeJointAngles(mechanism);
     const demo = buildDemoArm();
     setRunMessage({ kind: demo.export.ok ? 'ok' : 'error', text: demo.verdict });
-  });
+  };
+
+  useDemoRequest('robotics-demo', loadTwoLinkDemo);
 
   const runForwardKinematics = () => {
     if (!selectedMechanism) return;
@@ -472,10 +577,7 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
             <Button
               variant="outline"
               className="w-full"
-              onClick={() => {
-                const demo = buildDemoArm();
-                setRunMessage({ kind: demo.export.ok ? 'ok' : 'error', text: demo.verdict });
-              }}
+              onClick={loadTwoLinkDemo}
             >
               Load 2-link demo (FK + STEP)
             </Button>
@@ -800,22 +902,46 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
       <div className="flex-1 relative">
         <Canvas
           ref={canvasRef}
-          camera={{ position: [2, 2, 2], fov: 50 }}
-          style={{ background: '#f0f0f0' }}
+          camera={{ position: [0.9, 0.55, 1.0], fov: 45, near: 0.01, far: 100 }}
+          shadows
         >
-          <ambientLight intensity={0.4} />
-          <directionalLight position={[10, 10, 5]} intensity={1} />
+          <ambientLight intensity={0.55} />
+          <hemisphereLight args={['#bcd6ff', '#1f2126', 0.6]} />
+          <directionalLight
+            position={[4, 6, 3]}
+            intensity={1.4}
+            castShadow
+            shadow-mapSize-width={2048}
+            shadow-mapSize-height={2048}
+            shadow-camera-left={-2}
+            shadow-camera-right={2}
+            shadow-camera-top={2}
+            shadow-camera-bottom={-2}
+            shadow-camera-near={0.1}
+            shadow-camera-far={20}
+          />
 
-          {/* Grid */}
-          <Grid args={[10, 10]} />
+          {/* Ground grid in theme greys; the old 10×10 pale-blue grid dwarfed the arm. */}
+          <Grid
+            position={[0, -0.001, 0]}
+            cellSize={0.05}
+            cellThickness={0.6}
+            cellColor="#3f3f46"
+            sectionSize={0.25}
+            sectionThickness={1}
+            sectionColor="#63636b"
+            fadeDistance={6}
+            fadeStrength={1.5}
+            infiniteGrid
+          />
 
           {/* Mechanism Visualization */}
           {selectedMechanism && <MechanismVisualization mechanism={selectedMechanism} jointAngles={jointAngles} />}
 
           {/* Target Position */}
           <mesh position={[targetPosition.x, targetPosition.y, targetPosition.z]}>
-            <sphereGeometry args={[0.02]} />
-            <meshBasicMaterial color="red" />
+            <sphereGeometry args={[0.025, 20, 14]} />
+            <meshStandardMaterial color="#ef4444" emissive="#7f1d1d" emissiveIntensity={0.8} />
           </mesh>
 
           {/* Clearance obstacle used by the task-path check */}
@@ -834,9 +960,19 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
           {/* Trajectory Visualization */}
           {trajectory && <TrajectoryVisualization trajectory={trajectory} />}
 
-          <OrbitControls enablePan={true} enableZoom={true} enableRotate={true} />
+          <OrbitControls
+            makeDefault
+            enablePan
+            enableZoom
+            enableRotate
+            enableDamping
+            dampingFactor={0.08}
+            minDistance={0.2}
+            maxDistance={20}
+          />
+          <CameraFit mechanism={selectedMechanism} />
           <GizmoHelper alignment="bottom-right" margin={[80, 80]}>
-            <GizmoViewport axisColors={['red', 'green', 'blue']} labelColor="black" />
+            <GizmoViewport axisColors={['red', 'green', 'blue']} labelColor="#d4d4d8" />
           </GizmoHelper>
         </Canvas>
 
@@ -878,7 +1014,7 @@ const MechanismVisualization: React.FC<{ mechanism: Mechanism; jointAngles: numb
   return (
     <group position={[base.x, base.y, base.z]}>
       {/* Base */}
-      <mesh>
+      <mesh castShadow receiveShadow>
         <boxGeometry args={[0.2, 0.2, 0.1]} />
         <meshPhongMaterial color="#666666" />
       </mesh>
@@ -889,7 +1025,7 @@ const MechanismVisualization: React.FC<{ mechanism: Mechanism; jointAngles: numb
         const orientation = fkResult.orientations[index];
         if (!position || !orientation) return null;
         return (
-          <mesh key={link.id} position={position} quaternion={orientation}>
+          <mesh key={link.id} position={position} quaternion={orientation} castShadow receiveShadow>
             <primitive object={link.geometry} />
             <primitive object={link.material} />
           </mesh>
@@ -900,17 +1036,17 @@ const MechanismVisualization: React.FC<{ mechanism: Mechanism; jointAngles: numb
       {joints.map((joint, index) => {
         const position = fkResult.positions[index] ?? joint.position;
         return (
-          <mesh key={joint.id} position={position}>
-            <sphereGeometry args={[0.02]} />
-            <meshPhongMaterial color="#ff6600" />
+          <mesh key={joint.id} position={position} castShadow>
+            <sphereGeometry args={[0.032, 24, 16]} />
+            <meshStandardMaterial color="#f97316" metalness={0.35} roughness={0.4} />
           </mesh>
         );
       })}
 
       {/* Tool point (last joint plus the end-effector offset) */}
       <mesh position={toolPosition}>
-        <sphereGeometry args={[0.015]} />
-        <meshPhongMaterial color="#22c55e" />
+        <sphereGeometry args={[0.018, 20, 14]} />
+        <meshStandardMaterial color="#22c55e" emissive="#14532d" emissiveIntensity={0.6} />
       </mesh>
     </group>
   );

@@ -718,11 +718,6 @@ export class DigitalTwinService {
     return units[type] || 'unit';
   }
 
-  stopSynchronization(): void {
-    // Background sync was removed (it fabricated sensor/IoT traffic on a
-    // timer); kept as a no-op so existing callers keep compiling.
-  }
-
   getAllDigitalTwins(): DigitalTwin[] {
     return Array.from(this.twins.values());
   }

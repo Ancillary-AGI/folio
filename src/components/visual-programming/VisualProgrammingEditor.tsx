@@ -12,10 +12,13 @@ import {
   Background,
   BackgroundVariant,
   NodeTypes,
-  ReactFlowInstance
+  ReactFlowInstance,
+  Handle,
+  Position
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { Button } from '../ui/button';
+import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign';
 import {
   Wrench,
   Download,
@@ -69,9 +72,20 @@ interface NodeData {
   ms?: number;
 }
 
+// Explicit handle ids keep edge binding unambiguous in React Flow. Every node
+// uses the same "in"/"out" contract, so a connection made in the UI serialises
+// to a program that can be loaded again.
+const NodeHandles = ({ target, source }: { target?: boolean; source?: boolean }) => (
+  <>
+    {target && <Handle id="in" type="target" position={Position.Left} className="!bg-primary" />}
+    {source && <Handle id="out" type="source" position={Position.Right} className="!bg-primary" />}
+  </>
+);
+
 // Custom node types
 const InputNode = ({ data }: { data: NodeData }) => (
-  <div className="px-4 py-2 shadow-md rounded-md bg-primary text-primary-foreground border-2 border-primary">
+  <div className="relative px-4 py-2 shadow-md rounded-md bg-primary text-primary-foreground border-2 border-primary">
+    <NodeHandles source />
     <div className="flex items-center">
       <div className="ml-2">
         <div className="text-lg font-bold">{data.label}</div>
@@ -82,7 +96,8 @@ const InputNode = ({ data }: { data: NodeData }) => (
 );
 
 const OutputNode = ({ data }: { data: NodeData }) => (
-  <div className="px-4 py-2 shadow-md rounded-md bg-success text-success-foreground border-2 border-success">
+  <div className="relative px-4 py-2 shadow-md rounded-md bg-success text-success-foreground border-2 border-success">
+    <NodeHandles target />
     <div className="flex items-center">
       <div className="ml-2">
         <div className="text-lg font-bold">{data.label}</div>
@@ -93,7 +108,8 @@ const OutputNode = ({ data }: { data: NodeData }) => (
 );
 
 const ProcessNode = ({ data }: { data: NodeData }) => (
-  <div className="px-4 py-2 shadow-md rounded-md bg-info text-info-foreground border-2 border-info">
+  <div className="relative px-4 py-2 shadow-md rounded-md bg-info text-info-foreground border-2 border-info">
+    <NodeHandles target source />
     <div className="flex items-center">
       <div className="ml-2">
         <div className="text-lg font-bold">{data.label}</div>
@@ -111,7 +127,8 @@ const ProcessNode = ({ data }: { data: NodeData }) => (
 );
 
 const ConditionNode = ({ data }: { data: NodeData }) => (
-  <div className="px-4 py-2 shadow-md rounded-md bg-warning text-warning-foreground border-2 border-warning">
+  <div className="relative px-4 py-2 shadow-md rounded-md bg-warning text-warning-foreground border-2 border-warning">
+    <NodeHandles target source />
     <div className="flex items-center">
       <div className="ml-2">
         <div className="text-lg font-bold">{data.label}</div>
@@ -122,7 +139,8 @@ const ConditionNode = ({ data }: { data: NodeData }) => (
 );
 
 const LoopNode = ({ data }: { data: NodeData }) => (
-  <div className="px-4 py-2 shadow-md rounded-md bg-destructive text-destructive-foreground border-2 border-destructive">
+  <div className="relative px-4 py-2 shadow-md rounded-md bg-destructive text-destructive-foreground border-2 border-destructive">
+    <NodeHandles target source />
     <div className="flex items-center">
       <div className="ml-2">
         <div className="text-lg font-bold">{data.label}</div>
@@ -134,7 +152,8 @@ const LoopNode = ({ data }: { data: NodeData }) => (
 );
 
 const FunctionNode = ({ data }: { data: NodeData }) => (
-  <div className="px-4 py-2 shadow-md rounded-md bg-primary text-primary-foreground border-2 border-primary">
+  <div className="relative px-4 py-2 shadow-md rounded-md bg-primary text-primary-foreground border-2 border-primary">
+    <NodeHandles target source />
     <div className="flex items-center">
       <div className="ml-2">
         <div className="text-lg font-bold">{data.label}</div>
@@ -219,10 +238,11 @@ const DEMO_NODES: Node[] = [
   { id: 'servo', type: 'output', position: { x: 320, y: 280 }, data: { label: 'Servo Motor', type: 'servo', pin: 9 } },
 ]
 
+// Data flows from sensors to actuators. The Loop block is the sketch's main
+// loop declaration, not a data source, so it stays unconnected.
 const DEMO_EDGES: Edge[] = [
-  { id: 'e-loop-button', source: 'loop', target: 'button', animated: true },
-  { id: 'e-button-led', source: 'button', target: 'led', animated: true },
-  { id: 'e-light-servo', source: 'light', target: 'servo', animated: true },
+  { id: 'e-button-led', source: 'button', sourceHandle: 'out', target: 'led', targetHandle: 'in', animated: true },
+  { id: 'e-light-servo', source: 'light', sourceHandle: 'out', target: 'servo', targetHandle: 'in', animated: true },
 ]
 
 function getBlockDescription(data: unknown): string {
@@ -235,20 +255,128 @@ function getBlockDescription(data: unknown): string {
   return ''
 }
 
+interface StoredGraph {
+  nodes: Node[]
+  edges: Edge[]
+}
+
+/**
+ * React Flow decorates nodes with selection, drag and measurement fields that
+ * are not design data. Persist only the graph, so selecting a block does not
+ * appear as a version-control change.
+ */
+function toStoredGraph(nodes: Node[], edges: Edge[]): StoredGraph {
+  return {
+    nodes: nodes.map((node) => ({
+      id: node.id,
+      type: node.type,
+      position: { x: node.position.x, y: node.position.y },
+      data: node.data as Record<string, unknown>,
+    })),
+    edges: edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      sourceHandle: edge.sourceHandle ?? null,
+      target: edge.target,
+      targetHandle: edge.targetHandle ?? null,
+      animated: edge.animated,
+    })),
+  }
+}
+
+function readStoredGraph(value: unknown): StoredGraph | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as { nodes?: unknown; edges?: unknown }
+  if (!Array.isArray(raw.nodes) || !Array.isArray(raw.edges)) return null
+  const nodes: Node[] = []
+  for (const candidate of raw.nodes) {
+    if (!candidate || typeof candidate !== 'object') continue
+    const node = candidate as Record<string, unknown>
+    const position = node.position as Record<string, unknown> | undefined
+    if (typeof node.id !== 'string' || typeof node.type !== 'string' || !position
+      || typeof position.x !== 'number' || !Number.isFinite(position.x)
+      || typeof position.y !== 'number' || !Number.isFinite(position.y)) continue
+    nodes.push({
+      id: node.id,
+      type: node.type,
+      position: { x: position.x, y: position.y },
+      data: node.data && typeof node.data === 'object' ? node.data as Record<string, unknown> : {},
+    })
+  }
+  const edges: Edge[] = []
+  for (const candidate of raw.edges) {
+    if (!candidate || typeof candidate !== 'object') continue
+    const edge = candidate as Record<string, unknown>
+    if (typeof edge.id !== 'string' || typeof edge.source !== 'string' || typeof edge.target !== 'string') continue
+    edges.push({
+      id: edge.id,
+      source: edge.source,
+      sourceHandle: typeof edge.sourceHandle === 'string' ? edge.sourceHandle : undefined,
+      target: edge.target,
+      targetHandle: typeof edge.targetHandle === 'string' ? edge.targetHandle : undefined,
+      animated: edge.animated === true,
+    })
+  }
+  return { nodes, edges }
+}
+
 export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEditorProps) {
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const saved = loadDomainDesign<StoredGraph>('visual-blocks')
+  const savedGraph = readStoredGraph(saved)
+  const [nodes, setNodes, onNodesChange] = useNodesState(savedGraph?.nodes ?? []);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(savedGraph?.edges ?? []);
   const [selectedCategory, setSelectedCategory] = useState('Input/Output');
   const [generatedCode, setGeneratedCode] = useState('');
   const [showCode, setShowCode] = useState(false);
   const [buildReport, setBuildReport] = useState<BuildReport | null>(null);
 
+  usePublishDomainDesign('visual-blocks', toStoredGraph(nodes, edges), (next) => {
+    const graph = readStoredGraph(next)
+    if (!graph) return
+    setNodes(graph.nodes)
+    setEdges(graph.edges)
+    setGeneratedCode('')
+    setBuildReport(null)
+    setShowCode(false)
+  });
+
+  /**
+   * Compile a graph into a report. Takes the graph explicitly so the gallery
+   * demo can build the freshly loaded nodes before React commits them.
+   */
+  const applyProgramBuild = (graphNodes: Node[]) => {
+    const code = generateArduinoProgram(graphNodes);
+    setGeneratedCode(code);
+    setShowCode(true);
+    const analysis = analyseSource(code, { requireSetupAndLoop: true });
+    const image = buildFirmwareImage(code);
+
+    setBuildReport({
+      ok: analysis.errors.length === 0,
+      flashEstimate: analysis.flashEstimate,
+      ramEstimate: analysis.ramEstimate,
+      imageBytes: image.imageBytes,
+      baseAddress: image.baseAddress,
+      hex: image.hex,
+      errors: analysis.errors.map(error => `Line ${error.line}:${error.column} — ${error.message}`),
+      notes: [
+        ...analysis.warnings.map(warning => ({
+          severity: warning.severity as 'warning' | 'info',
+          text: `Line ${warning.line}:${warning.column} — ${warning.message}`,
+        })),
+        { severity: 'info' as const, text: describeImageCaveat() },
+        {
+          severity: 'info' as const,
+          text: 'Uploading to a physical board requires a connected programmer — see the Arduino / HIL workspace.',
+        },
+      ],
+    });
+  };
+
   useDemoRequest('visual-blocks', () => {
     setNodes(DEMO_NODES);
     setEdges(DEMO_EDGES);
-    setGeneratedCode('');
-    setShowCode(false);
-    setBuildReport(null);
+    applyProgramBuild(DEMO_NODES);
   });
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
@@ -311,30 +439,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
     // A browser cannot flash hardware, so "Run" performs the real part of the
     // pipeline: generate the sketch, run the compiler's static checks, and build
     // a spec-correct firmware image. Results are reported verbatim below.
-    const code = generateArduinoCode();
-    const analysis = analyseSource(code, { requireSetupAndLoop: true });
-    const image = buildFirmwareImage(code);
-
-    setBuildReport({
-      ok: analysis.errors.length === 0,
-      flashEstimate: analysis.flashEstimate,
-      ramEstimate: analysis.ramEstimate,
-      imageBytes: image.imageBytes,
-      baseAddress: image.baseAddress,
-      hex: image.hex,
-      errors: analysis.errors.map(error => `Line ${error.line}:${error.column} — ${error.message}`),
-      notes: [
-        ...analysis.warnings.map(warning => ({
-          severity: warning.severity as 'warning' | 'info',
-          text: `Line ${warning.line}:${warning.column} — ${warning.message}`,
-        })),
-        { severity: 'info' as const, text: describeImageCaveat() },
-        {
-          severity: 'info' as const,
-          text: 'Uploading to a physical board requires a connected programmer — see the Arduino / HIL workspace.',
-        },
-      ],
-    });
+    applyProgramBuild(nodes);
   };
 
   const handleDownloadHex = () => {

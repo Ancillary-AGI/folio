@@ -8,6 +8,15 @@ import { THEMES, hslTripletToRgb, rgbToHex } from '../lib/theme/tokens'
 import Konva from 'konva'
 import { generateId } from '../lib/utils'
 import { applyContextAction, CONTEXT_ACTIONS, validateSymbol, type ContextActionId } from '../lib/schematic/contextMenu'
+import { routePoints } from '../lib/schematic/wireRouting'
+import {
+  drawingExtents,
+  frameAround,
+  layoutComponentLabels,
+  pinWorldCoord,
+  rotatePinCoord,
+  wireJunctions,
+} from '../lib/schematic/drawingLayout'
 
 const RULER_SIZE = 18
 const RULER_STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000]
@@ -15,28 +24,6 @@ const RULER_STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000
 /** Compact coordinate label for rulers and the HUD. */
 const fmtCoord = (value: number) =>
   Math.abs(value) >= 1000 ? String(Math.round(value)) : String(Math.round(value * 10) / 10)
-
-/** Pin offset rotated by the part's rotation (degrees, clockwise positive).
-    Konva rotates the Group about its x/y origin, so this matches. Pure —
-    safe to call from any memo. */
-const rotatePinCoord = (
-  pin: { x: number; y: number },
-  rotationDegrees: number,
-): { x: number; y: number } => {
-  const radians = ((rotationDegrees % 360) * Math.PI) / 180
-  const cos = Math.cos(radians)
-  const sin = Math.sin(radians)
-  return { x: pin.x * cos - pin.y * sin, y: pin.x * sin + pin.y * cos }
-}
-
-/** World position of a pin: part origin plus rotated offset. */
-const pinWorldCoord = (
-  comp: { x: number; y: number; rotation: number },
-  pin: { x: number; y: number },
-): { x: number; y: number } => {
-  const rotated = rotatePinCoord(pin, comp.rotation)
-  return { x: comp.x + rotated.x, y: comp.y + rotated.y }
-}
 
 interface SchematicCanvasProps {
   components: Component[]
@@ -110,6 +97,8 @@ export default function SchematicCanvas({
     removeComponent,
     markDirty,
     liveFrame,
+    currentProject,
+    currentSchematic,
   } = useProjectStore()
 
   // Konva renders raw strings, not CSS variables, so resolve the canvas
@@ -186,17 +175,20 @@ export default function SchematicCanvas({
         maxY = Math.max(maxY, comp.y + height)
       }
 
-      const padding = 48
-      const frameWidth = maxX - minX + padding * 2
-      const frameHeight = maxY - minY + padding * 2
+      const frame = frameAround({ minX, minY, maxX, maxY })
+      // Keep a margin around the sheet and centre it in the drawing area
+      // (the rulers are 18 px overlays on the top and left edges).
+      const rulerInset = useAppStore.getState().settings.showRulers ? RULER_SIZE : 0
+      const availableWidth = Math.max(120, stageSize.width - 32 - rulerInset)
+      const availableHeight = Math.max(120, stageSize.height - 32 - rulerInset)
       const zoom = Math.max(
         0.1,
-        Math.min(5, Math.min(stageSize.width / frameWidth, stageSize.height / frameHeight)),
+        Math.min(5, Math.min(availableWidth / frame.width, availableHeight / frame.height)),
       )
       setZoom(zoom)
       setPan({
-        x: stageSize.width / 2 - ((minX + maxX) / 2) * zoom,
-        y: stageSize.height / 2 - ((minY + maxY) / 2) * zoom,
+        x: (rulerInset + stageSize.width) / 2 - (frame.x + frame.width / 2) * zoom,
+        y: (rulerInset + stageSize.height) / 2 - (frame.y + frame.height / 2) * zoom,
       })
     }
 
@@ -481,11 +473,19 @@ export default function SchematicCanvas({
     }
     const start = pinWorldCoord(startComp, startPin)
     const end = pinWorldCoord(endComp, endPin)
-    // Drafting rule: every new wire is orthogonal (one L corner). Diagonal
-    // pin-to-pin runs are what made the sheet read as crisscross spaghetti.
-    const points = (start.x === end.x || start.y === end.y)
-      ? [start, end]
-      : [start, { x: end.x, y: start.y }, end]
+    // Drafting rule: one orthogonal corner, chosen so the wire does not run
+    // through another terminal or wire end (which would silently join nets).
+    const obstacles = [
+      ...canvasComponents.flatMap((comp) =>
+        comp.component.pins.map((pin) => pinWorldCoord(comp, pin)),
+      ),
+      ...wires.flatMap((wire) => {
+        const first = wire.points[0]
+        const last = wire.points[wire.points.length - 1]
+        return [first, last].filter((point): point is { x: number; y: number } => point !== undefined)
+      }),
+    ]
+    const points = routePoints(start, end, obstacles)
     addWire({
       id: generateId('wire'),
       points,
@@ -563,6 +563,40 @@ export default function SchematicCanvas({
   )
 
   /*
+   * Annotation placement. Reference and value are laid out in world space so
+   * they stay horizontal when a part is rotated (rotating a body must not
+   * rotate its text), then the chosen block is tested against every part,
+   * wire segment and already-placed label. Above is preferred, then below,
+   * then the sides — the first collision-free candidate wins.
+   */
+  const labelLayout = useMemo(
+    () => layoutComponentLabels(canvasComponents, wires),
+    [canvasComponents, wires],
+  )
+
+  /*
+   * Drawing sheet: a border, zone references and a title block sized around
+   * the circuit. The extra bottom padding keeps the title block clear of the
+   * annotations, so a screenshot of the sheet reads as a drawing rather than
+   * a floating canvas.
+   */
+  const sheetFrame = useMemo(() => {
+    if (canvasComponents.length === 0) return null
+    const frame = frameAround(drawingExtents(canvasComponents, wires, labelLayout))
+    const blockWidth = Math.min(300, frame.width - 40)
+    const blockHeight = 88
+    return {
+      ...frame,
+      block: {
+        x: frame.x + frame.width - 14 - blockWidth,
+        y: frame.y + frame.height - 14 - blockHeight,
+        width: blockWidth,
+        height: blockHeight,
+      },
+    }
+  }, [canvasComponents, wires, labelLayout])
+
+  /*
    * Deletion is a cross-cutting shortcut, so it is memoised and attached once.
    * Re-registering the listener on every selection change is what made the
    * previous version stale-prone.
@@ -601,6 +635,213 @@ export default function SchematicCanvas({
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
+
+  /*
+   * Sheet border and title block. Strokes are divided by zoom so the frame
+   * keeps a one-pixel drafting weight at any magnification; text scales with
+   * the sheet (that is what a printed drawing does).
+   */
+  const renderSheetFrame = () => {
+    if (!sheetFrame) return null
+    const { x, y, width, height, block } = sheetFrame
+    const { zoom } = viewport
+    const strong = palette.ref
+    const quiet = palette.value
+    const outerStroke = 1.35 / zoom
+    const hairline = 0.7 / zoom
+    const title = currentSchematic?.name || currentProject?.name || 'Untitled schematic'
+    const date = new Date().toISOString().slice(0, 10)
+    const columns = ['A', 'B', 'C', 'D']
+    const rows = ['1', '2', '3']
+    const fontFamily = "Inter, 'Segoe UI', system-ui, sans-serif"
+    const cells = [
+      { label: 'SIZE', value: 'A4' },
+      { label: 'SCALE', value: 'NTS' },
+      { label: 'DATE', value: date },
+      { label: 'SHEET', value: '1/1' },
+    ]
+
+    return (
+      <Group listening={false}>
+        <Rect x={x} y={y} width={width} height={height} stroke={strong} strokeWidth={outerStroke} fillEnabled={false} />
+        <Rect
+          x={x + 14}
+          y={y + 14}
+          width={width - 28}
+          height={height - 28}
+          stroke={strong}
+          strokeWidth={hairline}
+          fillEnabled={false}
+        />
+
+        {columns.map((zone, index) => (
+          <Text
+            key={`zone-c-${zone}`}
+            text={zone}
+            x={x + (width * (index + 0.5)) / 4 - 5}
+            y={y + 3}
+            width={10}
+            align="center"
+            fontSize={8}
+            fontFamily={fontFamily}
+            fill={quiet}
+          />
+        ))}
+        {rows.map((zone, index) => (
+          <Text
+            key={`zone-r-${zone}`}
+            text={zone}
+            x={x + 3}
+            y={y + (height * (index + 0.5)) / 3 - 5}
+            width={10}
+            align="center"
+            fontSize={8}
+            fontFamily={fontFamily}
+            fill={quiet}
+          />
+        ))}
+
+        {[1, 2, 3].map((index) => (
+          <Line
+            key={`tick-t-${index}`}
+            points={[x + (width * index) / 4, y + 8, x + (width * index) / 4, y + 14]}
+            stroke={strong}
+            strokeWidth={hairline}
+          />
+        ))}
+        {[1, 2, 3].map((index) => (
+          <Line
+            key={`tick-b-${index}`}
+            points={[
+              x + (width * index) / 4,
+              y + height - 14,
+              x + (width * index) / 4,
+              y + height - 8,
+            ]}
+            stroke={strong}
+            strokeWidth={hairline}
+          />
+        ))}
+        {[1, 2].map((index) => (
+          <Line
+            key={`tick-l-${index}`}
+            points={[x + 8, y + (height * index) / 3, x + 14, y + (height * index) / 3]}
+            stroke={strong}
+            strokeWidth={hairline}
+          />
+        ))}
+        {[1, 2].map((index) => (
+          <Line
+            key={`tick-r-${index}`}
+            points={[
+              x + width - 14,
+              y + (height * index) / 3,
+              x + width - 8,
+              y + (height * index) / 3,
+            ]}
+            stroke={strong}
+            strokeWidth={hairline}
+          />
+        ))}
+
+        <Rect
+          x={block.x}
+          y={block.y}
+          width={block.width}
+          height={block.height}
+          fill={palette.sheet}
+          stroke={strong}
+          strokeWidth={hairline}
+        />
+        <Line
+          points={[block.x, block.y + 22, block.x + block.width, block.y + 22]}
+          stroke={strong}
+          strokeWidth={hairline}
+        />
+        <Line
+          points={[block.x, block.y + 58, block.x + block.width, block.y + 58]}
+          stroke={strong}
+          strokeWidth={hairline}
+        />
+        {[1, 2, 3].map((index) => (
+          <Line
+            key={`title-cell-${index}`}
+            points={[
+              block.x + (block.width * index) / 4,
+              block.y + 58,
+              block.x + (block.width * index) / 4,
+              block.y + block.height,
+            ]}
+            stroke={strong}
+            strokeWidth={hairline}
+          />
+        ))}
+
+        <Text
+          text="FOLIO"
+          x={block.x + 8}
+          y={block.y + 5}
+          fontSize={12}
+          fontStyle="bold"
+          fontFamily={fontFamily}
+          fill={strong}
+        />
+        <Text
+          text="REV A"
+          x={block.x + 8}
+          y={block.y + 7}
+          width={block.width - 16}
+          align="right"
+          fontSize={8}
+          fontFamily={fontFamily}
+          fill={quiet}
+        />
+        <Text
+          text="TITLE"
+          x={block.x + 8}
+          y={block.y + 25}
+          fontSize={6}
+          fontFamily={fontFamily}
+          fill={quiet}
+        />
+        <Text
+          text={title}
+          x={block.x + 8}
+          y={block.y + 32}
+          width={block.width - 16}
+          fontSize={12}
+          fontStyle="bold"
+          fontFamily={fontFamily}
+          fill={strong}
+          wrap="none"
+          ellipsis
+        />
+        {cells.map((cell, index) => {
+          const cellX = block.x + (block.width * index) / 4 + 6
+          return (
+            <Group key={cell.label}>
+              <Text
+                text={cell.label}
+                x={cellX}
+                y={block.y + 62}
+                fontSize={6}
+                fontFamily={fontFamily}
+                fill={quiet}
+              />
+              <Text
+                text={cell.value}
+                x={cellX}
+                y={block.y + 69}
+                fontSize={8}
+                fontFamily={fontFamily}
+                fill={strong}
+              />
+            </Group>
+          )
+        })}
+      </Group>
+    )
+  }
 
   const renderGrid = () => {
     if (!settings.showGrid) return null
@@ -699,7 +940,7 @@ export default function SchematicCanvas({
           height={canvasComp.component.symbol_data.height}
           fill="transparent"
           stroke={lit || isSelected ? palette.selectedStroke : 'transparent'}
-          strokeWidth={lit || isSelected ? 2 : 0}
+          strokeWidth={lit || isSelected ? 2 / zoom : 0}
           shadowBlur={lit ? 12 : 0}
           shadowColor={lit ? palette.selectedStroke : 'transparent'}
         />
@@ -715,29 +956,42 @@ export default function SchematicCanvas({
             lineJoin="round"
           />
         ))}
-        {/* Component label */}
-        <Text
-          text={canvasComp.reference}
-          x={canvasComp.component.symbol_data.width / 2}
-          y={-20}
-          fontSize={12}
-          fill={palette.ref}
-          align="center"
-          offsetX={canvasComp.reference.length * 3}
-        />
 
-        {/* Component value */}
-        {(canvasComp.properties.value ?? canvasComp.properties.voltage ?? canvasComp.properties.type) && (
-          <Text
-            text={String(canvasComp.properties.value ?? canvasComp.properties.voltage ?? canvasComp.properties.type)}
-            x={canvasComp.component.symbol_data.width / 2}
-            y={canvasComp.component.symbol_data.height + 5}
-            fontSize={10}
-            fill={palette.value}
-            align="center"
-            offsetX={String(canvasComp.properties.value ?? canvasComp.properties.voltage ?? canvasComp.properties.type).length * 2.5}
-          />
-        )}
+        {/* Reference + value, placed in world space and counter-rotated so
+            they stay horizontal while the symbol body turns. */}
+        {labelLayout.get(canvasComp.id)?.lines.map((line, index) => {
+          const placement = labelLayout.get(canvasComp.id)
+          if (!placement) return null
+          const radians = (-canvasComp.rotation * Math.PI) / 180
+          const worldX = placement.box.x + placement.box.width / 2 - canvasComp.x
+          const worldY = placement.box.y + line.centerY - canvasComp.y
+          const local = {
+            x: worldX * Math.cos(radians) - worldY * Math.sin(radians),
+            y: worldX * Math.sin(radians) + worldY * Math.cos(radians),
+          }
+          return (
+            <Text
+              key={`label-${index}`}
+              text={line.text}
+              x={local.x}
+              y={local.y}
+              width={placement.box.width}
+              align="center"
+              fontSize={line.fontSize}
+              fontStyle={line.bold ? 'bold' : 'normal'}
+              fontFamily="Inter, 'Segoe UI', system-ui, sans-serif"
+              fill={line.bold ? palette.ref : palette.value}
+              stroke={palette.sheet}
+              strokeWidth={3}
+              fillAfterStrokeEnabled
+              offsetX={placement.box.width / 2}
+              offsetY={line.fontSize * 0.55}
+              rotation={-canvasComp.rotation}
+              listening={false}
+              perfectDrawEnabled={false}
+            />
+          )
+        })}
 
         {/* Pins on top; ring marks wire start */}
         {canvasComp.component.pins.map(pin => {
@@ -747,11 +1001,11 @@ export default function SchematicCanvas({
             key={pin.id}
             x={pin.x}
             y={pin.y}
-            radius={armed ? 6 : 4}
-            fill={palette.wire}
-            stroke={armed ? palette.selectedStroke : palette.sheet}
-            strokeWidth={armed ? 2 : 1}
-            hitStrokeWidth={12}
+            radius={armed ? 4.5 : 1.9}
+            fill={armed ? palette.selectedStroke : palette.pinFill}
+            stroke={palette.pinStroke}
+            strokeWidth={(armed ? 1.5 : 0.9) / zoom}
+            hitStrokeWidth={14}
             onClick={(event) => {
               event.cancelBubble = true
               handleComponentClick(canvasComp.id, pin.id)
@@ -825,29 +1079,7 @@ export default function SchematicCanvas({
      filled junction dot — same net only. A stub end landing anywhere on a
      same-net segment (rail midpoint, T corner) is a genuine joint and gets
      the dot; a touch across different nets never does. */
-  const junctions = useMemo(() => {
-    const dots: Array<{ x: number; y: number }> = []
-    const seen = new Set<string>()
-    for (const wire of wires) {
-      for (const pt of wire.points) {
-        const key = Math.round(pt.x) + ':' + Math.round(pt.y);
-        if (seen.has(key)) continue;
-        const onOther = segments.some((g) => {
-          if (g.wireId === wire.id) return false;
-          const other = wires.find((w) => w.id === g.wireId);
-          if (!wire.netName || other?.netName !== wire.netName) return false;
-          return Math.min(g.x1, g.x2) - 0.5 <= pt.x
-            && pt.x <= Math.max(g.x1, g.x2) + 0.5
-            && Math.min(g.y1, g.y2) - 0.5 <= pt.y
-            && pt.y <= Math.max(g.y1, g.y2) + 0.5;
-        });
-        if (!onOther) continue;
-        seen.add(key);
-        dots.push({ x: pt.x, y: pt.y });
-      }
-    }
-    return dots
-  }, [wires, segments])
+  const junctions = useMemo(() => wireJunctions(wires), [wires])
 
   /* Wires crossing without shared pins: hop bow on the crossing. Same-net
      crossings are already one node — hopping them would fake a disconnect,
@@ -912,13 +1144,13 @@ export default function SchematicCanvas({
           )
         })}
         {junctions.map((d, k) => (
-          <Circle key={"j" + k} x={d.x} y={d.y} radius={4}
-            fill={palette.wire} stroke={palette.sheet} strokeWidth={1} listening={false} />
+          <Circle key={"j" + k} x={d.x} y={d.y} radius={3.2}
+            fill={palette.wire} stroke={palette.sheet} strokeWidth={0.8 / viewport.zoom} listening={false} />
         ))}
         {terminals.map((t, k) => (
-          <Circle key={"t" + k} x={t.x} y={t.y} radius={3.5}
-            fill="transparent"
-            stroke={palette.pinStroke} strokeWidth={1.5}
+          <Circle key={"t" + k} x={t.x} y={t.y} radius={3.2}
+            fill={palette.sheet}
+            stroke={palette.pinStroke} strokeWidth={1.1 / viewport.zoom}
             listening={false} />
         ))}
         {crossings.map((h, k) => (
@@ -1088,6 +1320,9 @@ export default function SchematicCanvas({
         }}
       >
         <Layer>
+          {/* Drawing sheet border + title block (behind the grid) */}
+          {renderSheetFrame()}
+
           {/* Grid */}
           {renderGrid()}
           

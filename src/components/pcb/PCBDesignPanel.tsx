@@ -10,11 +10,14 @@
  *  - Tabbed UI: Canvas / DRC / EMC / Thermal / Signal Integrity / Advanced / Assembly
  */
 
-import { useState, useCallback, useMemo, useEffect, useRef, type ChangeEvent } from 'react'
+import {
+  useState, useCallback, useMemo, useEffect, useRef,
+  type ChangeEvent, type PointerEvent as ReactPointerEvent,
+} from 'react'
 import {
   X, Layers, Route, Zap, Grid3X3, Eye, EyeOff, Download, Settings,
   Ruler, RotateCcw, Move, MousePointer, Thermometer, Wifi, AlertTriangle, CheckCircle,
-  Cpu, Upload, GitCompare, Box,
+  Cpu, Upload, GitCompare, Box, ZoomIn, ZoomOut, Maximize2,
 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
@@ -37,7 +40,7 @@ import {
 } from '../../lib/manufacturing/signalIntegrity'
 import { exportToGerber, downloadFile } from '../../lib/exportUtils'
 import { buildFabPackage } from '../../lib/manufacturing/fabExport'
-import { autoroute, buildRouterPads } from '../../lib/manufacturing/autorouter'
+import { autoroute, buildRouterPads, type RouterPad } from '../../lib/manufacturing/autorouter'
 import {
   DEFAULT_DRC_RULES,
   DesignRuleChecker,
@@ -45,7 +48,13 @@ import {
   type DRCSettings,
 } from '../../lib/manufacturing/drc'
 import type { PCBDesign } from '../../lib/manufacturing/pcb'
-import type { PcbSceneInput } from '../../lib/pcb/pcbScene'
+import { buildPcbScene, type PcbScene, type PcbSceneInput } from '../../lib/pcb/pcbScene'
+import {
+  BOARD_ROUTER_DEFAULTS,
+  netsFromWires,
+  placeSchematicOnBoard,
+  wiresFromRoutedTraces,
+} from '../../lib/pcb/boardLayout'
 import { useDemoRequest } from '../workspace/useDemoRequest'
 import { polylineLength } from '../../lib/geometry/distance'
 import {
@@ -68,6 +77,7 @@ import {
   type HdiStackup,
 } from '../../lib/manufacturing/hdiRouting'
 import DesignCalculatorsPanel from '../electronics/DesignCalculatorsPanel'
+import { generateId } from '../../lib/utils'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -339,8 +349,36 @@ function EyePlot({ eye, vHigh }: { eye: EyeResult; vHigh: number }) {
 
 // ── PCB Canvas ────────────────────────────────────────────────────────────────
 
+const SILK_COLOR = '#eef4ec'
+const PAD_COLOR = '#d5ac5a'
+
+/** Local pad offsets for a component, independent of its board rotation. */
+function localPadOffset(
+  component: PcbScene['components'][number],
+  pad: PcbScene['components'][number]['pads'][number],
+): { x: number; z: number } {
+  const dx = pad.position.x - component.position.x
+  const dz = pad.position.z - component.position.z
+  const angle = (-component.rotationYDeg * Math.PI) / 180
+  const cos = Math.cos(angle)
+  const sin = Math.sin(angle)
+  return { x: dx * cos - dz * sin, z: dx * sin + dz * cos }
+}
+
+/**
+ * Board view with the same geometry the 3-D viewer consumes: real outline,
+ * copper, pads, drills, package bodies and silkscreen. The SVG is fitted to the
+ * panel and can be wheel-zoomed or dragged, so dense boards stay inspectable.
+ */
+/** Manual copper is drawn on the same 0.5 mm grid the router uses. */
+const MANUAL_GRID_MM = 0.5
+const MANUAL_TRACE_WIDTH_MM = 0.25
+const PAD_SNAP_MM = 1.2
+
 function PCBCanvas({
-  traces, vias, boardWidth, boardHeight, selectedLayerId, layers,
+  traces, vias, boardWidth, boardHeight, selectedLayerId, layers, scene,
+  activeTool, selectedComponentId, routerPads,
+  onSelectComponent, onMoveComponent, onAddTrace, onAddVia,
 }: {
   traces: PCBTrace[]
   vias: PCBVia[]
@@ -348,52 +386,651 @@ function PCBCanvas({
   boardHeight: number
   selectedLayerId: string
   layers: PCBLayer[]
+  scene: PcbScene | null
+  activeTool: 'select' | 'route' | 'via' | 'move'
+  selectedComponentId: string | null
+  routerPads: readonly RouterPad[]
+  onSelectComponent: (id: string | null) => void
+  onMoveComponent: (id: string, position: Point) => void
+  onAddTrace: (draft: { points: Point[]; layerId: string; width: number; netName: string }) => void
+  onAddVia: (via: { position: Point; netName: string }) => void
 }) {
-  const layerColor = (id: string) => layers.find(l => l.id === id)?.color ?? '#00ff00'
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const svgRef = useRef<SVGSVGElement>(null)
+  const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null)
+  const [zoom, setZoom] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [draft, setDraft] = useState<{ points: Point[]; netName: string; layerId: string } | null>(null)
+  const draftRef = useRef<typeof draft>(null)
+  const [hover, setHover] = useState<Point | null>(null)
+  const moveRef = useRef<{ id: string; origin: Point; startClient: { clientX: number; clientY: number }; pointerId: number } | null>(null)
+
+  const margin = Math.max(4, Math.min(boardWidth, boardHeight) * 0.08)
+  const viewWidth = (boardWidth + margin * 2) / zoom
+  const viewHeight = (boardHeight + margin * 2) / zoom
+  const centerX = boardWidth / 2 + pan.x
+  const centerY = boardHeight / 2 + pan.y
+  const viewBox = `${centerX - viewWidth / 2} ${centerY - viewHeight / 2} ${viewWidth} ${viewHeight}`
+  const layerColor = (id: string) => layers.find(l => l.id === id)?.color ?? '#c98a3c'
+  const selectedLayer = layers.find(l => l.id === selectedLayerId)
+  const selectedPart = scene?.components.find(component => component.id === selectedComponentId)
+
+  const resetView = () => {
+    setZoom(1)
+    setPan({ x: 0, y: 0 })
+  }
+
+  const changeZoom = (factor: number) => {
+    setZoom((current) => {
+      const next = Math.min(8, Math.max(1, current * factor))
+      if (next === 1) setPan({ x: 0, y: 0 })
+      return next
+    })
+  }
+
+  const orderedTraces = useMemo(
+    () => [...traces].sort((a, b) => (a.layerId === 'bot-cu' ? 0 : 1) - (b.layerId === 'bot-cu' ? 0 : 1)),
+    [traces],
+  )
+
+  const copperLayer = layers.find(layer => layer.id === selectedLayerId)
+  const activeCopperLayerId = copperLayer
+    && (copperLayer.type === 'signal' || copperLayer.type === 'power' || copperLayer.type === 'ground')
+    ? copperLayer.id
+    : 'top-cu'
+
+  /**
+   * Pointer → board millimetres. getScreenCTM handles zoom, pan and the
+   * meet-fit letterboxing exactly; the rect fallback keeps the gesture
+   * testable in jsdom, which does not implement SVG CTMs.
+   */
+  const toBoardPoint = (event: { clientX: number; clientY: number }): Point | null => {
+    const svg = svgRef.current
+    if (!svg) return null
+    const ctm = typeof svg.getScreenCTM === 'function' ? svg.getScreenCTM() : null
+    if (ctm && typeof DOMPoint !== 'undefined') {
+      const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(ctm.inverse())
+      if (Number.isFinite(point.x) && Number.isFinite(point.y)) return { x: point.x, y: point.y }
+    }
+    const rect = svg.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return null
+    const scale = Math.min(rect.width / viewWidth, rect.height / viewHeight)
+    if (!Number.isFinite(scale) || scale <= 0) return null
+    return {
+      x: (event.clientX - rect.left - (rect.width - viewWidth * scale) / 2) / scale
+        + (centerX - viewWidth / 2),
+      y: (event.clientY - rect.top - (rect.height - viewHeight * scale) / 2) / scale
+        + (centerY - viewHeight / 2),
+    }
+  }
+
+  const snapToGrid = (point: Point): Point => ({
+    x: Math.round(point.x / MANUAL_GRID_MM) * MANUAL_GRID_MM,
+    y: Math.round(point.y / MANUAL_GRID_MM) * MANUAL_GRID_MM,
+  })
+
+  const padNear = (point: Point): RouterPad | undefined => {
+    let nearest: RouterPad | undefined
+    let distance = PAD_SNAP_MM
+    for (const pad of routerPads) {
+      const candidate = Math.hypot(pad.x - point.x, pad.y - point.y)
+      if (candidate < distance) {
+        nearest = pad
+        distance = candidate
+      }
+    }
+    return nearest
+  }
+
+  const updateDraft = (next: typeof draft) => {
+    draftRef.current = next
+    setDraft(next)
+  }
+
+  const cancelDraft = () => {
+    updateDraft(null)
+    setHover(null)
+  }
+
+  const finishDraft = () => {
+    const current = draftRef.current
+    updateDraft(null)
+    setHover(null)
+    if (!current || current.points.length < 2) return
+    onAddTrace({
+      points: current.points,
+      layerId: current.layerId,
+      width: MANUAL_TRACE_WIDTH_MM,
+      netName: current.netName,
+    })
+  }
+
+  // Keyboard keeps the click-click gesture usable without a Finish button.
+  const finishRef = useRef(finishDraft)
+  finishRef.current = finishDraft
+  const cancelRef = useRef(cancelDraft)
+  cancelRef.current = cancelDraft
+  useEffect(() => {
+    if (!draft) return
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        cancelRef.current()
+      } else if (event.key === 'Enter') {
+        event.preventDefault()
+        finishRef.current()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [draft])
+
+  // Switching tools abandons an unfinished trace rather than leaving a
+  // half-drawn polyline attached to the canvas.
+  useEffect(() => {
+    if (activeTool !== 'route' && draftRef.current) {
+      draftRef.current = null
+      setDraft(null)
+      setHover(null)
+    }
+  }, [activeTool])
+
+  const handleBoardPointerDown = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (event.button !== 0 || (activeTool !== 'route' && activeTool !== 'via')) return
+    event.stopPropagation()
+    const raw = toBoardPoint(event)
+    if (!raw) return
+    const pad = padNear(raw)
+    const point = pad ? { x: pad.x, y: pad.y } : snapToGrid(raw)
+
+    if (activeTool === 'via') {
+      onAddVia({ position: point, netName: pad?.netId ?? '' })
+      return
+    }
+
+    const current = draftRef.current
+    if (!current) {
+      updateDraft({ points: [point], netName: pad?.netId ?? '', layerId: activeCopperLayerId })
+      return
+    }
+    const last = current.points[current.points.length - 1]
+    if (Math.abs(last.x - point.x) < 1e-6 && Math.abs(last.y - point.y) < 1e-6) return
+    const closes = current.points.length >= 2
+      && Math.abs(current.points[0].x - point.x) < 1e-6
+      && Math.abs(current.points[0].y - point.y) < 1e-6
+    const next = {
+      ...current,
+      points: [...current.points, point],
+      netName: current.netName || pad?.netId || '',
+    }
+    updateDraft(next)
+    if (closes) finishDraft()
+  }
 
   return (
-    <div className="relative h-full w-full overflow-hidden rounded bg-canvas">
-      <svg width="100%" height="100%" viewBox={`0 0 ${boardWidth} ${boardHeight}`} className="absolute inset-0">
-        {/* Board edge */}
-        <rect x={0} y={0} width={boardWidth} height={boardHeight} fill="#2d5a27" stroke="#1a4a1a" strokeWidth="1" />
-        {/* Grid */}
+    <div
+      ref={wrapRef}
+      className={`relative h-full w-full overflow-hidden rounded bg-canvas ${
+        activeTool === 'route' || activeTool === 'via'
+          ? 'cursor-crosshair'
+          : activeTool === 'move'
+            ? 'cursor-grab active:cursor-grabbing'
+            : 'cursor-grab active:cursor-grabbing'
+      }`}
+      onWheel={(event) => {
+        event.preventDefault()
+        changeZoom(event.deltaY < 0 ? 1.2 : 1 / 1.2)
+      }}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return
+        // Route/via own the left button; panning stays on select/move.
+        if (activeTool === 'route' || activeTool === 'via') return
+        try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* jsdom */ }
+        dragRef.current = { startX: event.clientX, startY: event.clientY, panX: pan.x, panY: pan.y }
+      }}
+      onPointerMove={(event) => {
+        if (moveRef.current) {
+          const point = toBoardPoint(event)
+          // Both endpoints go through the transform as it is *now*: selecting a
+          // part adds its readout, which reflows the canvas and moves the
+          // letterboxed origin. Mixing an old and a new mapping would make the
+          // part jump on the first move.
+          const start = toBoardPoint(moveRef.current.startClient)
+          if (point && start) {
+            onMoveComponent(moveRef.current.id, snapToGrid({
+              x: moveRef.current.origin.x + point.x - start.x,
+              y: moveRef.current.origin.y + point.y - start.y,
+            }))
+          }
+          return
+        }
+        if (activeTool === 'route' || activeTool === 'via') {
+          const point = toBoardPoint(event)
+          if (point) setHover(snapToGrid(point))
+        }
+        const drag = dragRef.current
+        if (!drag || !wrapRef.current) return
+        const rect = wrapRef.current.getBoundingClientRect()
+        if (rect.width <= 0 || rect.height <= 0) return
+        setPan({
+          x: Math.max(
+            -(boardWidth / 2 + margin),
+            Math.min(boardWidth / 2 + margin, drag.panX - ((event.clientX - drag.startX) * viewWidth) / rect.width),
+          ),
+          y: Math.max(
+            -(boardHeight / 2 + margin),
+            Math.min(boardHeight / 2 + margin, drag.panY - ((event.clientY - drag.startY) * viewHeight) / rect.height),
+          ),
+        })
+      }}
+      onPointerUp={() => { dragRef.current = null; moveRef.current = null }}
+      onPointerCancel={() => { dragRef.current = null; moveRef.current = null }}
+      onPointerLeave={() => setHover(null)}
+      onContextMenu={(event) => {
+        if (!draftRef.current) return
+        event.preventDefault()
+        cancelDraft()
+      }}
+    >
+      <svg
+        ref={svgRef}
+        width="100%"
+        height="100%"
+        viewBox={viewBox}
+        preserveAspectRatio="xMidYMid meet"
+        className="absolute inset-0"
+        role="img"
+        aria-label={`PCB layout, ${boardWidth} by ${boardHeight} millimetres, ${traces.length} traces, ${scene?.counts.pads ?? 0} pads, ${activeTool} tool`}
+        onPointerDown={handleBoardPointerDown}
+        onDoubleClick={() => { if (draftRef.current) finishDraft() }}
+      >
         <defs>
-          <pattern id="pcb-grid" width="5" height="5" patternUnits="userSpaceOnUse">
-            <path d="M5 0L0 0 0 5" fill="none" stroke="#3a5a3a" strokeWidth="0.3" />
-          </pattern>
+          <linearGradient id="pcb-board-fill" x1="0" y1="0" x2="0.7" y2="1">
+            <stop offset="0%" stopColor="#116b3f" />
+            <stop offset="55%" stopColor="#0c5734" />
+            <stop offset="100%" stopColor="#083f26" />
+          </linearGradient>
+          <clipPath id="pcb-board-clip">
+            <rect x={0} y={0} width={boardWidth} height={boardHeight} rx={2.2} />
+          </clipPath>
+          <filter id="pcb-board-shadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="1.2" stdDeviation="1.4" floodColor="#000" floodOpacity="0.55" />
+          </filter>
         </defs>
-        <rect width="100%" height="100%" fill="url(#pcb-grid)" />
 
-        {/* Traces (visible layers only) */}
-        {traces
-          .filter(t => layers.find(l => l.id === t.layerId)?.visible)
-          .map(trace => (
-            <polyline
-              key={trace.id}
-              points={trace.points.map(p => `${p.x},${p.y}`).join(' ')}
-              fill="none"
-              stroke={selectedLayerId === trace.layerId ? '#ffffff' : layerColor(trace.layerId)}
-              strokeWidth={trace.width}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              opacity={selectedLayerId === trace.layerId ? 1 : 0.6}
-            />
+        <rect x={centerX - viewWidth / 2} y={centerY - viewHeight / 2} width={viewWidth} height={viewHeight} fill="#080d12" />
+        <rect
+          x={0}
+          y={0}
+          width={boardWidth}
+          height={boardHeight}
+          rx={2.2}
+          fill="url(#pcb-board-fill)"
+          stroke="#062c1a"
+          strokeWidth={0.35}
+          filter="url(#pcb-board-shadow)"
+        />
+
+        <g clipPath="url(#pcb-board-clip)">
+          {/* Copper under mask. A dark halo keeps traces legible on green. */}
+          {orderedTraces
+            .filter(trace => layers.find(layer => layer.id === trace.layerId)?.visible ?? true)
+            .map(trace => {
+              const points = trace.points.map(point => `${point.x},${point.y}`).join(' ')
+              const isSelected = selectedLayerId === trace.layerId
+              return (
+                <g key={trace.id} opacity={isSelected ? 1 : 0.72}>
+                  <path
+                    d={`M ${trace.points.map(point => `${point.x} ${point.y}`).join(' L ')}`}
+                    fill="none"
+                    stroke="#052b19"
+                    strokeWidth={trace.width + 0.16}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    opacity="0.55"
+                  />
+                  <polyline
+                    points={points}
+                    fill="none"
+                    stroke={isSelected ? '#e7a15a' : layerColor(trace.layerId)}
+                    strokeWidth={Math.max(0.08, trace.width)}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </g>
+              )
+            })}
+
+          {scene?.components.flatMap(component => component.pads.map(pad => {
+            const x = pad.position.x + boardWidth / 2
+            const y = pad.position.z + boardHeight / 2
+            const drill = 'drillMm' in pad ? pad.drillMm : undefined
+            return (
+              <g key={pad.id} transform={`translate(${x} ${y}) rotate(${component.rotationYDeg})`}>
+                {pad.shape === 'circle' ? (
+                  <circle r={pad.widthMm / 2} fill={PAD_COLOR} stroke="#8a6a2f" strokeWidth={0.07} />
+                ) : (
+                  <rect
+                    x={-pad.widthMm / 2}
+                    y={-pad.depthMm / 2}
+                    width={pad.widthMm}
+                    height={pad.depthMm}
+                    rx={pad.shape === 'oval' ? pad.depthMm / 2 : 0.12}
+                    fill={PAD_COLOR}
+                    stroke="#8a6a2f"
+                    strokeWidth={0.07}
+                  />
+                )}
+                {drill ? <circle r={drill / 2} fill="#0a0c0c" /> : null}
+              </g>
+            )
+          }))}
+
+          {vias.map(via => (
+            <g key={via.id}>
+              <circle
+                cx={via.position.x}
+                cy={via.position.y}
+                r={via.padDiameter / 2}
+                fill={PAD_COLOR}
+                stroke="#8a6a2f"
+                strokeWidth={0.07}
+              />
+              <circle cx={via.position.x} cy={via.position.y} r={via.drillDiameter / 2} fill="#0a0c0c" />
+            </g>
           ))}
 
-        {/* Vias */}
-        {vias.map(via => (
-          <g key={via.id}>
-            <circle cx={via.position.x} cy={via.position.y} r={via.padDiameter / 2} fill="#ffd700" stroke="#cc9900" strokeWidth="0.2" />
-            <circle cx={via.position.x} cy={via.position.y} r={via.drillDiameter / 2} fill="#111" />
+          {/* Package bodies, drawn as the physical part rather than a symbol. */}
+          {scene?.components.map(component => {
+            const x = component.position.x + boardWidth / 2
+            const y = component.position.z + boardHeight / 2
+            const width = component.bodyWidthMm
+            const depth = component.bodyDepthMm
+            const localPads = component.pads.map(pad => localPadOffset(component, pad))
+            const padsAlongX = localPads.length === 2
+              && Math.abs(localPads[1].x - localPads[0].x) >= Math.abs(localPads[1].z - localPads[0].z)
+            const gap = 0.2
+            // Cathode band sits at the cathode (pad 2) end of the package,
+            // not across the middle of the body.
+            const cathodeX = (localPads[1]?.x ?? 0) >= 0 ? width * 0.28 : -width * 0.28
+            const cathodeZ = (localPads[1]?.z ?? 0) >= 0 ? depth * 0.28 : -depth * 0.28
+            const selectable = activeTool === 'select' || activeTool === 'move'
+            const selected = selectedComponentId === component.id
+            return (
+              <g
+                key={component.id}
+                data-component-id={component.id}
+                data-selected={selected ? 'true' : undefined}
+                transform={`translate(${x} ${y}) rotate(${component.rotationYDeg})`}
+                style={selectable ? { cursor: activeTool === 'move' ? 'grab' : 'pointer' } : undefined}
+                onPointerDown={selectable ? (event) => {
+                  event.stopPropagation()
+                  onSelectComponent(component.id)
+                  if (activeTool !== 'move') return
+                  moveRef.current = {
+                    id: component.id,
+                    origin: { x, y },
+                    startClient: { clientX: event.clientX, clientY: event.clientY },
+                    pointerId: event.pointerId,
+                  }
+                  try { wrapRef.current?.setPointerCapture(event.pointerId) } catch { /* jsdom */ }
+                } : undefined}
+              >
+                {component.bodyShape === 'cylinder' ? (
+                  <>
+                    <circle
+                      r={Math.min(width, depth) / 2}
+                      fill={component.color}
+                      stroke={selected ? '#38bdf8' : '#141414'}
+                      strokeWidth={selected ? 0.24 : 0.1}
+                    />
+                    <circle r={Math.min(width, depth) / 2 - 0.22} fill="none" stroke="#e8e8e8" strokeWidth={0.08} opacity="0.35" />
+                  </>
+                ) : (
+                  <rect
+                    x={-width / 2}
+                    y={-depth / 2}
+                    width={width}
+                    height={depth}
+                    rx={component.category === 'ic' || component.category === 'connector' ? 0.18 : 0.08}
+                    fill={component.color}
+                    stroke={selected ? '#38bdf8' : '#0c0e10'}
+                    strokeWidth={selected ? 0.24 : 0.1}
+                  />
+                )}
+                {selected ? (
+                  <rect
+                    x={-width / 2 - 0.55}
+                    y={-depth / 2 - 0.55}
+                    width={width + 1.1}
+                    height={depth + 1.1}
+                    rx={0.22}
+                    fill="none"
+                    stroke="#38bdf8"
+                    strokeWidth={0.14}
+                    strokeDasharray="0.55 0.3"
+                  />
+                ) : null}
+
+                {component.category === 'ic' || component.category === 'connector' ? (
+                  <>
+                    <rect
+                      x={-width / 2 - gap}
+                      y={-depth / 2 - gap}
+                      width={width + gap * 2}
+                      height={depth + gap * 2}
+                      rx={0.18}
+                      fill="none"
+                      stroke={SILK_COLOR}
+                      strokeWidth={0.12}
+                    />
+                    <circle cx={-width / 2} cy={-depth / 2} r={0.22} fill={SILK_COLOR} />
+                  </>
+                ) : localPads.length === 2 && padsAlongX ? (
+                  <>
+                    <line
+                      x1={-width / 2 + 0.3}
+                      y1={-depth / 2 - gap}
+                      x2={width / 2 - 0.3}
+                      y2={-depth / 2 - gap}
+                      stroke={SILK_COLOR}
+                      strokeWidth={0.12}
+                      strokeLinecap="round"
+                    />
+                    <line
+                      x1={-width / 2 + 0.3}
+                      y1={depth / 2 + gap}
+                      x2={width / 2 - 0.3}
+                      y2={depth / 2 + gap}
+                      stroke={SILK_COLOR}
+                      strokeWidth={0.12}
+                      strokeLinecap="round"
+                    />
+                  </>
+                ) : (
+                  <rect
+                    x={-width / 2 - gap}
+                    y={-depth / 2 - gap}
+                    width={width + gap * 2}
+                    height={depth + gap * 2}
+                    rx={0.15}
+                    fill="none"
+                    stroke={SILK_COLOR}
+                    strokeWidth={0.12}
+                  />
+                )}
+
+                {component.category === 'semiconductor' && localPads.length === 2 ? (
+                  padsAlongX ? (
+                    <line
+                      x1={cathodeX}
+                      y1={-depth / 2 - gap}
+                      x2={cathodeX}
+                      y2={depth / 2 + gap}
+                      stroke={SILK_COLOR}
+                      strokeWidth={0.16}
+                    />
+                  ) : (
+                    <line
+                      x1={-width / 2 - gap}
+                      y1={cathodeZ}
+                      x2={width / 2 + gap}
+                      y2={cathodeZ}
+                      stroke={SILK_COLOR}
+                      strokeWidth={0.16}
+                    />
+                  )
+                ) : null}
+              </g>
+            )
+          })}
+
+          {scene?.components.map(component => {
+            const x = component.position.x + boardWidth / 2
+            const y = component.position.z + boardHeight / 2
+            const labelRadius = Math.max(component.bodyWidthMm, component.bodyDepthMm) / 2
+            const above = y - labelRadius - 0.75
+            const labelY = above < margin ? y + labelRadius + 1.15 : above
+            return (
+              <text
+                key={`ref-${component.id}`}
+                x={x}
+                y={labelY}
+                textAnchor="middle"
+                fontSize={0.62}
+                fontWeight={600}
+                fill={SILK_COLOR}
+                stroke="#083f26"
+                strokeWidth={0.16}
+                paintOrder="stroke"
+                style={{ letterSpacing: 0.02 }}
+              >
+                {component.reference}
+              </text>
+            )
+          })}
+
+          <text x={3} y={boardHeight - 3.6} fontSize={1.3} fontWeight={800} fill={SILK_COLOR} style={{ letterSpacing: 0.12 }}>
+            FOLIO
+          </text>
+          <text x={3} y={boardHeight - 2.3} fontSize={0.58} fontWeight={500} fill={SILK_COLOR} opacity={0.85}>
+            REV A · {boardWidth} × {boardHeight} mm
+          </text>
+          <g transform={`translate(${boardWidth - 13} ${boardHeight - 2.6})`} stroke={SILK_COLOR} fill={SILK_COLOR}>
+            <line x1={0} y1={0} x2={10} y2={0} strokeWidth={0.16} />
+            <line x1={0} y1={-0.45} x2={0} y2={0.45} strokeWidth={0.16} />
+            <line x1={10} y1={-0.45} x2={10} y2={0.45} strokeWidth={0.16} />
+            <text x={5} y={-0.55} fontSize={0.5} textAnchor="middle" stroke="none">10 mm</text>
           </g>
-        ))}
+
+          {activeTool === 'route' && draft && draft.points.length > 0 ? (
+            <g pointerEvents="none">
+              <polyline
+                points={[...draft.points, ...(hover ? [hover] : [])]
+                  .map(point => `${point.x},${point.y}`)
+                  .join(' ')}
+                fill="none"
+                stroke={layerColor(draft.layerId)}
+                strokeWidth={MANUAL_TRACE_WIDTH_MM}
+                strokeDasharray="0.7 0.35"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={0.9}
+              />
+              {draft.points.map((point, index) => (
+                <circle key={`draft-${index}`} cx={point.x} cy={point.y} r={0.2} fill="#fbbf24" />
+              ))}
+            </g>
+          ) : null}
+
+          {hover && (activeTool === 'route' || activeTool === 'via') ? (
+            <g pointerEvents="none">
+              <circle
+                cx={hover.x}
+                cy={hover.y}
+                r={activeTool === 'via' ? 0.3 : 0.35}
+                fill="none"
+                stroke="#fbbf24"
+                strokeWidth={0.1}
+                strokeDasharray="0.4 0.25"
+              />
+            </g>
+          ) : null}
+        </g>
+
+        <rect
+          x={0}
+          y={0}
+          width={boardWidth}
+          height={boardHeight}
+          rx={2.2}
+          fill="none"
+          stroke="#0a3b23"
+          strokeWidth={0.35}
+        />
       </svg>
 
-      <div className="absolute bottom-2 left-2 bg-overlay/70 text-overlay-foreground text-xs px-2 py-1 rounded">
-        {boardWidth} × {boardHeight} mm &nbsp;|&nbsp; Layer: {layers.find(l => l.id === selectedLayerId)?.name ?? selectedLayerId}
+      <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-overlay/70 px-2 py-1 text-xs text-overlay-foreground">
+        {boardWidth} × {boardHeight} mm &nbsp;|&nbsp; Layer: {selectedLayer?.name ?? selectedLayerId} &nbsp;|&nbsp; {zoom.toFixed(1)}×
+        {selectedPart ? ` | ${selectedPart.reference} selected` : ''}
       </div>
+
+      {draft ? (
+        <div className="absolute bottom-10 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded border border-border bg-overlay/90 px-2 py-1 text-[11px] text-overlay-foreground">
+          <span>
+            {draft.points.length} pt{draft.points.length === 1 ? '' : 's'} · {draft.netName || 'no net'}
+          </span>
+          <Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={finishDraft}>
+            Finish trace
+          </Button>
+          <Button size="sm" variant="ghost" className="h-6 text-[11px]" onClick={cancelDraft}>
+            Cancel
+          </Button>
+        </div>
+      ) : null}
+
+      <div className="absolute right-2 top-2 flex gap-1">
+        <Button variant="outline" size="icon" className="h-6 w-6" aria-label="Zoom in" title="Zoom in" onClick={() => changeZoom(1.25)}>
+          <ZoomIn className="h-3 w-3" />
+        </Button>
+        <Button variant="outline" size="icon" className="h-6 w-6" aria-label="Zoom out" title="Zoom out" onClick={() => changeZoom(1 / 1.25)}>
+          <ZoomOut className="h-3 w-3" />
+        </Button>
+        <Button variant="outline" size="icon" className="h-6 w-6" aria-label="Fit board" title="Fit board" onClick={resetView}>
+          <Maximize2 className="h-3 w-3" />
+        </Button>
+      </div>
+
+      {scene && scene.warnings.length > 0 ? (
+        <div className="pointer-events-none absolute bottom-2 right-2 rounded bg-destructive/85 px-2 py-1 text-[11px] text-destructive-foreground">
+          {scene.warnings.length} placement warning{scene.warnings.length === 1 ? '' : 's'}
+        </div>
+      ) : null}
     </div>
   )
+}
+
+/** Convert a stored routed layout into the panel's mutable trace model. */
+function panelTracesFromLayout(layout: PcbSceneInput | null): PCBTrace[] {
+  if (!layout) return []
+  return layout.traces.map(trace => ({
+    id: trace.id,
+    layerId: trace.layerId,
+    width: trace.widthMm,
+    points: trace.points.map(point => ({ ...point })),
+    netName: trace.net,
+  }))
+}
+
+function panelViasFromLayout(layout: PcbSceneInput | null): PCBVia[] {
+  if (!layout) return []
+  return layout.vias.map(via => ({
+    id: via.id,
+    position: { x: via.x, y: via.y },
+    drillDiameter: via.drillDiameterMm,
+    padDiameter: via.padDiameterMm,
+    netName: via.net ?? '',
+  }))
 }
 
 // ── Main Panel ────────────────────────────────────────────────────────────────
@@ -405,30 +1042,61 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
   const storeComponents = useProjectStore((s) => s.components)
   const storeWires = useProjectStore((s) => s.wires)
   const setPcbLayout = useProjectStore((s) => s.setPcbLayout)
-  const components = useMemo<PlacedComponent[]>(
+  const storePcbLayout = useProjectStore((s) => s.pcbLayout)
+  // A routed layout that already exists (demo, reopened session) is authoritative:
+  // seed local state from it so the panel never silently re-routes over it.
+  const initialLayoutRef = useRef<PcbSceneInput | null>(useProjectStore.getState().pcbLayout)
+  const lastPublishedLayout = useRef<PcbSceneInput | null>(initialLayoutRef.current)
+  const adoptingLayoutRef = useRef(false)
+  const autoLayout = useMemo<{ components: PlacedComponent[]; size: { width: number; height: number } }>(
     () => {
-      if (propComponents !== undefined) return propComponents
-      return storeComponents.map((c) => ({
-        id: c.id,
-        componentId: c.componentId,
-        component: {
-          id: c.component.id ?? c.componentId,
-          name: c.component.name,
-          category: typeof c.component.category === 'string' ? c.component.category : 'passive',
-          symbol: c.component.symbol_data,
-          pins: c.component.pins,
-          properties: c.properties,
-        },
-        position: { x: c.x / 10, y: c.y / 10 },
-        rotation: c.rotation,
-        // Symbol geometry is drawn at 10 schematic units per millimetre; the
-        // placement was already converted, so the pin offsets must follow.
-        scale: 0.1,
-        reference: c.reference,
-        properties: c.properties,
-      }))
+      if (propComponents !== undefined) {
+        // Explicit props describe an already-placed board; the caller owns
+        // the outline, so never resize or rebase them.
+        return { components: propComponents, size: { width: 100, height: 80 } }
+      }
+      return placeSchematicOnBoard(storeComponents)
     },
     [propComponents, storeComponents],
+  )
+  /**
+   * A stored routed layout owns part placement. The schematic projection above
+   * is only a starting guess; if the 2-D canvas kept using it while drawing the
+   * layout's copper, parts and traces would describe two different boards.
+   */
+  // Only a layout this panel did not publish is an external placement source.
+  // Reading our own publication back would rebuild the scene on every commit
+  // and loop through the store forever.
+  const externalLayout = storePcbLayout && storePcbLayout !== lastPublishedLayout.current
+    ? storePcbLayout
+    : null
+  const placementSource = propComponents === undefined
+    ? externalLayout ?? initialLayoutRef.current
+    : null
+  const layoutPlacement = useMemo(() => {
+    const map = new Map<string, { x: number; y: number; rotationDeg?: number }>()
+    for (const placed of placementSource?.components ?? []) {
+      const entry = { x: placed.x, y: placed.y, rotationDeg: placed.rotationDeg }
+      map.set(placed.id, entry)
+      if (placed.reference) map.set(`ref:${placed.reference}`, entry)
+    }
+    return map
+  }, [placementSource])
+  const [placementOverrides, setPlacementOverrides] = useState<Record<string, { x: number; y: number }>>({})
+  const [staleRouting, setStaleRouting] = useState(false)
+  const components = useMemo(
+    () => autoLayout.components.map((component) => {
+      const placed = layoutPlacement.get(component.id)
+        ?? layoutPlacement.get(`ref:${component.reference}`)
+      const override = placementOverrides[component.id]
+      if (!placed && !override) return component
+      return {
+        ...component,
+        position: override ?? (placed ? { x: placed.x, y: placed.y } : component.position),
+        rotation: placed?.rotationDeg ?? component.rotation,
+      }
+    }),
+    [autoLayout, layoutPlacement, placementOverrides],
   )
   const wires: Wire[] = useMemo(
     () => {
@@ -446,13 +1114,21 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
     },
     [propWires, storeWires],
   )
+  // Wires sharing a net name are one electrical net: route and snap as a whole.
+  const schematicNets = useMemo<Net[]>(() => netsFromWires(wires), [wires])
+  /** Copper lands with their nets — the snap targets for manual routing. */
+  const routerPads = useMemo(
+    () => buildRouterPads(components, schematicNets),
+    [components, schematicNets],
+  )
   const [layers, setLayers] = useState<PCBLayer[]>(DEFAULT_LAYERS)
   const [selectedLayerId, setSelectedLayerId] = useState('top-cu')
   const [activeTool, setActiveTool] = useState<'select' | 'route' | 'via' | 'move'>('select')
-  const [traces, setTraces] = useState<PCBTrace[]>([])
-  const [vias, setVias] = useState<PCBVia[]>([])
-  const [boardWidth, setBoardWidth] = useState(100)
-  const [boardHeight, setBoardHeight] = useState(80)
+  const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null)
+  const [traces, setTraces] = useState<PCBTrace[]>(() => panelTracesFromLayout(initialLayoutRef.current))
+  const [vias, setVias] = useState<PCBVia[]>(() => panelViasFromLayout(initialLayoutRef.current))
+  const [boardWidth, setBoardWidth] = useState(initialLayoutRef.current?.widthMm ?? autoLayout.size.width)
+  const [boardHeight, setBoardHeight] = useState(initialLayoutRef.current?.heightMm ?? autoLayout.size.height)
   const [drcViolations, setDrcViolations] = useState<DRCViolation[]>([])
   const [drcRan, setDrcRan] = useState(false)
 
@@ -687,30 +1363,11 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
   // ── Auto-route from schematic wires (real A* router) ────────────────────────
 
   const handleAutoRoute = useCallback(() => {
-    // Wires sharing a net name are one electrical net: always route a net as
-    // a whole, otherwise a second wire's pads would be routed in isolation.
-    const netsById = new Map<string, Net>()
-    wires.forEach((w, i) => {
-      const id = w.netName || `NET${i}`
-      const net = netsById.get(id) ?? { id, name: id, connectedPins: [], wires: [] }
-      net.connectedPins.push(...(w.connectedPins ?? []))
-      net.wires.push(w.id)
-      netsById.set(id, net)
-    })
-    const nets = Array.from(netsById.values())
-
-    const pads = buildRouterPads(components, nets)
-
-    const result = autoroute(pads, {
+    const result = autoroute(routerPads, {
       boardWidthMm: boardWidth,
       boardHeightMm: boardHeight,
       layers: ['F.Cu', 'B.Cu'],
-      gridMm: 0.5,
-      minTraceWidthMm: 0.2,
-      minSpacingMm: 0.2,
-      viaDrillMm: 0.3,
-      viaPadMm: 0.6,
-      viaPenalty: 8,
+      ...BOARD_ROUTER_DEFAULTS,
     })
 
     const newTraces: PCBTrace[] = result.traces.map((t, i) => ({
@@ -745,9 +1402,52 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
       message: `Net "${netId}" could not be routed (${result.stats.routedNets}/${result.stats.totalNets} routed)`,
     })))
     setDrcRan(result.unrouted.length > 0)
-  }, [wires, components, boardWidth, boardHeight])
+    setStaleRouting(false)
+  }, [routerPads, boardWidth, boardHeight])
 
   useDemoRequest('pcb-autoroute', handleAutoRoute)
+
+  /** Any copper or placement edit invalidates the last analysis verdicts. */
+  const invalidateChecks = useCallback(() => {
+    setDrcViolations([])
+    setDrcRan(false)
+    setEmcResult(null)
+    setEmcError(null)
+    setSiResult(null)
+    setSiEye(null)
+    setSiWidthSuggestion(null)
+    setSiBasis(null)
+    setSiError(null)
+  }, [])
+
+  const handleAddTrace = useCallback((draft: {
+    points: Point[]
+    layerId: string
+    width: number
+    netName: string
+  }) => {
+    setTraces(previous => [...previous, { id: generateId('trace'), ...draft }])
+    invalidateChecks()
+  }, [invalidateChecks])
+
+  const handleAddVia = useCallback((via: { position: Point; netName: string }) => {
+    setVias(previous => [...previous, {
+      id: generateId('via'),
+      position: via.position,
+      drillDiameter: 0.3,
+      padDiameter: 0.6,
+      netName: via.netName,
+    }])
+    invalidateChecks()
+  }, [invalidateChecks])
+
+  const handleMoveComponent = useCallback((id: string, position: Point) => {
+    setPlacementOverrides(previous => ({ ...previous, [id]: position }))
+    // Existing copper was routed to the old pad positions. Keep it visible for
+    // comparison but never let the panel imply it still matches the board.
+    setStaleRouting(true)
+    invalidateChecks()
+  }, [invalidateChecks])
 
   // ── DRC ───────────────────────────────────────────────────────────────────────
 
@@ -877,7 +1577,49 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
       })),
   }), [traces, vias, components, layers, boardWidth, boardHeight])
 
+  const pcbScene = useMemo<PcbScene | null>(() => {
+    try {
+      return buildPcbScene(pcbSceneLayout)
+    } catch {
+      return null
+    }
+  }, [pcbSceneLayout])
+
+  // Adopt a layout that arrived from outside this panel (demo load, session
+  // restore, another workspace). The publish guard below prevents the same
+  // commit's stale local layout from immediately overwriting it.
   useEffect(() => {
+    if (!storePcbLayout || storePcbLayout === lastPublishedLayout.current) return
+    lastPublishedLayout.current = storePcbLayout
+    // New work starts from this board's placement, not from the previous one.
+    initialLayoutRef.current = storePcbLayout
+    adoptingLayoutRef.current = true
+    setBoardWidth(storePcbLayout.widthMm)
+    setBoardHeight(storePcbLayout.heightMm)
+    setTraces(panelTracesFromLayout(storePcbLayout))
+    setVias(panelViasFromLayout(storePcbLayout))
+    setPlacementOverrides({})
+    setStaleRouting(false)
+    setSelectedComponentId(null)
+    setDrcViolations([])
+    setDrcRan(false)
+    setEmcResult(null)
+    setEmcError(null)
+    setSiResult(null)
+    setSiEye(null)
+    setSiWidthSuggestion(null)
+    setSiBasis(null)
+    setSiError(null)
+    setThermalResult(null)
+    setThermalMap(null)
+  }, [storePcbLayout])
+
+  useEffect(() => {
+    if (adoptingLayoutRef.current) {
+      adoptingLayoutRef.current = false
+      return
+    }
+    lastPublishedLayout.current = pcbSceneLayout
     setPcbLayout(pcbSceneLayout)
   }, [pcbSceneLayout, setPcbLayout])
 
@@ -1063,14 +1805,27 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
   const [fabVerdict, setFabVerdict] = useState<string | null>(null)
 
   const handleExportFab = useCallback(() => {
-    const pkg = buildFabPackage(components, wires, { projectName: 'folio-pcb' })
+    // The package must describe the copper on screen, not the schematic
+    // ratlines: routed traces are the top-copper geometry the fab prints.
+    const pkg = buildFabPackage(components, wiresFromRoutedTraces(traces), {
+      projectName: 'folio-pcb',
+      boardWidth,
+      boardHeight,
+      vias: vias.map((via) => ({
+        x: via.position.x,
+        y: via.position.y,
+        drillDiameter: via.drillDiameter,
+        padDiameter: via.padDiameter,
+        netName: via.netName,
+      })),
+    })
     if (!pkg.shippable) {
       setFabVerdict(`${pkg.violations.length} fab violation(s): ${pkg.violations[0]?.message ?? 'blocked'}`)
       return
     }
     setFabVerdict(`Fab package: ${pkg.files.size} files, ${pkg.centroid.length} placements — shippable.`)
     for (const [name, content] of pkg.files) downloadFile(content, name, 'text/plain')
-  }, [components, wires])
+  }, [components, traces, vias, boardWidth, boardHeight])
 
   // ── Layer toggle ──────────────────────────────────────────────────────────────
 
@@ -1176,8 +1931,35 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                     Outline {boardWidth} × {boardHeight} mm · 1.6 mm FR-4 · 1 oz copper
                   </p>
                 </div>
+                <p className="px-1 text-xs text-muted-foreground">
+                  {activeTool === 'select' && 'Click a part to select it. Drag empty board to pan; wheel to zoom.'}
+                  {activeTool === 'move' && 'Drag a part to reposition it on the 0.5 mm grid. Copper is not re-routed automatically.'}
+                  {activeTool === 'route' && 'Click to lay copper on the selected layer. Snaps to pads and the 0.5 mm grid. Double-click, Enter or Finish ends the trace; right-click cancels.'}
+                  {activeTool === 'via' && 'Click to drop a 0.6 mm via with a 0.3 mm drill.'}
+                </p>
+                {staleRouting ? (
+                  <div role="status" className="mx-1 flex items-start gap-2 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-xs text-warning">
+                    <AlertTriangle className="mt-0.5 h-3 w-3 flex-shrink-0" />
+                    Parts moved after routing — existing copper no longer matches every pad. Re-route before running DRC or exporting.
+                  </div>
+                ) : null}
                 <div className="flex-1 min-h-0">
-                  <PCBCanvas traces={traces} vias={vias} boardWidth={boardWidth} boardHeight={boardHeight} selectedLayerId={selectedLayerId} layers={layers} />
+                  <PCBCanvas
+                    traces={traces}
+                    vias={vias}
+                    boardWidth={boardWidth}
+                    boardHeight={boardHeight}
+                    selectedLayerId={selectedLayerId}
+                    layers={layers}
+                    scene={pcbScene}
+                    activeTool={activeTool}
+                    selectedComponentId={selectedComponentId}
+                    routerPads={routerPads}
+                    onSelectComponent={setSelectedComponentId}
+                    onMoveComponent={handleMoveComponent}
+                    onAddTrace={handleAddTrace}
+                    onAddVia={handleAddVia}
+                  />
                 </div>
               </TabsContent>
 

@@ -10,6 +10,7 @@ import { X, AlertCircle, Activity } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { Input } from '../ui/input'
+import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign'
 import { Badge } from '../ui/badge'
 import {
   CartesianGrid,
@@ -79,18 +80,56 @@ function formatComplex(re: number, im: number): string {
   return `${formatNumber(re)} ${im >= 0 ? '+' : '−'} ${formatNumber(Math.abs(im))}j`
 }
 
+interface ControlDesign {
+  numeratorText?: string
+  denominatorText?: string
+  usePid?: boolean
+  kp?: number
+  ki?: number
+  kd?: number
+  filterTau?: number
+  tEnd?: number
+  dt?: number
+  fMin?: number
+  fMax?: number
+}
+
+const finiteOr = (value: unknown, fallback: number): number =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback
+
 export default function ControlSystemsPanel({ onClose }: ControlSystemsPanelProps) {
-  const [numeratorText, setNumeratorText] = useState('1')
-  const [denominatorText, setDenominatorText] = useState('1, 1, 0')
-  const [usePid, setUsePid] = useState(true)
-  const [kp, setKp] = useState(2)
-  const [ki, setKi] = useState(1)
-  const [kd, setKd] = useState(0.1)
-  const [filterTau, setFilterTau] = useState(0.01)
-  const [tEnd, setTEnd] = useState(10)
-  const [dt, setDt] = useState(0.005)
-  const [fMin, setFMin] = useState(0.01)
-  const [fMax, setFMax] = useState(1000)
+  const saved = loadDomainDesign<ControlDesign>('control')
+  const [numeratorText, setNumeratorText] = useState(
+    typeof saved?.numeratorText === 'string' ? saved.numeratorText : '1',
+  )
+  const [denominatorText, setDenominatorText] = useState(
+    typeof saved?.denominatorText === 'string' ? saved.denominatorText : '1, 1, 0',
+  )
+  const [usePid, setUsePid] = useState(saved?.usePid !== false)
+  const [kp, setKp] = useState(finiteOr(saved?.kp, 2))
+  const [ki, setKi] = useState(finiteOr(saved?.ki, 1))
+  const [kd, setKd] = useState(finiteOr(saved?.kd, 0.1))
+  const [filterTau, setFilterTau] = useState(finiteOr(saved?.filterTau, 0.01))
+  const [tEnd, setTEnd] = useState(finiteOr(saved?.tEnd, 10))
+  const [dt, setDt] = useState(finiteOr(saved?.dt, 0.005))
+  const [fMin, setFMin] = useState(finiteOr(saved?.fMin, 0.01))
+  const [fMax, setFMax] = useState(finiteOr(saved?.fMax, 1000))
+
+  usePublishDomainDesign('control', {
+    numeratorText, denominatorText, usePid, kp, ki, kd, filterTau, tEnd, dt, fMin, fMax,
+  }, (next) => {
+    if (typeof next.numeratorText === 'string') setNumeratorText(next.numeratorText)
+    if (typeof next.denominatorText === 'string') setDenominatorText(next.denominatorText)
+    if (typeof next.usePid === 'boolean') setUsePid(next.usePid)
+    setKp(finiteOr(next.kp, kp))
+    setKi(finiteOr(next.ki, ki))
+    setKd(finiteOr(next.kd, kd))
+    setFilterTau(finiteOr(next.filterTau, filterTau))
+    setTEnd(finiteOr(next.tEnd, tEnd))
+    setDt(finiteOr(next.dt, dt))
+    setFMin(finiteOr(next.fMin, fMin))
+    setFMax(finiteOr(next.fMax, fMax))
+  })
 
   const analysis = useMemo(() => {
     try {
@@ -363,7 +402,11 @@ export default function ControlSystemsPanel({ onClose }: ControlSystemsPanelProp
                           <LineChart data={analysis.bodeData}>
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis dataKey="decade" type="number" domain={['dataMin', 'dataMax']} ticks={decadeTicks} tickFormatter={(value: number) => `${(10 ** value).toPrecision(2)} Hz`} />
-                            <YAxis domain={[-60, 60]} tickFormatter={(value: number) => `${value} dB`} />
+                            <YAxis
+                              domain={[-140, 0]}
+                              ticks={[-120, -90, -60, -30, 0]}
+                              tickFormatter={(value: number) => `${formatNumber(value, 0)} dB`}
+                            />
                             <Tooltip
                               labelFormatter={(value: number) => `${(10 ** value).toPrecision(3)} Hz`}
                               formatter={(value: number) => [`${value.toFixed(2)} dB`, 'Magnitude']}

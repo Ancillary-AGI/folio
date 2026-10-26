@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BackupService } from './backupService';
 
 describe('BackupService', () => {
@@ -30,6 +30,20 @@ describe('BackupService', () => {
     expect(service.listBackups('project-b')[0].projectId).toBe('project-b');
   });
 
+  it('purges a deleted project without touching other projects', () => {
+    const service = new BackupService();
+    service.createBackup('project-a', { keep: false });
+    service.createBackup('project-a', { keep: false, second: true });
+    service.createBackup('project-b', { keep: true });
+
+    expect(service.deleteProjectBackups('project-a')).toBe(2);
+    expect(service.listBackups('project-a')).toHaveLength(0);
+    expect(service.listBackups('project-b')).toHaveLength(1);
+    expect(service.deleteProjectBackups('never-saved')).toBe(0);
+    expect(new BackupService().listBackups('project-a')).toHaveLength(0);
+    expect(new BackupService().listBackups('project-b')).toHaveLength(1);
+  });
+
   it('returns null for missing or malformed checkpoint payloads', () => {
     const service = new BackupService();
     expect(service.restore('missing')).toBeNull();
@@ -40,5 +54,21 @@ describe('BackupService', () => {
     ]));
 
     expect(new BackupService().restore(checkpoint.id, 'project-a')).toBeNull();
+  });
+
+  it('keeps a backup usable in-session and reports quota failures', () => {
+    const original = Storage.prototype.setItem;
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === 'folio.backups') throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+      return original.call(this, key, value);
+    });
+    try {
+      const service = new BackupService();
+      const checkpoint = service.createBackup('project-a', { revision: 7 }, 'Quota test');
+      expect(service.getStorageError()).toMatch(/browser storage is full/i);
+      expect(service.restore(checkpoint.id, 'project-a')).toEqual({ revision: 7 });
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

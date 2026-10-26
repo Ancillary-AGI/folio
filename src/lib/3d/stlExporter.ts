@@ -83,6 +83,7 @@ export class STLExporter {
     const geometries: Array<{ vertices: Float32Array; normals: Float32Array; indices: Uint32Array }> = [];
 
     scene.traverse((object) => {
+      if (object.userData.excludeFromExport) return;
       if (object instanceof THREE.Mesh && object.geometry) {
         geometries.push(this.processGeometry(object.geometry, object.matrixWorld, scale));
       }

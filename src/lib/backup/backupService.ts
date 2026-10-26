@@ -12,11 +12,17 @@ export class BackupService {
   private backups: ProjectBackup[] = [];
   private storageKey = 'folio.backups';
   private readonly maxBackupsPerProject = 50;
+  private storageError: string | null = null;
   /** Monotonic per-process suffix — deterministic and collision-free. */
   private static idSeq = 0;
 
   constructor() {
     this.hydrate();
+  }
+
+  /** Non-null when the last backup write (or read) failed. */
+  getStorageError(): string | null {
+    return this.storageError;
   }
 
   private hydrate(): void {
@@ -37,12 +43,23 @@ export class BackupService {
       }
     } catch {
       this.backups = [];
+      this.storageError = 'saved backups could not be read';
     }
   }
 
   private persist(): void {
     if (typeof localStorage === 'undefined') return;
-    localStorage.setItem(this.storageKey, JSON.stringify(this.backups));
+    try {
+      localStorage.setItem(this.storageKey, JSON.stringify(this.backups));
+      this.storageError = null;
+    } catch (error) {
+      const name = typeof error === 'object' && error !== null && 'name' in error
+        ? String((error as { name?: unknown }).name)
+        : '';
+      this.storageError = name === 'QuotaExceededError' || name === 'NS_ERROR_DOM_QUOTA_REACHED'
+        ? 'browser storage is full'
+        : error instanceof Error ? error.message : String(error);
+    }
   }
 
   createBackup(projectId: string, data: Record<string, unknown>, label = 'auto'): ProjectBackup {
@@ -68,6 +85,15 @@ export class BackupService {
 
   listBackups(projectId: string): ProjectBackup[] {
     return this.backups.filter((b) => b.projectId === projectId).sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  /** Drop every saved backup for a deleted project; returns how many were removed. */
+  deleteProjectBackups(projectId: string): number {
+    const before = this.backups.length;
+    this.backups = this.backups.filter((backup) => backup.projectId !== projectId);
+    const removed = before - this.backups.length;
+    if (removed > 0) this.persist();
+    return removed;
   }
 
   restore(backupId: string, projectId?: string): Record<string, unknown> | null {

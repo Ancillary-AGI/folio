@@ -96,6 +96,15 @@ export interface SimulationResult {
   analysis?: SimulationParameters['type']
   /** Probe measurements derived from the solved circuit. */
   probes?: import('./probes').ProbeResult[]
+  /**
+   * Branch currents at the final solved point (sources, inductors, controlled
+   * sources), and current through every device whose model defines one.
+   * Together with `operatingPoint` this is what a ratings/thermal check needs.
+   */
+  branchCurrents?: Record<string, number>
+  deviceCurrents?: Record<string, number>
+  /** Junction/ambient temperature the solve used, °C. */
+  temperatureCelsius?: number
 }
 
 export interface Component {
@@ -402,7 +411,8 @@ class SPICEEngine {
       const { measureProbes } = await import('./probes')
       const voltages = new Map(Object.entries(outcome.operatingPoint ?? {}))
       const branchCurrents = new Map(Object.entries(outcome.branchCurrents ?? {}))
-      const probeResults = measureProbes(model, model.probes, voltages, branchCurrents)
+      const deviceCurrents = new Map(Object.entries(outcome.deviceCurrents ?? {}))
+      const probeResults = measureProbes(model, model.probes, voltages, branchCurrents, deviceCurrents)
       return {
         success: outcome.converged,
         error: outcome.converged ? undefined : outcome.notes[0],
@@ -413,6 +423,9 @@ class SPICEEngine {
         notes: [...model.notes, ...outcome.notes],
         analysis: parameters.type,
         probes: probeResults,
+        branchCurrents: outcome.branchCurrents,
+        deviceCurrents: outcome.deviceCurrents,
+        temperatureCelsius: parameters.temperature ?? DEFAULT_TEMPERATURE_CELSIUS,
       }
     } catch (error) {
       return {

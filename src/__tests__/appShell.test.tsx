@@ -11,26 +11,41 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import '@testing-library/jest-dom/vitest'
 
 // SchematicCanvas drives a real Konva stage backed by a 2D canvas, which jsdom
-// cannot provide. Stub that one leaf so the rest of the shell renders for real.
+// cannot provide. Stub that one leaf so the rest of the shell renders for real,
+// while keeping the autosave contract reachable from a button.
 vi.mock('../components/SchematicCanvas', () => ({
-  default: function SchematicCanvasStub() {
-    return <div data-testid="schematic-canvas" />
+  default: function SchematicCanvasStub(props: { onSave?: (data: Record<string, unknown>) => void }) {
+    return (
+      <div data-testid="schematic-canvas">
+        <button
+          type="button"
+          onClick={() => props.onSave?.({ components: [], wires: [], viewport: { zoom: 1 } })}
+        >
+          Autosave canvas snapshot
+        </button>
+      </div>
+    )
   },
 }))
 
 import App from '../App'
 import { useAppStore } from '../stores/useAppStore'
 import { useProjectStore } from '../stores/useProjectStore'
+import { offlineProjectStore } from '../lib/offlineProjectStore'
+import { buildDemoBoard } from '../lib/demo/demoBoard'
 
 const ONBOARDING_COMPLETED_KEY = 'folio.onboarding.completed.v2'
 const themeToggleName = /^switch to (dark|light) theme$/i
 
 beforeEach(() => {
   localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
+  // Projects persist in localStorage, and earlier tests create some. Start each
+  // test from the first-run state so the empty project list is deterministic.
+  localStorage.removeItem('folio.offlineProjects')
   // Zustand stores are module singletons — never assume the previous test's project or tool.
   useProjectStore.setState({ currentProject: null, currentSchematic: null, components: [], wires: [], isDirty: false })
   useAppStore.setState({ activeTool: 'select', workspaceMode: 'schematic', sidebarOpen: true, aiChatOpen: false })
-  window.history.replaceState(null, '', '#/')
+  window.history.replaceState(null, '', '/')
 })
 
 describe('App shell', () => {
@@ -54,6 +69,77 @@ describe('App shell', () => {
 
     // Header chrome: the theme control is present in the IDE too.
     expect(screen.getAllByRole('button', { name: themeToggleName }).length).toBeGreaterThan(0)
+  })
+
+  it('opens the administration console from a deep link and returns to projects', async () => {
+    window.history.replaceState(null, '', '/admin')
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Administration' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to projects' }))
+
+    expect(await screen.findByRole('button', { name: /create project/i })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/projects')
+  })
+
+  it('keeps firmware, simulation history, and the routed board on save', async () => {
+    render(<App />)
+    fireEvent.click((await screen.findAllByRole('button', { name: /new project/i }))[0])
+    await screen.findByTestId('schematic-canvas')
+    const project = useProjectStore.getState().currentProject
+    expect(project).not.toBeNull()
+    const layout = {
+      widthMm: 20, heightMm: 10, thicknessMm: 1.6,
+      layers: [], traces: [], vias: [], components: [],
+    }
+
+    useProjectStore.setState({
+      firmwareCode: 'void setup() {}',
+      simulationRuns: [
+        { id: 'run-1', name: 'DC sweep', type: 'dc', parameters: {}, status: 'complete', createdAt: 1 },
+      ],
+      pcbLayout: layout,
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Autosave canvas snapshot' }))
+
+    await waitFor(() => {
+      const saved = offlineProjectStore.get(project!.id)
+      expect(saved?.canvas_data?.firmwareCode).toBe('void setup() {}')
+      expect(saved?.canvas_data?.simulationRuns).toEqual([
+        { id: 'run-1', name: 'DC sweep', type: 'dc', parameters: {}, status: 'complete', createdAt: 1 },
+      ])
+      expect(saved?.canvas_data?.pcbLayout).toEqual(layout)
+    })
+  })
+
+  it('restores the routed board when a saved project is reopened', async () => {
+    const view = render(<App />)
+    fireEvent.click((await screen.findAllByRole('button', { name: /new project/i }))[0])
+    await screen.findByTestId('schematic-canvas')
+    const project = useProjectStore.getState().currentProject
+    expect(project).not.toBeNull()
+    const layout = {
+      widthMm: 30, heightMm: 15, thicknessMm: 1.6,
+      layers: [], traces: [], vias: [], components: [],
+    }
+
+    useProjectStore.setState({ pcbLayout: layout })
+    fireEvent.click(screen.getByRole('button', { name: 'Autosave canvas snapshot' }))
+    await waitFor(() => expect(offlineProjectStore.get(project!.id)?.canvas_data?.pcbLayout).toEqual(layout))
+
+    useProjectStore.setState({
+      liveFrame: { time: 0.4, voltages: {}, glow: {}, lit: {} },
+      isSimulating: true,
+    })
+    view.unmount()
+    useProjectStore.setState({ currentProject: null, pcbLayout: null })
+    render(<App />)
+    fireEvent.click((await screen.findAllByRole('button', { name: /^open /i }))[0])
+
+    await screen.findByTestId('schematic-canvas')
+    expect(useProjectStore.getState().pcbLayout).toEqual(layout)
+    expect(useProjectStore.getState().liveFrame).toBeNull()
+    expect(useProjectStore.getState().isSimulating).toBe(false)
   })
 
   it('keeps secondary tools reachable from the compact More menu', async () => {
@@ -81,13 +167,28 @@ describe('App shell', () => {
 
   it('keeps the deep-linked workspace encoded in the URL', async () => {
     // A bookmarked/reloaded tab must win over the persisted default mode; the
-    // URL writer previously fired before the hash reader and snapped this to /.
-    window.history.replaceState(null, '', '#/bom')
+    // URL writer previously fired before the location reader and snapped this to /.
+    window.history.replaceState(null, '', '/bom')
     render(<App />)
     fireEvent.click((await screen.findAllByRole('button', { name: /new project/i }))[0])
 
     expect(await screen.findByRole('button', { name: 'BOM' })).toHaveAttribute('aria-current', 'page')
-    expect(window.location.hash.startsWith('#/bom')).toBe(true)
+    expect(window.location.pathname.endsWith('/bom')).toBe(true)
+  })
+
+  it('moves between a project and the project list with clean history routes', async () => {
+    render(<App />)
+    fireEvent.click((await screen.findAllByRole('button', { name: /new project/i }))[0])
+    await screen.findByTestId('schematic-canvas')
+
+    const project = useProjectStore.getState().currentProject
+    expect(project).not.toBeNull()
+    expect(window.location.pathname).toBe(`/projects/${project!.id}`)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Projects' }))
+    expect(await screen.findByRole('heading', { name: 'Your Projects' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/projects')
+    expect(window.location.hash).toBe('')
   })
 
   it('opens the guide on first run and can be dismissed', async () => {
@@ -104,9 +205,11 @@ describe('App shell', () => {
   it('restarts the guide from Settings', async () => {
     render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: 'Settings' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Restart guided setup' }, { timeout: 5000 }))
+    // SettingsPanel is a lazy chunk; a loaded CI box can take well over the
+    // default 1 s to fetch and mount it after the whole suite has run.
+    fireEvent.click(await screen.findByRole('button', { name: 'Restart guided setup' }, { timeout: 20000 }))
 
-    expect(await screen.findByRole('dialog', { name: /one project/i })).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: /one project/i }, { timeout: 5000 })).toBeInTheDocument()
   })
 
   it('keeps Back/Continue equal height in a fixed footer row', async () => {
@@ -156,10 +259,12 @@ describe('App shell', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Simulation' }))
 
-    expect(await screen.findByText('Circuit Simulation', {}, { timeout: 5000 })).toBeInTheDocument()
+    // SimulationPanel is a lazy chunk and its first mount compiles a large
+    // module graph; allow for a fully loaded CI budget rather than 5 s.
+    expect(await screen.findByText('Circuit Simulation', {}, { timeout: 20000 })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Simulation' })).toHaveAttribute('aria-current', 'page')
-    expect(window.location.hash.startsWith('#/simulation')).toBe(true)
-  })
+    expect(window.location.pathname.endsWith('/simulation')).toBe(true)
+  }, 30000)
 
   it('toggles the color theme from the header', async () => {
     render(<App />)
@@ -177,5 +282,44 @@ describe('App shell', () => {
         screen.getAllByRole('button', { name: new RegExp(`switch to ${expectedAfter} theme`, 'i') }).length,
       ).toBeGreaterThan(0)
     })
+  })
+
+  it('commits two sheet versions and restores the earlier one from the version panel', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    try {
+      render(<App />)
+      fireEvent.click((await screen.findAllByRole('button', { name: /new project/i }))[0])
+      await screen.findByTestId('schematic-canvas')
+
+      const board = buildDemoBoard()
+      useProjectStore.setState({ components: board.components, wires: board.wires })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Version history' }))
+      fireEvent.change(screen.getByLabelText('Commit message'), { target: { value: 'full rectifier' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Commit' }))
+
+      expect(await screen.findByText('full rectifier')).toBeInTheDocument()
+
+      // Diverge from the committed sheet, then record that state too.
+      const reduced = board.components.slice(0, -1)
+      useProjectStore.setState({ components: reduced })
+      fireEvent.change(screen.getByLabelText('Commit message'), { target: { value: 'missing a part' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Commit' }))
+
+      expect(await screen.findByText('missing a part')).toBeInTheDocument()
+      expect(useProjectStore.getState().components).toHaveLength(reduced.length)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Restore full rectifier' }))
+
+      await waitFor(() => {
+        expect(useProjectStore.getState().components).toHaveLength(board.components.length)
+      })
+      expect(useProjectStore.getState().components.map((part) => part.reference)).toEqual(
+        board.components.map((part) => part.reference),
+      )
+      expect(confirmSpy).toHaveBeenCalled()
+    } finally {
+      confirmSpy.mockRestore()
+    }
   })
 })

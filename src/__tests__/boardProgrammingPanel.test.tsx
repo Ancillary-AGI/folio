@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import BoardProgrammingPanel from '../components/programming/BoardProgrammingPanel'
+import { useAppStore } from '../stores/useAppStore'
 import { useProjectStore, type CanvasComponent, type CanvasWire } from '../stores/useProjectStore'
 import type { Component } from '../lib/supabase'
 
@@ -41,6 +42,20 @@ const sensorComponent = libraryPart('lib-sensor', 'Temperature Sensor', 'sensor'
 describe('BoardProgrammingPanel schematic generation', () => {
   beforeEach(() => {
     useProjectStore.setState({ components: [], wires: [], firmwareCode: '' })
+    useAppStore.setState({ demoRequest: null })
+  })
+
+  it('loads and analyses the demo firmware when the gallery requests it', async () => {
+    useAppStore.setState({ demoRequest: 'embedded-rectifier' })
+
+    render(<BoardProgrammingPanel onClose={() => {}} />)
+
+    await waitFor(() => {
+      const editor = screen.getByLabelText('Firmware source code') as HTMLTextAreaElement
+      expect(editor.value).toContain('THRESHOLD_MV')
+    })
+    expect(await screen.findByText(/Static analysis passed/)).toBeInTheDocument()
+    await waitFor(() => expect(useAppStore.getState().demoRequest).toBeNull())
   })
 
   it('generates a sketch from the schematic into the editor', async () => {
