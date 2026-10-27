@@ -5,7 +5,7 @@ import {
   pidStep,
   pidTransferFunction,
 } from './pid'
-import { simulateStep, stepResponseMetrics } from './transferFunction'
+import { simulateStep, stepResponseMetrics, tfPoles, tfStability } from './transferFunction'
 
 describe('continuous PID design', () => {
   it('assembles the filtered PID as one proper rational function', () => {
@@ -29,6 +29,25 @@ describe('continuous PID design', () => {
     // PI turns the type-0 plant into a type-1 loop; the closed-loop poles are
     // s² + 3s + 3, so settling is a few seconds, not the plant's 4 s tail.
     expect(metrics.settlingTimeSeconds).toBeLessThan(5)
+  })
+
+  it('drops the poles a controller without that action never had', () => {
+    // kd = 0: the numerator is (τs+1)(kp·s + ki), so the filter pole is not real.
+    expect(pidTransferFunction({ kp: 2, ki: 3, kd: 0 })).toEqual({ numerator: [2, 3], denominator: [1, 0] })
+    // ki = 0 as well: what is left is a gain, with no integrator hiding in it.
+    expect(pidTransferFunction({ kp: 1.5, ki: 0, kd: 0 })).toEqual({ numerator: [1.5], denominator: [1] })
+    // PD keeps the filter pole but loses the integrator it has no term for.
+    expect(pidTransferFunction({ kp: 2, ki: 0, kd: 0.5, derivativeFilterSeconds: 0.1 }))
+      .toEqual({ numerator: [0.7, 2], denominator: [0.1, 1] })
+  })
+
+  it('classifies a proportional loop as the stable loop it is', () => {
+    // Before the cancellation the unreduced fraction carried a pole at the origin,
+    // so a plain P loop reported itself as marginally stable.
+    const loop = pidClosedLoop({ numerator: [2], denominator: [0.5, 1] }, { kp: 1, ki: 0, kd: 0 })
+    expect(tfStability(loop)).toBe('stable')
+    expect(tfPoles(loop)).toHaveLength(1)
+    expect(tfPoles(loop)[0].re).toBeCloseTo(-6, 10)
   })
 
   it('rejects non-finite gains and a non-positive derivative filter', () => {

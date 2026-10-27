@@ -556,6 +556,91 @@
 }
 
 /*
+ * Onboarding tour — the spotlight is the one attention anchor in the app, so it
+ * earns a slow halo pulse and corner brackets instead of a fast flash. All of it
+ * collapses to a static ring under prefers-reduced-motion and the app's
+ * `.reduce-motion` class, and the component drops these classes entirely when
+ * animations are switched off in settings.
+ */
+.tour-halo {
+  animation: tour-halo 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes tour-halo {
+  0% {
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 16px hsl(var(--primary) / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
+  }
+}
+
+.tour-bracket {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-style: solid;
+  border-color: hsl(var(--primary));
+  animation: tour-bracket-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes tour-bracket-in {
+  from {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Coach-mark caret: a rotated square on the card edge facing the spotlight. */
+.tour-caret {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  transform: rotate(45deg);
+  background: hsl(var(--card));
+}
+
+.tour-caret-top {
+  top: -6px;
+  border-left: 1px solid hsl(var(--border));
+  border-top: 1px solid hsl(var(--border));
+}
+
+.tour-caret-bottom {
+  bottom: -6px;
+  border-right: 1px solid hsl(var(--border));
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.tour-caret-left {
+  left: -6px;
+  border-left: 1px solid hsl(var(--border));
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.tour-caret-right {
+  right: -6px;
+  border-right: 1px solid hsl(var(--border));
+  border-top: 1px solid hsl(var(--border));
+}
+
+.tour-step-dot {
+  transition: width 180ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease-out,
+    border-color 180ms ease-out, transform 120ms ease-out;
+}
+
+.tour-step-dot:hover {
+  transform: scaleY(1.35);
+}
+
+/*
  * React Flow ships fixed light chrome and loads its stylesheet with the lazy
  * editor chunk, i.e. after this file. The extra class raises specificity above
  * its unlayered defaults so the blocks editor follows the active theme.

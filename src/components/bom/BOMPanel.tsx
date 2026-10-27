@@ -3,12 +3,19 @@
  *
  * Features:
  *  • Aggregated Bill of Materials from current schematic components
- *  • Cost estimation with quantity breaks
- *  • Component lifecycle status (active / NRND / obsolete)
- *  • Supplier cross-reference (heuristic — production would call a parts API)
+ *  • Cost totals from each part's declared unit cost (flat — no quantity-break
+ *    table here, and unpriced parts are reported separately, never as $0)
+ *  • Component lifecycle status, read only from data the part actually
+ *    declares — see `inferLifecycle` for what counts as evidence
+ *  • Availability column, likewise only from a declared availability string
  *  • Sortable, filterable table
  *  • Export as CSV or JSON
- *  • Inline property editing (value, package, notes)
+ *  • Inline editing of the notes column, written back onto the schematic
+ *    components so the note survives re-aggregation, export and project save
+ *
+ * There is no supplier or cross-reference lookup in this build: manufacturer
+ * and part number are whatever the canvas components declare, and the demo
+ * audit compares designators against the fab package rather than a parts API.
  */
 
 import React, { useState, useMemo, useCallback } from 'react'
@@ -32,6 +39,8 @@ export interface BOMLineItem {
   key: string                    // unique key = name + value + package
   qty: number
   references: string[]
+  /** Canvas instances folded into this row — the note target, since rows are derived data. */
+  instanceIds: string[]
   partName: string
   value: string
   package: string
@@ -52,23 +61,40 @@ type SortDir = 'asc' | 'desc'
 
 // ── Lifecycle helpers ─────────────────────────────────────────────────────────
 
+/**
+ * Lifecycle needs evidence from the part itself.
+ *
+ * Only a declared availability of `available` earns an "Active" badge, because
+ * that is the one claim a parts library can actually make about a component.
+ * Defaulting an undeclared part to Active would tell a designer a part is in
+ * production with nothing behind it — the wrong kind of reassurance on a board
+ * going to fab — so undeclared parts report `unknown` and the table labels them
+ * "Unverified". The name checks stay: they only ever *raise* a risk flag, never
+ * clear one.
+ */
 function inferLifecycle(name: string, properties: Record<string, string | number | boolean>): LifecycleStatus {
   const avail = String(properties.availability ?? '').toLowerCase()
   if (avail === 'obsolete') return 'obsolete'
   if (avail === 'limited' || avail === 'nrnd') return 'nrnd'
   if (avail === 'available') return 'active'
-  // Heuristic from name
   const lower = name.toLowerCase()
   if (lower.includes('obsolete') || lower.includes('legacy')) return 'obsolete'
   if (lower.includes('nrnd') || lower.includes('end-of-life')) return 'nrnd'
-  return 'active'
+  return 'unknown'
 }
 
+/**
+ * Availability has the same rule as lifecycle: a status appears only because the
+ * part declares it. A declared lead time is its own evidence, so a part with a
+ * finite positive `leadTime` reads as Lead Time rather than nothing.
+ */
 function inferAvailability(props: Record<string, string | number | boolean>): AvailabilityStatus {
   const avail = String(props.availability ?? '').toLowerCase()
   if (avail === 'available') return 'in-stock'
   if (avail === 'limited') return 'allocation'
   if (avail === 'obsolete') return 'eol'
+  const leadTime = props.leadTime
+  if (typeof leadTime === 'number' && Number.isFinite(leadTime) && leadTime > 0) return 'lead-time'
   return 'unknown'
 }
 
@@ -87,7 +113,8 @@ function buildBOM(components: ReturnType<typeof useProjectStore.getState>['compo
     if (map.has(key)) {
       const existing = map.get(key)!
       existing.qty += 1
-      existing.references.push(comp.reference)
+      existing.references = [...existing.references, comp.reference]
+      existing.instanceIds = [...existing.instanceIds, comp.id]
       existing.totalCostUsd = existing.unitCostUsd === null ? null : existing.qty * existing.unitCostUsd
     } else {
       const unitCost = typeof p.cost === 'number' && Number.isFinite(p.cost) ? p.cost : null
@@ -95,6 +122,7 @@ function buildBOM(components: ReturnType<typeof useProjectStore.getState>['compo
         key,
         qty: 1,
         references: [comp.reference],
+        instanceIds: [comp.id],
         partName,
         value,
         package: pkg,
@@ -118,29 +146,37 @@ function buildBOM(components: ReturnType<typeof useProjectStore.getState>['compo
 // ── Cell components ───────────────────────────────────────────────────────────
 
 const LifecycleBadge: React.FC<{ status: LifecycleStatus }> = ({ status }) => {
-  const cfg: Record<LifecycleStatus, { label: string; cls: string }> = {
-    active: { label: 'Active', cls: 'bg-success text-success-foreground' },
-    nrnd: { label: 'NRND', cls: 'bg-warning text-warning-foreground' },
-    obsolete: { label: 'Obsolete', cls: 'bg-destructive text-destructive-foreground' },
-    unknown: { label: '—', cls: 'bg-muted text-muted-foreground' },
+  const cfg: Record<LifecycleStatus, { label: string; cls: string; title: string }> = {
+    active: { label: 'Active', cls: 'bg-success text-success-foreground', title: 'Lifecycle from a declared availability of available' },
+    nrnd: { label: 'NRND', cls: 'bg-warning text-warning-foreground', title: 'Lifecycle from a declared limited / NRND availability' },
+    obsolete: { label: 'Obsolete', cls: 'bg-destructive text-destructive-foreground', title: 'Lifecycle from a declared obsolete availability' },
+    unknown: { label: 'Unverified', cls: 'bg-muted text-muted-foreground', title: 'No lifecycle data declared on this part — not the same as being active' },
   }
-  const { label, cls } = cfg[status]
-  return <Badge className={`text-xs ${cls}`}>{label}</Badge>
+  const { label, cls, title } = cfg[status]
+  return <Badge className={`text-xs ${cls}`} title={title}>{label}</Badge>
 }
 
 const AvailBadge: React.FC<{ status: AvailabilityStatus }> = ({ status }) => {
-  const cfg: Record<AvailabilityStatus, { label: string; cls: string }> = {
-    'in-stock': { label: 'In Stock', cls: 'bg-success text-success-foreground' },
-    'lead-time': { label: 'Lead Time', cls: 'bg-primary text-primary-foreground' },
-    allocation: { label: 'Allocation', cls: 'bg-warning text-warning-foreground' },
-    eol: { label: 'EOL', cls: 'bg-destructive text-destructive-foreground' },
-    unknown: { label: '—', cls: 'bg-muted text-muted-foreground' },
+  const cfg: Record<AvailabilityStatus, { label: string; cls: string; title: string }> = {
+    'in-stock': { label: 'In Stock', cls: 'bg-success text-success-foreground', title: 'Part declares availability: available' },
+    'lead-time': { label: 'Lead Time', cls: 'bg-primary text-primary-foreground', title: 'No availability declared, but the part declares a lead time' },
+    allocation: { label: 'Allocation', cls: 'bg-warning text-warning-foreground', title: 'Part declares availability: limited' },
+    eol: { label: 'EOL', cls: 'bg-destructive text-destructive-foreground', title: 'Part declares availability: obsolete' },
+    unknown: { label: 'Not declared', cls: 'bg-muted text-muted-foreground', title: 'No availability or lead time declared, and no supplier data source is wired in' },
   }
-  const { label, cls } = cfg[status]
-  return <Badge className={`text-xs ${cls}`}>{label}</Badge>
+  const { label, cls, title } = cfg[status]
+  return <Badge className={`text-xs ${cls}`} title={title}>{label}</Badge>
 }
 
 // ── Main Panel ────────────────────────────────────────────────────────────────
+
+const LIFECYCLE_FILTERS: Array<{ value: LifecycleStatus | 'all'; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'active', label: 'Active' },
+  { value: 'nrnd', label: 'NRND' },
+  { value: 'obsolete', label: 'Obsolete' },
+  { value: 'unknown', label: 'Unverified' },
+]
 
 interface BOMPanelProps {
   onClose?: () => void
@@ -221,6 +257,11 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
   const formattedCost = hasPricedItems ? `$${totalCost.toFixed(2)}` : 'Not priced'
   const totalQty = useMemo(() => filteredBOM.reduce((s, i) => s + i.qty, 0), [filteredBOM])
   const obsoleteCount = useMemo(() => filteredBOM.filter(i => i.lifecycle === 'obsolete' || i.lifecycle === 'nrnd').length, [filteredBOM])
+  const lifecycleCounts = useMemo(() => {
+    const counts: Record<LifecycleStatus, number> = { active: 0, nrnd: 0, obsolete: 0, unknown: 0 }
+    for (const item of filteredBOM) counts[item.lifecycle] += 1
+    return counts
+  }, [filteredBOM])
 
   // ── Sort helpers ──────────────────────────────────────────────────────────
 
@@ -228,6 +269,27 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortKey(key); setSortDir('asc') }
   }
+
+  // ── Notes editing ─────────────────────────────────────────────────────────
+
+  /**
+   * A BOM row is derived data, so a note typed here only survives if it is
+   * written back onto the schematic components the row was aggregated from.
+   * Every instance in the row gets the same note — they are the same part, and
+   * the row cannot tell them apart. One replaceDesign call keeps the edit a
+   * single undo step instead of one per instance.
+   */
+  const saveNotes = useCallback((item: BOMLineItem, notes: string) => {
+    const { components, wires, replaceDesign } = useProjectStore.getState()
+    const touched = new Set(item.instanceIds)
+    replaceDesign({
+      components: components.map((comp) =>
+        touched.has(comp.id) ? { ...comp, properties: { ...comp.properties, notes } } : comp,
+      ),
+      wires,
+    })
+    setEditingKey(null)
+  }, [])
 
   // ── Exports ───────────────────────────────────────────────────────────────
 
@@ -357,19 +419,39 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
       )}
 
       {/* Filters */}
-      <div className="flex items-center gap-3 p-3 border-b border-border">
-        <div className="relative flex-1 max-w-xs">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-muted-foreground" />
-          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search parts, refs, value…" className="pl-8 h-8 text-xs" />
+      <div className="space-y-2 border-b border-border p-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 max-w-xs">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-muted-foreground" />
+            <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search parts, refs, value…" className="pl-8 h-8 text-xs" />
+          </div>
+          <div className="flex items-center gap-1">
+            <Filter className="w-3.5 h-3.5 text-muted-foreground" />
+            {LIFECYCLE_FILTERS.map(({ value, label }) => {
+              const count = value === 'all' ? filteredBOM.length : lifecycleCounts[value]
+              return (
+                <Button
+                  key={value}
+                  variant={filterLifecycle === value ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 text-xs px-2"
+                  aria-pressed={filterLifecycle === value}
+                  onClick={() => setFilterLifecycle(value)}
+                >
+                  {label}
+                  <span className={filterLifecycle === value ? 'ml-1 opacity-80' : 'ml-1 text-muted-foreground'}>{count}</span>
+                </Button>
+              )
+            })}
+          </div>
         </div>
-        <div className="flex items-center gap-1">
-          <Filter className="w-3.5 h-3.5 text-muted-foreground" />
-          {(['all', 'active', 'nrnd', 'obsolete'] as const).map(f => (
-            <Button key={f} variant={filterLifecycle === f ? 'default' : 'outline'} size="sm" className="h-7 text-xs px-2" onClick={() => setFilterLifecycle(f)}>
-              {f === 'all' ? 'All' : f.toUpperCase()}
-            </Button>
-          ))}
-        </div>
+        <p className="text-xs text-muted-foreground">
+          Lifecycle and availability are read from what each part declares — never inferred from a default.{' '}
+          {lifecycleCounts.unknown === 0
+            ? 'Every line item here carries a declared status.'
+            : `${lifecycleCounts.unknown} of ${filteredBOM.length} line items carry none and show as Unverified: that is missing data, not a clean part, so confirm it with the manufacturer before ordering.`}{' '}
+          Live supplier or stock checks would need a parts data source, which this build does not have.
+        </p>
       </div>
 
       {/* Lifecycle risk banner */}
@@ -420,18 +502,30 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
                   <td className="p-2 font-medium">{item.totalCostUsd === null ? '—' : `$${item.totalCostUsd.toFixed(2)}`}</td>
                   <td className="p-2"><LifecycleBadge status={item.lifecycle} /></td>
                   <td className="p-2"><AvailBadge status={item.availability} /></td>
-                  <td className="p-2 max-w-[100px]">
+                  <td className="p-2 max-w-[160px]">
                     {editingKey === item.key ? (
                       <div className="flex gap-1">
-                        <Input value={editNotes} onChange={e => setEditNotes(e.target.value)} className="h-6 text-xs py-0" autoFocus />
-                        <Button size="icon" className="h-6 w-6" onClick={() => setEditingKey(null)} aria-label={`Save notes for ${item.key}`}><Save className="w-3 h-3" /></Button>
+                        <Input
+                          value={editNotes}
+                          onChange={e => setEditNotes(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') saveNotes(item, editNotes)
+                            else if (e.key === 'Escape') setEditingKey(null)
+                          }}
+                          aria-label={`Notes for ${item.references.join(', ')}`}
+                          placeholder="Applies to every instance in this row"
+                          className="h-6 text-xs py-0"
+                          autoFocus
+                        />
+                        <Button size="icon" className="h-6 w-6" onClick={() => saveNotes(item, editNotes)} aria-label={`Save notes for ${item.references.join(', ')}`}><Save className="w-3 h-3" /></Button>
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditingKey(null)} aria-label={`Discard note edit for ${item.references.join(', ')}`}><X className="w-3 h-3" /></Button>
                       </div>
                     ) : (
-                      <span className="text-muted-foreground truncate block max-w-[90px]">{item.notes || '—'}</span>
+                      <span className="text-muted-foreground truncate block max-w-[150px]" title={item.notes || undefined}>{item.notes || '—'}</span>
                     )}
                   </td>
                   <td className="p-2">
-                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setEditingKey(item.key); setEditNotes(item.notes) }} aria-label={`Edit notes for ${item.key}`}>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setEditingKey(item.key); setEditNotes(item.notes) }} aria-label={`Edit notes for ${item.references.join(', ')}`}>
                       <Edit3 className="w-3 h-3" />
                     </Button>
                   </td>

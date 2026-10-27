@@ -122,7 +122,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
 
       } else if (lowerQuery.includes('maintenan') || lowerQuery.includes('fail') || lowerQuery.includes('reliab') || lowerQuery.includes('mtbf')) {
         const predictions = await aiService.predictMaintenance(domainComponents)
-        responseContent = formatMaintenancePredictions(Array.isArray(predictions) ? predictions : [predictions])
+        responseContent = formatMaintenancePredictions(predictions)
         metadata = { type: 'general' }
 
       } else if (lowerQuery.includes('smart') || lowerQuery.includes('hint') || lowerQuery.includes('tip')) {
@@ -201,7 +201,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
       <div className="flex items-center justify-between p-3 border-b border-border">
         <div className="flex items-center gap-2">
           <Bot className="w-5 h-5 text-primary" />
-          <span className="font-semibold text-sm">AI Design Assistant</span>
+          <h2 className="text-sm font-semibold">AI Design Assistant</h2>
           <Badge variant="secondary" className="text-xs">{workspaceMode}</Badge>
         </div>
         <div className="flex items-center gap-1">
@@ -374,19 +374,37 @@ function formatOptimizationResult(result: { improvements: Array<{ parameter: str
   return lines.join('\n')
 }
 
-function formatMaintenancePredictions(preds: Array<{ componentId: string; failureProbability: number; timeToFailure: number; failureMode: string; recommendations: string[] }>): string {
+/** The fields of a prediction this view prints. */
+type MaintenancePredictionView = {
+  componentId: string
+  failureProbability: number
+  timeToFailure: number
+  failureMode: string
+  confidence: number
+  basis: string
+  inputsMissing: string[]
+  recommendations: string[]
+}
+
+function formatMaintenancePredictions(preds: MaintenancePredictionView[]): string {
   if (preds.length === 0) return 'No maintenance predictions available — add components first.'
   const lines = ['**Predictive Maintenance Analysis:**\n']
   const sorted = [...preds].sort((a, b) => b.failureProbability - a.failureProbability)
   sorted.slice(0, 5).forEach(p => {
     const risk = p.failureProbability > 0.1 ? 'HIGH RISK' : p.failureProbability > 0.05 ? 'ELEVATED RISK' : 'LOW RISK'
     lines.push(`**${risk}: ${p.componentId}**`)
-    lines.push(`   Failure probability: ${(p.failureProbability * 100).toFixed(1)}%`)
-    lines.push(`   Est. time to failure: ${p.timeToFailure.toLocaleString()} h`)
+    lines.push(`   Failure probability: ${(p.failureProbability * 100).toFixed(1)}% (confidence ${Math.round(p.confidence * 100)}%)`)
+    lines.push(`   Est. time to failure: ${Math.round(p.timeToFailure).toLocaleString()} h`)
     lines.push(`   Mode: ${p.failureMode}`)
+    lines.push(`   Basis: ${p.basis}`)
     if (p.recommendations.length) lines.push(`   → ${p.recommendations[0]}`)
   })
   if (preds.length > 5) lines.push(`\n…and ${preds.length - 5} more components`)
+  const gapCount = preds.filter(p => p.inputsMissing.length > 0).length
+  lines.push(
+    `\nConfidence counts the stress inputs the design actually declares; undeclared ones are listed as gaps rather than guessed.` +
+      (gapCount > 0 ? ` ${gapCount} of ${preds.length} part${gapCount === 1 ? ' has' : ' have'} unevaluated inputs.` : ''),
+  )
   return lines.join('\n')
 }
 

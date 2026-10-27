@@ -5,7 +5,14 @@ import TraceChart, { type TraceSeries } from '../charts/TraceChart'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { Input } from '../ui/input'
-import { AntennaDesigner, type AntennaArray, type AntennaElement } from '../../lib/rf/antennaDesign'
+import {
+  AntennaDesigner,
+  ANTENNA_ASSUMPTION_TEXT,
+  ANTENNA_NOT_MODELED_TEXT,
+  type AntennaArray,
+  type AntennaElement,
+  type AntennaNotModeledReason,
+} from '../../lib/rf/antennaDesign'
 import {
   RFCircuitDesigner,
   type RFPerformanceMetrics,
@@ -60,7 +67,7 @@ const DIMENSION_LABELS: Record<string, string> = {
   radius: 'Wire radius',
   groundPlaneRadius: 'Ground plane radius',
   effectiveEpsilon: 'Effective εr',
-  feedOffset: 'Feed offset',
+  feedOffset: 'Inset feed (to 50 Ω)',
 }
 
 function formatLength(meters: number): string {
@@ -132,6 +139,20 @@ function halfPowerBeamwidth(theta: number[], gains: number[]): number {
   if (peakIndex === 0) return 2 * theta[right]
   if (peakIndex === gains.length - 1) return 2 * (180 - theta[left])
   return theta[right] - theta[left]
+}
+
+/**
+ * A null antenna result means the implemented model cannot produce the number.
+ * Show the reason: a dash, a zero or a NaN would be read as a measurement, which
+ * is exactly what the mission-critical rule forbids.
+ */
+function notModeledText(reason: AntennaNotModeledReason | undefined): string {
+  return reason === undefined ? 'Not modelled' : `Not modelled — ${ANTENNA_NOT_MODELED_TEXT[reason]}`
+}
+
+/** Degrees, or the labelled not-modelled state; a null angle is never a dash. */
+function angleText(value: number | null, reason?: AntennaNotModeledReason): string {
+  return value === null ? notModeledText(reason) : `${value.toFixed(1)}°`
 }
 
 function downloadText(filename: string, content: string, type: string): void {
@@ -432,6 +453,19 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
       ? halfPowerBeamwidth(antennaData.pattern.theta, antennaGains)
       : Number.NaN
   const referenceElement = antennaData?.elements[0]
+  const antennaParameters = referenceElement?.parameters ?? null
+
+  // Null in, prose out: never a fabricated number, never a blank.
+  const vsWRText = antennaParameters === null
+    ? '—'
+    : antennaParameters.vsWR === null
+      ? notModeledText(antennaParameters.notModeled.vsWR)
+      : `${antennaParameters.vsWR.toFixed(2)}:1`
+  const fractionalBandwidthText = antennaParameters === null
+    ? '—'
+    : antennaParameters.bandwidth === null
+      ? notModeledText(antennaParameters.notModeled.bandwidth)
+      : `${(antennaParameters.bandwidth / (frequencyMHz * 1e6) * 100).toFixed(1)}%`
 
   const filterChartData = filterData
     ? filterData.sweep.map((point) => ({
@@ -621,8 +655,10 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="text-xs leading-relaxed text-muted-foreground">
-                  Closed-form synthesis: half-wave dipole, quarter-wave monopole, transmission-line patch
-                  model with fringing extension, and array-factor patterns. These are design estimates, not
+                  Directivity, beamwidth and feed resistance are integrated from the modelled far field:
+                  the sinusoidal thin-wire pattern for the dipoles (radiation resistance referred to the feed
+                  current) and the two-slot aperture for the patch. No reactive term is modelled, so bandwidth
+                  and VSWR are reported as not modelled rather than estimated. These are design estimates, not
                   full-wave EM results — verify the final geometry in a field solver or on the bench.
                 </CardContent>
               </Card>
@@ -732,8 +768,20 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
                         label="−3 dB beamwidth"
                         value={Number.isFinite(beamwidth) ? `${beamwidth.toFixed(1)}°` : '—'}
                       />
-                      <Metric label="VSWR" value={`${(referenceElement?.parameters.vsWR ?? Number.NaN).toFixed(2)}:1`} />
-                      <Metric label="Zin" value={`${(referenceElement?.parameters.impedance ?? Number.NaN).toFixed(1)} Ω`} />
+                      <Metric
+                        label="VSWR"
+                        value={vsWRText}
+                        pending={antennaParameters?.vsWR === null}
+                      />
+                      {/* Real part only: the reactive term needs a kernel this model does not have. */}
+                      <Metric
+                        label="Zin (resistive part)"
+                        value={
+                          antennaParameters === null
+                            ? '—'
+                            : `${antennaParameters.impedance.toFixed(1)} Ω`
+                        }
+                      />
                     </div>
                   </div>
 
@@ -778,16 +826,72 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
                           <div className="flex items-center justify-between gap-4 border-b border-border/60 pb-1.5">
                             <dt className="text-muted-foreground">Element gain</dt>
                             <dd className="font-mono text-foreground">
-                              {(referenceElement?.parameters.gain ?? Number.NaN).toFixed(2)} dBi
+                              {(antennaParameters?.gain ?? Number.NaN).toFixed(2)} dBi
                             </dd>
                           </div>
-                          <div className="flex items-center justify-between gap-4">
-                            <dt className="text-muted-foreground">Fractional bandwidth</dt>
+                          <div className="flex items-center justify-between gap-4 border-b border-border/60 pb-1.5">
+                            <dt className="text-muted-foreground">Directivity (integrated)</dt>
                             <dd className="font-mono text-foreground">
-                              {((referenceElement?.parameters.bandwidth ?? 0) / (frequencyMHz * 1e6) * 100).toFixed(1)}%
+                              {(antennaParameters?.directivity ?? Number.NaN).toFixed(2)} dBi
+                            </dd>
+                          </div>
+                          <div className="flex items-center justify-between gap-4 border-b border-border/60 pb-1.5">
+                            <dt className="text-muted-foreground">
+                              {antennaParameters?.assumptions.includes('loss-free-efficiency')
+                                // Gain = directivity here; the efficiency is an assumption, and the
+                                // label has to say so instead of the panel implying a loss model.
+                                ? 'Efficiency (assumed)'
+                                : 'Efficiency'}
+                            </dt>
+                            <dd className="font-mono text-foreground">
+                              {antennaParameters === null
+                                ? '—'
+                                : `${antennaParameters.efficiency.toFixed(0)} %`}
+                            </dd>
+                          </div>
+                          <div className="flex items-center justify-between gap-4 border-b border-border/60 pb-1.5">
+                            <dt className="text-muted-foreground">E-plane −3 dB</dt>
+                            <dd className="font-mono text-foreground">
+                              {antennaParameters === null ? '—' : angleText(antennaParameters.ePlaneBeamwidth)}
+                            </dd>
+                          </div>
+                          <div className="flex items-start justify-between gap-4 border-b border-border/60 pb-1.5">
+                            <dt className="text-muted-foreground">H-plane −3 dB</dt>
+                            <dd
+                              className={
+                                antennaParameters?.hPlaneBeamwidth === null
+                                  ? 'max-w-[18rem] text-right text-[10px] leading-snug text-muted-foreground'
+                                  : 'font-mono text-foreground'
+                              }
+                            >
+                              {antennaParameters === null
+                                ? '—'
+                                : angleText(
+                                  antennaParameters.hPlaneBeamwidth,
+                                  antennaParameters.notModeled.hPlaneBeamwidth,
+                                )}
+                            </dd>
+                          </div>
+                          <div className="flex items-start justify-between gap-4">
+                            <dt className="text-muted-foreground">Fractional bandwidth</dt>
+                            <dd
+                              className={
+                                antennaParameters?.bandwidth === null
+                                  ? 'max-w-[18rem] text-right text-[10px] leading-snug text-muted-foreground'
+                                  : 'font-mono text-foreground'
+                              }
+                            >
+                              {fractionalBandwidthText}
                             </dd>
                           </div>
                         </dl>
+                        {antennaParameters !== null && antennaParameters.assumptions.length > 0 && (
+                          <ul className="space-y-1 rounded-md bg-muted/60 p-2 text-[11px] leading-relaxed text-muted-foreground">
+                            {antennaParameters.assumptions.map((assumption) => (
+                              <li key={assumption}>{ANTENNA_ASSUMPTION_TEXT[assumption]}</li>
+                            ))}
+                          </ul>
+                        )}
                         {antennaKind === 'yagi' && (
                           <p className="rounded-md bg-muted/60 p-2 text-[11px] leading-relaxed text-muted-foreground">
                             Reflector and directors are shortened/lengthened dipoles at λ/4 spacing. The array
@@ -796,8 +900,9 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
                         )}
                         {antennaKind === 'phased' && (
                           <p className="rounded-md bg-muted/60 p-2 text-[11px] leading-relaxed text-muted-foreground">
-                            Taylor amplitude taper, uniform phase. Spacing is λ/2 for a linear array, or the
-                            equivalent circumference spacing for a circular array.
+                            Symmetric cosh amplitude taper (not a Taylor-Σ distribution: no sidelobe level is
+                            specified), uniform phase. Spacing is λ/2 for a linear array, or the equivalent
+                            circumference spacing for a circular array.
                           </p>
                         )}
                       </CardContent>
@@ -925,11 +1030,14 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
   )
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, pending = false }: { label: string; value: string; pending?: boolean }) {
   return (
     <div className="rounded-md border border-border bg-card px-3 py-1.5">
       <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="font-mono text-sm text-foreground">{value}</div>
+      {/* pending = the model cannot produce this metric: prose, never a mono number. */}
+      <div className={pending ? 'max-w-[16rem] text-[10px] leading-snug text-muted-foreground' : 'font-mono text-sm text-foreground'}>
+        {value}
+      </div>
     </div>
   )
 }

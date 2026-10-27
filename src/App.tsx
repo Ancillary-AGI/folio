@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react'
+import { lazy, Suspense, useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Cpu, FolderOpen, Menu, Bot, BarChart3, Settings, Package, Users,
   Download, Image, FileText, List, Lock, LogOut, Mic, MicOff,
@@ -16,7 +16,8 @@ import type { DemoScenario } from './lib/demo/demoScenarios'
 import { exportToImage, exportToNetlist, exportToJSON, exportToBOM, exportToGerber, downloadFile } from './lib/exportUtils'
 import { buildSchematicDrawing } from './lib/schematic/engineeringDrawing'
 import { pluginManager } from './lib/plugins/pluginManager'
-import { collaborativeEditor } from './lib/collaboration/collaborativeEditor'
+import { type CollabUser } from './lib/collaboration/collaborativeEditor'
+import { useCollaborationPresence } from './lib/collaboration/useCollaborationPresence'
 import { nlpService } from './lib/nlp/nlpService'
 import { siemService } from './lib/siem/siemService'
 import { assetSecurity } from './lib/security/assetSecurity'
@@ -132,6 +133,14 @@ function NoticeBanner({ message, onDismiss }: { message: string; onDismiss: () =
   )
 }
 
+/** Deterministic presence colour so a user looks the same in every session. */
+function generateUserColor(userId: string): string {
+  const palette = ['#3B82F6','#EF4444','#10B981','#F59E0B','#8B5CF6','#EC4899','#06B6D4','#84CC16','#F97316','#6366F1']
+  let hash = 0
+  for (const c of userId) hash = c.charCodeAt(0) + ((hash << 5) - hash)
+  return palette[Math.abs(hash) % palette.length]
+}
+
 function App() {
   // Without cloud credentials the app boots straight into local mode — there is
   // no account to sign in to, so users never hit a login or "continue offline" gate.
@@ -161,9 +170,7 @@ function App() {
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [showCollaborativePanel, setShowCollaborativePanel] = useState(false)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
-  const [collaborativeUsers, setCollaborativeUsers] = useState<
-    Array<{ id: string; name: string; email: string; avatar?: string; color: string; isActive: boolean; lastSeen: number }>
-  >([])
+  const [collaborativeUsers, setCollaborativeUsers] = useState<CollabUser[]>([])
   const [isVoiceActive, setIsVoiceActive] = useState(false)
   const [showVoiceBar, setShowVoiceBar] = useState(false)
   const [voiceError, setVoiceError] = useState('')
@@ -245,7 +252,19 @@ function App() {
     markClean,
     components,
     wires,
+    componentLibrary,
   } = useProjectStore()
+
+  // Parts imported this session live in the project store; the cloud/offline
+  // catalogue is separate App state. The palette shows both, without doubling up
+  // on an id when a session import re-uses a catalogue entry.
+  const paletteComponents = useMemo(
+    () => [
+      ...libraryComponents,
+      ...componentLibrary.filter(extra => !libraryComponents.some(existing => existing.id === extra.id)),
+    ],
+    [libraryComponents, componentLibrary],
+  )
 
   const buildDesignSnapshot = () => {
     const live = useProjectStore.getState()
@@ -359,11 +378,10 @@ function App() {
   }, [])
 
   // ── Collaboration ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!user || !currentProject || offlineMode) return
-
+  const collabUser: CollabUser | null = useMemo(() => {
+    if (!user) return null
     const metadata = (user as User & { user_metadata?: { full_name?: string; avatar_url?: string } }).user_metadata
-    const collabUser = {
+    return {
       id: user.id,
       name: metadata?.full_name || user.email || 'Anonymous',
       email: user.email || '',
@@ -372,22 +390,9 @@ function App() {
       isActive: true,
       lastSeen: Date.now(),
     }
+  }, [user])
 
-    collaborativeEditor.connect(collabUser, currentProject.id).then(connected => {
-      if (!connected) return
-      collaborativeEditor.on('user:joined', (u) =>
-        setCollaborativeUsers(prev => [...prev.filter(x => x.id !== u.id), u])
-      )
-      collaborativeEditor.on('user:left', (u) =>
-        setCollaborativeUsers(prev => prev.filter(x => x.id !== u.id))
-      )
-      collaborativeEditor.on('session:joined', (session) =>
-        setCollaborativeUsers(Array.from(session.users.values()))
-      )
-    })
-
-    return () => { collaborativeEditor.disconnect() }
-  }, [user, currentProject, offlineMode])
+  useCollaborationPresence(collabUser, currentProject?.id ?? null, !offlineMode, setCollaborativeUsers)
 
   // ── SIEM monitoring ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -435,13 +440,6 @@ function App() {
   }, [])
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
-  const generateUserColor = (userId: string): string => {
-    const palette = ['#3B82F6','#EF4444','#10B981','#F59E0B','#8B5CF6','#EC4899','#06B6D4','#84CC16','#F97316','#6366F1']
-    let hash = 0
-    for (const c of userId) hash = c.charCodeAt(0) + ((hash << 5) - hash)
-    return palette[Math.abs(hash) % palette.length]
-  }
-
   const handleNewProject = async () => {
     if (!user) return
     setNotice('')
@@ -1511,7 +1509,7 @@ function App() {
       <main aria-label="Workspace" className="relative flex min-w-0 flex-1 overflow-hidden">
         {/* Domain workspace with 13-mode tab routing */}
         <DomainWorkspace
-          libraryComponents={libraryComponents}
+          libraryComponents={paletteComponents}
           onSave={handleSave}
           onOpenDemos={() => setShowDemoGallery(true)}
           beforeSimulationRun={simulationQuotaError}

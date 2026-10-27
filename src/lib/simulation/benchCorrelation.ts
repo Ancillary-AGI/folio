@@ -44,16 +44,28 @@ const WAVEFORM_SUFFIX = / mean( ([+−]3σ|mean))?$/
 
 const baseName = (waveformName: string): string => waveformName.replace(WAVEFORM_SUFFIX, '')
 
+const sameGrid = (
+  reference: ReadonlyArray<{ x: number }>,
+  other: ReadonlyArray<{ x: number }>,
+): boolean =>
+  reference.length === other.length &&
+  reference.every((point, index) => point.x === other[index]?.x)
+
 /**
  * Run the seeded tolerance sweep and fold the mean/±3σ waveforms into
  * per-signal low/high bands. `run` is the parent analysis applied to each
  * perturbed model — the same dispatch the engine uses.
+ *
+ * A signal only becomes a band when the sweep emitted all three traces on the
+ * same x grid; anything else is listed in `gridMismatch` so the caller can say
+ * the envelope was not formed, rather than showing a band that is an artefact of
+ * index alignment.
  */
 export function toleranceEnvelope(
   model: CircuitModel,
   run: (perturbed: CircuitModel) => AnalysisOutcome,
   options: { iterations?: number; tolerance?: number; seed?: number } = {},
-): { bands: EnvelopeBand[]; sweep: MonteCarloResult } {
+): { bands: EnvelopeBand[]; sweep: MonteCarloResult; gridMismatch: string[] } {
   const sweep = runMonteCarlo(model, run, {
     iterations: options.iterations ?? 100,
     tolerance: options.tolerance ?? 0.05,
@@ -70,19 +82,29 @@ export function toleranceEnvelope(
     bySignal.set(name, entry)
   }
   const bands: EnvelopeBand[] = []
+  const gridMismatch: string[] = []
   for (const [signal, entry] of bySignal) {
     if (entry.mean.length === 0 || !entry.plus || !entry.minus) continue
+    // A band is only a band if the ±3σ traces sit on the mean's grid. Pairing
+    // points by index across different x arrays — or inventing a zero-width
+    // point when one is short — would silently narrow the envelope the bench
+    // is judged against, so the signal is reported instead of approximated.
+    const aligned = sameGrid(entry.mean, entry.plus) && sameGrid(entry.mean, entry.minus)
+    if (!aligned) {
+      gridMismatch.push(signal)
+      continue
+    }
     bands.push({
       signal,
       unit: entry.unit,
       points: entry.mean.map((point, index) => ({
         x: point.x,
-        low: entry.minus?.[index]?.y ?? point.y,
-        high: entry.plus?.[index]?.y ?? point.y,
+        low: entry.minus![index].y,
+        high: entry.plus![index].y,
       })),
     })
   }
-  return { bands, sweep }
+  return { bands, sweep, gridMismatch }
 }
 
 /** Linear interpolation of the band at `x`; `undefined` outside the grid. */

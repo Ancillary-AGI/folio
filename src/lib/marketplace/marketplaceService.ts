@@ -13,7 +13,13 @@ export interface MarketplaceEntry {
   id: string;
   manifest: PluginManifest;
   author: string;
-  isVerifiedPublisher: boolean;
+  /**
+   * The package was registered by this build's own catalogue under its
+   * first-party author. It is a provenance label, not an attestation: no
+   * publisher identity is checked against an external authority, so anything
+   * published at runtime is false.
+   */
+  firstPartyPublisher: boolean;
   downloadsCount: number;
   rating: number; // 0.0 to 5.0
   tags: string[];
@@ -49,7 +55,17 @@ export class MarketplaceService {
     return this.installed.has(id);
   }
 
-  installPackage(id: string): { success: boolean; activatedToolsCount: number } {
+  /**
+   * Record the package as installed after enforcing its declared permissions.
+   * The counts returned are what the package *declares*; this build has no
+   * plugin runtime that executes a declared tool, so callers must not describe
+   * them as activated.
+   */
+  installPackage(id: string): {
+    success: true;
+    declaredToolCount: number;
+    declaredComponentCount: number;
+  } {
     const entry = this.registry.get(id);
     if (!entry) throw new Error(`Marketplace package ${id} not found.`);
 
@@ -66,7 +82,8 @@ export class MarketplaceService {
 
     return {
       success: true,
-      activatedToolsCount: entry.packagePayload.tools?.length ?? 0,
+      declaredToolCount: entry.packagePayload.tools?.length ?? 0,
+      declaredComponentCount: entry.packagePayload.components?.length ?? 0,
     };
   }
 

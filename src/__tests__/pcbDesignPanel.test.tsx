@@ -250,8 +250,10 @@ describe('PCBDesignPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Run DRC' }))
     expect(screen.getByRole('tab', { name: 'DRC' })).toHaveAttribute('data-state', 'active')
     expect(screen.getByText('Design Rule Check — 0 issues')).toBeInTheDocument()
-    expect(screen.getByText('All design rules pass.')).toBeInTheDocument()
-    expect(screen.getByText('DRC passed ✓')).toBeInTheDocument()
+    expect(screen.getByText(/No copper rule broken in the scope above/)).toBeInTheDocument()
+    expect(screen.getByText(/DRC clean on 2 traces/)).toBeInTheDocument()
+    // The verdict names what it did not judge, because the board model has no pads.
+    expect(screen.getByText(/Not checked: pad size/)).toBeInTheDocument()
   })
 
   it('flags nets that have no copper as DRC warnings', () => {
@@ -262,7 +264,7 @@ describe('PCBDesignPanel', () => {
     expect(screen.getByText('Design Rule Check — 1 issue')).toBeInTheDocument()
     expect(screen.getByText(/has no copper trace/)).toBeInTheDocument()
     expect(screen.getByText('1 warning')).toBeInTheDocument()
-    expect(screen.queryByText(/DRC passed/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/DRC clean/)).not.toBeInTheDocument()
   })
 
   it('refuses EMC analysis before any trace exists', () => {
@@ -580,7 +582,9 @@ describe('PCBDesignPanel', () => {
     vi.spyOn(thermalAnalysisEngine, 'analyzeThermal').mockImplementation(
       () => new Promise<ThermalAnalysisResult>(() => {}),
     )
-    render(<PCBDesignPanel onClose={vi.fn()} />)
+    // The part must declare a dissipation, or the run has nothing to solve and
+    // returns without ever reaching the solver.
+    render(<PCBDesignPanel onClose={vi.fn()} components={[part]} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Run Thermal' }))
 
@@ -589,6 +593,43 @@ describe('PCBDesignPanel', () => {
     expect(screen.getByRole('button', { name: 'Run Signal Integrity' })).toBeDisabled()
     // DRC is synchronous and stays available.
     expect(screen.getByRole('button', { name: 'Run DRC' })).toBeEnabled()
+  })
+
+  it('refuses to invent dissipation when no part declares a loss', async () => {
+    const analyze = vi.spyOn(thermalAnalysisEngine, 'analyzeThermal')
+    render(<PCBDesignPanel onClose={vi.fn()} components={[partAt('r1', 10, 10), partAt('r2', 60, 45)]} />)
+    openTab('Thermal')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run Thermal' }))
+
+    expect(await screen.findByText(/None of the 2 part\(s\) declares a dissipation/)).toBeInTheDocument()
+    expect(screen.getByText(/No result: thermal analysis needs a declared dissipation/)).toBeInTheDocument()
+    expect(screen.queryByText('Max temperature')).not.toBeInTheDocument()
+    expect(analyze).not.toHaveBeenCalled()
+  })
+
+  it('solves only the parts that declare a loss and says how many were left out', async () => {
+    const analyze = vi.spyOn(thermalAnalysisEngine, 'analyzeThermal').mockResolvedValue({
+      nodes: [],
+      hotspots: [],
+      thermalGradient: [],
+      maxTemperature: 41.5,
+      converged: true,
+      simulatedTime: 300,
+      timeToSteadyState: 210,
+      recommendations: [],
+    })
+    const hot = { ...partAt('pc-r7', 20, 30), properties: { power: 1.25 } }
+    render(<PCBDesignPanel onClose={vi.fn()} components={[hot, partAt('r2', 60, 45)]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run Thermal' }))
+
+    expect(await screen.findByText('Max temperature')).toBeInTheDocument()
+    const [nodes] = analyze.mock.calls[0]!
+    expect(nodes).toHaveLength(1)
+    expect(nodes[0]).toEqual(expect.objectContaining({ id: 'pc-r7', powerDissipation: 1.25 }))
+    expect(screen.getByText(/1 of 1 part\(s\) with declared loss solved \(1\.250 W total\)/)).toBeInTheDocument()
+    expect(screen.getByText(/1 part\(s\) carry no loss data/)).toBeInTheDocument()
   })
 
   it('draws parts at the routed layout positions, matching its copper', () => {

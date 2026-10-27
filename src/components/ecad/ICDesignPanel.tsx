@@ -519,7 +519,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
           <Cpu size={16} className="text-chart-4" />
-          <span className="font-semibold text-sm">IC Design — SkyWater SKY130</span>
+          <h2 className="text-sm font-semibold">IC Design — SkyWater SKY130</h2>
         </div>
         {onClose && <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close IC design panel" className="text-muted-foreground">✕</Button>}
       </div>

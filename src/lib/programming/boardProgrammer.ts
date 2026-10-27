@@ -44,6 +44,12 @@ export interface CompilationResult {
     ram: { used: number; total: number; percentage: number };
   };
   compilationTime: number;
+  /**
+   * True when the "sizes" come from the static source-length model because no
+   * vendor toolchain ran. The UI must label such a result as an analysis, never
+   * as a successful compilation.
+   */
+  analysisOnly?: boolean;
 }
 
 export interface UploadResult {
@@ -729,7 +735,8 @@ class BoardProgrammer {
           flash: { used: 0, total, percentage: 0 },
           ram: { used: 0, total: ramTotal, percentage: 0 },
         },
-        compilationTime: Date.now() - startTime
+        compilationTime: Date.now() - startTime,
+        analysisOnly: true
       };
     }
 
@@ -756,7 +763,8 @@ class BoardProgrammer {
           percentage: ramTotal === 0 ? 0 : (ram / ramTotal) * 100
         }
       },
-      compilationTime: Date.now() - startTime
+      compilationTime: Date.now() - startTime,
+      analysisOnly: true
     };
   }
 

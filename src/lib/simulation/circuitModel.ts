@@ -1485,6 +1485,32 @@ export function buildCircuitModel(netlist: CircuitNetlist): BuildModelResult {
   const nodeNames = new Set<string>()
   const modelCards = normalizeModelCards(netlist.models)
 
+  if (netlist.components.length === 0) {
+    errors.push('The circuit has no components.')
+  }
+
+  /**
+   * Reference designators are MNA row keys: two components sharing one name
+   * would both be stamped while a voltage-source/inductor branch row is keyed
+   * by name, so the second one would silently overwrite the first constraint.
+   * The netlist ingest path already rejects duplicates; the model builder is
+   * the last line of defence for hand-written netlists.
+   */
+  const seenDesignators = new Map<string, string>()
+  const claimDesignator = (component: Component): boolean => {
+    const key = component.name.trim().toUpperCase()
+    if (!key) return true
+    const first = seenDesignators.get(key)
+    if (first !== undefined) {
+      errors.push(
+        `Duplicate reference designator "${component.name}": ${first} already uses it. Rename one.`,
+      )
+      return false
+    }
+    seenDesignators.set(key, component.name)
+    return true
+  }
+
   /**
    * Normalize and validate a component's terminals.
    *
@@ -1543,6 +1569,12 @@ export function buildCircuitModel(netlist: CircuitNetlist): BuildModelResult {
 
   for (const component of netlist.components) {
     if ((component.type ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '').includes('testpoint')) continue
+
+    /*
+     * Ground symbols are net aliases, not devices, so several of them may share
+     * a label; every other reference designator must be unique.
+     */
+    if (classify(component) !== 'ground' && !claimDesignator(component)) continue
 
     if (isTransformerComponent(component)) {
       const terminals = component.nodes.map(normalizeNodeName)

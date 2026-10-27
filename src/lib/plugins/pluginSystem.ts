@@ -103,7 +103,6 @@ export class PluginManager {
     // Register plugin
     this.plugins.set(manifest.id, plugin);
 
-    console.log(`Plugin ${manifest.id} loaded successfully`);
   }
 
   async unloadPlugin(pluginId: string): Promise<void> {
@@ -135,7 +134,6 @@ export class PluginManager {
     this.plugins.delete(pluginId);
     this.storage.delete(pluginId);
 
-    console.log(`Plugin ${pluginId} unloaded successfully`);
   }
 
   private createPluginAPI(manifest: PluginManifest): PluginAPI {
@@ -146,25 +144,21 @@ export class PluginManager {
         requirePermission(pluginId, permissions, 'registerTool');
         const toolId = `${pluginId}:${tool.id}`;
         this.tools.set(toolId, { ...tool, id: toolId });
-        console.log(`Tool ${toolId} registered by plugin ${pluginId}`);
       },
 
       registerComponent: (type: string, component: PluginComponent) => {
         requirePermission(pluginId, permissions, 'registerComponent');
         this.components.set(`${pluginId}:${type}`, component);
-        console.log(`Component type ${pluginId}:${type} registered by plugin ${pluginId}`);
       },
 
       registerSimulation: (engine: string, simulator: PluginSimulator) => {
         requirePermission(pluginId, permissions, 'registerSimulation');
         this.simulators.set(`${pluginId}:${engine}`, simulator);
-        console.log(`Simulation engine ${pluginId}:${engine} registered by plugin ${pluginId}`);
       },
 
       registerExport: (format: string, exporter: PluginExporter) => {
         requirePermission(pluginId, permissions, 'registerExport');
         this.exporters.set(`${pluginId}:${format}`, exporter);
-        console.log(`Export format ${pluginId}:${format} registered by plugin ${pluginId}`);
       },
 
       registerHook: (hook: string, handler: (...args: unknown[]) => unknown) => {
@@ -173,7 +167,6 @@ export class PluginManager {
           this.hooks.set(hook, []);
         }
         this.hooks.get(hook)!.push({ pluginId, handler });
-        console.log(`Hook ${hook} registered by plugin ${pluginId}`);
       },
 
       subscribe: (event: string, handler: (...args: unknown[]) => void) => {
@@ -182,7 +175,6 @@ export class PluginManager {
           this.events.set(event, []);
         }
         this.events.get(event)!.push(handler);
-        console.log(`Plugin ${pluginId} subscribed to event ${event}`);
       },
 
       publish: (event: string, ...args: unknown[]) => {

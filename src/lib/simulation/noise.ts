@@ -10,12 +10,25 @@
  *   `v_out = (A⁻ᵀ·e_out)ᵀ·i_s`. Solve `Aᵀ·x = e_out` **once per frequency** and
  *   `x_p − x_n` is the transimpedance from any current-noise source between
  *   nodes `p` and `n` to the output. One solve therefore covers every noise
- *   source in the circuit, and the contributions add in power:
+ *   source the analysis stamps, and those contributions add in power:
  *
  *     thermal (Johnson–Nyquist, resistor):  S_i = 4kT/R      [A²/Hz]
  *     shot                       (diode):   S_i = 2q·|I_d|   [A²/Hz]
  *
  *   Integrated RMS noise is `√(∫ S_v df)` over the swept band.
+ *
+ * Scope — read before quoting a number
+ * ------------------------------------
+ * Those two mechanisms are the only noise sources this analysis can derive from
+ * the device models in `devices.ts`/`semiconductors.ts`, so the reported figure
+ * is named `thermal+diode noise`, never "total". Transistor, switch and op-amp
+ * noise needs parameters those models do not carry (see
+ * `UNMODELLED_NOISE_REASONS`), and inventing them from a resistor formula would
+ * be a fabricated number. Every such device that is actually present in the
+ * netlist is therefore returned in `excludedSources` with its reason, instead of
+ * being silently left out of the sum. Lossless capacitors, ideal inductors and
+ * ideal (controlled) sources contribute nothing by definition, so they are not
+ * exclusions.
  *
  * Monte Carlo
  * -----------
@@ -25,7 +38,7 @@
  */
 
 import { cAbs, cSub, complex, solveComplexSystem, type Complex } from './numeric'
-import { BOLTZMANN, ELEMENTARY_CHARGE, thermalVoltage } from './devices'
+import { BOLTZMANN, ELEMENTARY_CHARGE, thermalVoltage, type DeviceKind } from './devices'
 import type { CircuitModel } from './circuitModel'
 import { createComplexSystem, stampAc } from './stamping'
 import {
@@ -49,9 +62,67 @@ export interface NoiseOptions {
   gmin?: number
 }
 
+/** One device's output-referred noise, integrated over the swept band. */
+export interface NoiseContribution {
+  /** Reference designator, e.g. `R1`. */
+  device: string
+  /** Mechanism this device contributes through. */
+  kind: 'thermal' | 'shot'
+  /** `∫ S_v df` across the swept band, V². */
+  integratedPower: number
+  /** `√(∫ S_v df)`, volts RMS. */
+  rmsVolts: number
+}
+
+/** A device that is present in the netlist but whose noise is not in the sum. */
+export interface UnmodelledNoiseSource {
+  device: string
+  kind: DeviceKind
+  /** Why no noise source could be derived for this device class. */
+  reason: string
+}
+
 export interface NoiseResult extends AnalysisOutcome {
-  /** Integrated RMS noise over the swept band, in volts. */
-  integratedRmsNoise: number
+  /**
+   * Integrated RMS of the *modelled* mechanisms only: resistor thermal noise
+   * plus diode shot noise. It is NOT the total output noise whenever
+   * `excludedSources` is non-empty, and is never named "total".
+   */
+  integratedThermalAndDiodeNoise: number
+  /** Per-device breakdown; adds in power to `integratedThermalAndDiodeNoise`. */
+  contributions: NoiseContribution[]
+  /**
+   * Noisy device classes present in the netlist that this analysis cannot model
+   * (BJT/MOSFET/JFET channel and flicker noise, switch on-resistance, op-amp
+   * input noise). Reported so a partial figure is never mistaken for a total.
+   */
+  excludedSources: UnmodelledNoiseSource[]
+}
+
+/**
+ * Device classes that really generate noise but for which `devices.ts` /
+ * `semiconductors.ts` expose no noise parameters. Deriving a value here would
+ * mean inventing a coefficient, so the analysis names the device instead.
+ */
+const UNMODELLED_NOISE_REASONS: Partial<Record<DeviceKind, string>> = {
+  bjt:
+    'The BJT model carries no noise parameters. Collector/base shot noise and the thermal noise of its RB ' +
+    'would need transistor noise sources this analysis does not stamp, and a resistor formula cannot stand in.',
+  mosfet:
+    'The level-1 MOSFET model has no excess-noise coefficient (γ) and no KF/AF flicker parameters, so channel ' +
+    'thermal and 1/f noise cannot be derived from it without inventing both.',
+  jfet:
+    'The JFET model has no channel-noise coefficient or flicker parameters, so its thermal and 1/f noise ' +
+    'cannot be derived without inventing them.',
+  'op-amp':
+    'The op-amp macromodel is defined by gain, GBW, slew rate, Rin and Rout only; it has no input-referred ' +
+    'noise density (nV/√Hz) to refer to the output.',
+  'voltage-switch':
+    'The switch is stamped as a state-dependent Ron/Roff resistor and no thermal source is attached to it, so ' +
+    'its on-resistance noise is absent from this figure.',
+  'current-switch':
+    'The switch is stamped as a state-dependent Ron/Roff resistor and no thermal source is attached to it, so ' +
+    'its on-resistance noise is absent from this figure.',
 }
 
 /**
@@ -84,10 +155,34 @@ export function buildLogFrequencyGrid(start: number, stop: number, pointsPerDeca
 }
 
 /**
+ * Devices whose noise is real but not derivable from the models in this repo,
+ * in netlist order so the note and the JSON stay deterministic.
+ */
+function collectUnmodelledSources(model: CircuitModel): UnmodelledNoiseSource[] {
+  const excluded: UnmodelledNoiseSource[] = []
+  for (const device of model.devices) {
+    const reason = UNMODELLED_NOISE_REASONS[device.kind]
+    if (reason) excluded.push({ device: device.name, kind: device.kind, reason })
+  }
+  return excluded
+}
+
+/** Trapezoidal `∫ S df` across a frequency grid. */
+function integrateSpectrum(frequencies: readonly number[], spectrum: readonly number[]): number {
+  let area = 0
+  for (let index = 1; index < frequencies.length; index += 1) {
+    area += ((spectrum[index] + spectrum[index - 1]) / 2) * (frequencies[index] - frequencies[index - 1])
+  }
+  return Math.max(area, 0)
+}
+
+/**
  * Output-referred noise spectral density.
  *
- * Emits one waveform per noise source in addition to the total, so a designer
- * can see *which* component dominates instead of only the sum.
+ * Emits one waveform per modelled noise source in addition to the summed
+ * `thermal+diode` trace, so a designer can see *which* component dominates
+ * instead of only the sum. The sum is only over modelled mechanisms —
+ * `excludedSources` lists what is missing from it.
  */
 export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): NoiseResult {
   const { temperatureCelsius, startFrequency, stopFrequency, pointsPerDecade = 10, gmin } = options
@@ -97,7 +192,9 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
     iterations: 0,
     converged: false,
     notes: [],
-    integratedRmsNoise: 0,
+    integratedThermalAndDiodeNoise: 0,
+    contributions: [],
+    excludedSources: [],
   }
 
   if (!Number.isFinite(temperatureCelsius) || temperatureCelsius <= -273.15) {
@@ -163,8 +260,13 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
   const fourKT = 4 * BOLTZMANN * (temperatureCelsius + 273.15)
 
   const frequencies = buildLogFrequencyGrid(startFrequency, stopFrequency, pointsPerDecade)
-  const total = new Array<number>(frequencies.length).fill(0)
+  const modelledSum = new Array<number>(frequencies.length).fill(0)
   const contributions = new Map<string, { spectrum: number[]; kind: 'thermal' | 'shot' }>()
+  /*
+   * Only resistors and diodes get a bucket: those are the two classes whose noise
+   * the device models define. Anything else that is noisy is reported in
+   * `excludedSources` below rather than summed with a borrowed formula.
+   */
   for (const device of model.devices) {
     if (device.kind === 'resistor') {
       contributions.set(device.name, { spectrum: new Array(frequencies.length).fill(0), kind: 'thermal' })
@@ -172,6 +274,7 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
       contributions.set(device.name, { spectrum: new Array(frequencies.length).fill(0), kind: 'shot' })
     }
   }
+  const excludedSources = collectUnmodelledSources(model)
 
   for (let index = 0; index < frequencies.length; index += 1) {
     const frequency = frequencies[index]
@@ -226,15 +329,15 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
       sum += contribution
     }
 
-    total[index] = sum
+    modelledSum[index] = sum
   }
 
   const waveforms: Waveform[] = [
     {
-      name: `total noise at ${outputNode}`,
+      name: `thermal+diode noise at ${outputNode}`,
       type: 'voltage',
       unit: 'V/√Hz',
-      data: frequencies.map((frequency, index) => ({ x: frequency, y: Math.sqrt(total[index]) })),
+      data: frequencies.map((frequency, index) => ({ x: frequency, y: Math.sqrt(modelledSum[index]) })),
     },
   ]
   for (const [name, { spectrum, kind }] of contributions) {
@@ -247,11 +350,11 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
   }
 
   // Trapezoidal integration of the PSD across the swept band.
-  let integrated = 0
-  for (let index = 1; index < frequencies.length; index += 1) {
-    integrated += ((total[index] + total[index - 1]) / 2) * (frequencies[index] - frequencies[index - 1])
-  }
-  const integratedRmsNoise = Math.sqrt(Math.max(integrated, 0))
+  const breakdown: NoiseContribution[] = [...contributions].map(([device, { spectrum, kind }]) => {
+    const integratedPower = integrateSpectrum(frequencies, spectrum)
+    return { device, kind, integratedPower, rmsVolts: Math.sqrt(integratedPower) }
+  })
+  const integratedThermalAndDiodeNoise = Math.sqrt(integrateSpectrum(frequencies, modelledSum))
 
   const formatHz = (value: number): string => (
     value >= 1e6 ? `${(value / 1e6).toFixed(3)} MHz`
@@ -262,9 +365,19 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
   const bandStop = frequencies[frequencies.length - 1] ?? stopFrequency
   notes.push(
     `Bias: ${thermalVoltage(temperatureCelsius).toFixed(4)} V thermal voltage at ${temperatureCelsius} °C. ` +
-      `Integrated output noise ${formatHz(bandStart)}–${formatHz(bandStop)} is ` +
-      `${(integratedRmsNoise * 1e6).toFixed(3)} µV RMS at ${outputNode}.`,
+      `Integrated thermal+diode (modelled) noise ${formatHz(bandStart)}–${formatHz(bandStop)} is ` +
+      `${(integratedThermalAndDiodeNoise * 1e6).toFixed(3)} µV RMS at ${outputNode}.`,
   )
+  if (excludedSources.length > 0) {
+    notes.push(
+      `This is not the total output noise: ${excludedSources.length} device(s) in the netlist have no noise ` +
+        `model here and are excluded from the figure above — ` +
+        `${excludedSources.map((source) => `${source.device} (${source.kind})`).join(', ')}.`,
+    )
+    for (const source of excludedSources) {
+      notes.push(`Unmodelled noise source ${source.device} (${source.kind}): ${source.reason}`)
+    }
+  }
 
   return {
     nodes: [],
@@ -272,6 +385,8 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
     iterations: operatingPoint.outcome.iterations,
     converged: true,
     notes,
-    integratedRmsNoise,
+    integratedThermalAndDiodeNoise,
+    contributions: breakdown,
+    excludedSources,
   }
 }

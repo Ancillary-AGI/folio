@@ -114,15 +114,28 @@ export function nearestPlane(
   return best
 }
 
-/** Microstrip impedance (Hammerstad–Jensen simplified IPC form). */
-export function microstripImpedance(width: number, height: number, thickness: number, er: number): number {
+/**
+ * Effective permittivity a microstrip wave sees, Hammerstad–Jensen:
+ * ε_eff = (εr+1)/2 + (εr−1)/2 · (1 + 12 h/w)^−½. Part of the field runs in the
+ * air above the copper, so this is lower than the laminate εr and is the number
+ * propagation delay needs.
+ */
+export function microstripErEff(width: number, height: number, er: number): number {
   if (!(Number.isFinite(width) && width > 0) || !(Number.isFinite(height) && height > 0)) {
     throw new Error('microstrip width and dielectric height must be positive and finite')
   }
-  if (!(Number.isFinite(thickness) && thickness >= 0) || !(Number.isFinite(er) && er >= 1)) {
-    throw new Error('microstrip copper thickness must be >= 0 and er must be >= 1')
+  if (!(Number.isFinite(er) && er >= 1)) {
+    throw new Error('microstrip permittivity εr must be finite and at least 1')
   }
-  const erEff = (er + 1) / 2 + ((er - 1) / 2) / Math.sqrt(1 + 12 / (width / height))
+  return (er + 1) / 2 + ((er - 1) / 2) / Math.sqrt(1 + 12 / (width / height))
+}
+
+/** Microstrip impedance (Hammerstad–Jensen simplified IPC form). */
+export function microstripImpedance(width: number, height: number, thickness: number, er: number): number {
+  if (!(Number.isFinite(thickness) && thickness >= 0)) {
+    throw new Error('microstrip copper thickness must be >= 0')
+  }
+  const erEff = microstripErEff(width, height, er)
   return (87 / Math.sqrt(erEff + 1.41)) * Math.log((5.98 * height) / (0.8 * width + thickness))
 }
 
@@ -140,9 +153,32 @@ export function striplineImpedance(width: number, spacing: number, thickness: nu
   return (60 / Math.sqrt(er)) * Math.log((4 * spacing) / (0.67 * Math.PI * (0.8 * width + thickness)))
 }
 
-/** Pair skew from routed lengths: ~6 ps/mm on FR4. Positive means P longer. */
-export function pairSkewPs(lengthP: number, lengthN: number): number {
-  return (lengthP - lengthN) * 6
+/**
+ * Propagation delay of a waveguide riding on a dielectric, ps per mm of
+ * routed length: `√ε_eff / c`, with c ≈ 0.2998 mm/ps.
+ *
+ * ε_eff is the effective permittivity the *trace geometry* sees — between the
+ * substrate εr and 1 — so callers pass the value their own stackup or field
+ * solver produced, never a rule-of-thumb constant kept in this module.
+ */
+export function delayPsPerMm(erEff: number): number {
+  if (!(Number.isFinite(erEff) && erEff >= 1)) {
+    throw new Error('effective permittivity must be finite and at least 1')
+  }
+  return Math.sqrt(erEff) / 0.299792458
+}
+
+/**
+ * Pair skew from routed lengths at a declared effective permittivity.
+ * Positive means P longer. On ε_eff 3.2 laminate this is ≈ 6 ps per mm of
+ * mismatch — the usual FR-4 rule of thumb, here derived from the declared ε_eff
+ * rather than assumed.
+ */
+export function pairSkewPs(lengthP: number, lengthN: number, erEff: number): number {
+  if (!Number.isFinite(lengthP) || !Number.isFinite(lengthN)) {
+    throw new Error('routed lengths must be finite')
+  }
+  return (lengthP - lengthN) * delayPsPerMm(erEff)
 }
 
 /** Width for a target impedance by bisection; undefined when unreachable. */

@@ -4,7 +4,7 @@ Browser-based, offline-first engineering workbench for electronic CAD, mechanica
 design, simulation, robotics, and embedded development. Everything runs locally
 unless you explicitly configure a backend; no account is required for local use.
 
-**Status:** active development. Lint, both typechecks, 1,807 tests across 198
+**Status:** active development. Lint, both typechecks, 2,089 tests across 206
 files, the icon-button accessibility audit, and the production build all pass.
 
 ---
@@ -52,10 +52,13 @@ rules); it makes no model or network call, and its output is advisory.
   [docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md#url-scheme-and-why-the-workbench-stays-one-spa).
 - **Command palette** (**Ctrl/⌘+K**): search and run any workspace mode, demo or
   document action with the keyboard.
-- **Guided tour** (first run, replayable from Settings): nine steps with an
-  animated spotlight that follows the real control or panel each step describes,
-  switches workspaces as it goes, and persists or resumes progress. Arrow keys,
-  Esc and a tab trap work; reduced-motion users get instant positioning.
+- **Guided tour** (first run, replayable from Settings): ten steps with an
+  animated spotlight — pulsing halo, corner brackets and a caret that points at
+  the control being described — that switches workspaces as it goes and persists
+  or resumes progress. The steps that teach a gesture (wiring, chart zoom/pan,
+  3D orbit) leave the app live so you can try them inside the tour; the rest are
+  modal. Arrow keys, Esc, clickable step dots and a tab trap work; reduced-motion
+  users get instant positioning and no halo.
 - A contextual status bar reports the active mode, schematic metrics, theme and
   unsaved state.
 
@@ -191,7 +194,8 @@ rules); it makes no model or network call, and its output is advisory.
   timestamps, out-of-limit or non-finite waypoints, and empty tasks; collision
   tests the tool point against each obstacle's declared box/sphere/cylinder
   (links are not swept), and smoothness is a sample-density-independent
-  dimensionless-jerk score. Box-level link collision is the only contact model,
+  dimensionless-jerk score that reports no value at all below four samples —
+  a recording too short to estimate jerk is not a clean one. Box-level link collision is the only contact model,
   so narrow-phase contact is not reported rather than invented.
 - Arduino-style firmware flow, board programming over WebSerial (live with a
   granted port; fails loudly otherwise), Intel HEX round-trip, HIL scenarios,
@@ -307,7 +311,7 @@ npm run lint            # ESLint, zero warnings
 npm run a11y:buttons    # every icon-only button has an accessible name
 npm run typecheck       # app TypeScript
 npm run typecheck:node  # Vite/build config TypeScript
-npm test                # Vitest, 1,807 tests / 198 files
+npm test                # Vitest, 2,089 tests / 206 files
 npm run build           # production build
 npm run verify          # all of the gates above, in order
 npm run preview         # preview the build on port 4173

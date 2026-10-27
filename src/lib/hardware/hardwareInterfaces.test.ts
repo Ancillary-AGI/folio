@@ -6,6 +6,7 @@ import {
   CANInterface,
   WebSerialBridge,
   hardwareInterfaceManager,
+  type CANConfig,
   type ConnectionState,
 } from './hardwareInterfaces';
 
@@ -257,6 +258,112 @@ describe('HardwareInterfaces', () => {
       });
       can.simulateReceive(message);
       expect(receivedMessage).toEqual(message);
+    });
+  });
+
+  describe('CAN over an SLCAN bridge', () => {
+    /** Captures raw serial lines instead of the JSON command protocol. */
+    class LineBridge extends WebSerialBridge {
+      readonly lines: string[] = [];
+      override get state(): ConnectionState { return 'connected'; }
+      override async write(data: Uint8Array): Promise<void> {
+        this.lines.push(new TextDecoder().decode(data));
+      }
+    }
+
+    const config: CANConfig = { bitRate: 500000, samplePoint: 75, sjw: 1, mode: 'normal' };
+
+    function frame(overrides: Partial<{ id: number; data: Uint8Array; extendedId: boolean; remoteFrame: boolean }> = {}) {
+      return {
+        id: 0x123,
+        data: new Uint8Array([0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]),
+        extendedId: false,
+        remoteFrame: false,
+        timestamp: 0,
+        ...overrides,
+      };
+    }
+
+    async function attachBridge(overrides: Partial<CANConfig> = {}) {
+      const bridge = new LineBridge();
+      const uart = new UARTInterface({
+        baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none', tx: 1, rx: 0,
+      });
+      uart.attachBridge(bridge);
+      const can = new CANInterface({ ...config, ...overrides });
+      await can.attachUARTBridge(uart);
+      return { bridge, can, uart };
+    }
+
+    it('programs the adapter speed, mode and open state before any traffic', async () => {
+      const { bridge } = await attachBridge();
+      expect(bridge.lines).toEqual(['S5\r', 'm0\r', 'O\r']);
+    });
+
+    it('refuses a bit rate the adapter cannot be programmed to', () => {
+      expect(() => new CANInterface({ ...config, bitRate: 33333 })).toThrow(RangeError);
+    });
+
+    it('round-trips a full 8-byte standard frame through the wire format', async () => {
+      const { bridge, can, uart } = await attachBridge();
+      await can.send(frame());
+      expect(bridge.lines.at(-1)).toBe('t12381122334455667788\r');
+
+      // Feeding our own bytes back must recover all eight data bytes. A greedy
+      // id match used to swallow the DLC digit and deliver an empty payload.
+      const received: Array<{ id: number; data: Uint8Array }> = [];
+      can.onReceive(msg => received.push(msg));
+      uart.simulateReceive(new TextEncoder().encode('t12381122334455667788\r'));
+
+      expect(received).toHaveLength(1);
+      expect(received[0].id).toBe(0x123);
+      expect(Array.from(received[0].data)).toEqual([0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]);
+    });
+
+    it('splits the DLC from an 8-digit extended id', () => {
+      const received: Array<{ extendedId: boolean; id: number; data: Uint8Array }> = [];
+      const uart = new UARTInterface({
+        baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none', tx: 1, rx: 0,
+      });
+      const can = new CANInterface(config);
+      can.attachUARTBridge(uart);
+      can.onReceive(msg => received.push(msg));
+      uart.simulateReceive(new TextEncoder().encode('T1ABCDEF02AABB\r'));
+
+      expect(received).toHaveLength(1);
+      expect(received[0]).toMatchObject({ extendedId: true, id: 0x1abcdef0 });
+      expect(Array.from(received[0].data)).toEqual([0xaa, 0xbb]);
+    });
+
+    it('writes extended frames with the T prefix and an 8-digit id', async () => {
+      const { bridge, can } = await attachBridge();
+      await can.send(frame({ id: 0x1abcdef0, extendedId: true, data: new Uint8Array([0xaa, 0xbb]) }));
+      expect(bridge.lines.at(-1)).toBe('T1ABCDEF02AABB\r');
+    });
+
+    it('rejects frames a controller would never put on the bus', async () => {
+      const { bridge, can } = await attachBridge();
+      await expect(can.send(frame({ id: 0x800 }))).rejects.toThrow(RangeError);
+      await expect(can.send(frame({ id: 0x1ffffff00 }))).rejects.toThrow(RangeError);
+      await expect(can.send(frame({ data: new Uint8Array(9) }))).rejects.toThrow(RangeError);
+      await expect(can.send(frame({ remoteFrame: true, data: new Uint8Array([1]) }))).rejects.toThrow(RangeError);
+      expect(bridge.lines).toHaveLength(3);
+    });
+
+    it('never transmits in listen-only mode', async () => {
+      const { bridge, can } = await attachBridge({ mode: 'listen_only' });
+      expect(bridge.lines).toEqual(['S5\r', 'm1\r', 'O\r']);
+      await expect(can.send(frame())).resolves.toBe(false);
+      expect(can.getMessages()).toHaveLength(0);
+      expect(bridge.lines).toHaveLength(3);
+    });
+
+    it('echoes its own frames back in loopback mode', async () => {
+      const { can } = await attachBridge({ mode: 'loopback' });
+      await can.send(frame({ id: 0x321 }));
+
+      const received = await can.receive();
+      expect(received?.id).toBe(0x321);
     });
   });
 

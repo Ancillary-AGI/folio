@@ -100,7 +100,10 @@
   plus declared stackup/driver assumptions (no crosstalk)
 - **EMC**: closed-form trace/loop and cable emission estimates against CISPR
   limits at 3 m — not a chamber measurement or full-wave solve
-- **Advanced rules**: multilayer stackup, differential pairs, BGA fanout, power
+- **Advanced rules**: multilayer stackup, differential pairs measured off the
+  routed copper (closest edge gap, parallel length, skew converted at each
+  pair's own effective permittivity, group match window the engineer declares —
+  no field solve of the target differential impedance), BGA fanout, power
   integrity, DDR constraints, HDI routing
 - **Fabrication**: Gerber RS-274X, Excellon drill, centroid/PnP, BOM, JLCPCB DRC
   gate, and enclosure STEP export
@@ -136,7 +139,8 @@
   analytic velocity/acceleration trajectory records, task simulation that
   rejects non-monotonic timestamps, out-of-limit or non-finite waypoints and
   empty tasks, tool-point collision against box/sphere/cylinder obstacles, a
-  sample-density-independent dimensionless-jerk smoothness score, joint
+  sample-density-independent dimensionless-jerk smoothness score that reports
+  no value below four samples, joint
   framing, mechanism replay of planned profiles from explicit start poses or
   commanded velocities, advanced robotics panel, digital-twin demo, numerical
   Lagrangian dynamics (Jacobian mass matrix, gravity, Coriolis/centrifugal,
@@ -227,10 +231,12 @@
   theme names
 - **Units & behavior**: metric/imperial, animation toggle, autosave interval,
   onboarding replay
-- **Guided tour**: nine-step first-run walkthrough with an animated spotlight
-  that follows real controls across workspaces, reveals the component library,
-  and persists or resumes progress; keyboard arrows, Esc, tab trapping and
-  reduced-motion support
+- **Guided tour**: ten-step first-run walkthrough with an animated spotlight —
+  pulsing halo, viewfinder brackets and a caret aimed at the control each step
+  describes — that follows real controls across workspaces, reveals the component
+  library, and persists or resumes progress. Gesture steps (wiring, chart zoom,
+  3D orbit) stay live so you can try them mid-tour; the rest are modal. Keyboard
+  arrows, Esc, clickable step dots, tab trapping and reduced-motion support
 - **Accessibility**: keyboard-operable toolbars; every icon-only button must have
   an accessible name, enforced by `npm run a11y:buttons` in CI
 - **Language selector**: preference stored; English strings only today 🟡
@@ -239,7 +245,7 @@
 
 - **CI**: lint (zero warnings), typecheck (app + build config), button-label
   audit, full test suite, production build
-- **Tests**: 1,807 tests across 198 files, including engine truth tests and React
+- **Tests**: 2,089 tests across 206 files, including engine truth tests and React
   render/integration tests
 - **Build**: heavily code-split; feature panels and vendor chunks load on demand
 

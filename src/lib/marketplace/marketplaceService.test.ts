@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MarketplaceService, type MarketplaceEntry } from './marketplaceService';
 
 describe('Marketplace Service', () => {
-  it('registers, discovers, and installs verified packages with capability permissions', () => {
+  it('registers, discovers, and installs packages after checking declared capabilities', () => {
     const service = new MarketplaceService();
 
     const entry: MarketplaceEntry = {
@@ -20,7 +20,9 @@ describe('Marketplace Service', () => {
         apiVersion: '1.0.0',
       },
       author: 'JLCPCB',
-      isVerifiedPublisher: true,
+      // An external author: the flag records who shipped the package, not that
+      // any authority vouched for it.
+      firstPartyPublisher: false,
       downloadsCount: 1420,
       rating: 4.9,
       tags: ['drc', 'manufacturing', 'jlcpcb'],
@@ -36,7 +38,8 @@ describe('Marketplace Service', () => {
 
     const installResult = service.installPackage('org.folio.jlcpcb-rules');
     expect(installResult.success).toBe(true);
-    expect(installResult.activatedToolsCount).toBe(1);
+    expect(installResult.declaredToolCount).toBe(1);
+    expect(installResult.declaredComponentCount).toBe(1);
     expect(service.isInstalled('org.folio.jlcpcb-rules')).toBe(true);
 
     service.uninstallPackage('org.folio.jlcpcb-rules');
@@ -59,7 +62,7 @@ describe('Marketplace Service', () => {
         apiVersion: '1.0.0',
       },
       author: 'ACME',
-      isVerifiedPublisher: false,
+      firstPartyPublisher: false,
       downloadsCount: 0,
       rating: 0,
       tags: [],
@@ -88,7 +91,7 @@ describe('Marketplace Service', () => {
         apiVersion: '1.0.0',
       },
       author: 'Unknown',
-      isVerifiedPublisher: false,
+      firstPartyPublisher: false,
       downloadsCount: 0,
       rating: 1.0,
       tags: [],

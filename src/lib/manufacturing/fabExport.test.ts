@@ -7,8 +7,8 @@
  * board plus one DIP-8 for the drill path. No hand-typed golden blobs.
  */
 import { describe, expect, it } from 'vitest'
-import type { PlacedComponent, Wire } from '../../types'
-import { bomCsv, buildFabPackage, centroidCsv, excellonDrill, JLCPCB_1OZ } from './fabExport'
+import type { PlacedComponent } from '../../types'
+import { bomCsv, buildFabPackage, centroidCsv, DEFAULT_TRACE_WIDTH, excellonDrill, fabLayerFromId, JLCPCB_1OZ, type FabTrace } from './fabExport'
 
 const symbol = { width: 2, height: 1.25, paths: [] }
 
@@ -53,11 +53,15 @@ const dip8 = (reference: string, x: number): PlacedComponent => ({
   properties: { value: 'NE555', footprint: 'dip_8' },
 })
 
-const wire = (id: string, points: Array<{ x: number; y: number }>, width = 0.2): Wire => ({
-  id,
+const trace = (
+  points: Array<{ x: number; y: number }>,
+  opts: { width?: number; netName?: string; layer?: FabTrace['layer']; layerName?: string } = {},
+): FabTrace => ({
   points,
-  connectedPins: [],
-  style: { width },
+  width: opts.width ?? DEFAULT_TRACE_WIDTH,
+  netName: opts.netName,
+  layer: opts.layer ?? 'top',
+  layerName: opts.layerName,
 })
 
 /** Minimal RS-274X well-formedness: header, format, units, balanced %, M02 close. */
@@ -110,7 +114,7 @@ const assertExcellon = (content: string): void => {
 
 describe('fab package — file set and CAM validity', () => {
   const board = () =>
-    buildFabPackage([resistor('R1', 10), resistor('R2', 30), dip8('U1', 50)], [wire('w1', [{ x: 10, y: 10 }, { x: 30, y: 10 }])], {
+    buildFabPackage([resistor('R1', 10), resistor('R2', 30), dip8('U1', 50)], [trace([{ x: 10, y: 10 }, { x: 30, y: 10 }])], {
       projectName: 'demo',
     })
 
@@ -168,9 +172,62 @@ describe('fab package — file set and CAM validity', () => {
   })
 })
 
+describe('fab package — copper is emitted on the layer it was routed on', () => {
+  const drawn = (content: string): string[] => content.split('\n').filter((line) => /D0[12]\*$/.test(line))
+  const flashes = (content: string): number => content.split('\n').filter((line) => line.includes('D03*')).length
+
+  it('sends bottom-routed segments to B_Cu and keeps them out of F_Cu', () => {
+    const pkg = buildFabPackage([resistor('R1', 10)], [
+      trace([{ x: 1, y: 2 }, { x: 3, y: 2 }], { layer: 'top' }),
+      trace([{ x: 4, y: 5 }, { x: 6, y: 5 }], { layer: 'bottom' }),
+    ])
+    const top = drawn(pkg.files.get('folio-pcb-F_Cu.gtl') ?? '')
+    const bottom = drawn(pkg.files.get('folio-pcb-B_Cu.gbl') ?? '')
+    expect(top.some((line) => line.startsWith('X1000000Y2000000'))).toBe(true)
+    expect(top.some((line) => line.startsWith('X4000000Y5000000'))).toBe(false)
+    expect(bottom.some((line) => line.startsWith('X4000000Y5000000'))).toBe(true)
+    expect(bottom.some((line) => line.startsWith('X1000000Y2000000'))).toBe(false)
+    expect(pkg.shippable).toBe(true)
+  })
+
+  it('refuses copper on a layer this package cannot represent', () => {
+    const pkg = buildFabPackage([resistor('R1', 10)], [
+      trace([{ x: 1, y: 2 }, { x: 3, y: 2 }], { layer: 'inner', layerName: 'in1-cu' }),
+    ])
+    expect(pkg.shippable).toBe(false)
+    expect(pkg.violations.some((v) => v.rule === 'copper-layer' && v.message.includes('in1-cu'))).toBe(true)
+  })
+
+  it('puts a bottom-placed part on the bottom copper, mask, silk and centroid', () => {
+    const pkg = buildFabPackage([resistor('R1', 10, { side: 'bottom' })], [])
+    expect(pkg.centroid).toHaveLength(1)
+    expect(pkg.centroid[0].side).toBe('Bottom')
+    expect(flashes(pkg.files.get('folio-pcb-F_Cu.gtl') ?? '')).toBe(0)
+    expect(flashes(pkg.files.get('folio-pcb-B_Cu.gbl') ?? '')).toBe(2)
+    expect(flashes(pkg.files.get('folio-pcb-F_Mask.gts') ?? '')).toBe(0)
+    expect(flashes(pkg.files.get('folio-pcb-B_Mask.gbs') ?? '')).toBe(2)
+    expect(pkg.files.get('folio-pcb-B_Silk.gbo')).toContain('G04 R1*')
+    expect(pkg.files.get('folio-pcb-F_Silk.gto')).not.toContain('G04 R1*')
+  })
+
+  it('keeps plated through-hole pads on both faces', () => {
+    const pkg = buildFabPackage([dip8('U1', 50)], [])
+    expect(flashes(pkg.files.get('folio-pcb-F_Cu.gtl') ?? '')).toBe(8)
+    expect(flashes(pkg.files.get('folio-pcb-B_Cu.gbl') ?? '')).toBe(8)
+  })
+
+  it('maps board layer ids onto the copper faces they export to', () => {
+    expect(fabLayerFromId('top-cu')).toEqual({ layer: 'top', name: 'top-cu' })
+    expect(fabLayerFromId('F.Cu')).toEqual({ layer: 'top', name: 'F.Cu' })
+    expect(fabLayerFromId('bot-cu')).toEqual({ layer: 'bottom', name: 'bot-cu' })
+    expect(fabLayerFromId('B.Cu')).toEqual({ layer: 'bottom', name: 'B.Cu' })
+    expect(fabLayerFromId('in2-cu')).toEqual({ layer: 'inner', name: 'in2-cu' })
+  })
+})
+
 describe('fab package — DRC gates the order (fail-loud)', () => {
   it('blocks a trace below the fab minimum width', () => {
-    const pkg = buildFabPackage([resistor('R1', 10)], [wire('w1', [{ x: 0, y: 0 }, { x: 10, y: 0 }], 0.05)])
+    const pkg = buildFabPackage([resistor('R1', 10)], [trace([{ x: 0, y: 0 }, { x: 10, y: 0 }], { width: 0.05 })])
     expect(pkg.shippable).toBe(false)
     expect(pkg.violations.some((v) => v.rule === 'trace-width')).toBe(true)
     expect(pkg.files.has('folio-pcb-F_Cu.gtl')).toBe(true)
@@ -178,8 +235,8 @@ describe('fab package — DRC gates the order (fail-loud)', () => {
 
   it('blocks two traces violating spacing', () => {
     const pkg = buildFabPackage([resistor('R1', 10)], [
-      wire('w1', [{ x: 0, y: 0 }, { x: 10, y: 0 }]),
-      wire('w2', [{ x: 0, y: 0.1 }, { x: 10, y: 0.1 }]),
+      trace([{ x: 0, y: 0 }, { x: 10, y: 0 }]),
+      trace([{ x: 0, y: 0.1 }, { x: 10, y: 0.1 }]),
     ])
     expect(pkg.shippable).toBe(false)
     expect(pkg.violations.some((v) => v.rule === 'trace-spacing')).toBe(true)
@@ -187,8 +244,8 @@ describe('fab package — DRC gates the order (fail-loud)', () => {
 
   it('detects crossing traces whose vertices are far apart', () => {
     const pkg = buildFabPackage([resistor('R1', 10)], [
-      wire('w1', [{ x: 0, y: 5 }, { x: 10, y: 5 }]),
-      wire('w2', [{ x: 5, y: 0 }, { x: 5, y: 10 }]),
+      trace([{ x: 0, y: 5 }, { x: 10, y: 5 }]),
+      trace([{ x: 5, y: 0 }, { x: 5, y: 10 }]),
     ])
     expect(pkg.shippable).toBe(false)
     expect(pkg.violations.some((v) => v.rule === 'trace-spacing')).toBe(true)
@@ -196,10 +253,21 @@ describe('fab package — DRC gates the order (fail-loud)', () => {
 
   it('does not flag copper of the same net for touching', () => {
     const pkg = buildFabPackage([resistor('R1', 10)], [
-      { ...wire('w1', [{ x: 0, y: 0 }, { x: 10, y: 0 }]), netName: 'VCC' },
-      { ...wire('w2', [{ x: 0, y: 0.1 }, { x: 10, y: 0.1 }]), netName: 'VCC' },
+      trace([{ x: 0, y: 0 }, { x: 10, y: 0 }], { netName: 'VCC' }),
+      trace([{ x: 0, y: 0.1 }, { x: 10, y: 0.1 }], { netName: 'VCC' }),
     ])
     expect(pkg.violations.filter((v) => v.rule === 'trace-spacing')).toEqual([])
+  })
+
+  it('does not flag copper on opposite faces for touching', () => {
+    // 0.1 mm apart in plan view, but separated by the whole laminate: a legal
+    // two-layer board must not be refused because top crosses bottom.
+    const pkg = buildFabPackage([resistor('R1', 10)], [
+      trace([{ x: 0, y: 0 }, { x: 10, y: 0 }], { layer: 'top' }),
+      trace([{ x: 0, y: 0.1 }, { x: 10, y: 0.1 }], { layer: 'bottom' }),
+    ])
+    expect(pkg.violations.filter((v) => v.rule === 'trace-spacing')).toEqual([])
+    expect(pkg.shippable).toBe(true)
   })
 
   it('keeps top-side SMD pads off the bottom copper and mask', () => {

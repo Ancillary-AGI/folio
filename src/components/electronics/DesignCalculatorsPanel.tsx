@@ -161,20 +161,12 @@ function ErrorLine({ error }: { error: string }) {
   )
 }
 
-/** Default measured profile: a JEDEC-compliant SAC305 oven trace. */
-const DEFAULT_REFLOW_SAMPLES = [
-  '0,25',
-  '30,100',
-  '60,150',
-  '90,180',
-  '120,200',
-  '150,217',
-  '180,240',
-  '210,245',
-  '240,230',
-  '270,180',
-  '300,60',
-].join('\n')
+/*
+ * No default oven trace: a verdict printed from sample data the user never
+ * supplied would certify a profile nobody measured. The textarea starts empty
+ * and the verdict panel waits for real samples.
+ */
+const EMPTY_REFLOW_SAMPLES = ''
 
 function parseReflowSamples(text: string): Array<{ timeSec: number; tempC: number }> {
   const samples: Array<{ timeSec: number; tempC: number }> = []
@@ -241,7 +233,7 @@ export default function DesignCalculatorsPanel() {
 
   // Reflow
   const [reflowAlloy, setReflowAlloy] = useState(Object.keys(REFLOW_PROFILES)[0])
-  const [reflowText, setReflowText] = useState(DEFAULT_REFLOW_SAMPLES)
+  const [reflowText, setReflowText] = useState(EMPTY_REFLOW_SAMPLES)
 
   const passive = useMemo(
     () =>
@@ -745,6 +737,7 @@ export default function DesignCalculatorsPanel() {
               aria-label="Measured reflow profile samples"
               className="mt-1 h-28 w-full rounded-md border border-input bg-background p-2 font-mono text-xs"
               spellCheck={false}
+              placeholder={'Paste the trace your oven or profiler logged, e.g.\n0,25\n30,100\n…'}
             />
           </label>
           <div className="space-y-1">
@@ -753,7 +746,11 @@ export default function DesignCalculatorsPanel() {
             <Row label="Time above liquidus" value={`${reflowProfile.timeAboveLiquidusSec[0]}–${reflowProfile.timeAboveLiquidusSec[1]} s`} />
             <Row label="Max ramp" value={`${reflowProfile.maxRampUpRateCPerSec} °C/s up, ${reflowProfile.maxRampDownRateCPerSec} °C/s down`} />
           </div>
-          {reflow.ok ? (
+          {reflowText.trim() === '' ? (
+            <div className="rounded-md border border-border bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+              Paste a measured trace to get a J-STD-020 verdict — no data means no verdict.
+            </div>
+          ) : reflow.ok ? (
             <div className="space-y-1">
               <Badge className={reflow.value.valid ? 'bg-success text-success-foreground' : 'bg-destructive text-destructive-foreground'}>
                 {reflow.value.valid ? 'Profile inside JEDEC window' : `${reflow.value.violations.length} violation(s)`}

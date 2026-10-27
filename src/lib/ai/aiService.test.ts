@@ -180,15 +180,52 @@ describe('AIService', () => {
   });
 
   describe('Predictive Maintenance', () => {
-    it('should predict maintenance for component', async () => {
-      const prediction = await service.predictMaintenance('comp1');
-      
-      expect(prediction).toBeDefined();
-      expect(prediction).toHaveProperty('componentId');
-      expect(prediction).toHaveProperty('failureProbability');
-      expect(prediction).toHaveProperty('timeToFailure');
-      expect(prediction.failureProbability).toBeGreaterThanOrEqual(0);
-      expect(prediction.failureProbability).toBeLessThanOrEqual(1);
+    it('predicts from the generic baseline and lists what it could not evaluate', async () => {
+      const predictions = await service.predictMaintenance(mockComponents);
+
+      expect(predictions).toHaveLength(2);
+      const prediction = predictions[0];
+      // Nothing here declares temperature, voltage or current, so no stress
+      // multiplier may be applied and every axis shows up as a gap.
+      expect(prediction.confidence).toBe(0.2);
+      expect(prediction.inputsMissing).toHaveLength(3);
+      expect(prediction.timeToFailure).toBe(100000);
+      expect(prediction.basis).toContain('generic');
+      expect(prediction.basis).toContain('8,760');
+      expect(prediction.failureProbability).toBeCloseTo(1 - Math.exp(-8760 / 100000), 6);
+    });
+
+    it('applies stress only where both the applied value and the rating exist', async () => {
+      const capacitor = makeComponent('comp3', 'Cap', 'capacitor', [
+        { id: '1', name: 'A', x: 0, y: 5, type: 'passive' },
+        { id: '2', name: 'B', x: 20, y: 5, type: 'passive' },
+      ], { voltage: '25V', current: '1A' });
+
+      const [prediction] = await service.predictMaintenance([capacitor], {
+        temperature: 80,
+        voltage: 24,
+        current: 0.9,
+      });
+
+      // x2.0 thermal, voltage inside 110% of rating, x1.6 for 0.9 A on a 1 A part.
+      expect(prediction.timeToFailure).toBeCloseTo(100000 / 3.2, 6);
+      expect(prediction.confidence).toBe(0.8);
+      expect(prediction.inputsMissing).toEqual([]);
+      expect(prediction.basis).toContain('x3.20');
+    });
+
+    it('names a missing rating instead of assuming one', async () => {
+      const [prediction] = await service.predictMaintenance([mockComponents[1]], { voltage: 12 });
+
+      expect(prediction.inputsMissing.join(' ')).toMatch(/declares no voltage rating/);
+      expect(prediction.confidence).toBe(0.2);
+    });
+
+    it('uses a declared mission window for the probability', async () => {
+      const [prediction] = await service.predictMaintenance([mockComponents[0]], { missionHours: 87600 });
+
+      expect(prediction.basis).toContain('87,600 h mission');
+      expect(prediction.failureProbability).toBeCloseTo(1 - Math.exp(-87600 / 100000), 6);
     });
   });
 

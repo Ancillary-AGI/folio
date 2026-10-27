@@ -36,7 +36,7 @@ const MODES: readonly WorkspaceModeMeta[] = [
   { id: 'convert', label: 'Sch → PCB', group: 'design', description: 'Convert the active schematic into a placed printed-circuit board.' },
   { id: 'pcb', label: 'PCB', group: 'design', description: 'Route copper and run DRC, EMC, thermal and signal-integrity checks.' },
   { id: 'preview3d', label: '3D / AR', group: 'design', description: 'Inspect and export the routed board as a three-dimensional scene.' },
-  { id: 'bom', label: 'BOM', group: 'design', description: 'Aggregate parts, costs, lifecycle and supplier data.' },
+  { id: 'bom', label: 'BOM', group: 'design', description: 'Aggregate parts, costs and declared lifecycle status.' },
   { id: 'control', label: 'Control', group: 'electrical', description: 'LTI transfer functions, PID, Bode, margins and closed-loop step response.' },
   { id: 'machines', label: 'Machines', group: 'electrical', description: 'DC motor/generator, BLDC and stepper operating points and waveforms.' },
   { id: 'rf', label: 'RF', group: 'electrical', description: 'Antenna, transmission-line and filter synthesis with far-field patterns.' },

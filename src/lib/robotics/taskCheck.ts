@@ -122,7 +122,8 @@ export interface TaskCheckResult {
   success: boolean;
   collisions: number;
   pathLength: number;
-  smoothness: number;
+  /** `null` when the recorded motion has too few samples to estimate jerk. */
+  smoothness: number | null;
   waypoints: TrajectoryPoint[];
 }
 
@@ -247,8 +248,8 @@ export async function checkTaskPath(options: {
   return {
     success: result.success,
     collisions: result.collisions,
-    pathLength: result.performanceMetrics.pathLength ?? 0,
-    smoothness: result.performanceMetrics.smoothness ?? 1,
+    pathLength: result.performanceMetrics.pathLength,
+    smoothness: result.performanceMetrics.smoothness,
     waypoints,
   };
 }

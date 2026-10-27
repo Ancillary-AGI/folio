@@ -80,7 +80,11 @@ export interface BodePoint {
   frequencyHz: number;
   omega: number;
   magnitudeDb: number;
-  /** Unwrapped so the trace is continuous across ±180°. */
+  /**
+   * Unwrapped so the trace is continuous across ±180°, and anchored on the
+   * low-frequency asymptote set by the poles and zeros at the origin — see
+   * `phaseBranchOffset`.
+   */
   phaseDeg: number;
 }
 
@@ -287,44 +291,118 @@ export function polynomialRoots(coefficients: readonly number[]): Complex[] {
   if (degree < 1) return [];
 
   const leading = normalised[0];
-  const monic = normalised.map((value) => value / leading);
+  if (leading === 0) return [];
+  const monic: number[] = new Array<number>(degree + 1);
+  for (let i = 0; i <= degree; i += 1) {
+    monic[i] = normalised[i] / leading;
+    if (!Number.isFinite(monic[i])) {
+      throw new Error(
+        `Polynomial coefficient ${i} divided by the leading coefficient exceeds double range ` +
+          `(${normalised[i]}/${leading}); normalise the transfer function before asking for its roots.`,
+      );
+    }
+  }
+  monic[0] = 1;
 
   if (degree === 1) return [{ re: -monic[1], im: 0 }];
 
   if (degree === 2) {
-    const [a0, a1, a2] = monic; // a0 = 1
-    const discriminant = a1 * a1 - 4 * a0 * a2;
+    const a1 = monic[1];
+    const a2 = monic[2];
+    /*
+     * The textbook discriminant `a1*a1 - 4*a2` overflows past |a1| ~ 1.3e154,
+     * and `(-a1 ± sqrt(discriminant))/2` cancels away the small root when the
+     * two roots differ by many orders of magnitude. Both are avoided by
+     * solving in the scaled variable x = s*y, where s bounds the root
+     * magnitudes, and recovering the second root from the product
+     * x1*x2 = a2.
+     *
+     * Real roots are exact up to the usual rounding of sqrt; complex roots are
+     * exact up to sqrt as well. Repeated roots (discriminant 0) lose about
+     * half of the significant digits, which is inherent to the formula.
+     */
+    const scale = Math.max(Math.abs(a1), Math.sqrt(Math.abs(a2)), 1);
+    const p = a1 / scale;
+    const q = (a2 / scale) / scale;
+    const discriminant = p * p - 4 * q;
+    if (!Number.isFinite(discriminant)) {
+      throw new Error(`Quadratic discriminant overflow for coefficients [1, ${a1}, ${a2}].`);
+    }
     if (discriminant >= 0) {
       const root = Math.sqrt(discriminant);
+      const large = p >= 0 ? -(p + root) / 2 : -(p - root) / 2;
+      const x1 = scale * large;
+      if (x1 === 0) return [{ re: 0, im: 0 }, { re: 0, im: 0 }];
+      const x2 = a2 / x1;
+      if (!Number.isFinite(x1) || !Number.isFinite(x2)) {
+        throw new Error(
+          `Quadratic roots of [1, ${a1}, ${a2}] exceed double range (|root| ~ ${scale}).`,
+        );
+      }
       return [
-        { re: (-a1 + root) / (2 * a0), im: 0 },
-        { re: (-a1 - root) / (2 * a0), im: 0 },
+        { re: x1, im: 0 },
+        { re: x2, im: 0 },
       ];
     }
-    const imaginary = Math.sqrt(-discriminant) / (2 * a0);
+    const imaginary = (Math.sqrt(-discriminant) * scale) / 2;
+    const real = (-p * scale) / 2;
+    if (!Number.isFinite(real) || !Number.isFinite(imaginary)) {
+      throw new Error(
+        `Quadratic roots of [1, ${a1}, ${a2}] exceed double range (|root| ~ ${scale}).`,
+      );
+    }
     return [
-      { re: -a1 / (2 * a0), im: imaginary },
-      { re: -a1 / (2 * a0), im: -imaginary },
+      { re: real, im: imaginary },
+      { re: real, im: -imaginary },
     ];
   }
 
-  // Durand–Kerner: all roots at once, converged to machine precision. Complex
-  // initial guesses on a ring avoid the symmetric starts that stall on roots
-  // of even multiplicity.
-  let radius = 1;
-  for (let i = 1; i <= degree; i += 1) radius = Math.max(radius, 1 + Math.abs(monic[i]));
+  /*
+   * Durand–Kerner: all roots at once, iterated on a scaled variable.
+   *
+   * Horner evaluation of the raw monic coefficients overflows long before the
+   * roots do — `(s+1)^50` has coefficients near 1e29 and any iteration step
+   * outside the root ring squares into Infinity and poisons every guess with
+   * NaN. Substituting x = scale*y keeps |coefficient| <= 1 by construction, so
+   * the initial ring (radius <= 2) and all intermediate products stay inside
+   * double range.
+   *
+   * Honest limits: convergence is quadratic for distinct roots but only linear
+   * for repeated ones, and multiple roots are intrinsically ill-conditioned —
+   * a degree-50 polynomial with one root repeated 50 times is only accurate to
+   * roughly the square/cube root of machine epsilon (1e-4 relative). Reach for
+   * a factorised representation when exact multiplicity matters. Non-finite
+   * results are rejected below rather than returned.
+   */
+  let scale = 0;
+  for (let k = 1; k <= degree; k += 1) {
+    const bound = Math.abs(monic[k]) ** (1 / k);
+    if (bound > scale) scale = bound;
+  }
+  if (!(scale > 0) || !Number.isFinite(scale)) scale = 1;
+
+  const scaled: number[] = new Array<number>(degree + 1);
+  scaled[0] = 1;
+  let factor = 1;
+  for (let k = 1; k <= degree; k += 1) {
+    factor /= scale;
+    scaled[k] = monic[k] * factor;
+  }
+
+  let ringRadius = 1;
+  for (let k = 1; k <= degree; k += 1) ringRadius = Math.max(ringRadius, 1 + Math.abs(scaled[k]));
   const roots: Complex[] = [];
   for (let k = 0; k < degree; k += 1) {
     const angle = (2 * Math.PI * k) / degree + 0.4;
     roots.push({
-      re: radius * Math.cos(angle),
-      im: radius * Math.sin(angle),
+      re: ringRadius * Math.cos(angle),
+      im: ringRadius * Math.sin(angle),
     });
   }
 
   const evaluate = (z: Complex): Complex => {
     let result: Complex = { re: 0, im: 0 };
-    for (const coefficient of monic) {
+    for (const coefficient of scaled) {
       result = complexAdd(complexMultiply(result, z), { re: coefficient, im: 0 });
     }
     return result;
@@ -353,10 +431,25 @@ export function polynomialRoots(coefficients: readonly number[]): Complex[] {
     if (largestCorrection < ROOT_TOLERANCE) break;
   }
 
-  return roots.map((root) => ({
-    re: root.re,
-    im: Math.abs(root.im) < 1e-9 * Math.max(1, Math.abs(root.re)) ? 0 : root.im,
-  }));
+  const finalised = roots.map((root) => {
+    const re = root.re * scale;
+    const im = root.im * scale;
+    return {
+      re,
+      im: Math.abs(im) < 1e-9 * Math.max(scale, Math.abs(re)) ? 0 : im,
+    };
+  });
+
+  for (const root of finalised) {
+    if (!Number.isFinite(root.re) || !Number.isFinite(root.im)) {
+      throw new Error(
+        `Root finder of degree ${degree} did not converge to finite values — the polynomial is ` +
+          'either too ill-conditioned for a dense solve or its roots exceed double range.',
+      );
+    }
+  }
+
+  return finalised;
 }
 
 export function tfPoles(tf: TransferFunction): Complex[] {
@@ -641,6 +734,39 @@ function assertBodeOptions(options: BodeOptions): number {
   return points;
 }
 
+/**
+ * Exact count of the factors of `s` in a polynomial given in descending powers:
+ * the trailing zero coefficients. Read from the coefficients rather than from the
+ * computed roots, because a root finder splits a repeated root at the origin into
+ * a tiny pair that no tolerance reliably recognises.
+ */
+function originFactorCount(coefficients: readonly number[]): number {
+  let count = 0
+  for (let index = coefficients.length - 1; index >= 0; index -= 1) {
+    if (Math.abs(coefficients[index]) >= ROOT_TOLERANCE) return count
+    count += 1
+  }
+  // Every coefficient is zero: an identically zero polynomial has no asymptote.
+  return 0
+}
+
+/**
+ * Degrees to add to the whole unwrapped trace so that its first sample sits on
+ * the branch implied by the low-frequency asymptote.
+ *
+ * `atan2` only ever returns the principal value, and for a loop with two poles at
+ * the origin the true −180.01° and the principal +179.99° are the same number
+ * seen from opposite sides of the cut — which side the last bit lands on is
+ * arbitrary. Continuing from whichever value came out first puts the trace on a
+ * branch offset by 360°, and a phase margin read off it is 360° too large: a
+ * −41° loop (unstable) would be reported as +319°.
+ */
+function phaseBranchOffset(tf: TransferFunction, firstPhaseDeg: number): number {
+  const asymptoteDeg = 90 * (originFactorCount(tf.numerator) - originFactorCount(tf.denominator))
+  if (!Number.isFinite(firstPhaseDeg) || asymptoteDeg === 0) return 0
+  return Math.round((asymptoteDeg - firstPhaseDeg) / 360) * 360
+}
+
 export function bodeResponse(tf: TransferFunction, options: BodeOptions): BodePoint[] {
   const valid = validateTransferFunction(tf);
   const points = assertBodeOptions(options);
@@ -668,7 +794,9 @@ export function bodeResponse(tf: TransferFunction, options: BodeOptions): BodePo
       phaseDeg: phase,
     });
   }
-  return result;
+
+  const offset = phaseBranchOffset(valid, result[0]?.phaseDeg ?? Number.NaN);
+  return offset === 0 ? result : result.map((point) => ({ ...point, phaseDeg: point.phaseDeg + offset }));
 }
 
 export interface MarginOptions extends BodeOptions {

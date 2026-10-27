@@ -9,22 +9,22 @@
  */
 import { AgentHarness, type AgentTool } from './agentHarness'
 import { spiceEngine, type CircuitNetlist } from '../simulation/spiceEngine'
-import { buildFabPackage, JLCPCB_1OZ, type FabOptions, type FabProfile } from '../manufacturing/fabExport'
+import { buildFabPackage, fabTracesFromWires, JLCPCB_1OZ, type FabOptions, type FabProfile } from '../manufacturing/fabExport'
 import { DesignRuleChecker, type DRCSettings, type DRCViolation } from '../manufacturing/drc'
 import { polylineDistance } from '../geometry/distance'
 import type { PCBDesign } from '../manufacturing/pcb'
 import type { PcbSceneInput } from '../pcb/pcbScene'
 import {
+  fabCopperFromRoutedTraces,
   netsFromWires,
   placeFromRoutedLayout,
   placeSchematicOnBoard,
   routePlacedBoard,
   sceneFromRouting,
-  wiresFromRoutedTraces,
   type BoardSize,
 } from '../pcb/boardLayout'
 import { useProjectStore, type CanvasComponent, type CanvasWire } from '../../stores/useProjectStore'
-import type { Wire } from '../../types'
+import type { FabWireInput } from '../manufacturing/fabExport'
 import { capturePcbSnapshot, pcbToSvg } from './pcbSnapshot'
 
 export interface EdaPlanStep { tool: string; args: Record<string, string | number | boolean>; rationale: string; }
@@ -536,15 +536,15 @@ async function realDrc(args: Record<string, string | number | boolean>): Promise
     throw new Error('No routed board on the canvas. Run eda.route first (or pass components + wires JSON).')
   }
   let components: Parameters<typeof buildFabPackage>[0]
-  let wires: Wire[]
+  let wires: FabWireInput[]
   try {
     components = JSON.parse(rawC)
-    wires = JSON.parse(rawW) as Wire[]
+    wires = JSON.parse(rawW) as FabWireInput[]
   } catch {
     throw new Error('eda.drc: components/wires are not valid JSON.')
   }
   if (!Array.isArray(components) || !Array.isArray(wires)) throw new Error('eda.drc needs components + wires arrays.')
-  const pack = buildFabPackage(components, wires, { profile })
+  const pack = buildFabPackage(components, fabTracesFromWires(wires), { profile })
   return {
     source: 'schematic',
     shippable: pack.shippable,
@@ -558,11 +558,12 @@ function fabPackageForLiveBoard(profile: FabProfile, projectName: string): { lay
   const layout = store.pcbLayout
   if (!layout) return null
   const placement = placeFromRoutedLayout(store.components, layout)
-  const pkg = buildFabPackage(placement.components, wiresFromRoutedTraces(layout.traces.map((trace) => ({
+  const pkg = buildFabPackage(placement.components, fabCopperFromRoutedTraces(layout.traces.map((trace) => ({
     id: trace.id,
     points: trace.points,
     width: trace.widthMm,
     netName: trace.net,
+    layerId: trace.layerId,
   }))), {
     profile,
     projectName,
@@ -618,15 +619,15 @@ async function realExportFab(args: Record<string, string | number | boolean>): P
     throw new Error('No routed board to export. Run eda.route first (or pass components + wires JSON).')
   }
   let components: Parameters<typeof buildFabPackage>[0]
-  let wires: Wire[]
+  let wires: FabWireInput[]
   try {
     components = JSON.parse(rawC)
-    wires = JSON.parse(rawW) as Wire[]
+    wires = JSON.parse(rawW) as FabWireInput[]
   } catch {
     throw new Error('eda.exportFab: components/wires are not valid JSON.')
   }
   const options: FabOptions = { profile, projectName }
-  const pack = buildFabPackage(components, wires, options)
+  const pack = buildFabPackage(components, fabTracesFromWires(wires), options)
   return {
     source: 'schematic',
     project: projectName,

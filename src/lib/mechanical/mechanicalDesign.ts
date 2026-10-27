@@ -5,7 +5,7 @@ import {
   analyseEmc,
   type ElectricalProperties,
 } from './mechanicalAnalysis';
-import { getMaterial, requireMaterial } from './materials';
+import { requireMaterial } from './materials';
 import { boxFaces, stepAssemblyDocument } from '../manufacturing/stepGeometry';
 
 export interface MechanicalComponent {
@@ -32,6 +32,45 @@ export interface MechanicalConstraint {
   type: 'distance' | 'angle' | 'coincident' | 'parallel' | 'perpendicular';
   components: string[];
   parameters: Record<string, number>;
+}
+
+/**
+ * Volts assumed across the lumped RLC model when its power loss is reported.
+ * The part has no defined operating point in this model, so the excitation is
+ * an assumption the caller must be told about rather than a measurement.
+ */
+const EMC_EXCITATION_VOLTS = 1;
+
+/**
+ * The engineer's declared lumped parasitics, or a failure naming every missing
+ * or unusable quantity. Deriving them is not possible here: `MechanicalComponent`
+ * stores a footprint, a thickness and a material name, which do not determine a
+ * loop inductance, a parasitic capacitance or a contact resistance.
+ */
+function requireElectricalParasitics(component: MechanicalComponent): ElectricalProperties {
+  const props = component.electricalProperties;
+  if (!props) {
+    throw new Error(
+      `Component "${component.id}" (${component.name}) declares no electricalProperties. ` +
+      'EMC analysis needs the lumped resistance (Ω), capacitance (F) and inductance (H) of this part; ' +
+      'guessing them would report the behaviour of the invented network as the design\'s behaviour.',
+    );
+  }
+  const required: ReadonlyArray<readonly [keyof ElectricalProperties, string]> = [
+    ['resistance', 'Ω'],
+    ['capacitance', 'F'],
+    ['inductance', 'H'],
+  ];
+  const problems: string[] = [];
+  for (const [key, unit] of required) {
+    const value = props[key];
+    if (value === undefined) problems.push(`${key} (${unit}) is missing`);
+    else if (!Number.isFinite(value) || value <= 0) problems.push(`${key} must be a positive finite number, got ${value}`);
+  }
+  if (problems.length > 0) {
+    throw new Error(`Component "${component.id}" (${component.name}) cannot be analysed for EMC: ${problems.join('; ')}.`);
+  }
+  return props;
 }
 
 export interface MechanicalAssembly {
@@ -94,11 +133,13 @@ export class MechanicalDesignEngine {
   /**
    * Steady-state and transient thermal behaviour of a part.
    *
-   * `Size` carries only width and height, so the thickness heat must cross is not part
-   * of the stored geometry: it is an explicit argument, and when omitted a documented
-   * 10 mm default is used. Everything else comes from the real dimensions, and the
-   * maths is the `L/(kA)` conduction path in `mechanicalAnalysis` — the previous
-   * `1/(kA)` form had no thickness term at all, so it could not respond to one.
+   * `Size` carries only width and height, so the thickness heat must cross is a
+   * required argument: it drives both the conduction path and the heat capacity,
+   * and a guessed 10 mm would silently mis-analyse every part that is not 10 mm
+   * thick. Everything else comes from the real dimensions and the part's declared
+   * thermal properties, and the maths is the `L/(kA)` conduction path in
+   * `mechanicalAnalysis` — the previous `1/(kA)` form had no thickness term at
+   * all, so it could not respond to one.
    */
   analyzeThermalBehavior(
     component: MechanicalComponent,
@@ -180,10 +221,23 @@ export class MechanicalDesignEngine {
    * Lumped impedance and EMI metrics at one frequency.
    *
    * Delegates to the tested `analyseEmc`: `R + jωL − j/(ωC)`, resonance
-   * `1/(2π√(LC))`, and skin depth from the material conductivity. `skinDepth`
-   * and shielding are `null` when the part does not declare a conductivity —
-   * a fabricated copper value for a plastic bracket would be meaningless.
-   * Power loss assumes a 1 V excitation across the lumped model.
+   * `1/(2π√(LC))`, and skin depth from the material conductivity. The previous
+   * version substituted `0.1 Ω / 1 nF / 1 µH` whenever a part declared no
+   * parasitics, so every bracket, shaft and heatsink reported the behaviour of
+   * the same invented lumped network; those stand-ins are gone and a missing
+   * quantity now fails and names itself.
+   *
+   * R/L/C are *not* derivable from what this model stores: `MechanicalComponent`
+   * keeps a 2-D footprint plus an extrusion thickness, and a lumped parasitic
+   * needs the return path, the dielectric between the conductors and the
+   * conductor length — none of which the geometry implies. Skin depth and
+   * shielding, by contrast, are derived (from the declared conductivity and the
+   * real thickness) and stay `null` when no conductivity is declared — a
+   * fabricated copper value for a plastic bracket would be meaningless.
+   *
+   * `powerLoss` is computed at the declared 1 V excitation of the lumped model,
+   * not at the part's operating point; `provenance` tells a panel which figure
+   * was supplied, derived or assumed.
    */
   analyzeElectromagneticCompatibility(component: MechanicalComponent, frequency: number): {
     impedance: number;
@@ -191,19 +245,37 @@ export class MechanicalDesignEngine {
     skinDepth: number | null;
     shieldingEffectiveness: number | null;
     powerLoss: number;
-  } {
-    const electricalProps = component.electricalProperties ?? {
-      resistance: 0.1,
-      capacitance: 1e-9,
-      inductance: 1e-6,
+    /** The excitation `powerLoss` is computed at — an assumption, not a measurement. */
+    excitationVolts: number;
+    /** Where each input came from, so no figure can be read as a measurement. */
+    provenance: {
+      resistance: 'supplied by user';
+      capacitance: 'supplied by user';
+      inductance: 'supplied by user';
+      conductivity: 'supplied by user' | 'not declared — skin depth and shielding unavailable';
+      thickness: 'derived from component geometry';
+      excitationVolts: 'assumed 1 V across the lumped model';
     };
+  } {
+    const electricalProps = requireElectricalParasitics(component);
     const emc = analyseEmc(electricalProps, frequency, component.thickness);
     return {
       impedance: emc.impedance,
       resonanceFrequency: emc.resonanceFrequency,
       skinDepth: emc.skinDepth,
       shieldingEffectiveness: emc.shieldingEffectiveness,
-      powerLoss: (1 / emc.impedance ** 2) * electricalProps.resistance,
+      powerLoss: (EMC_EXCITATION_VOLTS / emc.impedance) ** 2 * electricalProps.resistance,
+      excitationVolts: EMC_EXCITATION_VOLTS,
+      provenance: {
+        resistance: 'supplied by user',
+        capacitance: 'supplied by user',
+        inductance: 'supplied by user',
+        conductivity: electricalProps.conductivity === undefined
+          ? 'not declared — skin depth and shielding unavailable'
+          : 'supplied by user',
+        thickness: 'derived from component geometry',
+        excitationVolts: 'assumed 1 V across the lumped model',
+      },
     };
   }
 
@@ -212,7 +284,9 @@ export class MechanicalDesignEngine {
     yieldStrength: number;
     density: number;
   } {
-    const { youngsModulus, yieldStrength, density } = getMaterial(material);
+    // Strict lookup: a material the catalogue does not know must fail rather than
+    // be analysed with steel's modulus and yield strength.
+    const { youngsModulus, yieldStrength, density } = requireMaterial(material);
     return { youngsModulus, yieldStrength, density };
   }
 

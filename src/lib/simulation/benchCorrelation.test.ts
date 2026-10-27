@@ -71,4 +71,32 @@ describe('twin guarantee — envelope and bench verdict', () => {
     const empty = correlateBench(bands, [])
     expect(empty.verified).toBe(false)
   })
+
+  it('builds every band on the grid of the mean trace, not by index pairing', () => {
+    const { bands, sweep, gridMismatch } = toleranceEnvelope(divider(), operatingPointOf, {
+      iterations: 60,
+      tolerance: 0.01,
+      seed: 7,
+    })
+    expect(gridMismatch).toEqual([])
+    const meanOf = (suffix: string) => (signal: string) =>
+      sweep.waveforms.find((waveform) => waveform.name === `${signal} mean${suffix}`)
+    const plusOf = meanOf(' +3σ')
+    const minusOf = meanOf(' −3σ')
+    for (const band of bands) {
+      const mean = meanOf('')(band.signal)
+      expect(mean).toBeDefined()
+      // Same points, same order: a short or shifted ±3σ trace is reported as a
+      // missing envelope, never folded into the mean as a zero-width point.
+      expect(band.points.map((point) => point.x)).toEqual(mean!.data.map((point) => point.x))
+      const plus = plusOf(band.signal)!
+      const minus = minusOf(band.signal)!
+      band.points.forEach((point, index) => {
+        expect(point.high).toBe(plus.data[index].y)
+        expect(point.low).toBe(minus.data[index].y)
+        expect(point.low).toBeLessThanOrEqual(point.high)
+      })
+    }
+    expect(bands.length).toBeGreaterThan(0)
+  })
 })

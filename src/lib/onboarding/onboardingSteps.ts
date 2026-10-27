@@ -1,6 +1,6 @@
 import {
-  Activity, Bot, CircuitBoard, Cpu, GitBranch, History, Layers3, Shield, TrendingUp,
-  type LucideIcon,
+  Activity, Bot, CircuitBoard, Cpu, GitBranch, History, Layers3, MousePointerClick, Shield,
+  TrendingUp, type LucideIcon,
 } from 'lucide-react'
 import type { WorkspaceMode } from '../../stores/useAppStore'
 
@@ -34,6 +34,12 @@ export interface OnboardingStep {
   placement?: 'top' | 'right' | 'bottom' | 'left'
   /** Optional interactive affordance rendered inside the step. */
   action?: 'load-sample-circuit'
+  /**
+   * The step teaches a gesture the engineer should try right now. The overlay
+   * stops swallowing pointer events, so the app stays live behind the card and
+   * keyboard focus outside the card keeps driving the canvas.
+   */
+  handsOn?: boolean
 }
 
 export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
@@ -58,8 +64,9 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     title: 'Capture electrical intent in the schematic',
     summary: 'Build a circuit that reads correctly before you optimise it.',
     detail:
-      'Place components, connect pins, and give every part a real value or model. Netlist extraction resolves connectivity from wire topology and net names, so naming power and ground rails is what makes the rest of the toolchain reliable.',
+      'Place components, connect pins, and give every part a real value or model. Netlist extraction resolves connectivity from wire topology and net names, so naming power and ground rails is what makes the rest of the toolchain reliable. The wire tool is click-to-click: arm it on the left rail, click a pin, click the next, and the sheet routes the segment.',
     checklist: [
+      'Arm the wire tool on the rail and join two pins',
       'Name your power and ground rails explicitly',
       'Use exact manufacturer part numbers where you can',
       'Clear unconnected pins before running any analysis',
@@ -69,6 +76,24 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     target: 'component-library',
     placement: 'right',
     action: 'load-sample-circuit',
+    handsOn: true,
+  },
+  {
+    id: 'editor-tools',
+    title: 'The rail holds the gestures, the keys hold the rail',
+    summary: 'Select, wire and delete sit on one rail, each with a one-key shortcut.',
+    detail:
+      'Press V, W or D to arm a tool, G to toggle the grid and F to fit the design to the view; every button that has a shortcut prints its keycap, so the shortcut is discoverable without a cheat sheet. Snap is its own toggle: with snap on, a part lands on the grid pitch the router and the netlist can reason about.',
+    checklist: [
+      'Press W, click a pin, click the next pin: that is one wire',
+      'Keep snap on while laying out, and turn it off only for odd-pitch parts',
+      'Undo is on the rail and on Ctrl+Z — never retype a mistake away',
+    ],
+    mode: 'schematic',
+    icon: MousePointerClick,
+    target: 'tool-rail',
+    placement: 'right',
+    handsOn: true,
   },
   {
     id: 'simulate',
@@ -101,6 +126,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     mode: 'simulation',
     icon: TrendingUp,
     target: 'workspace-canvas',
+    handsOn: true,
   },
   {
     id: 'convert',
@@ -132,6 +158,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     mode: 'mechanical',
     icon: Cpu,
     target: 'workspace-canvas',
+    handsOn: true,
   },
   {
     id: 'evidence',

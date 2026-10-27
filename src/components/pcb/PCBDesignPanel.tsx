@@ -53,22 +53,31 @@ import {
   BOARD_ROUTER_DEFAULTS,
   netsFromWires,
   placeSchematicOnBoard,
-  wiresFromRoutedTraces,
+  fabCopperFromRoutedTraces,
 } from '../../lib/pcb/boardLayout'
 import { useDemoRequest } from '../workspace/useDemoRequest'
 import { polylineLength } from '../../lib/geometry/distance'
 import {
   fourLayerStackup,
+  microstripErEff,
   microstripImpedance,
   nearestPlane,
-  pairSkewPs,
   validateStackup,
   widthForImpedance,
 } from '../../lib/manufacturing/stackup'
 import { planeLoopInductance, pourResistance, stitchingGrid } from '../../lib/manufacturing/powerIntegrity'
 import { dogboneFanout, escapeTracksPerChannel, MICROVIA_FANOUT_RULES } from '../../lib/manufacturing/bgaFanout'
 import { interfaceGroup, powerRails, SOC_256, validateBallMap } from '../../lib/electronics/socPackages'
-import { meanderForSkew, USB2_HS } from '../../lib/manufacturing/diffPair'
+import {
+  checkGroup,
+  checkPair,
+  measureCoupling,
+  meanderForSkew,
+  USB2_HS,
+  type PairViolation,
+  type RoutedPair,
+  type RoutedTrace,
+} from '../../lib/manufacturing/diffPair'
 import { parseIbis, type IbisFile } from '../../lib/manufacturing/ibisModel'
 import { checkDqsGroup, checkFlyby, DDR3_1600, type DqsViolation } from '../../lib/manufacturing/ddrRouting'
 import {
@@ -176,6 +185,51 @@ const RULE_LABELS: Record<DRCRuleType, string> = {
   acute_angle: 'Acute angle',
   trace_length: 'Max trace length',
 }
+
+/**
+ * Thermal boundary conditions are assumptions, stated once so both solvers
+ * agree. Natural convection in still air over a bare board is the case being
+ * modelled; forced airflow would need a higher coefficient and a different
+ * value here.
+ */
+const THERMAL_AMBIENT_C = 25
+const THERMAL_CONVECTION_W_M2K = 10
+/** The board is drawn and previewed as 1.6 mm FR-4 with 1 oz copper. */
+const THERMAL_COPPER_THICKNESS_MM = 0.035
+/** Grid cap on simultaneous sources; parts beyond it are reported, not solved. */
+const THERMAL_MAX_SOURCES = 20
+/** Bulk properties shared with `thermalAnalysisEngine`'s material table. */
+const FR4_CONDUCTIVITY_W_MK = 0.3
+const COPPER_CONDUCTIVITY_W_MK = 400
+
+/**
+ * In-plane conductivity of a copper-layered laminate, weighted by the thickness
+ * each material contributes. Copper planes carry nearly all lateral spread, so a
+ * 1.6 mm FR-4 board with two 35 µm layers is ~14 W/(m·K) in plane rather than
+ * FR-4's 0.3 — through-thickness spread keeps the FR-4 number.
+ */
+function effectiveInPlaneConductivityWmk(
+  boardThicknessMm: number,
+  copperLayerCount: number,
+  copperThicknessMm: number,
+): number {
+  const copperMm = Math.max(0, copperLayerCount) * Math.max(0, copperThicknessMm)
+  const fr4Mm = Math.max(0.001, boardThicknessMm - copperMm)
+  return (FR4_CONDUCTIVITY_W_MK * fr4Mm + COPPER_CONDUCTIVITY_W_MK * copperMm) / (fr4Mm + copperMm)
+}
+
+/** Copper layers in the stackup that a thermal solver can spread heat through. */
+function countCopperLayers(layers: readonly { type: string }[]): number {
+  return layers.filter(layer => layer.type === 'signal' || layer.type === 'power' || layer.type === 'ground').length
+}
+
+/**
+ * Trombone legs the panel sizes when a pair misses its skew budget: 1 mm
+ * excursion at 2 mm pitch. A starting geometry the engineer edits, not a rule
+ * any standard dictates — `meanderForSkew` reports the run and keep-out it eats.
+ */
+const PAIR_MEANDER_AMPLITUDE_MM = 1
+const PAIR_MEANDER_PERIOD_MM = 2
 
 // Declared assumptions for the reference link, not measurements. Only the
 // trace length and width come from the routed board; everything else is a
@@ -1144,6 +1198,8 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
   const [thermalResult, setThermalResult] = useState<Awaited<ReturnType<typeof thermalAnalysisEngine.analyzeThermal>> | null>(null)
   const [thermalMap, setThermalMap] = useState<ThermalGridResult | null>(null)
   const [thermalMapError, setThermalMapError] = useState<string | null>(null)
+  /** Which parts the thermal solve could actually source loss data for. */
+  const [thermalPowerNotice, setThermalPowerNotice] = useState<string | null>(null)
   const [thermalAccelerator, setThermalAccelerator] = useState<{ path: ThermalAccelerator; durationMs: number } | null>(null)
   const [siResult, setSiResult] = useState<SiResult | null>(null)
   const [siEye, setSiEye] = useState<EyeResult | null>(null)
@@ -1164,6 +1220,12 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
   const [activeTab, setActiveTab] = useState('canvas')
   const [ibisFile, setIbisFile] = useState<IbisFile | null>(null)
   const [ibisError, setIbisError] = useState<string | null>(null)
+  /**
+   * Group-match window for differential pairs, mm of mean-length spread. A
+   * starting value to edit, not a standard's number: USB-2 does not publish one,
+   * and the panel labels whatever is used.
+   */
+  const [pairGroupWindowMm, setPairGroupWindowMm] = useState(0.25)
 
   // ── Advanced: stackup, power integrity, BGA, diff pairs, IBIS ───────────────
 
@@ -1215,10 +1277,21 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
     return lengths
   }, [traces])
 
+  /**
+   * Differential pairs, measured off the routed copper instead of asserted.
+   *
+   * Two nets whose names share a stem with a _P/_N or +/- suffix are a pair.
+   * Their closest edge-to-edge approach and the length that stays parallel come
+   * from `measureCoupling`; a section counts as coupled while the gap is within
+   * one trace width, which is reported with the number so the reader can see
+   * the yardstick. Skew in picoseconds needs a dielectric, so it uses the
+   * effective permittivity of this pair's width over the stackup's own reference
+   * plane — with no reference plane declared, the pair reports millimetres only
+   * and the rule check says it was not run rather than passing on a guess.
+   */
   const diffPairs = useMemo(() => {
-    const lengths = netLengths
     const byStem = new Map<string, { netP?: string; netN?: string }>()
-    for (const name of lengths.keys()) {
+    for (const name of netLengths.keys()) {
       const match = name.match(/^(.*?)(?:_P|_N|\+|-)$/i)
       if (!match || match[1].length === 0) continue
       const entry = byStem.get(match[1]) ?? {}
@@ -1226,24 +1299,83 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
       else entry.netN = name
       byStem.set(match[1], entry)
     }
-    return Array.from(byStem, ([stem, entry]) => {
+    const shapes = new Map<string, RoutedTrace[]>()
+    for (const trace of traces) {
+      if (!trace.netName || trace.points.length < 2) continue
+      const list = shapes.get(trace.netName) ?? []
+      list.push({ points: trace.points, widthMm: trace.width })
+      shapes.set(trace.netName, list)
+    }
+    const reference = stackupAnalysis.reference
+
+    const built = Array.from(byStem, ([stem, entry]) => {
       if (!entry.netP || !entry.netN) return null
-      const lengthP = lengths.get(entry.netP) ?? 0
-      const lengthN = lengths.get(entry.netN) ?? 0
-      const skewPs = pairSkewPs(lengthP, lengthN)
-      const skewMm = Math.abs(lengthP - lengthN)
+      const lengthP = netLengths.get(entry.netP) ?? 0
+      const lengthN = netLengths.get(entry.netN) ?? 0
+      const tracesP = shapes.get(entry.netP) ?? []
+      const tracesN = shapes.get(entry.netN) ?? []
+      const widths = [...tracesP, ...tracesN].map((trace) => trace.widthMm)
+      const width = widths.length > 0
+        ? widths.reduce((sum, value) => sum + value, 0) / widths.length
+        : 0
+      const erEff = reference && width > 0
+        ? microstripErEff(width, reference.distance, reference.er)
+        : null
+      const coupling = tracesP.length > 0 && tracesN.length > 0
+        ? measureCoupling(tracesP, tracesN, width)
+        : null
+      const routed: RoutedPair | null = coupling && erEff
+        ? {
+          name: stem,
+          netP: entry.netP,
+          netN: entry.netN,
+          targetZ: USB2_HS.targetZ,
+          skewBudgetPs: USB2_HS.skewBudgetPs,
+          lengthP,
+          lengthN,
+          gap: coupling.minGapMm,
+          coupledLength: coupling.coupledLengthMm,
+          erEff,
+        }
+        : null
       return {
         stem,
         netP: entry.netP,
         netN: entry.netN,
         lengthP,
         lengthN,
-        skewPs,
-        withinBudget: Math.abs(skewPs) <= USB2_HS.skewBudgetPs,
-        meander: meanderForSkew(skewMm, 1, 2),
+        skewMm: Math.abs(lengthP - lengthN),
+        width,
+        erEff,
+        coupling,
+        routed,
+        checked: routed ? checkPair(routed) : null,
+        meander: meanderForSkew(
+          Math.abs(lengthP - lengthN),
+          PAIR_MEANDER_AMPLITUDE_MM,
+          PAIR_MEANDER_PERIOD_MM,
+        ),
       }
-    }).filter((pair) => pair !== null)
-  }, [netLengths])
+    }).filter((pair): pair is NonNullable<typeof pair> => pair !== null)
+
+    // Group match only means anything between pairs that were actually checked.
+    const checkedPairs = built.map((pair) => pair.routed).filter((pair): pair is RoutedPair => pair !== null)
+    const groupViolations = checkedPairs.length > 1 ? checkGroup(checkedPairs, pairGroupWindowMm) : []
+    const violationsByPair = new Map<string, PairViolation[]>()
+    for (const violation of groupViolations) {
+      const list = violationsByPair.get(violation.pair) ?? []
+      list.push(violation)
+      violationsByPair.set(violation.pair, list)
+    }
+    return {
+      pairs: built.map((pair) => ({
+        ...pair,
+        violations: [...(pair.checked?.violations ?? []), ...(violationsByPair.get(pair.stem) ?? [])],
+      })),
+      groupChecked: checkedPairs.length,
+      groupWindowMm: pairGroupWindowMm,
+    }
+  }, [netLengths, traces, stackupAnalysis, pairGroupWindowMm])
 
   /**
    * DDR checks over the routed copper. Byte lanes follow the x8 mapping
@@ -1418,6 +1550,10 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
     setSiWidthSuggestion(null)
     setSiBasis(null)
     setSiError(null)
+    setThermalResult(null)
+    setThermalMap(null)
+    setThermalAccelerator(null)
+    setThermalPowerNotice(null)
   }, [])
 
   const handleAddTrace = useCallback((draft: {
@@ -1519,6 +1655,15 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
     }
   }, [traces, vias, wires, layers, boardWidth, boardHeight])
 
+  /** Stackup figures the thermal solvers are given, derived from `layers`. */
+  const thermalStackup = useMemo(() => {
+    const copperLayers = countCopperLayers(layers)
+    return {
+      copperLayers,
+      inPlaneConductivityWmk: effectiveInPlaneConductivityWmk(1.6, copperLayers, THERMAL_COPPER_THICKNESS_MM),
+    }
+  }, [layers])
+
   /**
    * The 3D viewer previews this exact object: outline, copper layers, routed
    * traces, vias and footprint bodies. Components are placed with the same
@@ -1612,6 +1757,8 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
     setSiError(null)
     setThermalResult(null)
     setThermalMap(null)
+    setThermalMapError(null)
+    setThermalPowerNotice(null)
   }, [storePcbLayout])
 
   useEffect(() => {
@@ -1675,20 +1822,69 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
   const handleThermal = useCallback(async () => {
     setAnalysisRunning(true)
     setThermalMapError(null)
-    const nodes: ThermalNode[] = components.slice(0, 20).map((c, i) => ({
-      id: c.id,
-      position: { x: (c.position?.x ?? i * 10) / 1000, y: (c.position?.y ?? i * 10) / 1000, z: 0 },
-      temperature: 25,
-      powerDissipation: Number(c.properties?.power ?? 0.1),
+    setThermalPowerNotice(null)
+
+    /*
+     * Dissipation has to come from the part. The schematic `power` property is
+     * the only loss figure this app holds, and a hot-spot map built on invented
+     * watts would put a peak wherever the reader happened to look. Parts that
+     * declare nothing are excluded and counted, not defaulted.
+     */
+    const declared = components.reduce<Array<{ part: PlacedComponent; watts: number }>>((acc, part) => {
+      const watts = Number(part.properties?.power)
+      if (Number.isFinite(watts) && watts > 0) acc.push({ part, watts })
+      return acc
+    }, [])
+    const withoutLoss = components.length - declared.length
+    const sources = declared.slice(0, THERMAL_MAX_SOURCES)
+    const capped = declared.length - sources.length
+
+    if (sources.length === 0) {
+      setThermalResult(null)
+      setThermalMap(null)
+      setThermalAccelerator(null)
+      setThermalPowerNotice(components.length === 0
+        ? 'The sheet has no components, so nothing here dissipates power.'
+        : `None of the ${components.length} part(s) declares a dissipation. Set a numeric "power" property in watts on the parts that matter, then run this again.`)
+      setAnalysisRunning(false)
+      setActiveTab('thermal')
+      return
+    }
+
+    const totalWatts = sources.reduce((sum, entry) => sum + entry.watts, 0)
+    const nodes: ThermalNode[] = sources.map(({ part: source, watts }) => ({
+      // Part id, not reference: the id stays unique when two parts share a label.
+      id: source.id,
+      // Board coordinates are millimetres; the lumped solver works in metres.
+      position: { x: source.position.x / 1000, y: source.position.y / 1000, z: 0 },
+      temperature: THERMAL_AMBIENT_C,
+      powerDissipation: watts,
       material: 'FR4',
     }))
-    if (nodes.length === 0) nodes.push({ id: 'pcb', position: { x: 0, y: 0, z: 0 }, temperature: 25, powerDissipation: 0.5, material: 'FR4' })
 
-    const boundaries: ThermalBoundary[] = [{ type: 'convection', temperature: 25, heatTransferCoefficient: 10, area: 0.01 }]
+    const boundaries: ThermalBoundary[] = [{
+      type: 'convection',
+      temperature: THERMAL_AMBIENT_C,
+      heatTransferCoefficient: THERMAL_CONVECTION_W_M2K,
+      // The board's own top face, not a guessed area.
+      area: (boardWidth * boardHeight) / 1e6,
+    }]
+
+    setThermalPowerNotice([
+      `${sources.length} of ${declared.length} part(s) with declared loss solved (${totalWatts.toFixed(3)} W total)`,
+      withoutLoss > 0 ? `${withoutLoss} part(s) carry no loss data and are not in the model` : null,
+      capped > 0 ? `${capped} further part(s) exceed the ${THERMAL_MAX_SOURCES}-source grid cap and were left out` : null,
+    ].filter(Boolean).join(' · ') + '.')
+
     try {
       const result = await thermalAnalysisEngine.analyzeThermal(nodes, boundaries, {
-        ambientTemperature: 25, convectionCoefficient: 10, boardMaterial: 'FR4',
-        copperThickness: 0.035, layerCount: 4, simulationTime: 300, timeStep: 1,
+        ambientTemperature: THERMAL_AMBIENT_C,
+        convectionCoefficient: THERMAL_CONVECTION_W_M2K,
+        boardMaterial: 'FR4',
+        copperThickness: THERMAL_COPPER_THICKNESS_MM,
+        layerCount: thermalStackup.copperLayers,
+        simulationTime: 300,
+        timeStep: 1,
       })
       setThermalResult(result)
 
@@ -1698,26 +1894,25 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
        * instead of being treated as millimetres. A 6 mm square per part is a
        * deliberate conservative spread for a package-mounted dissipator.
        */
-      const placed = components.filter((component) => component.position)
-      const xs = placed.map((component) => component.position.x)
-      const ys = placed.map((component) => component.position.y)
-      const minX = xs.length > 0 ? Math.min(...xs) : 0
-      const maxX = xs.length > 0 ? Math.max(...xs) : 1
-      const minY = ys.length > 0 ? Math.min(...ys) : 0
-      const maxY = ys.length > 0 ? Math.max(...ys) : 1
+      const xs = sources.map(({ part }) => part.position.x)
+      const ys = sources.map(({ part }) => part.position.y)
+      const minX = Math.min(...xs)
+      const maxX = Math.max(...xs)
+      const minY = Math.min(...ys)
+      const maxY = Math.max(...ys)
       const margin = 8
-      const sources: HeatSource[] = (placed.length > 0 ? placed : [null]).slice(0, 20).map((component, index) => {
-        const position = component?.position
-        const x = position && maxX > minX
-          ? margin + ((position.x - minX) / (maxX - minX)) * (boardWidth - margin * 2)
-          : boardWidth / 2 + (index % 3 - 1) * 12
-        const y = position && maxY > minY
-          ? margin + ((position.y - minY) / (maxY - minY)) * (boardHeight - margin * 2)
-          : boardHeight / 2 + (Math.floor(index / 3) - 1) * 12
-        const declared = Number(component?.properties?.power ?? 0.1)
-        const watts = Number.isFinite(declared) ? Math.min(10, Math.max(0.01, declared)) : 0.1
+      const heatSources: HeatSource[] = sources.map(({ part, watts }) => {
+        // A row or column of parts at one sheet coordinate has no extent to
+        // normalise against on that axis, so it maps to the board centre rather
+        // than to an invented spread.
+        const x = maxX > minX
+          ? margin + ((part.position.x - minX) / (maxX - minX)) * (boardWidth - margin * 2)
+          : boardWidth / 2
+        const y = maxY > minY
+          ? margin + ((part.position.y - minY) / (maxY - minY)) * (boardHeight - margin * 2)
+          : boardHeight / 2
         return {
-          id: component?.reference ?? `U${index + 1}`,
+          id: part.reference || part.id,
           xMm: x,
           yMm: y,
           widthMm: 6,
@@ -1732,10 +1927,10 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
           boardHeightMm: boardHeight,
           boardThicknessMm: 1.6,
           gridResolutionMm: 1,
-          effectiveConductivityWmk: 3.5,
-          convectionCoeffWperM2K: 15,
-          ambientTempC: 25,
-          heatSources: sources,
+          effectiveConductivityWmk: thermalStackup.inPlaneConductivityWmk,
+          convectionCoeffWperM2K: THERMAL_CONVECTION_W_M2K,
+          ambientTempC: THERMAL_AMBIENT_C,
+          heatSources,
         },
         { maxIterations: 6000 },
       )
@@ -1749,7 +1944,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
       setAnalysisRunning(false)
       setActiveTab('thermal')
     }
-  }, [components, boardWidth, boardHeight])
+  }, [components, thermalStackup, boardWidth, boardHeight])
 
   // ── Signal integrity ──────────────────────────────────────────────────────────
 
@@ -1806,8 +2001,9 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
 
   const handleExportFab = useCallback(() => {
     // The package must describe the copper on screen, not the schematic
-    // ratlines: routed traces are the top-copper geometry the fab prints.
-    const pkg = buildFabPackage(components, wiresFromRoutedTraces(traces), {
+    // ratlines: routed traces are the real two-layer geometry the fab prints,
+    // so each segment keeps the face it was drawn or routed on.
+    const pkg = buildFabPackage(components, fabCopperFromRoutedTraces(traces), {
       projectName: 'folio-pcb',
       boardWidth,
       boardHeight,
@@ -1837,6 +2033,27 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
   const drcErrors = useMemo(() => drcViolations.filter(v => v.severity === 'error').length, [drcViolations])
   const drcWarnings = useMemo(() => drcViolations.filter(v => v.severity === 'warning').length, [drcViolations])
 
+  /**
+   * What the last DRC run was actually given. The adapter only hands the checker
+   * copper, so every pad and courtyard rule runs against an empty list. Naming
+   * the geometry in scope keeps a clean verdict meaning "no copper rule broken"
+   * instead of implying a board that is ready to fab.
+   */
+  const drcScope = useMemo(() => {
+    const traceCount = boardDesign.traces.length
+    const viaCount = boardDesign.vias.length
+    const skipped: string[] = []
+    if (boardDesign.pads.length === 0) {
+      skipped.push('pad size, drill and annular ring, and pad-to-trace, pad-to-pad and pad-to-via clearance')
+      skipped.push('net continuity beyond copper presence, since the split-island test needs two or more pads on a net')
+    }
+    if (boardDesign.components.length === 0) skipped.push('courtyard overlap between footprints')
+    return {
+      checked: `${traceCount} trace${traceCount === 1 ? '' : 's'} and ${viaCount} via${viaCount === 1 ? '' : 'es'}`,
+      skipped,
+    }
+  }, [boardDesign])
+
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
@@ -1851,7 +2068,14 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
               <div className="flex items-center gap-1 text-xs">
                 {drcErrors > 0 && <Badge variant="destructive">{drcErrors} error{drcErrors !== 1 ? 's' : ''}</Badge>}
                 {drcWarnings > 0 && <Badge variant="secondary">{drcWarnings} warning{drcWarnings !== 1 ? 's' : ''}</Badge>}
-                {drcErrors === 0 && drcWarnings === 0 && <Badge className="bg-success text-success-foreground">DRC passed ✓</Badge>}
+                {drcErrors === 0 && drcWarnings === 0 && (
+                  <Badge
+                    className="bg-success text-success-foreground"
+                    title={`Copper-only scope: ${drcScope.checked}. Not checked: ${drcScope.skipped.join('; ')}.`}
+                  >
+                    DRC clean on {drcScope.checked}
+                  </Badge>
+                )}
               </div>
             )}
             {onPreview3D && (
@@ -1966,6 +2190,16 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
               <TabsContent value="drc" className="flex-1 overflow-y-auto p-3 space-y-2">
                 <div className="text-sm font-medium">Design Rule Check — {drcViolations.length} issue{drcViolations.length !== 1 ? 's' : ''}</div>
                 {!drcRan && <p className="text-muted-foreground text-sm">Click "Run DRC" to check your design.</p>}
+                <div className="space-y-1 rounded border border-border bg-muted/30 p-2 text-xs text-muted-foreground">
+                  <p>
+                    Checked: {drcScope.checked} — trace width and same-layer clearance, via size, annular ring,
+                    via-to-trace clearance, acute corners, and whether each net has any copper at all.
+                    Trace-length rules are off for this board.
+                  </p>
+                  {drcScope.skipped.length > 0 && (
+                    <p>Not checked: {drcScope.skipped.join('; ')}. The board model carries schematic placement, not footprints.</p>
+                  )}
+                </div>
                 {drcViolations.map(v => (
                   <div key={v.id} className={`flex items-start gap-2 p-2 rounded text-xs border ${v.severity === 'error' ? 'bg-destructive/10 border-destructive/40 text-destructive' : 'bg-warning/10 border-warning/40 text-warning'}`}>
                     <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
@@ -1974,7 +2208,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                 ))}
                 {drcRan && drcViolations.length === 0 && (
                   <div className="flex items-center gap-2 p-2 rounded text-xs bg-success/10 border border-success/40 text-success">
-                    <CheckCircle className="w-3 h-3" /> All design rules pass.
+                    <CheckCircle className="w-3 h-3" /> No copper rule broken in the scope above.
                   </div>
                 )}
               </TabsContent>
@@ -2078,6 +2312,11 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
               </TabsContent>
 
               <TabsContent value="thermal" className="flex-1 overflow-y-auto p-3 space-y-3">
+                {thermalPowerNotice && (
+                  <div className="rounded border border-border bg-muted/30 p-2 text-xs text-muted-foreground">
+                    {thermalPowerNotice}
+                  </div>
+                )}
                 {thermalResult ? (
                   <>
                     <div className="grid grid-cols-2 gap-3">
@@ -2095,12 +2334,20 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                         ? `Settled after ${(thermalResult.timeToSteadyState ?? thermalResult.simulatedTime).toFixed(0)} s of simulated time.`
                         : `Still transient after ${thermalResult.simulatedTime.toFixed(0)} s — increase simulation time or cooling.`}
                     </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Model: {THERMAL_AMBIENT_C} °C ambient, {THERMAL_CONVECTION_W_M2K} W/m²·K natural convection over{' '}
+                      {boardWidth} × {boardHeight} mm of 1.6 mm FR-4 with {thermalStackup.copperLayers} copper layer(s).
+                      The parts link through FR-4 in the lumped solve; the heat map spreads laterally through an
+                      in-plane laminate conductivity of {thermalStackup.inPlaneConductivityWmk.toFixed(1)} W/m·K derived
+                      from {(THERMAL_COPPER_THICKNESS_MM * 1000).toFixed(0)} µm copper per layer. Heat-map positions come
+                      from normalised sheet placement, so they show relative hot spots, not footprint coordinates.
+                    </p>
                     {thermalAccelerator && (
                       <div className="text-xs text-muted-foreground">
                         Grid solved on {thermalAccelerator.path} in {thermalAccelerator.durationMs.toFixed(0)} ms.
                       </div>
                     )}
-                    {thermalMap && <ThermalHeatmap result={thermalMap} ambientC={25} />}
+                    {thermalMap && <ThermalHeatmap result={thermalMap} ambientC={THERMAL_AMBIENT_C} />}
                     {thermalMapError && (
                       <div className="rounded border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
                         Heat map unavailable: {thermalMapError}
@@ -2117,7 +2364,11 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                     ))}
                   </>
                 ) : (
-                  <p className="text-muted-foreground text-sm">Click "Run Thermal" to simulate heat distribution.</p>
+                  <p className="text-muted-foreground text-sm">
+                    {thermalPowerNotice
+                      ? 'No result: thermal analysis needs a declared dissipation per part, and the panel does not invent one.'
+                      : 'Click "Run Thermal" to simulate heat distribution.'}
+                  </p>
                 )}
               </TabsContent>
 
@@ -2488,33 +2739,83 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                 <Card>
                   <CardHeader className="pb-2 pt-3 px-3">
                     <CardTitle className="flex items-center gap-1 text-xs">
-                      <GitCompare className="w-3 h-3" /> Differential pairs — {USB2_HS.skewBudgetPs} ps budget
+                      <GitCompare className="w-3 h-3" /> Differential pairs — measured off the copper
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2 px-3 pb-3 text-xs">
-                    {diffPairs.length === 0 ? (
+                    <div className="flex items-end gap-2">
+                      <div className="w-32">
+                        <label htmlFor="pair-group-window" className="text-[11px] font-medium mb-1 block">
+                          Group window (mm)
+                        </label>
+                        <input
+                          id="pair-group-window"
+                          type="number"
+                          min="0"
+                          step="0.05"
+                          value={pairGroupWindowMm}
+                          onChange={(event) => setPairGroupWindowMm(Number(event.target.value))}
+                          className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground"
+                        />
+                      </div>
+                      <p className="text-[11px] text-muted-foreground flex-1">
+                        Budget: {USB2_HS.skewBudgetPs} ps intra-pair, {diffPairs.groupWindowMm} mm group spread over{' '}
+                        {diffPairs.groupChecked} checked pair(s).
+                      </p>
+                    </div>
+                    {diffPairs.pairs.length === 0 ? (
                       <p className="text-muted-foreground">
                         No routed pairs yet. Net names ending in _P/_N or +/- appear here after auto-routing.
                       </p>
-                    ) : diffPairs.map((pair) => (
+                    ) : diffPairs.pairs.map((pair) => (
                       <div key={pair.stem} className="rounded border border-border p-2 space-y-1">
                         <div className="flex justify-between font-medium">
                           <span>{pair.netP} / {pair.netN}</span>
-                          <span className={pair.withinBudget ? 'text-success' : 'text-destructive'}>
-                            {pair.skewPs.toFixed(1)} ps
-                          </span>
+                          {pair.checked ? (
+                            <span
+                              className={pair.violations.length === 0 ? 'text-success' : 'text-destructive'}
+                              title={pair.erEff !== null
+                                ? `ε_eff ${pair.erEff.toFixed(3)} from ${pair.width.toFixed(3)} mm over the stackup reference`
+                                : 'no reference plane declared'}
+                            >
+                              {pair.checked.skewPs.toFixed(1)} ps
+                            </span>
+                          ) : (
+                            <span className="text-warning" title="Skew in ps needs the dielectric and the coupled geometry; this pair has neither yet">
+                              not checked
+                            </span>
+                          )}
                         </div>
                         <div className="text-muted-foreground">
-                          P {pair.lengthP.toFixed(2)} mm · N {pair.lengthN.toFixed(2)} mm
+                          P {pair.lengthP.toFixed(2)} mm · N {pair.lengthN.toFixed(2)} mm ·{' '}
+                          {pair.skewMm.toFixed(2)} mm mismatch
                         </div>
-                        {!pair.withinBudget && (
+                        <div className="text-muted-foreground">
+                          {pair.coupling
+                            ? <>Gap {pair.coupling.minGapMm.toFixed(3)} mm · parallel{' '}
+                              {(100 * pair.coupling.parallelRatio).toFixed(0)} % of the longer leg
+                              {' '}(coupled while ≤ one trace width, {pair.width.toFixed(3)} mm)</>
+                            : 'No measurable copper on both nets yet — gap and coupling not assessed.'}
+                        </div>
+                        {pair.violations.map((violation) => (
+                          <div key={violation.rule + violation.message} className="text-destructive">
+                            {violation.message}
+                          </div>
+                        ))}
+                        {pair.skewMm > 0 && (
                           <div className="text-warning">
-                            Add {pair.meander.total.toFixed(2)} mm of meander ({pair.meander.lobes} lobe
-                            {pair.meander.lobes === 1 ? '' : 's'}) to the shorter leg.
+                            {pair.meander.total.toFixed(2)} mm of meander
+                            ({pair.meander.lobes} lobe{pair.meander.lobes === 1 ? '' : 's'} ×{' '}
+                            {pair.meander.amplitude} mm over {pair.meander.runMm.toFixed(2)} mm of run,{' '}
+                            {pair.meander.keepoutMm} mm keep-out) on the shorter leg.
                           </div>
                         )}
                       </div>
                     ))}
+                    <p className="text-[11px] text-muted-foreground">
+                      Skew converts to time through the effective permittivity of each pair&apos;s own trace width
+                      over the declared reference plane; impedance targets are not solved from the routed geometry.
+                    </p>
                   </CardContent>
                 </Card>
 

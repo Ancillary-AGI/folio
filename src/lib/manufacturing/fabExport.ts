@@ -11,10 +11,15 @@
  *
  * All coordinates in millimetres. Rotation is degrees on screen, applied
  * to footprint pads around the placement origin.
+ *
+ * Layer truth: every segment declares the copper face it is etched on and
+ * every pad carries the faces it exists on, so a two-layer board's Gerbers
+ * match the board on screen. Copper on an inner layer is a violation — this
+ * package has no inner-layer film to put it on.
  */
-import type { PlacedComponent, Wire } from '../../types'
+import type { PlacedComponent, Point, Wire } from '../../types'
 import { polylineDistance } from '../geometry/distance'
-import { footprintLibrary, type Footprint } from './footprintLibrary'
+import { footprintLibrary, type Footprint, type FootprintPad } from './footprintLibrary'
 
 /** Capability profile of the fab house the board is ordered from. */
 export interface FabProfile {
@@ -37,16 +42,61 @@ export const JLCPCB_1OZ: FabProfile = {
 }
 
 export interface FabViolation {
-  rule: 'trace-width' | 'trace-spacing' | 'drill' | 'annular-ring' | 'footprint'
+  rule: 'trace-width' | 'trace-spacing' | 'drill' | 'annular-ring' | 'footprint' | 'copper-layer'
   severity: 'error'
   message: string
   elementId: string
+}
+
+/** Outer copper faces a two-layer Gerber package can film. */
+export type FabSide = 'top' | 'bottom'
+
+/** Trace width used when the incoming geometry does not carry one. */
+export const DEFAULT_TRACE_WIDTH = 0.2
+
+/**
+ * One etched segment. `layer` is required: copper whose face is guessed ends
+ * up in the wrong film, and the fab builds an open board that the DRC still
+ * calls clean.
+ */
+export interface FabTrace {
+  points: Point[]
+  width: number
+  netName?: string
+  layer: FabSide | 'inner'
+  /** Original layer id for inner copper, so the violation can name it. */
+  layerName?: string
+}
+
+/**
+ * Which outer face a board layer id exports to. Anything that is not one of
+ * the two outer copper layers comes back as `inner` and is refused rather
+ * than quietly folded into F_Cu.
+ */
+export function fabLayerFromId(layerId: string): { layer: FabTrace['layer']; name: string } {
+  const id = layerId.trim().toLowerCase()
+  if (id === 'top-cu' || id === 'f.cu' || id === 'top') return { layer: 'top', name: layerId }
+  if (id === 'bot-cu' || id === 'b.cu' || id === 'bottom') return { layer: 'bottom', name: layerId }
+  return { layer: 'inner', name: layerId }
+}
+
+/**
+ * Placement face of a part. Board placement is still top-only everywhere in
+ * the app, so a part reaches the bottom solely by declaring it; anything else
+ * stays on the top face instead of being silently mirrored.
+ */
+export function componentSide(component: PlacedComponent): FabSide {
+  const declared = String(component.properties.layer ?? component.properties.side ?? '').trim().toLowerCase()
+  return declared === 'bottom' || declared === 'b.cu' || declared === 'bot-cu' || declared === 'bot' ? 'bottom' : 'top'
 }
 
 export interface CentroidRow {
   reference: string
   x: number
   y: number
+  /** Top-view rotation. Fab houses that mirror bottom placements need the
+   *  angle reflected about the X axis; the pick-and-place file keeps the raw
+   *  board rotation and says so rather than guessing a convention. */
   rotation: number
   footprint: string
   side: 'Top' | 'Bottom'
@@ -86,7 +136,6 @@ export interface FabVia {
 export interface FabOptions {
   boardWidth?: number
   boardHeight?: number
-  traceWidth?: number
   profile?: FabProfile
   projectName?: string
   /** Vias from the routed board; omitting them would export open layers. */
@@ -100,7 +149,12 @@ export interface PlacedPad {
   h: number
   round: boolean
   drill?: number
+  /** Copper faces this pad exists on. A drilled pad is plated through, so it
+   *  is flashed on both; an SMD pad only on the face its part was placed on. */
+  layers: FabSide[]
 }
+
+export const onSide = (pad: PlacedPad, side: FabSide): boolean => pad.layers.includes(side)
 
 export const coord = (v: number): string => String(Math.round(v * 1_000_000))
 
@@ -129,8 +183,11 @@ export function resolveFootprint(component: PlacedComponent): Footprint | undefi
   return undefined
 }
 
-/** Footprint pads placed at the component origin, rotation applied. */
+/** Footprint pads placed at the component origin, rotation applied. The pad's
+ *  copper faces follow the placement: plated through-hole pads are annular
+ *  rings on both sides, surface pads live on the face the part sits on. */
 export function placedPads(component: PlacedComponent, footprint: Footprint): PlacedPad[] {
+  const side = componentSide(component)
   return footprint.pads.map((pad) => {
     const offset = rotate(pad.position.x, pad.position.y, component.rotation)
     return {
@@ -140,8 +197,37 @@ export function placedPads(component: PlacedComponent, footprint: Footprint): Pl
       h: pad.size.height,
       round: pad.shape === 'circle',
       drill: pad.drillDiameter,
+      layers: padCopperSides(pad, side),
     }
   })
+}
+
+function padCopperSides(pad: FootprintPad, placementSide: FabSide): FabSide[] {
+  if (pad.drillDiameter !== undefined) return ['top', 'bottom']
+  const declared: FabSide = pad.layers.includes('bottom_copper') && !pad.layers.includes('top_copper') ? 'bottom' : 'top'
+  return [placementSide === 'bottom' || declared === 'bottom' ? 'bottom' : 'top']
+}
+
+/** A schematic wire plus the optional copper face an agent payload declares. */
+export interface FabWireInput extends Wire {
+  layerId?: string
+}
+
+/**
+ * Sheet wires as fab copper. The schematic `Wire` has no copper layer, so a
+ * `layerId` on the incoming record decides the face; without one the caller
+ * states which face the geometry belongs on.
+ */
+export function fabTracesFromWires(wires: readonly FabWireInput[], fallbackLayer: FabSide = 'top'): FabTrace[] {
+  return wires
+    .filter((wire) => wire.points.length >= 2)
+    .map((wire) => ({
+      points: wire.points,
+      width: Number(wire.style?.width ?? DEFAULT_TRACE_WIDTH),
+      netName: wire.netName,
+      layer: wire.layerId ? fabLayerFromId(wire.layerId).layer : fallbackLayer,
+      layerName: wire.layerId,
+    }))
 }
 
 function gerberHeader(): string[] {
@@ -253,32 +339,42 @@ export function bomCsv(rows: BomRow[]): string {
   return ['Reference,Value,Footprint,Manufacturer,PartNumber', ...body].join('\n')
 }
 
-/** Build the complete fab package. Pads come from IPC footprints, never glyphs. */
+/** Build the complete fab package. Pads come from IPC footprints, never glyphs,
+ *  and copper lands on the film for the face it was routed on. */
 export function buildFabPackage(
   components: PlacedComponent[],
-  wires: Wire[],
+  routedTraces: FabTrace[],
   options: FabOptions = {},
 ): FabPackage {
-  const { boardWidth = 100, boardHeight = 80, traceWidth = 0.2, profile = JLCPCB_1OZ, projectName = 'folio-pcb', vias = [] } = options
+  const { boardWidth = 100, boardHeight = 80, profile = JLCPCB_1OZ, projectName = 'folio-pcb', vias = [] } = options
   const violations: FabViolation[] = []
-  const traces = wires
-    .filter((wire) => wire.points.length >= 2)
-    .map((wire) => ({ points: wire.points, width: Number(wire.style?.width ?? traceWidth), netName: wire.netName }))
-  traces.forEach((trace, index) => {
+  const copper: FabTrace[] = []
+  routedTraces.forEach((trace, index) => {
+    if (trace.points.length < 2) return
+    // Inner copper has no film in a two-layer package. Folding it into F_Cu
+    // would ship a board with the wrong nets routed, so refuse it instead.
+    if (trace.layer === 'inner') {
+      violations.push({ rule: 'copper-layer', severity: 'error', message: `Trace ${index} is on "${trace.layerName ?? 'an inner layer'}"; this package films only F_Cu and B_Cu.`, elementId: `trace-${index}` })
+      return
+    }
     if (trace.width < profile.minTraceWidth) {
       violations.push({ rule: 'trace-width', severity: 'error', message: `Trace ${index} width ${trace.width} mm below ${profile.name} minimum.`, elementId: `trace-${index}` })
     }
+    copper.push(trace)
   })
-  for (let a = 0; a < traces.length; a += 1) {
-    for (let b = a + 1; b < traces.length; b += 1) {
+  for (let a = 0; a < copper.length; a += 1) {
+    for (let b = a + 1; b < copper.length; b += 1) {
+      // Clearance is a same-face rule: top crossing bottom is separated by the
+      // laminate, so charging it would refuse legal two-layer boards.
+      if (copper[a].layer !== copper[b].layer) continue
       // Copper on the same net is allowed to touch; different nets must clear.
-      const netA = traces[a].netName
-      const netB = traces[b].netName
+      const netA = copper[a].netName
+      const netB = copper[b].netName
       if (netA && netB && netA === netB) continue
       // Centre-line distance between the polylines, not just vertex distance:
       // two long crossing traces have distant vertices but zero clearance.
-      const edge = polylineDistance(traces[a].points, traces[b].points)
-        - (traces[a].width + traces[b].width) / 2
+      const edge = polylineDistance(copper[a].points, copper[b].points)
+        - (copper[a].width + copper[b].width) / 2
       if (edge < profile.minTraceSpacing) {
         violations.push({ rule: 'trace-spacing', severity: 'error', message: `Traces ${a}/${b} clear ${edge.toFixed(3)} mm, below minimum.`, elementId: `trace-${a}/trace-${b}` })
       }
@@ -288,6 +384,7 @@ export function buildFabPackage(
   const drills: Array<{ x: number; y: number; diameter: number }> = []
   const centroid: CentroidRow[] = []
   const bom: BomRow[] = []
+  const silk: Record<FabSide, Array<{ x: number; y: number; text: string }>> = { top: [], bottom: [] }
   for (const component of components) {
     const footprint = resolveFootprint(component)
     if (!footprint) {
@@ -307,14 +404,14 @@ export function buildFabPackage(
       }
       drills.push({ x: pad.x, y: pad.y, diameter: pad.drill })
     }
+    const side = componentSide(component)
     const value = String(component.properties.value ?? component.properties.resistance ?? component.properties.capacitance ?? '')
-    centroid.push({ reference: component.reference, x: component.position.x, y: component.position.y, rotation: component.rotation, footprint: footprint.name, side: 'Top', value })
+    centroid.push({ reference: component.reference, x: component.position.x, y: component.position.y, rotation: component.rotation, footprint: footprint.name, side: side === 'bottom' ? 'Bottom' : 'Top', value })
     bom.push({ reference: component.reference, value, footprint: footprint.name, manufacturer: String(component.properties.manufacturer ?? component.component.manufacturer ?? ''), partNumber: String(component.properties.partNumber ?? component.component.partNumber ?? '') })
+    silk[side].push({ x: component.position.x, y: component.position.y + 2, text: component.reference })
   }
-  // Only through-hole pads exist on the bottom copper; SMD pads are top-side
-  // in this model. Flashing every pad on B_Cu would short a board that only
-  // has top-side parts.
-  const throughHolePads = pads.filter((pad) => pad.drill !== undefined)
+  const topPads = pads.filter((pad) => onSide(pad, 'top'))
+  const bottomPads = pads.filter((pad) => onSide(pad, 'bottom'))
   const viaPads: PlacedPad[] = []
   for (const via of vias) {
     if (via.drillDiameter < profile.minDrill) {
@@ -331,16 +428,18 @@ export function buildFabPackage(
       h: via.padDiameter,
       round: true,
       drill: via.drillDiameter,
+      layers: ['top', 'bottom'],
     })
     drills.push({ x: via.x, y: via.y, diameter: via.drillDiameter })
   }
+  const tracesOn = (side: FabSide): FabTrace[] => copper.filter((trace) => trace.layer === side)
   const files = new Map<string, string>()
-  files.set(`${projectName}-F_Cu.gtl`, gerberCopper('Top copper', traces, [...pads, ...viaPads]))
-  files.set(`${projectName}-B_Cu.gbl`, gerberCopper('Bottom copper', [], [...throughHolePads, ...viaPads]))
-  files.set(`${projectName}-F_Mask.gts`, gerberMask('Top mask', pads, profile.maskClearance))
-  files.set(`${projectName}-B_Mask.gbs`, gerberMask('Bottom mask', throughHolePads, profile.maskClearance))
-  files.set(`${projectName}-F_Silk.gto`, gerberSilk('Top silk', components.map((c) => ({ x: c.position.x, y: c.position.y + 2, text: c.reference }))))
-  files.set(`${projectName}-B_Silk.gbo`, gerberSilk('Bottom silk', []))
+  files.set(`${projectName}-F_Cu.gtl`, gerberCopper('Top copper', tracesOn('top'), [...topPads, ...viaPads]))
+  files.set(`${projectName}-B_Cu.gbl`, gerberCopper('Bottom copper', tracesOn('bottom'), [...bottomPads, ...viaPads]))
+  files.set(`${projectName}-F_Mask.gts`, gerberMask('Top mask', topPads, profile.maskClearance))
+  files.set(`${projectName}-B_Mask.gbs`, gerberMask('Bottom mask', bottomPads, profile.maskClearance))
+  files.set(`${projectName}-F_Silk.gto`, gerberSilk('Top silk', silk.top))
+  files.set(`${projectName}-B_Silk.gbo`, gerberSilk('Bottom silk', silk.bottom))
   files.set(`${projectName}-Edge_Cuts.gm1`, gerberOutline(boardWidth, boardHeight))
   files.set(`${projectName}.drl`, excellonDrill(drills))
   files.set(`${projectName}-centroid.csv`, centroidCsv(centroid))

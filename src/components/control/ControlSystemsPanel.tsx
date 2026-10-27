@@ -13,6 +13,7 @@ import { Input } from '../ui/input'
 import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign'
 import { Badge } from '../ui/badge'
 import TraceChart from '../charts/TraceChart'
+import ControllerToolbox from './ControllerToolbox'
 import {
   bodeResponse,
   simulateStep,
@@ -463,12 +464,30 @@ export default function ControlSystemsPanel({ onClose }: ControlSystemsPanelProp
           </div>
         </div>
 
+        <ControllerToolbox
+          plant={analysis.ok ? analysis.plant : null}
+          plantText={`${numeratorText} / ${denominatorText}`}
+          currentGains={{ kp, ki, kd, derivativeFilterSeconds: filterTau }}
+          horizon={{ tEndSeconds: tEnd, dtSeconds: dt }}
+          marginScan={{ fMinHz: fMin, fMaxHz: fMax }}
+          onApplyGains={(gains) => {
+            setKp(gains.kp)
+            setKi(gains.ki)
+            setKd(gains.kd)
+            const tau = gains.derivativeFilterSeconds
+            if (typeof tau === 'number' && Number.isFinite(tau) && tau > 0) setFilterTau(tau)
+            setUsePid(true)
+          }}
+        />
+
         <Card>
           <CardContent className="p-4 text-xs text-muted-foreground">
-            Continuous-time SISO analysis. Not modelled: time delays, sampled-data design,
-            MIMO/pole placement, actuator saturation in the linear Bode model, and
-            non-minimum-phase plants where gain/phase margins do not tell the whole story.
-            The closed-loop stability badge always comes from the closed-loop poles.
+            The plots above are continuous-time, linear, SISO analysis. Not modelled there: time
+            delays, MIMO/pole placement, actuator saturation, and non-minimum-phase plants where
+            gain/phase margins do not tell the whole story. The toolbox above exercises two of those
+            separately and labels them as such — a sampled-data PID with an actuator limit, and a
+            dead time read off an identified FOPDT model — so nothing here silently replaces the
+            linear plots. The closed-loop stability badge always comes from the closed-loop poles.
           </CardContent>
         </Card>
       </div>

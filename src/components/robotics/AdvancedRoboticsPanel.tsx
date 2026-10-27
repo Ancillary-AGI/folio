@@ -815,7 +815,14 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
                   </div>
                   <div className="flex justify-between">
                     <span>Smoothness</span>
-                    <span className="font-mono">{pathResult.smoothness.toFixed(3)}</span>
+                    <span
+                      className={pathResult.smoothness === null ? 'text-muted-foreground' : 'font-mono'}
+                      title={pathResult.smoothness === null
+                        ? 'The recorded motion has fewer than four samples, so no jerk estimate exists — not a score of 1'
+                        : 'Dimensionless squared-jerk score inside the recorded motion'}
+                    >
+                      {pathResult.smoothness === null ? 'not enough samples' : pathResult.smoothness.toFixed(3)}
+                    </span>
                   </div>
                 </div>
               )}

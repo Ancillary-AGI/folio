@@ -90,6 +90,11 @@ class TypedEventEmitter {
   }
 
   removeAllListeners(): void { this._listeners.clear() }
+
+  /** Handlers still registered for an event — a leak canary for callers. */
+  listenerCount<K extends keyof EventMap>(event: K): number {
+    return this._listeners.get(event)?.length ?? 0
+  }
 }
 
 // ── CollaborativeEditor ───────────────────────────────────────────────────────

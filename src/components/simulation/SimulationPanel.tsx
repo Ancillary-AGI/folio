@@ -61,7 +61,7 @@ const ANALYSIS_SUMMARY: Record<AnalysisType, string> = {
   'dc-sweep': 'Steps one source, resistor or the temperature and re-solves the bias at every value — a characteristic curve rather than a single number. Each point is a full Newton solve warm-started from the last, so a knee is traced, not interpolated.',
   transient: 'Integrates capacitors and inductors with companion models. Backward Euler is unconditionally stable and will not ring on an ideal step; trapezoidal is second-order and preserves LC oscillation; Gear/BDF2 is second-order, A-stable and damps high-frequency numerical ringing.',
   ac: 'Sweeps the complex small-signal network, linearising diodes at the DC operating point so the response belongs to the bias you designed.',
-  noise: 'Output-referred thermal and shot noise via the adjoint (transposed) network method, with an integrated RMS figure.',
+  noise: 'Output-referred noise summed over the mechanisms the device models actually define: resistor thermal (Johnson–Nyquist) and diode shot, computed with the adjoint (transposed) network method. It is a partial figure whenever the netlist holds a BJT, MOSFET, JFET, switch or op-amp — those have no noise model here, and the run lists them as unmodelled sources instead of including them.',
   montecarlo: 'Re-solves the bias with R/C/L perturbed inside a tolerance band, reporting the mean and the ±3σ envelope. Seeded, so a sweep is reproducible.',
 }
 
@@ -389,9 +389,13 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
       )
       const { model, errors } = buildCircuitModel(netlist)
       if (errors.length > 0) throw new Error(errors.join(' '))
-      const { bands } = toleranceEnvelope(model, (perturbed) => runOperatingPoint(perturbed, { temperatureCelsius: 27 }).outcome, { iterations: 60, tolerance: 0.05 })
+      const { bands, gridMismatch } = toleranceEnvelope(model, (perturbed) => runOperatingPoint(perturbed, { temperatureCelsius: 27 }).outcome, { iterations: 60, tolerance: 0.05 })
       const verdict = correlateBench(bands, samples)
-      setBenchVerdict(verdict.summary)
+      setBenchVerdict(
+        gridMismatch.length > 0
+          ? `${verdict.summary} No envelope for ${gridMismatch.join(', ')}: the sweep's ±3σ traces were not on the mean's grid.`
+          : verdict.summary,
+      )
     } catch (thrown) {
       setBenchVerdict(`Bench correlation failed: ${describeError(thrown)}`)
     }

@@ -3,9 +3,11 @@
  *
  * Lumped-capacitance transient solver. Each node carries a heat capacity and
  * loses heat through convection/radiation while exchanging heat with nearby
- * nodes through conduction. The explicit Euler step is subdivided to stay
- * below the stability limit, and convergence is reported from the actual
- * maximum temperature change per step — never assumed.
+ * nodes through conduction — through the substrate and, because pours dominate
+ * in-plane spreading on a real board, through the copper declared in the
+ * stackup. The explicit Euler step is subdivided to stay below the stability
+ * limit, and convergence is reported from the actual maximum temperature change
+ * per step — never assumed.
  */
 
 const STEFAN_BOLTZMANN = 5.67e-8; // W/(m²·K⁴)
@@ -52,13 +54,19 @@ export interface ThermalAnalysisResult {
 }
 
 export interface ThermalSimulationConfig {
-  ambientTemperature: number;
-  convectionCoefficient: number;
+  ambientTemperature: number; // °C, also the sink when a boundary omits its own
+  convectionCoefficient: number; // W/(m²·K) default for convection boundaries
+  /**
+   * Substrate used for nodes that declare no known material. Must exist in this
+   * engine's property table or the run is rejected.
+   */
   boardMaterial: string;
+  /** Copper per layer, in millimetres (0.035 mm = 1 oz). Drives lateral copper spreading. */
   copperThickness: number;
+  /** Copper layers carrying that spreading; must be a positive integer. */
   layerCount: number;
-  simulationTime: number;
-  timeStep: number;
+  simulationTime: number; // s
+  timeStep: number; // s
 }
 
 interface ThermalMaterial {
@@ -153,7 +161,7 @@ export class ThermalAnalysisEngine {
     }
 
     const environments = this.buildEnvironments(nodes, boundaries, config);
-    const links = this.buildLinks(nodes);
+    const links = this.buildLinks(nodes, config);
     let temperatures = nodes.map(node =>
       Number.isFinite(node.temperature) ? node.temperature : config.ambientTemperature
     );
@@ -222,7 +230,15 @@ export class ThermalAnalysisEngine {
     if (!Number.isFinite(config.convectionCoefficient) || config.convectionCoefficient < 0) {
       problems.push('convectionCoefficient must be zero or positive and finite');
     }
-
+    if (!this.thermalProperties[config.boardMaterial]) {
+      problems.push(`boardMaterial "${config.boardMaterial}" has no properties in this model`);
+    }
+    if (!Number.isFinite(config.copperThickness) || config.copperThickness <= 0) {
+      problems.push('copperThickness must be positive and finite (mm per layer)');
+    }
+    if (!Number.isInteger(config.layerCount) || config.layerCount < 1) {
+      problems.push('layerCount must be an integer of at least 1');
+    }
     nodes.forEach((node, index) => {
       const label = node.id?.trim() || `node ${index + 1}`;
       if (!Number.isFinite(node.temperature)) problems.push(`${label}: temperature must be finite`);
@@ -280,7 +296,7 @@ export class ThermalAnalysisEngine {
     );
 
     return nodes.map(node => {
-      const material = this.materialOf(node);
+      const material = this.materialOf(node, config);
       const emissivity = this.average(
         radiationBoundaries.map(boundary => boundary.emissivity ?? material.emissivity),
         material.emissivity
@@ -299,25 +315,43 @@ export class ThermalAnalysisEngine {
     });
   }
 
-  private buildLinks(nodes: ThermalNode[]): ThermalLink[] {
+  /**
+   * Lateral spreading between neighbouring nodes, as two parallel paths.
+   *
+   * The first is the assumed contact section through the node materials. The
+   * second is the copper in the declared stackup: pours are why a real board
+   * spreads heat far better than FR4 on its own, so both `layerCount` and the
+   * per-layer `copperThickness` enter as `kCu × layerCount × tCu × width / d`,
+   * with `width` the side of the same assumed contact square. A stackup with
+   * more copper therefore conducts more, which is the behaviour the previous
+   * version claimed by accepting the fields and ignoring them.
+   */
+  private buildLinks(nodes: ThermalNode[], config: ThermalSimulationConfig): ThermalLink[] {
     const links: ThermalLink[] = [];
     const contactArea = this.estimateContactArea();
+    const spreadWidthM = Math.sqrt(contactArea);
+    const copperThicknessM = config.copperThickness / 1000; // mm per layer → m
+    const copperConductivity = this.thermalProperties['copper'].thermalConductivity;
 
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         const distance = this.distance(nodes[i].position, nodes[j].position);
         if (distance < MIN_CONTACT_DISTANCE_M || distance >= CONTACT_RANGE_M) continue;
 
-        const conductivityA = this.materialOf(nodes[i]).thermalConductivity;
-        const conductivityB = this.materialOf(nodes[j]).thermalConductivity;
+        const conductivityA = this.materialOf(nodes[i], config).thermalConductivity;
+        const conductivityB = this.materialOf(nodes[j], config).thermalConductivity;
         // Series conduction through two half-distances: harmonic mean of k.
         const effectiveConductivity =
           (2 * conductivityA * conductivityB) / (conductivityA + conductivityB);
 
+        const substrateConductance = effectiveConductivity * contactArea / distance;
+        const copperConductance =
+          copperConductivity * config.layerCount * copperThicknessM * spreadWidthM / distance;
+
         links.push({
           a: i,
           b: j,
-          conductanceWPerK: effectiveConductivity * contactArea / distance
+          conductanceWPerK: substrateConductance + copperConductance
         });
       }
     }
@@ -462,8 +496,13 @@ export class ThermalAnalysisEngine {
     return recommendations;
   }
 
-  private materialOf(node: ThermalNode): ThermalMaterial {
-    return this.thermalProperties[node.material] ?? this.thermalProperties['FR4'];
+  /**
+   * A node's own material when this model knows it, otherwise the declared board
+   * substrate. `validateInputs` rejects an unknown `boardMaterial`, so there is
+   * no silent FR4 guess left in the solver.
+   */
+  private materialOf(node: ThermalNode, config: ThermalSimulationConfig): ThermalMaterial {
+    return this.thermalProperties[node.material] ?? this.thermalProperties[config.boardMaterial];
   }
 
   private areaPerNode(boundaries: ThermalBoundary[], nodeCount: number): number {

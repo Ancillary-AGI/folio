@@ -1311,6 +1311,12 @@ export function buildFrequencyGrid(
     startFrequency <= 0 || stopFrequency < startFrequency) {
     return []
   }
+  /*
+   * A span wider than ~308 decades makes the ratio `stop/start` overflow to
+   * Infinity, which turns every grid point after the first into Infinity or NaN.
+   * Refuse the span instead of handing the sweep poisoned frequencies.
+   */
+  if (!Number.isFinite(stopFrequency / startFrequency)) return []
   if (linearPoints !== undefined && linearPoints > 0) {
     const count = Math.min(Math.max(2, Math.floor(linearPoints)), 2000)
     const step = (stopFrequency - startFrequency) / (count - 1)

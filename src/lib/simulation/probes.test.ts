@@ -1,7 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import { normalizeProbeRequest, normalizeProbeRequests, probeFromTestPoint, measureProbes } from './probes'
+import type { ProbeModel, ProbeRequest } from './probes'
 
-type Model = { devices: Array<{ kind: string; name: string; p: string; n: string; resistance?: number; dcCurrent?: number }>; branchRows: Map<string, number> }
+const model = (overrides: Partial<ProbeModel> = {}): ProbeModel => ({
+  devices: [],
+  branchRows: new Map(),
+  nodeNames: ['N1'],
+  groundNodes: new Set(['0']),
+  ...overrides,
+})
+const voltageProbe = (node: string): ProbeRequest => ({ id: 'p', label: 'p', kind: 'node-voltage', node })
 
 describe('probes', () => {
   it('normalizes node voltage probe', () => {
@@ -30,13 +38,60 @@ describe('probes', () => {
     expect(p).toEqual({ id: 'TP2', label: 'TP2', kind: 'device-current', device: 'R2' })
   })
   it('measureProbes node voltage', () => {
-    const model = { devices: [], branchRows: new Map() } as Model
-    const res = measureProbes(model, [{ id: 'p', label: 'p', kind: 'node-voltage', node: 'N1' }], new Map([['N1', 5]]), new Map())
+    const res = measureProbes(model(), [voltageProbe('N1')], new Map([['N1', 5]]), new Map())
     expect(res[0].value).toBe(5)
+    expect(res[0].error).toBeUndefined()
+  })
+  it('measureProbes reports a solved 0 V net as 0 V, not as a failure', () => {
+    const res = measureProbes(model(), [voltageProbe('N1')], new Map([['N1', 0]]), new Map())
+    expect(res[0].value).toBe(0)
+    expect(res[0].error).toBeUndefined()
+  })
+  it('measureProbes fails on a node that is not in the circuit', () => {
+    /*
+     * The old `voltages.get(node) ?? 0` answered 0 V for a typo'd net, which is
+     * indistinguishable on the readout from a genuinely discharged one.
+     */
+    const res = measureProbes(model(), [voltageProbe('N9')], new Map([['N1', 0]]), new Map())
+    expect(res[0].value).toBeNull()
+    expect(res[0].error).toMatch(/Unknown node "N9"/)
+    expect(res[0].error).toMatch(/not a net in this circuit/)
+  })
+  it('distinguishes a typo from a net that this analysis never solved', () => {
+    const res = measureProbes(model({ nodeNames: ['N1', 'N2'] }), [voltageProbe('N2')], new Map([['N1', 1]]), new Map())
+    expect(res[0].value).toBeNull()
+    expect(res[0].error).toMatch(/is a net of this circuit but this analysis reports no voltage/)
+  })
+  it('reads ground as 0 V without needing a solution entry', () => {
+    const res = measureProbes(
+      model({ nodeNames: [], groundNodes: new Set(['0', 'GND']) }),
+      [voltageProbe('GND')],
+      new Map(),
+      new Map(),
+    )
+    expect(res[0].value).toBe(0)
+    expect(res[0].error).toBeUndefined()
   })
   it('measureProbes resistor current via ohms law', () => {
-    const model = { devices: [{ kind: 'resistor', name: 'R1', p: 'A', n: 'B', resistance: 10 }], branchRows: new Map() } as Model
-    const res = measureProbes(model, [{ id: 'p', label: 'p', kind: 'device-current', device: 'R1' }], new Map([['A', 10], ['B', 0]]), new Map())
+    const m = model({
+      devices: [{ kind: 'resistor', name: 'R1', p: 'A', n: 'B', resistance: 10 }],
+      nodeNames: ['A', 'B'],
+    })
+    const res = measureProbes(m, [{ id: 'p', label: 'p', kind: 'device-current', device: 'R1' }], new Map([['A', 10], ['B', 0]]), new Map())
     expect(res[0].value).toBe(1)
+  })
+  it('fails a resistor probe whose terminals are not solved', () => {
+    const m = model({
+      devices: [{ kind: 'resistor', name: 'R1', p: 'A', n: 'B', resistance: 10 }],
+      nodeNames: ['A'],
+    })
+    const res = measureProbes(m, [{ id: 'p', label: 'p', kind: 'device-current', device: 'R1' }], new Map([['A', 10]]), new Map())
+    expect(res[0].value).toBeNull()
+    expect(res[0].error).toMatch(/Unknown node "B"/)
+  })
+  it('measureProbes unknown device', () => {
+    const res = measureProbes(model(), [{ id: 'p', label: 'p', kind: 'device-current', device: 'R9' }], new Map(), new Map())
+    expect(res[0].value).toBeNull()
+    expect(res[0].error).toMatch(/Unknown device R9/)
   })
 })

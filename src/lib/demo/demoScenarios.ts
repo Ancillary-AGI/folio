@@ -99,8 +99,8 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     title: 'Rectifier BOM audit',
     mode: 'bom',
     group: 'design',
-    summary: 'Audit a proven BOM with quantity breaks, lifecycle status and supplier cross-reference.',
-    proves: ['BOM aggregation', 'Lifecycle inference', 'CSV/JSON export'],
+    summary: 'Cross-check the rectifier BOM against the fab package (MPNs, footprints, designator coverage) and see which parts declare no lifecycle.',
+    proves: ['BOM aggregation', 'Canvas ↔ fab cross-check', 'CSV/JSON export'],
     load: 'bom-audit',
   },
   {

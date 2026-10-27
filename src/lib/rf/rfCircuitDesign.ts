@@ -152,6 +152,36 @@ const returnLossDb = (x: ComplexNumber): number => {
   return magnitude < 1e-12 ? Number.POSITIVE_INFINITY : -20 * Math.log10(magnitude);
 };
 const identityABCD = (): ABCD => ({ a: c(1), b: c(0), c: c(0), d: c(1) });
+
+/*
+ * A lumped-element ABCD cascade has no scaling tricks available: one product
+ * outside double range poisons the whole ladder with NaN, and a NaN S-parameter
+ * is indistinguishable from a legitimate deep null unless it is rejected where
+ * it is produced. These guards turn that silent corruption into an error that
+ * names the element.
+ */
+const assertFiniteNumber = (value: number, what: string): number => {
+  if (!Number.isFinite(value)) {
+    throw new Error(
+      `${what} is not finite (${value}): the element values and this frequency exceed the ` +
+        'double-precision range of the lumped-element model. Use a wider frequency range in parts.',
+    );
+  }
+  return value;
+};
+
+const assertFiniteComplex = (value: ComplexNumber, what: string): ComplexNumber => {
+  assertFiniteNumber(value.re, `${what} (real part)`);
+  assertFiniteNumber(value.im, `${what} (imaginary part)`);
+  return value;
+};
+
+const assertFiniteABCD = (abcd: ABCD, what: string): ABCD => {
+  for (const key of ['a', 'b', 'c', 'd'] as const) {
+    assertFiniteComplex(abcd[key], `${what} ABCD parameter ${key.toUpperCase()}`);
+  }
+  return abcd;
+};
 const multiplyABCD = (x: ABCD, y: ABCD): ABCD => ({
   a: cAdd(cMul(x.a, y.a), cMul(x.b, y.c)),
   b: cAdd(cMul(x.a, y.b), cMul(x.b, y.d)),
@@ -191,6 +221,8 @@ export class RFCircuitDesigner {
         role: 'shunt',
       };
     });
+
+    this.assertRealizableLadder(elements, 'Low-pass prototype');
 
     const circuit: RFCircuit = {
       id: this.nextId('lpf'),
@@ -242,6 +274,8 @@ export class RFCircuitDesigner {
         role: 'shunt',
       };
     });
+
+    this.assertRealizableLadder(elements, 'High-pass prototype');
 
     const circuit: RFCircuit = {
       id: this.nextId('hpf'),
@@ -669,7 +703,7 @@ export class RFCircuitDesigner {
         `S-parameters require equal port impedances; input is ${z0} Ω and output is ${zOut} Ω.`,
       );
     }
-    const abcd = this.ladderToABCD(circuit, frequency);
+    const { abcd, determinant } = this.ladderToABCD(circuit, frequency);
     const denominator = cAdd(
       cAdd(abcd.a, cScale(abcd.b, 1 / z0)),
       cAdd(cScale(abcd.c, z0), abcd.d),
@@ -678,7 +712,6 @@ export class RFCircuitDesigner {
       throw new Error(`The two-port is singular at ${frequency} Hz.`);
     }
 
-    const determinant = cSub(cMul(abcd.a, abcd.d), cMul(abcd.b, abcd.c));
     const s11 = cDiv(
       cSub(cAdd(abcd.a, cScale(abcd.b, 1 / z0)), cAdd(cScale(abcd.c, z0), abcd.d)),
       denominator,
@@ -689,6 +722,15 @@ export class RFCircuitDesigner {
       cAdd(cAdd(cScale(abcd.a, -1), cScale(abcd.b, 1 / z0)), cAdd(cScale(abcd.c, -z0), abcd.d)),
       denominator,
     );
+
+    for (const [name, value] of [
+      ['S11', s11],
+      ['S12', s12],
+      ['S21', s21],
+      ['S22', s22],
+    ] as const) {
+      assertFiniteComplex(value, `${name} of ${circuit.name ?? 'the circuit'}`);
+    }
 
     return {
       frequency,
@@ -810,22 +852,45 @@ export class RFCircuitDesigner {
 
     // Magnitude-only template model: forward phase is not characterized and is
     // reported as zero rather than invented from an arbitrary delay.
+    const magnitude = (decibels: number, name: string): Complex =>
+      cToPublic(
+        c(assertFiniteNumber(
+          Math.pow(10, decibels / 20),
+          `The ${kind} ${name} magnitude`,
+        )),
+      );
     return {
       frequency,
-      s11: cToPublic(c(Math.pow(10, -inputReturnLoss / 20))),
-      s12: cToPublic(c(Math.pow(10, -isolation / 20))),
-      s21: cToPublic(c(Math.pow(10, gainDb / 20))),
-      s22: cToPublic(c(Math.pow(10, -outputReturnLoss / 20))),
+      s11: magnitude(-inputReturnLoss, 'input reflection'),
+      s12: magnitude(-isolation, 'reverse transmission'),
+      s21: magnitude(gainDb, 'forward transmission'),
+      s22: magnitude(-outputReturnLoss, 'output reflection'),
     };
   }
 
-  private ladderToABCD(circuit: RFCircuit, frequency: number): ABCD {
+  private ladderToABCD(circuit: RFCircuit, frequency: number): { abcd: ABCD; determinant: ComplexNumber } {
     const omega = 2 * Math.PI * frequency;
     let result = identityABCD();
+    /*
+     * The cascade determinant is carried through as a product of per-section
+     * determinants rather than recomputed from a·d − b·c at the far end. Deep in
+     * a filter's stopband the accumulated entries grow by many orders of
+     * magnitude, and that final subtraction cancels: the reciprocal network
+     * would report S12 and S21 differing by the cancellation residue instead of
+     * being equal. Each section's own determinant is well scaled, so the product
+     * keeps machine precision.
+     */
+    let determinant = c(1);
     for (const element of circuit.elements) {
-      result = multiplyABCD(result, this.elementABCD(element, frequency, omega));
+      const section = this.elementABCD(element, frequency, omega);
+      determinant = cMul(
+        determinant,
+        cSub(cMul(section.a, section.d), cMul(section.b, section.c)),
+      );
+      result = multiplyABCD(result, section);
+      assertFiniteABCD(result, `Ladder up to element ${element.id}`);
     }
-    return result;
+    return { abcd: result, determinant };
   }
 
   private elementABCD(element: RFCircuitElement, frequency: number, omega: number): ABCD {
@@ -837,12 +902,21 @@ export class RFCircuitDesigner {
       const theta = this.electricalLength(element, frequency);
       const cos = Math.cos(theta);
       const sin = Math.sin(theta);
-      return {
-        a: c(cos),
-        b: c(0, characteristic * sin),
-        c: c(0, sin / characteristic),
-        d: c(cos),
-      };
+      return assertFiniteABCD(
+        {
+          a: c(cos),
+          b: c(0, assertFiniteNumber(characteristic * sin, `Transmission line ${element.id} series reactance`)),
+          c: c(
+            0,
+            assertFiniteNumber(
+              sin / characteristic,
+              `Transmission line ${element.id} shunt susceptance`,
+            ),
+          ),
+          d: c(cos),
+        },
+        `Transmission line ${element.id}`,
+      );
     }
 
     if (element.type === 'amplifier' || element.type === 'mixer' || element.type === 'filter' || element.type === 'oscillator') {
@@ -854,10 +928,13 @@ export class RFCircuitDesigner {
 
     const impedance = this.elementImpedance(element, omega);
     if (element.role === 'series') {
-      return { a: c(1), b: impedance, c: c(0), d: c(1) };
+      return assertFiniteABCD({ a: c(1), b: impedance, c: c(0), d: c(1) }, `Ladder element ${element.id}`);
     }
     const admittance = cDiv(c(1), impedance);
-    return { a: c(1), b: c(0), c: admittance, d: c(1) };
+    return assertFiniteABCD(
+      { a: c(1), b: c(0), c: assertFiniteComplex(admittance, `Shunt element ${element.id} admittance`), d: c(1) },
+      `Ladder element ${element.id}`,
+    );
   }
 
   private elementImpedance(element: RFCircuitElement, omega: number): ComplexNumber {
@@ -872,14 +949,39 @@ export class RFCircuitDesigner {
         return c(element.value);
       case 'inductor': {
         if (element.value <= 0) throw new Error(`Inductor ${element.id} must have a positive inductance.`);
-        const reactance = omega * element.value;
-        const resistance = q !== undefined && q > 0 ? reactance / q : 0;
+        const reactance = assertFiniteNumber(
+          omega * element.value,
+          `Inductor ${element.id} reactance`,
+        );
+        const resistance =
+          q !== undefined && q > 0
+            ? assertFiniteNumber(reactance / q, `Inductor ${element.id} series loss`)
+            : 0;
         return c(resistance, reactance);
       }
       case 'capacitor': {
         if (element.value <= 0) throw new Error(`Capacitor ${element.id} must have a positive capacitance.`);
-        const reactance = -1 / (omega * element.value);
-        const resistance = q !== undefined && q > 0 ? 1 / (omega * element.value * q) : 0;
+        /*
+         * omega*value underflows to exactly zero for subnormal frequencies
+         * (1e-320 Hz on a 1 pF cap), which would make the reactance -Infinity
+         * and the shunt admittance NaN. -Infinity is not an open circuit here —
+         * it is a broken number.
+         */
+        const susceptance = omega * element.value;
+        if (!(susceptance > 0)) {
+          throw new Error(
+            `Capacitor ${element.id} has no representable reactance at ${omega} rad/s ` +
+              `(omega*C = ${susceptance} underflows to zero); raise the analysis frequency.`,
+          );
+        }
+        const reactance = assertFiniteNumber(
+          -1 / susceptance,
+          `Capacitor ${element.id} reactance`,
+        );
+        const resistance =
+          q !== undefined && q > 0
+            ? assertFiniteNumber(1 / (susceptance * q), `Capacitor ${element.id} series loss`)
+            : 0;
         return c(resistance, reactance);
       }
       default:
@@ -897,12 +999,18 @@ export class RFCircuitDesigner {
           `Transmission line ${element.id} has an invalid physical length ${meters} m.`,
         );
       }
-      return (2 * Math.PI * frequency * meters) / SPEED_OF_LIGHT;
+      return assertFiniteNumber(
+        (2 * Math.PI * frequency * meters) / SPEED_OF_LIGHT,
+        `Transmission line ${element.id} electrical length`,
+      );
     }
     const wavelengths = element.parameters.length ?? 0.25;
     if (!(wavelengths >= 0)) throw new Error(`Transmission line ${element.id} has a negative length.`);
     if (!(element.frequency > 0)) throw new Error(`Transmission line ${element.id} needs a positive design frequency.`);
-    return 2 * Math.PI * wavelengths * (frequency / element.frequency);
+    return assertFiniteNumber(
+      2 * Math.PI * wavelengths * (frequency / element.frequency),
+      `Transmission line ${element.id} electrical length`,
+    );
   }
 
   private connectLadder(circuit: RFCircuit): void {
@@ -949,6 +1057,24 @@ export class RFCircuitDesigner {
   private validateImpedance(impedance: number): void {
     if (!Number.isFinite(impedance) || impedance <= 0) {
       throw new Error(`Reference impedance must be a positive finite number of ohms, got ${impedance}.`);
+    }
+  }
+
+  /*
+   * `validateFrequency` only proves the hertz value is finite and positive, so a
+   * subnormal cutoff such as 1e-320 Hz passes it — and then `(g·Z)/ω` overflows to
+   * Infinity, handing back a "filter" whose inductors read ∞ H. Those values are
+   * unbuildable and unusable, and an analysis-time complaint three calls later
+   * would not say which design produced them, so the ladder is checked here.
+   */
+  private assertRealizableLadder(elements: readonly RFCircuitElement[], label: string): void {
+    for (const element of elements) {
+      if (!Number.isFinite(element.value) || element.value <= 0) {
+        throw new Error(
+          `${label} produced a non-physical ${element.type} value (${element.value}) for ${element.id}. ` +
+            'The frequency/impedance combination is outside the range this prototype can express in double precision.',
+        );
+      }
     }
   }
 

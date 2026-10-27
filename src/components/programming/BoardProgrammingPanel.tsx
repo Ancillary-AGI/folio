@@ -137,7 +137,8 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
           flash: { used: 0, total: 0, percentage: 0 },
           ram: { used: 0, total: 0, percentage: 0 }
         },
-        compilationTime: 0
+        compilationTime: 0,
+        analysisOnly: true
       });
     } finally {
       setIsCompiling(false);
@@ -301,7 +302,8 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
           flash: { used: 0, total: 0, percentage: 0 },
           ram: { used: 0, total: 0, percentage: 0 }
         },
-        compilationTime: 0
+        compilationTime: 0,
+        analysisOnly: true
       });
     } finally {
       setIsCompiling(false);
@@ -652,7 +654,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                     ) : (
                       <AlertCircle className="w-4 h-4 text-destructive" />
                     )}
-                    Compilation
+                    {compilationResult.analysisOnly ? 'Static analysis' : 'Compilation'}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -660,7 +662,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                     <div className="flex justify-between">
                       <span>Status:</span>
                       <span className={compilationResult.success ? 'text-success' : 'text-destructive'}>
-                        {compilationResult.success ? 'Success' : 'Failed'}
+                        {compilationResult.success ? (compilationResult.analysisOnly ? 'Analysis passed' : 'Success') : 'Failed'}
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -670,7 +672,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                     {compilationResult.success && (
                       <>
                         <div className="flex justify-between">
-                          <span>Binary Size:</span>
+                          <span>{compilationResult.analysisOnly ? 'Estimated size:' : 'Binary Size:'}</span>
                           <span>{compilationResult.binarySize} bytes</span>
                         </div>
                         <div className="space-y-1">
@@ -804,7 +806,14 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                 )}
                 <div className="flex justify-between">
                   <span>Compiler:</span>
-                  <span>avr-gcc</span>
+                  {/*
+                   * Only name a compiler when one was actually detected. Without
+                   * the IDE/CLI present the panel runs its own static analysis, and
+                   * claiming avr-gcc would be a lie about what produced the numbers.
+                   */}
+                  <span className={arduinoIDEVersion ? '' : 'text-muted-foreground'}>
+                    {arduinoIDEVersion ? 'avr-gcc (via detected toolchain)' : 'none detected — static analysis only'}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span>Platform:</span>

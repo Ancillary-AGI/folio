@@ -8,7 +8,8 @@
  * router's output to the `PcbSceneInput` the 2D canvas and 3D preview consume.
  */
 import type { CanvasComponent, CanvasWire } from '../../stores/useProjectStore'
-import type { Net, PlacedComponent, Wire } from '../../types'
+import type { Net, PlacedComponent } from '../../types'
+import { fabLayerFromId, type FabTrace } from '../manufacturing/fabExport'
 import { resolveFootprint } from '../manufacturing/footprintLibrary'
 import {
   autoroute,
@@ -260,17 +261,22 @@ export interface RoutedCopper {
   points: Array<{ x: number; y: number }>
   width: number
   netName?: string
+  /** Copper face the segment was routed on, exactly as the scene holds it. */
+  layerId: string
 }
 
-/** Routed copper as `Wire`s, the shape the fab exporter gates and emits. */
-export function wiresFromRoutedTraces(traces: readonly RoutedCopper[]): Wire[] {
-  return traces.map((trace) => ({
-    id: trace.id,
-    points: trace.points.map((point) => ({ ...point })),
-    netName: trace.netName,
-    connectedPins: [],
-    style: { width: trace.width },
-  }))
+/** Routed copper as the fab exporter consumes it, per layer. */
+export function fabCopperFromRoutedTraces(traces: readonly RoutedCopper[]): FabTrace[] {
+  return traces.map((trace) => {
+    const layer = fabLayerFromId(trace.layerId)
+    return {
+      points: trace.points.map((point) => ({ ...point })),
+      width: trace.width,
+      netName: trace.netName,
+      layer: layer.layer,
+      layerName: layer.name,
+    }
+  })
 }
 
 export interface RoutedViaCopper {

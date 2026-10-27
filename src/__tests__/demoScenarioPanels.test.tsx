@@ -61,9 +61,13 @@ describe('gallery scenarios reach their engines', () => {
     render(<PluginMarketplace />)
 
     const status = await screen.findByRole('status', { name: 'Plugin demo status' })
-    expect(status).toHaveTextContent(/Installed KiCad Project Import: manifest validated, 1 tool\(s\) activated/)
+    expect(status).toHaveTextContent(/Installed KiCad Project Import: manifest validated/)
+    expect(status).toHaveTextContent(/ui:panels, read:circuit/)
+    expect(status).toHaveTextContent(/cover 1 declared tool\(s\)/)
+    // Installing records the package; the panel must not claim a tool executed.
+    expect(status).toHaveTextContent(/Installing records the package/)
     expect(screen.getByText('Declared permissions (2)')).toBeInTheDocument()
-    expect(screen.getByText(/ui:panels/)).toBeInTheDocument()
+    expect(screen.getByText(/^ui:panels/)).toBeInTheDocument()
     expect(screen.getByText(/Lifecycle:/)).toBeInTheDocument()
     expect(screen.getByText(/Installed locally/)).toBeInTheDocument()
     expect(useAppStore.getState().demoRequest).toBeNull()

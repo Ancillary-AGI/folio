@@ -413,6 +413,14 @@ class SPICEEngine {
       const branchCurrents = new Map(Object.entries(outcome.branchCurrents ?? {}))
       const deviceCurrents = new Map(Object.entries(outcome.deviceCurrents ?? {}))
       const probeResults = measureProbes(model, model.probes, voltages, branchCurrents, deviceCurrents)
+      /*
+       * A probe that could not be measured carries `value: null` and a reason.
+       * Those reasons are pushed into the notes so the failure reaches the
+       * readout instead of vanishing with the missing value.
+       */
+      const probeNotes = probeResults
+        .filter((probe) => probe.error)
+        .map((probe) => `Probe ${probe.label}: ${probe.error}`)
       return {
         success: outcome.converged,
         error: outcome.converged ? undefined : outcome.notes[0],
@@ -420,7 +428,7 @@ class SPICEEngine {
         waveforms: outcome.waveforms,
         operatingPoint: outcome.operatingPoint,
         convergenceInfo: { iterations: outcome.iterations, converged: outcome.converged },
-        notes: [...model.notes, ...outcome.notes],
+        notes: [...model.notes, ...outcome.notes, ...probeNotes],
         analysis: parameters.type,
         probes: probeResults,
         branchCurrents: outcome.branchCurrents,
@@ -540,9 +548,12 @@ class SPICEEngine {
     const warnings: string[] = []
 
     if (!netlist.title) warnings.push('The netlist has no title.')
-    if (netlist.components.length === 0) errors.push('The circuit has no components.')
     if (netlist.analyses.length === 0) warnings.push('No analysis is selected.')
 
+    /*
+     * `buildCircuitModel` already reports an empty component list, so the
+     * message must not be pushed twice here.
+     */
     const { model, errors: modelErrors } = buildCircuitModel(netlist)
     errors.push(...modelErrors)
     warnings.push(...model.notes)

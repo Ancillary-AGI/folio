@@ -8,9 +8,11 @@
  *
  * Built-in entries are registered as real plugin packages: installs go through
  * `marketplaceService`, which validates the manifest and enforces declared
- * permissions before a package can be marked installed. Native engines
- * (ngspice, KLayout) still need the companion daemon to execute. Community
- * and self-published designs live in the separate `designMarketplace`.
+ * permissions before a package can be marked installed. Installing records the
+ * package and its declared capabilities — this build has no plugin runtime that
+ * executes a third-party tool body, and native engines (ngspice, KLayout) still
+ * need the companion daemon. Community and self-published designs live in the
+ * separate `designMarketplace`.
  */
 
 import { useState, useEffect, type ReactNode } from 'react'
@@ -168,7 +170,7 @@ function seedBuiltinRegistry(): void {
         id: plugin.id,
         manifest: manifestFor(plugin),
         author: plugin.author,
-        isVerifiedPublisher: plugin.author === 'Folio Core',
+        firstPartyPublisher: plugin.author === 'Folio Core',
         downloadsCount: 0,
         rating: 0,
         tags: plugin.tags,
@@ -262,10 +264,11 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
     setSelectedPlugin(plugin)
     try {
       const result = marketplaceService.installPackage(plugin.id)
+      const permissions = marketplaceService.getPackage(plugin.id)?.manifest.permissions ?? []
       syncInstalled()
       setDemoStatus({
         pluginId: plugin.id,
-        message: `Installed ${plugin.name}: manifest validated, ${result.activatedToolsCount} tool(s) activated under its declared permissions.`,
+        message: `Installed ${plugin.name}: manifest validated, the declared permissions (${permissions.join(', ') || 'none'}) cover ${result.declaredToolCount} declared tool(s). Installing records the package — the tool bodies run in the Folio engines that implement them, and daemon-backed ones need the companion daemon.`,
       })
     } catch (error) {
       setDemoStatus(null)
@@ -325,7 +328,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
           <Package size={16} className="text-primary" />
-          <span className="font-semibold text-sm">Plugin Marketplace</span>
+          <h2 className="text-sm font-semibold">Plugin Marketplace</h2>
           {installedCount > 0 && (
             <span className="text-xs bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full">{installedCount} installed</span>
           )}
@@ -602,7 +605,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
                     <dt className="text-muted-foreground">entry</dt><dd className="text-foreground">{manifest.entry}</dd>
                     <dt className="text-muted-foreground">publisher</dt>
                     <dd className="text-foreground">
-                      {marketplaceService.getPackage(selectedPlugin.id)?.isVerifiedPublisher ? 'verified' : 'unverified'}
+                      {marketplaceService.getPackage(selectedPlugin.id)?.firstPartyPublisher ? 'first-party' : 'community'}
                     </dd>
                   </dl>
                 </div>

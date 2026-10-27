@@ -1,4 +1,5 @@
 import type { Component, Wire, Net } from '../../types';
+import { parseSpiceValue } from '../simulation/devices';
 
 export interface AIAgent {
   id: string;
@@ -28,12 +29,21 @@ export interface OptimizationResult {
   reasoning: string;
 }
 
+/**
+ * A maintenance prediction is a category-level heuristic, not a datasheet
+ * reliability calculation, and it says so: `basis` records which inputs the
+ * stress multiplier could actually be evaluated against and which the design
+ * left undeclared.
+ */
 export interface PredictiveMaintenancePrediction {
   componentId: string;
   failureProbability: number;
   timeToFailure: number; // hours
   failureMode: string;
+  /** 0.2 per stress axis the design answered (thermal, voltage, current), max 0.8. */
   confidence: number;
+  basis: string;
+  inputsMissing: string[];
   recommendations: string[];
 }
 
@@ -53,6 +63,22 @@ function getCategoryName(component: Component): string {
     return category.name
   }
   return 'unknown'
+}
+
+/** Short human handle for a component in a gap message: name when known, else id. */
+function partLabel(component: Component): string {
+  return typeof component.name === 'string' && component.name.trim() !== ''
+    ? `${component.name} (${component.id})`
+    : component.id
+}
+
+/** How a prediction came out, including which inputs were missing. */
+interface StressAssessment {
+  factor: number;
+  /** Stress axes with enough declared data to be compared at all (0–3). */
+  evaluatedAxes: number;
+  evidence: string[];
+  gaps: string[];
 }
 
 /**
@@ -213,38 +239,24 @@ export class AIService {
     }
   }
 
-  // Overload for single component ID (for backward compatibility)
-  async predictMaintenance(componentId: string): Promise<PredictiveMaintenancePrediction>;
-  // Overload for multiple components
-  async predictMaintenance(components: Component[], operatingConditions?: Record<string, unknown>): Promise<PredictiveMaintenancePrediction[]>;
-  // Implementation
+  /**
+   * Predict for the component records the caller actually has.
+   *
+   * The previous single-id overload built a stand-in `Component` (category
+   * "unknown", availability "available", empty properties) so a bare id could
+   * still produce a number. That number was about a part nobody declared, so the
+   * overload is gone: pass the design's components, or nothing is predicted.
+   */
   async predictMaintenance(
-    componentsOrId: string | Component[], 
+    components: Component[],
     operatingConditions?: Record<string, unknown>
-  ): Promise<PredictiveMaintenancePrediction | PredictiveMaintenancePrediction[]> {
+  ): Promise<PredictiveMaintenancePrediction[]> {
     const agent = this.agents.get('predictive_maintenance');
     if (!agent) throw new Error('Predictive maintenance agent not found');
 
-    // Handle single component ID case
-    if (typeof componentsOrId === 'string') {
-      const component: Component = {
-        id: componentsOrId,
-        name: 'Unknown',
-        category: 'unknown',
-        symbol: { width: 0, height: 0, paths: [], circles: [], rectangles: [], text: [] },
-        pins: [],
-        properties: {},
-        availability: 'available',
-        tags: [],
-      };
-      return await this.predictComponentFailure(component, operatingConditions || {});
-    }
-
-    // Handle multiple components case
     const predictions: PredictiveMaintenancePrediction[] = [];
-    for (const component of componentsOrId) {
-      const prediction = await this.predictComponentFailure(component, operatingConditions || {});
-      predictions.push(prediction);
+    for (const component of components) {
+      predictions.push(await this.predictComponentFailure(component, operatingConditions || {}));
     }
     return predictions;
   }
@@ -435,21 +447,43 @@ export class AIService {
     return improvements;
   }
 
+  /**
+   * Stress-adjusted MTBF turned into a probability over a stated mission window.
+   *
+   * The number is only as good as the inputs behind it: `confidence` counts the
+   * stress axes the design actually answered (max 0.8 for all three), and `basis`
+   * names the MTBF source, the multiplier's evidence and the mission hours.
+   * Undeclared inputs are no longer replaced by invented ones.
+   */
   private async predictComponentFailure(component: Component, conditions: Record<string, unknown>): Promise<PredictiveMaintenancePrediction> {
-    // Simplified failure prediction based on component type and operating conditions
-    const baseFailureRate = this.getBaseFailureRate(getCategoryName(component));
-    const stressFactor = this.calculateStressFactor(component, conditions);
+    const category = getCategoryName(component);
+    const mtbf = this.getMeanTimeBetweenFailures(category);
+    const stress = this.assessStress(component, conditions);
+    const horizon = this.missionHorizon(conditions);
+    const stressedMtbfHours = mtbf.hours / stress.factor;
+    const failureProbability = 1 - Math.exp(-horizon.hours / stressedMtbfHours);
+    const confidence = Math.round((0.2 + 0.2 * stress.evaluatedAxes) * 100) / 100;
 
-    const failureProbability = Math.min(baseFailureRate * stressFactor, 0.95);
-    const timeToFailure = this.predictTimeToFailure(component, conditions);
+    const basis = [
+      `Baseline MTBF ${mtbf.hours.toLocaleString()} h for "${category}"${mtbf.declared ? '' : ' (generic — this model has no figure for that category)'}.`,
+      `Stress x${stress.factor.toFixed(2)} → ${Math.round(stressedMtbfHours).toLocaleString()} h MTBF.`,
+      stress.evidence.length > 0 ? `Evidence: ${stress.evidence.join('; ')}.` : 'No declared operating data, so no derating was applied.',
+      horizon.declared
+        ? `Probability over the declared ${horizon.hours.toLocaleString()} h mission.`
+        : `Probability over the 8,760 h (one year) window used when no mission length is declared.`,
+      'Constant-failure-rate exponential model — a category heuristic, not a datasheet reliability calculation.',
+      stress.gaps.length > 0 ? `Not evaluated: ${stress.gaps.join('; ')}.` : '',
+    ].filter(Boolean).join(' ');
 
     return {
       componentId: component.id,
       failureProbability,
-      timeToFailure,
+      timeToFailure: stressedMtbfHours,
       failureMode: this.predictFailureMode(component),
-      confidence: 0.8,
-      recommendations: this.generateMaintenanceRecommendations(component, failureProbability)
+      confidence,
+      basis,
+      inputsMissing: stress.gaps,
+      recommendations: this.generateMaintenanceRecommendations(component, failureProbability),
     };
   }
 
@@ -681,55 +715,114 @@ Design Complexity:
     }
   }
 
-  private getBaseFailureRate(category: string): number {
-    const rates: Record<string, number> = {
-      'capacitor': 0.001,
-      'resistor': 0.0005,
-      'ic': 0.002,
-      'transistor': 0.0015,
-      'diode': 0.001
-    };
-    return rates[category.toLowerCase()] || 0.001;
-  }
-
-  private calculateStressFactor(component: Component, conditions: Record<string, unknown>): number {
-    let factor = 1.0;
-
-    // Temperature stress
-    const temp = typeof conditions.temperature === 'number' ? conditions.temperature : 25;
-    if (temp > 70) factor *= 2.0;
-    else if (temp > 50) factor *= 1.5;
-
-    // Voltage stress
-    const voltage = typeof conditions.voltage === 'number' ? conditions.voltage : 5.0;
-    const ratedVoltage = typeof component.properties?.voltage === 'number' ? component.properties.voltage : 5.0;
-    if (voltage > ratedVoltage * 1.1) factor *= 1.8;
-
-    // Current stress
-    const current = typeof conditions.current === 'number' ? conditions.current : 0.1;
-    const ratedCurrent = typeof component.properties?.current === 'number' ? component.properties.current : 1.0;
-    if (current > ratedCurrent * 0.8) factor *= 1.6;
-
-    return factor;
-  }
-
-  private predictTimeToFailure(component: Component, conditions: Record<string, unknown>): number {
-    const categoryName = getCategoryName(component);
-    const baseMTBF = this.getMeanTimeBetweenFailures(categoryName);
-    const stressFactor = this.calculateStressFactor(component, conditions);
-
-    return baseMTBF / stressFactor;
-  }
-
-  private getMeanTimeBetweenFailures(category: string): number {
+  /**
+   * Category MTBFs in hours. These are generic handbook-scale figures, not
+   * part-specific ratings, so callers get `declared: false` whenever the part's
+   * category has no entry and the number is the catch-all 100 kh.
+   */
+  private getMeanTimeBetweenFailures(category: string): { hours: number; declared: boolean } {
     const mtbf: Record<string, number> = {
-      'capacitor': 100000, // hours
+      'capacitor': 100000,
       'resistor': 500000,
       'ic': 50000,
       'transistor': 100000,
       'diode': 200000
     };
-    return mtbf[category.toLowerCase()] || 100000;
+    const hours = mtbf[category.toLowerCase()];
+    return hours === undefined ? { hours: 100000, declared: false } : { hours, declared: true };
+  }
+
+  /**
+   * The window the failure probability is quoted over. A probability without a
+   * mission time is meaningless, so the horizon is either supplied by the caller
+   * or stated as the one year default used here.
+   */
+  private missionHorizon(conditions: Record<string, unknown>): { hours: number; declared: boolean } {
+    const hours = this.declaredNumber(conditions.missionHours);
+    return hours === null || hours <= 0
+      ? { hours: 8760, declared: false }
+      : { hours, declared: true };
+  }
+
+  /**
+   * Stress multipliers only from data the design supplies.
+   *
+   * Each axis needs both ends of the comparison: an applied value and a rating.
+   * Missing either one records a gap instead of substituting the 25 °C / 5 V /
+   * 0.1 A the previous version assumed, which turned an undeclared design into a
+   * confidently "stressed" or "unstressed" one depending on nobody's input.
+   */
+  private assessStress(component: Component, conditions: Record<string, unknown>): StressAssessment {
+    let factor = 1.0;
+    let evaluatedAxes = 0;
+    const evidence: string[] = [];
+    const gaps: string[] = [];
+
+    const temperature = this.declaredNumber(conditions.temperature);
+    if (temperature === null) {
+      gaps.push('operating temperature was not supplied, so thermal stress is unevaluated');
+    } else if (temperature > 70) {
+      factor *= 2.0;
+      evaluatedAxes += 1;
+      evidence.push(`${temperature} °C exceeds the 70 °C derating knee (x2.0)`);
+    } else if (temperature > 50) {
+      factor *= 1.5;
+      evaluatedAxes += 1;
+      evidence.push(`${temperature} °C exceeds the 50 °C knee (x1.5)`);
+    } else {
+      evaluatedAxes += 1;
+      evidence.push(`${temperature} °C is below the 50 °C knee (no thermal multiplier)`);
+    }
+
+    const appliedVoltage = this.declaredNumber(conditions.voltage);
+    const ratedVoltage = this.declaredNumber(component.properties?.voltage);
+    if (appliedVoltage === null) {
+      gaps.push('applied voltage was not supplied');
+    } else if (ratedVoltage === null) {
+      gaps.push(`${partLabel(component)} declares no voltage rating, so ${appliedVoltage} V cannot be compared to one`);
+    } else {
+      evaluatedAxes += 1;
+      if (appliedVoltage > ratedVoltage * 1.1) {
+        factor *= 1.8;
+        evidence.push(`${appliedVoltage} V on a ${ratedVoltage} V part is over the 110% limit (x1.8)`);
+      } else {
+        evidence.push(`${appliedVoltage} V against a ${ratedVoltage} V rating (no voltage multiplier)`);
+      }
+    }
+
+    const appliedCurrent = this.declaredNumber(conditions.current);
+    const ratedCurrent = this.declaredNumber(component.properties?.current);
+    if (appliedCurrent === null) {
+      gaps.push('load current was not supplied');
+    } else if (ratedCurrent === null) {
+      gaps.push(`${partLabel(component)} declares no current rating, so ${appliedCurrent} A cannot be compared to one`);
+    } else {
+      evaluatedAxes += 1;
+      if (appliedCurrent > ratedCurrent * 0.8) {
+        factor *= 1.6;
+        evidence.push(`${appliedCurrent} A on a ${ratedCurrent} A part exceeds 80% of rating (x1.6)`);
+      } else {
+        evidence.push(`${appliedCurrent} A against a ${ratedCurrent} A rating (no current multiplier)`);
+      }
+    }
+
+    return { factor, evaluatedAxes, evidence, gaps };
+  }
+
+  /**
+   * Declared values arrive either as numbers or as SPICE-style strings ("50V",
+   * "100u"). Anything absent, unparsable or non-finite is reported as missing —
+   * the caller sees a gap rather than a fabricated number.
+   */
+  private declaredNumber(value: unknown): number | null {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (typeof value !== 'string' || value.trim() === '') return null;
+    try {
+      const parsed = parseSpiceValue(value, 'declared value');
+      return Number.isFinite(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
   }
 
   private predictFailureMode(component: Component): string {

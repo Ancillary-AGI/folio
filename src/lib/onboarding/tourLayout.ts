@@ -118,3 +118,45 @@ export function computeTourLayout(
     },
   }
 }
+
+/** Half of the 12 px caret square. */
+const CARET_OFFSET = 6
+const CARET_EDGE_INSET = 20
+
+export interface TourCaret {
+  /** CSS classes: `.tour-caret` plus the side that faces the spotlight. */
+  side: 'top' | 'bottom' | 'left' | 'right'
+  /** Offset along the facing edge, in card-local coordinates. */
+  along: number
+}
+
+/**
+ * Where the coach-mark caret sits. Only a card that is placed beside or above
+ * a target can point at it; a centred or docked card has no honest direction,
+ * so it gets no caret rather than a decorative one.
+ */
+export function computeTourCaret(
+  layout: TourLayout,
+  cardHeight: number,
+  target: TourRect | null,
+): TourCaret | null {
+  const { placement, spotlight } = layout
+  if (!spotlight || !target) return null
+  const spotX = spotlight.left + spotlight.width / 2
+  const spotY = spotlight.top + spotlight.height / 2
+  if (placement === 'top' || placement === 'bottom') {
+    const max = Math.max(CARET_EDGE_INSET, layout.card.width - CARET_EDGE_INSET - CARET_OFFSET * 2)
+    return {
+      side: placement === 'bottom' ? 'top' : 'bottom',
+      along: clamp(spotX - layout.card.left - CARET_OFFSET, CARET_EDGE_INSET, max),
+    }
+  }
+  if (placement === 'left' || placement === 'right') {
+    const max = Math.max(CARET_EDGE_INSET, (cardHeight || 240) - CARET_EDGE_INSET - CARET_OFFSET * 2)
+    return {
+      side: placement === 'right' ? 'left' : 'right',
+      along: clamp(spotY - layout.card.top - CARET_OFFSET, CARET_EDGE_INSET, max),
+    }
+  }
+  return null
+}

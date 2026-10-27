@@ -78,7 +78,49 @@ describe('ThermalAnalysisEngine', () => {
     ['negative area', config(), [node()], [{ type: 'convection' as const, area: -0.01 }]],
     ['emissivity out of range', config(), [node()], [{ type: 'radiation' as const, emissivity: 1.5, area: 0.01 }]],
     ['negative heat transfer', config(), [node()], [{ type: 'convection' as const, heatTransferCoefficient: -1, area: 0.01 }]],
+    ['substrate this model knows nothing about', config({ boardMaterial: 'Tefzon' }), [node()], convection],
+    ['zero copper layers', config({ layerCount: 0 }), [node()], convection],
+    ['zero copper thickness', config({ copperThickness: 0 }), [node()], convection],
+    ['fractional layer count', config({ layerCount: 2.5 }), [node()], convection],
   ])('rejects %s instead of simulating it', async (_label, badConfig, nodes, boundaries) => {
     await expect(engine.analyzeThermal(nodes, boundaries, badConfig)).rejects.toThrow(/rejected invalid input/)
+  })
+
+  // The stackup fields are solver inputs, not decoration: more copper in the
+  // board means more lateral conduction, so the neighbour of a hot part runs
+  // hotter and the hot part itself runs cooler.
+  it('spreads heat according to the declared copper layers', async () => {
+    const pair = () => [
+      node({ id: 'U1', powerDissipation: 1 }),
+      node({ id: 'U2', position: { x: 0.005, y: 0, z: 0 } }),
+    ]
+    const coldOf = (result: Awaited<ReturnType<typeof engine.analyzeThermal>>) =>
+      result.nodes.find((n) => n.id === 'U2')?.temperature ?? Number.NaN
+
+    const oneLayer = await engine.analyzeThermal(pair(), convection, config({ layerCount: 1 }))
+    const sixLayers = await engine.analyzeThermal(pair(), convection, config({ layerCount: 6 }))
+
+    expect(coldOf(sixLayers)).toBeGreaterThan(coldOf(oneLayer))
+    expect(sixLayers.maxTemperature).toBeLessThan(oneLayer.maxTemperature)
+  })
+
+  it('uses the declared substrate for nodes whose own material is unknown', async () => {
+    const pair = () => [
+      node({ id: 'U1', material: 'mystery-alloy', powerDissipation: 1 }),
+      node({ id: 'U2', material: 'mystery-alloy', position: { x: 0.005, y: 0, z: 0 } }),
+    ]
+    const coldOf = (result: Awaited<ReturnType<typeof engine.analyzeThermal>>) =>
+      result.nodes.find((n) => n.id === 'U2')?.temperature ?? Number.NaN
+
+    const onFr4 = await engine.analyzeThermal(pair(), convection, config({ layerCount: 1 }))
+    const onAluminium = await engine.analyzeThermal(
+      pair(),
+      convection,
+      config({ layerCount: 1, boardMaterial: 'aluminum' }),
+    )
+
+    // 205 W/(m·K) against FR4's 0.3 nearly equalises the pair; an ignored
+    // boardMaterial would leave both runs identical.
+    expect(coldOf(onAluminium)).toBeGreaterThan(coldOf(onFr4) + 1)
   })
 })

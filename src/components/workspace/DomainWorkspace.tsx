@@ -176,7 +176,10 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
    */
   const [pendingComponent, setPendingComponent] = useState<Component | null>(null)
 
-  const schematic: Schematic = {
+  // Memoised because panels below derive from it: SchematicToPcbPanel runs a
+  // full ERC pass in a memo keyed on this object, so rebuilding the literal on
+  // every render (tool switch, status tick) re-ran the whole check for nothing.
+  const schematic: Schematic = useMemo(() => ({
     id: 'active-schematic',
     name: currentProject?.name ?? 'Untitled',
     components: components.map((c) => ({
@@ -213,7 +216,7 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
       showPinNames: true,
       showNetNames: true,
     },
-  }
+  }), [components, wires, currentProject?.name])
 
   /** Persist the current snapshot — same payload shape as the canvas autosave. */
   const saveSnapshot = useCallback(() => {
@@ -495,10 +498,7 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
           )}
           {workspaceMode === 'components' && (
             <DatasheetImporter
-              onPartAdded={(part) => {
-                console.info('Custom part added:', part.name)
-                setWorkspaceMode('schematic')
-              }}
+              onPartAdded={() => setWorkspaceMode('schematic')}
               onClose={() => setWorkspaceMode('schematic')}
             />
           )}

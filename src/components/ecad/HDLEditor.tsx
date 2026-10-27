@@ -274,6 +274,7 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
     <div className="flex flex-col h-full bg-background text-foreground">
       {/* Toolbar */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0 flex-wrap">
+        <h2 className="text-sm font-semibold whitespace-nowrap">HDL Editor</h2>
         <div className="flex rounded overflow-hidden border border-border">
           {(['verilog', 'vhdl'] as const).map(lang => (
             <button

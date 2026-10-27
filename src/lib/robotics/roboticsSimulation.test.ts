@@ -617,10 +617,46 @@ describe('task execution validation and metrics', () => {
       return result.performanceMetrics.smoothness;
     };
 
-    const denseScore = await score(dense);
-    expect(denseScore).toBeCloseTo(0.5, 6);
-    expect(await score(sparse)).toBeCloseTo(denseScore, 6);
-    expect(await score(stretched)).toBeCloseTo(denseScore, 6);
+    const denseScore = await score(dense)
+    expect(denseScore).not.toBeNull()
+    expect(denseScore!).toBeCloseTo(0.5, 6);
+    expect(await score(sparse)).toBeCloseTo(denseScore!, 6);
+    expect(await score(stretched)).toBeCloseTo(denseScore!, 6);
+  });
+
+  it('gives no smoothness score to a recording too short to estimate jerk', async () => {
+    const service = new RoboticsSimulationService();
+    const robotId = service.createRobot(twoLinkArm()).id;
+    // Three samples cannot carry a third divided difference. Scoring that as 1
+    // would read "perfectly smooth" straight off the lack of data.
+    const threeSamples = [
+      { timestamp: 0, jointAngles: { j1: 0, j2: 0 } },
+      { timestamp: 1, jointAngles: { j1: 45, j2: -20 } },
+      { timestamp: 2, jointAngles: { j1: 90, j2: -45 } },
+    ];
+
+    const result = await service.executeTask(
+      robotId,
+      taskWith(service, threeSamples).id,
+      scene(service).id,
+    );
+    expect(result.performanceMetrics.smoothness).toBeNull();
+  });
+
+  it('scores a held pose as smooth, because no joint travelled', async () => {
+    const service = new RoboticsSimulationService();
+    const robotId = service.createRobot(twoLinkArm()).id;
+    const still = Array.from({ length: 6 }, (_, index) => ({
+      timestamp: index * 0.1,
+      jointAngles: { j1: 30, j2: -10 },
+    }));
+
+    const result = await service.executeTask(
+      robotId,
+      taskWith(service, still).id,
+      scene(service).id,
+    );
+    expect(result.performanceMetrics.smoothness).toBe(1);
   });
 
   it('scores an oscillating path below a smooth move', async () => {

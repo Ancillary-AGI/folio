@@ -1,24 +1,35 @@
 /**
- * DatasheetImporter — drag-a-PDF/paste-text → instant schematic component.
+ * DatasheetImporter — paste text or drop a text file → instant schematic component.
  *
  * Flow:
- *  1. User pastes raw datasheet text, drops a PDF, or enters a Digi-Key / LCSC
- *     part number (URL fetch on click).
+ *  1. User pastes raw datasheet text, drops a text-file, or enters a Digi-Key /
+ *     LCSC part number (fetched through a public CORS proxy — see the URL tab).
  *  2. parseDatasheetText() or a URL-based extractor produces IngestedDatasheet.
  *  3. synthesizeComponentFromDatasheet() builds a component + footprint + SPICE stub.
- *  4. User can edit pin assignments in a table before confirming.
- *  5. On confirm, the component is added to the local library and placed in
- *     the current schematic.
+ *  4. User can edit pin assignments in a table; the preview follows the edits.
+ *  5. On confirm, the component joins this session's library and one instance is
+ *     placed on the schematic at the next free grid slot.
+ *
+ * A PDF cannot be read here — there is no in-browser PDF text extractor in this
+ * build, and the drop zone says so rather than feeding binary noise to the parser.
  */
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import { Upload, FileText, Link, Plus, CheckCircle, AlertCircle, Cpu, Zap } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
-import { parseDatasheetText, synthesizeComponentFromDatasheet, type IngestedDatasheet } from '../../lib/ai/datasheetParser'
+import {
+  parseDatasheetText,
+  synthesizeComponentFromDatasheet,
+  type ExtractedPin,
+  type IngestedDatasheet,
+} from '../../lib/ai/datasheetParser'
+import { parseSpiceModelLibrary } from '../../lib/simulation/modelLibrary'
 import { searchVendorModels, type VendorModelEntry } from '../../lib/simulation/vendorModels'
+import { useProjectStore } from '../../stores/useProjectStore'
 import { useDemoRequest } from '../workspace/useDemoRequest'
+import { generateId } from '../../lib/utils'
 import { DEMO_DATASHEET_TEXT } from '../../lib/demo/demoDatasheet'
 
 interface PinRow {
@@ -27,6 +38,9 @@ interface PinRow {
   kind: string
   description: string
 }
+
+/** Pin kinds the symbol and the solver understand; the table offers exactly these. */
+const PIN_KINDS: readonly ExtractedPin['kind'][] = ['power', 'ground', 'input', 'output', 'bidirectional', 'passive']
 
 interface DatasheetImporterProps {
   onPartAdded?: (part: { name: string; spiceText: string }) => void
@@ -39,15 +53,43 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
   const [urlInput, setUrlInput] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [ingestedData, setIngestedData] = useState<IngestedDatasheet | null>(null)
-  const [synthesized, setSynthesized] = useState<ReturnType<typeof synthesizeComponentFromDatasheet> | null>(null)
   const [pinRows, setPinRows] = useState<PinRow[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [vendorResults, setVendorResults] = useState<VendorModelEntry[]>([])
+  const [vendorPick, setVendorPick] = useState<{ name: string; text: string; cards: string[] } | null>(null)
+  const [placedNote, setPlacedNote] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  /**
+   * The pin table is the editable source of truth for the symbol: a blanked
+   * name or description falls back to the parsed value rather than deleting the
+   * pin label, and the kind comes from a select limited to the six the solver
+   * understands.
+   */
+  const editedPins = useMemo<ExtractedPin[]>(() => {
+    if (!ingestedData) return []
+    return ingestedData.pins.map((pin, index) => {
+      const row = pinRows[index]
+      if (!row) return pin
+      return {
+        ...pin,
+        name: row.name.trim() || pin.name,
+        kind: row.kind as ExtractedPin['kind'],
+        description: row.description.trim() || pin.description,
+      }
+    })
+  }, [ingestedData, pinRows])
+
+  /** Derived from the edited pins, so the preview is always the part placed. */
+  const synthesized = useMemo(
+    () => (ingestedData ? synthesizeComponentFromDatasheet({ ...ingestedData, pins: editedPins }) : null),
+    [ingestedData, editedPins],
+  )
 
   const parseDatasheet = (text: string) => {
     setError(null)
+    setPlacedNote(null)
     try {
       const data = parseDatasheetText(text)
       setIngestedData(data)
@@ -57,8 +99,6 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
         kind: p.kind,
         description: p.description ?? '',
       })))
-      const syn = synthesizeComponentFromDatasheet(data)
-      setSynthesized(syn)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Parse failed')
     }
@@ -78,9 +118,10 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
     if (!urlInput.trim()) return
     setLoading(true)
     setError(null)
+    setPlacedNote(null)
     try {
-      // In browser: proxy via a cors-anywhere or a local companion.
-      // For now try fetch and fall back with instructions.
+      // The request is relayed through a public CORS proxy, so the datasheet URL
+      // leaves this browser and is visible to that third service. Not for NDA parts.
       const resp = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(urlInput)}`)
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const text = await resp.text()
@@ -96,6 +137,12 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
   }
 
   const handleFileRead = (file: File) => {
+    setError(null)
+    setPlacedNote(null)
+    if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+      setError(`${file.name}: this build has no PDF text extractor, so the drop cannot read it. Open the datasheet, copy its pin table and ratings text, and paste that in the Paste tab.`)
+      return
+    }
     const reader = new FileReader()
     reader.onload = (e) => {
       const text = e.target?.result as string
@@ -111,15 +158,52 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
   }
 
   const handleSelectVendorModel = (entry: VendorModelEntry) => {
-    setSynthesized(null)
     setIngestedData(null)
+    setPinRows([])
     setError(null)
+    setPlacedNote(null)
+    // A vendor card carries a model line, not a symbol, so it cannot become a
+    // schematic part here. Validate it with the parser the simulator uses and
+    // hand the text to the model deck instead of pretending it was installed.
+    const parsed = parseSpiceModelLibrary(entry.spiceText)
+    if (parsed.models.size === 0) {
+      setVendorPick(null)
+      setError(`${entry.name}: no parsable .model card here (${parsed.errors.join(' ') || 'subcircuit-only text'}). Its SPICE text can still be pasted into the Simulation model deck.`)
+      return
+    }
+    setVendorPick({ name: entry.name, text: entry.spiceText, cards: Array.from(parsed.models.keys()) })
     onPartAdded?.({ name: entry.name, spiceText: entry.spiceText })
   }
 
   const handleConfirm = () => {
-    if (!synthesized) return
-    onPartAdded?.({ name: synthesized.component.name, spiceText: synthesized.spiceSubcircuit })
+    if (!synthesized || !ingestedData) return
+    const componentId = synthesized.component.id
+      ?? `comp-${synthesized.component.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
+    const component = { ...synthesized.component, id: componentId }
+
+    const store = useProjectStore.getState()
+    store.setComponentLibrary([
+      ...store.componentLibrary.filter(existing => existing.id !== componentId),
+      component,
+    ])
+
+    // Not a canvas drop, so the instance takes the next free grid slot rather
+    // than landing under the cursor or on top of an existing part.
+    const slot = store.components.length
+    const instance = {
+      id: generateId('comp'),
+      componentId,
+      component,
+      x: 100 + (slot % 5) * 120,
+      y: 120 + Math.floor(slot / 5) * 100,
+      rotation: 0,
+      reference: `${component.name.charAt(0)}${slot + 1}`,
+      properties: { ...component.default_properties },
+    }
+    store.addComponent(instance)
+
+    setPlacedNote(`Added ${component.name} to this session's library and placed ${instance.reference} at ${instance.x}, ${instance.y} on the sheet.`)
+    onPartAdded?.({ name: component.name, spiceText: synthesized.spiceSubcircuit })
   }
 
   const updatePinRow = (index: number, field: keyof PinRow, value: string) => {
@@ -132,7 +216,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
           <Cpu size={16} className="text-primary" />
-          <span className="font-semibold text-sm">Import Component from Datasheet</span>
+          <h2 className="text-sm font-semibold">Import Component from Datasheet</h2>
         </div>
         {onClose && (
           <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close datasheet importer" className="text-muted-foreground hover:text-foreground">✕</Button>
@@ -167,7 +251,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
               onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFileRead(f) }}
             >
               <Upload size={20} className="mx-auto mb-1 text-muted-foreground" />
-              <span className="block text-xs text-muted-foreground">Drop a .txt / .pdf text file here or click to browse</span>
+              <span className="block text-xs text-muted-foreground">Drop a .txt / .csv / .md file here or click to browse — PDF text must be pasted</span>
             </button>
             <input ref={fileInputRef} type="file" accept=".txt,.csv,.md" aria-label="Upload datasheet text file" className="hidden"
               onChange={e => { const f = e.target.files?.[0]; if (f) handleFileRead(f) }} />
@@ -209,8 +293,10 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              After fetching, you can review and edit the extracted text before parsing.
-              For PDFs, paste the text content manually.
+              Fetching sends the URL through a public CORS proxy, so the request is visible to that third
+              service — do not use it for NDA-protected documents. The fetched text lands in the Paste tab,
+              where you can review and edit it before parsing. PDFs have to be pasted by hand: this build
+              reads text files only.
             </p>
           </div>
         )}
@@ -326,6 +412,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
                         <td className="px-2 py-1 text-muted-foreground">{row.number}</td>
                         <td className="px-2 py-1">
                           <input
+                            aria-label={`Pin ${row.number} name`}
                             className="bg-transparent w-full outline-none text-foreground focus:text-primary"
                             value={row.name}
                             onChange={e => updatePinRow(i, 'name', e.target.value)}
@@ -333,17 +420,19 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
                         </td>
                         <td className="px-2 py-1">
                           <select
+                            aria-label={`Pin ${row.number} kind`}
                             className="bg-muted text-foreground rounded text-xs outline-none"
                             value={row.kind}
                             onChange={e => updatePinRow(i, 'kind', e.target.value)}
                           >
-                            {['power','ground','input','output','bidirectional','passive'].map(k => (
+                            {PIN_KINDS.map(k => (
                               <option key={k} value={k}>{k}</option>
                             ))}
                           </select>
                         </td>
                         <td className="px-2 py-1 text-muted-foreground">
                           <input
+                            aria-label={`Pin ${row.number} description`}
                             className="bg-transparent w-full outline-none"
                             value={row.description}
                             onChange={e => updatePinRow(i, 'description', e.target.value)}
@@ -368,8 +457,22 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
 
             <Button onClick={handleConfirm} className="w-full bg-success hover:bg-success/90 text-sm">
               <Zap size={14} className="mr-1" />
-              Add to Component Library
+              Add to Component Library and Place
             </Button>
+            {placedNote && (
+              <p role="status" className="text-xs text-success">{placedNote}</p>
+            )}
+          </div>
+        )}
+
+        {vendorPick && (
+          <div className="space-y-1 rounded border border-success/40 bg-success/10 p-3 text-xs text-success">
+            <p className="font-medium">{vendorPick.name}: {vendorPick.cards.length} .model card(s) parsed — {vendorPick.cards.join(', ')}.</p>
+            <p className="text-muted-foreground">
+              A model card is not a schematic symbol, so nothing was placed. Copy these lines into the
+              Simulation panel's model deck to run the device:
+            </p>
+            <pre className="max-h-24 overflow-x-auto rounded bg-card p-2 text-xs text-foreground">{vendorPick.text.slice(0, 400)}</pre>
           </div>
         )}
       </div>

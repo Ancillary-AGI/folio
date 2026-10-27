@@ -51,16 +51,24 @@ describe('DesignCalculatorsPanel', () => {
     expect(screen.getByText('2.11%', { exact: false })).toBeInTheDocument()
   })
 
-  it('computes TIM resistance and rejects a reflow trace outside the JEDEC window', () => {
+  it('computes TIM resistance and refuses a JEDEC verdict until a real trace is pasted', () => {
     render(<DesignCalculatorsPanel />)
 
     expect(screen.getByText('0.833 K/W')).toBeInTheDocument()
     expect(screen.getByText('4.17 °C')).toBeInTheDocument()
-    expect(screen.getByText('Profile inside JEDEC window')).toBeInTheDocument()
+    // No fabricated default trace: with no samples there is no verdict to show.
+    expect(screen.queryByText('Profile inside JEDEC window')).not.toBeInTheDocument()
+    expect(screen.getByText(/no data means no verdict/i)).toBeInTheDocument()
 
     const trace = screen.getByLabelText('Measured reflow profile samples')
     fireEvent.change(trace, { target: { value: '0,25' } })
     expect(screen.getByRole('alert')).toHaveTextContent('at least two time-temperature samples')
+
+    // A hand-entered compliant trace is judged on its own numbers.
+    fireEvent.change(trace, {
+      target: { value: '0,25\n30,100\n60,150\n90,180\n120,200\n150,217\n180,240\n210,245\n240,230\n270,180\n300,60' },
+    })
+    expect(screen.getByText('Profile inside JEDEC window')).toBeInTheDocument()
 
     fireEvent.change(trace, { target: { value: '0,25\n30,260\n60,25' } })
     expect(screen.getByText(/violation\(s\)/)).toBeInTheDocument()

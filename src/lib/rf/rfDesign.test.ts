@@ -220,12 +220,17 @@ describe('antenna synthesis', () => {
     expect(patch.dimensions.effectiveEpsilon).toBeLessThan(4.4)
 
     const pattern = designer.calculateRadiationPattern(patch, 181)
-    expect(Math.max(...pattern.gain.map(point => point[0]))).toBeCloseTo(6, 1)
-    // The model targets a 60 degree full -3 dB beamwidth, so 30 degrees off
-    // broadside sits at the half-power point.
-    expect(pattern.gain[30][0]).toBeGreaterThan(2.5)
-    expect(pattern.gain[30][0]).toBeLessThan(3.5)
-    expect(pattern.gain[150][0]).toBe(-60)
+    // The pattern is the two-slot aperture cut, so its peak is the integrated
+    // aperture directivity (7.74 dBi for this geometry), not the fabricated
+    // "gain: 6" constant this test used to pin.
+    const values = pattern.gain.map(point => point[0])
+    expect(Math.max(...values)).toBeCloseTo(patch.parameters.gain, 9)
+    // E-plane -3 dB beamwidth of the derived aperture (~97 deg full width), so
+    // 30 deg off boresight is inside the lobe and only ~1 dB down. The bound
+    // follows from the computed patch.parameters.ePlaneBeamwidth.
+    expect(values[30]).toBeLessThan(patch.parameters.gain)
+    expect(values[30]).toBeGreaterThan(patch.parameters.gain - 2)
+    expect(values[150]).toBe(-60)
   })
 
   it('builds exactly the requested Yagi element count and array weights', () => {
@@ -250,10 +255,14 @@ describe('antenna synthesis', () => {
     const short = designer.designDipole(300e6, 0.2 * wavelength)
     expect(short.parameters.gain).toBeLessThan(1.9)
 
-    const optimized = designer.optimizeAntenna(short, 2.1, 20e6)
+    // No bandwidth argument: the wire model has no reactance kernel, so it
+    // refuses a bandwidth target instead of certifying one. See the next test.
+    const optimized = designer.optimizeAntenna(short, 2.1)
     expect(optimized.dimensions.length).toBeGreaterThan(0.3 * wavelength)
     expect(optimized.parameters.gain).toBeCloseTo(2.1, 1)
     expect(optimized.parameters.directivity).toBeCloseTo(2.1, 1)
+    expect(optimized.parameters.bandwidth).toBeNull()
+    expect(optimized.parameters.vsWR).toBeNull()
   })
 
   it('rejects gain and bandwidth targets the wire model cannot reach', () => {

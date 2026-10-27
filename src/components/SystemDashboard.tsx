@@ -95,7 +95,7 @@ export const SystemDashboard: React.FC = () => {
   const [capabilities, setCapabilities] = useState<AccelerationCapabilities | null>(null)
   const [probingCompute, setProbingCompute] = useState(false)
 
-  const { components, wires, currentProject } = useProjectStore()
+  const { components, wires, currentProject, pcbLayout, mechanicalParts } = useProjectStore()
   const { workspaceMode } = useAppStore()
 
   const refresh = useCallback(async () => {
@@ -252,19 +252,48 @@ export const SystemDashboard: React.FC = () => {
         <TabsContent value="overview" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card>
-              <CardHeader><CardTitle className="text-sm">Domain Integration Status</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">Cross-domain handoffs</CardTitle></CardHeader>
               <CardContent className="space-y-2">
+                {/* Every row is derived from live store/service state — a handoff is
+                    "Live" only because the data it names actually exists right now. */}
                 {[
-                  { name: 'Schematic ↔ PCB', ok: true },
-                  { name: 'PCB ↔ 3D View', ok: true },
-                  { name: 'Robotics ↔ Digital Twin', ok: metrics.devicesTotal > 0 },
-                  { name: 'SIEM ↔ IoT Fleet', ok: metrics.devicesTotal > 0 },
-                  { name: 'AI ↔ Circuit Analysis', ok: true },
-                  { name: 'Codesign Sync', ok: (metrics.syncScore ?? 0) >= 70 },
+                  {
+                    name: 'Schematic → board',
+                    live: pcbLayout !== null,
+                    detail: pcbLayout ? `${pcbLayout.components.length} placed part(s)` : 'no routed board yet',
+                  },
+                  {
+                    name: 'Board → 3D preview',
+                    live: pcbLayout !== null,
+                    detail: pcbLayout ? `${pcbLayout.traces.length} trace(s) published` : 'nothing to render',
+                  },
+                  {
+                    name: 'Mechanical assembly',
+                    live: mechanicalParts.length > 0,
+                    detail: `${mechanicalParts.length} part(s) in the project store`,
+                  },
+                  {
+                    name: 'Robotics ↔ digital twin',
+                    live: metrics.devicesTotal > 0,
+                    detail: `${metrics.devicesTotal} fleet device(s)`,
+                  },
+                  {
+                    name: 'SIEM ↔ fleet telemetry',
+                    live: metrics.devicesTotal > 0,
+                    detail: `${metrics.recentEventsCount} event(s) in the last hour`,
+                  },
+                  {
+                    name: 'Codesign sync',
+                    live: (metrics.syncScore ?? 0) >= 70,
+                    detail: metrics.syncScore !== null ? `sync score ${metrics.syncScore.toFixed(0)}%` : 'no project open',
+                  },
                 ].map(item => (
                   <div key={item.name} className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">{item.name}</span>
-                    <Badge className={item.ok ? 'bg-success text-success-foreground' : 'bg-muted text-muted-foreground'}>{item.ok ? 'Active' : 'Inactive'}</Badge>
+                    <span className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">{item.detail}</span>
+                      <Badge className={item.live ? 'bg-success text-success-foreground' : 'bg-muted text-muted-foreground'}>{item.live ? 'Live' : 'Empty'}</Badge>
+                    </span>
                   </div>
                 ))}
               </CardContent>

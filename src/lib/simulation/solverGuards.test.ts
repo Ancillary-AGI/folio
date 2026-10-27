@@ -108,7 +108,7 @@ describe('analysis input guards', () => {
       outputNode: 'OUT',
     })
     expect(result.converged).toBe(false)
-    expect(result.integratedRmsNoise).toBe(0)
+    expect(result.integratedThermalAndDiodeNoise).toBe(0)
     expect(result.notes.join(' ')).toMatch(/finite start and stop frequencies/)
   })
 })

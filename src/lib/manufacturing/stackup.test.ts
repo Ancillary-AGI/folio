@@ -7,7 +7,9 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  delayPsPerMm,
   fourLayerStackup,
+  microstripErEff,
   microstripImpedance,
   nearestPlane,
   pairSkewPs,
@@ -83,8 +85,26 @@ describe('stackup and impedance', () => {
     expect(widthForImpedance(200, { height: 0.2, thickness: 0.035, er: 4.4, mode: 'microstrip' })).toBeUndefined()
   })
 
-  it('converts pair mismatch to picoseconds at 6 ps/mm', () => {
-    expect(pairSkewPs(52, 50)).toBeCloseTo(12, 9)
-    expect(pairSkewPs(50, 50)).toBe(0)
+  it('reports the microstrip effective permittivity between air and laminate', () => {
+    const erEff = microstripErEff(0.3, 0.2, 4.4)
+    expect(erEff).toBeGreaterThan(1)
+    expect(erEff).toBeLessThan(4.4)
+    // A wide trace over a thin dielectric puts almost all the field in the laminate.
+    expect(microstripErEff(10, 0.05, 4.4)).toBeGreaterThan(erEff)
+    expect(() => microstripErEff(0.3, 0.2, 0.5)).toThrow(/εr/)
+    expect(() => microstripErEff(0, 0.2, 4.4)).toThrow(/width/)
+  })
+
+  it('converts pair mismatch to picoseconds from the declared dielectric', () => {
+    // ε_eff 3.24 → 6.004 ps per mm, i.e. the FR-4 rule of thumb derived from
+    // the permittivity instead of hardcoded into the function.
+    expect(delayPsPerMm(3.24)).toBeCloseTo(6.0042, 4)
+    expect(pairSkewPs(52, 50, 3.24)).toBeCloseTo(12.0083, 4)
+    expect(pairSkewPs(50, 50, 3.24)).toBe(0)
+    // A slower laminate must read more skew for the same millimetres.
+    expect(pairSkewPs(52, 50, 4.4)).toBeGreaterThan(pairSkewPs(52, 50, 3.24))
+    expect(() => delayPsPerMm(Number.NaN)).toThrow(/permittivity/)
+    expect(() => delayPsPerMm(0.9)).toThrow(/permittivity/)
+    expect(() => pairSkewPs(Number.POSITIVE_INFINITY, 50, 4.4)).toThrow(/lengths must be finite/)
   })
 })

@@ -772,7 +772,7 @@ describe('noise analysis', () => {
     const result = await spiceEngine.simulate(thermalCircuit)
     expect(result.success).toBe(true)
 
-    const total = result.waveforms.find((entry) => entry.name.startsWith('total noise'))
+    const total = result.waveforms.find((entry) => entry.name.startsWith('thermal+diode noise'))
     expect(total).toBeDefined()
 
     const temperatureKelvin = 27 + 273.15
@@ -797,14 +797,14 @@ describe('noise analysis', () => {
     })
 
     const density = (result: Awaited<ReturnType<typeof spiceEngine.simulate>>) =>
-      result.waveforms.find((entry) => entry.name.startsWith('total noise'))?.data[0].y ?? 0
+      result.waveforms.find((entry) => entry.name.startsWith('thermal+diode noise'))?.data[0].y ?? 0
 
     expect(density(quadruple) / density(single)).toBeCloseTo(2, 2)
   })
 
   it('reports an integration figure and a physics note', async () => {
     const result = await spiceEngine.simulate(thermalCircuit)
-    expect(result.notes?.join(' ')).toContain('Integrated output noise')
+    expect(result.notes?.join(' ')).toContain('Integrated thermal+diode (modelled) noise')
     expect(result.notes?.join(' ')).toContain('thermal voltage')
   })
 

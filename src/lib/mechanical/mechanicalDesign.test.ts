@@ -132,22 +132,71 @@ describe('MechanicalDesignEngine', () => {
     }
   });
 
+  it('refuses EMC analysis when the part declares no parasitics', () => {
+    const engine = new MechanicalDesignEngine();
+    const component = engine.createComponent('enclosure', { width: 0.2, height: 0.2 }, 'copper', 0.002);
+    /*
+     * The removed stand-ins (0.1 Ω / 1 nF / 1 µH) reported the invented network
+     * as the part's behaviour. A part without declared parasitics has none.
+     */
+    expect(() => engine.analyzeElectromagneticCompatibility(component, 1e6))
+      .toThrow(/declares no electricalProperties/);
+    expect(() => engine.analyzeElectromagneticCompatibility(component, 1e6))
+      .toThrow(/resistance \(Ω\), capacitance \(F\) and inductance \(H\)/);
+  });
+
+  it('names every missing or unusable parasitic quantity', () => {
+    const engine = new MechanicalDesignEngine();
+    const component = engine.createComponent('enclosure', { width: 0.2, height: 0.2 }, 'copper', 0.002);
+    component.electricalProperties = {
+      resistance: 0.01,
+      capacitance: 1e-9,
+    } as NonNullable<typeof component.electricalProperties>;
+    expect(() => engine.analyzeElectromagneticCompatibility(component, 1e6))
+      .toThrow(/inductance \(H\) is missing/);
+
+    component.electricalProperties = { resistance: 0.01, capacitance: 0, inductance: 1e-7 };
+    expect(() => engine.analyzeElectromagneticCompatibility(component, 1e6))
+      .toThrow(/capacitance must be a positive finite number/);
+  });
+
   it('reports skin depth only when the part declares a conductivity', () => {
     const engine = new MechanicalDesignEngine();
     const component = engine.createComponent('enclosure', { width: 0.2, height: 0.2 }, 'copper', 0.002);
+    component.electricalProperties = { resistance: 0.01, capacitance: 1e-9, inductance: 1e-7 };
+
     const bare = engine.analyzeElectromagneticCompatibility(component, 1e6);
     expect(bare.skinDepth).toBeNull();
     expect(bare.shieldingEffectiveness).toBeNull();
     expect(bare.powerLoss).toBeGreaterThan(0);
+    expect(bare.provenance.conductivity).toMatch(/not declared/);
+    expect(bare.provenance.resistance).toBe('supplied by user');
 
     component.electricalProperties = {
-      resistance: 0.01,
-      capacitance: 1e-9,
-      inductance: 1e-7,
+      ...component.electricalProperties,
       conductivity: 5.8e7,
     };
     const shielded = engine.analyzeElectromagneticCompatibility(component, 1e6);
     expect(shielded.skinDepth).toBeCloseTo(0.0000661, 6);
     expect(shielded.shieldingEffectiveness).toBeGreaterThan(0);
+    expect(shielded.provenance.conductivity).toBe('supplied by user');
+  });
+
+  it('states the assumed excitation behind the power loss', () => {
+    const engine = new MechanicalDesignEngine();
+    const component = engine.createComponent('enclosure', { width: 0.2, height: 0.2 }, 'copper', 0.002);
+    component.electricalProperties = { resistance: 0.01, capacitance: 1e-9, inductance: 1e-7 };
+    const result = engine.analyzeElectromagneticCompatibility(component, 1e6);
+    expect(result.provenance.excitationVolts).toBe('assumed 1 V across the lumped model');
+    // `(V/Z)²·R` at the declared 1 V, checked against the impedance it reports.
+    expect(result.powerLoss).toBeCloseTo((1 / result.impedance) ** 2 * 0.01, 18);
+  });
+
+  it('refuses to analyse a part whose material the catalogue does not know', () => {
+    const engine = new MechanicalDesignEngine();
+    const component = engine.createComponent('structural', { width: 1, height: 0.1 }, 'aluminum', 0.01);
+    component.material = 'unobtainium';
+    expect(() => engine.analyzeStructuralIntegrity(component, { moment: 10 }))
+      .toThrow(/Unknown material "unobtainium"/);
   });
 });

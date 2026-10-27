@@ -1,4 +1,5 @@
 import type { Schematic, Component, Wire, PlacedComponent } from '../../types';
+import type { PcbSceneInput, PcbSceneInputLayer } from '../pcb/pcbScene';
 import {
   DEFAULT_DRC_RULES,
   DesignRuleChecker,
@@ -19,6 +20,25 @@ export interface PCBLayout {
   traces: PCBTrace[];
   vias: PCBVia[];
   designRules: DesignRules;
+  /**
+   * How the copper in `traces` came to be. Absent means no routing pass ran at
+   * all, which is a different claim from "routed, and every net finished".
+   */
+  routing?: RoutingReport;
+}
+
+export interface RoutingReport {
+  /** `netlist` = pads anchored by the router; `wire-copy` = schematic geometry reused as-is. */
+  mode: 'netlist' | 'wire-copy';
+  /** Nets with two or more pads the router tried to connect. Null when no router ran. */
+  routeableNets: number | null;
+  /**
+   * Nets where at least one MST segment found no path. Their partial copper is
+   * still in `traces`, so a net appearing here can look half-connected.
+   */
+  unroutedNets: string[];
+  /** Fraction of routeable nets fully connected, 0–1. Null when no router ran. */
+  completionRate: number | null;
 }
 
 export interface PCBLayer {
@@ -33,6 +53,8 @@ export interface PCBLayer {
 export interface PCBComponent {
   id: string;
   componentId: string;
+  /** Designator carried through so a converted board is still readable by reference. */
+  reference: string;
   footprint: string;
   position: { x: number; y: number; z: number };
   rotation: number;
@@ -86,6 +108,22 @@ export interface ConversionOptions {
   optimizePlacement: boolean;
 }
 
+/** Copper faces are coloured in stack order so the 3-D preview can tell them apart. */
+const COPPER_LAYER_COLORS = ['#cc0000', '#ffaa00', '#009900', '#0000cc', '#9900aa', '#00aaaa'];
+
+const sceneLayerKind = (type: PCBLayer['type']): PcbSceneInputLayer['kind'] => {
+  if (type === 'silk') return 'silk';
+  if (type === 'signal' || type === 'power' || type === 'ground') return 'copper';
+  return 'mask';
+};
+
+const layerSide = (name: string): 'top' | 'bottom' | undefined => {
+  const lower = name.toLowerCase();
+  if (lower.includes('bottom')) return 'bottom';
+  if (lower.includes('top')) return 'top';
+  return undefined;
+};
+
 export class SchematicToPcbConverter {
   private layouts: Map<string, PCBLayout> = new Map();
 
@@ -122,9 +160,12 @@ export class SchematicToPcbConverter {
 
     // Route traces
     if (options.autoRoute) {
-      await this.autoRouteTraces(layout, schematic.wires);
+      layout.routing = await this.autoRouteTraces(layout, schematic.wires);
     } else {
       layout.traces = this.convertWiresToTraces(schematic.wires, layout);
+      // Schematic wire geometry is not pad-anchored copper, so no connectivity
+      // claim can be made about it.
+      layout.routing = { mode: 'wire-copy', routeableNets: null, unroutedNets: [], completionRate: null };
     }
 
     this.layouts.set(layoutId, layout);
@@ -209,6 +250,7 @@ export class SchematicToPcbConverter {
       const pcbComponent: PCBComponent = {
         id: `pcb-${placedComponent.id}`,
         componentId: placedComponent.id,
+        reference: placedComponent.reference,
         footprint,
         position: { x: placedComponent.position.x, y: placedComponent.position.y, z: 0 },
         rotation: placedComponent.rotation,
@@ -492,11 +534,11 @@ export class SchematicToPcbConverter {
    * schematic wire endpoint happens to land on a placed pad (the previous
    * implementation silently dropped every net when it did not).
    */
-  private async autoRouteTraces(layout: PCBLayout, wires: Wire[]): Promise<void> {
+  private async autoRouteTraces(layout: PCBLayout, wires: Wire[]): Promise<RoutingReport> {
     const pads = this.buildRouterPads(layout);
     if (pads.length === 0) {
       layout.traces = this.convertWiresToTraces(wires, layout);
-      return;
+      return { mode: 'wire-copy', routeableNets: null, unroutedNets: [], completionRate: null };
     }
 
     const copperLayers = layout.layers
@@ -532,6 +574,13 @@ export class SchematicToPcbConverter {
       layers: copperLayers,
       net: via.netId,
     })));
+
+    return {
+      mode: 'netlist',
+      routeableNets: result.stats.totalNets,
+      unroutedNets: result.unrouted,
+      completionRate: result.completionRate,
+    };
   }
 
   private buildRouterPads(layout: PCBLayout): RouterPad[] {
@@ -561,6 +610,64 @@ export class SchematicToPcbConverter {
 
   getPCBLayout(layoutId: string): PCBLayout | undefined {
     return this.layouts.get(layoutId);
+  }
+
+  /**
+   * Project a converted layout into the shared board scene. Without this the
+   * conversion result died inside the panel: the 3-D preview, the PCB editor's
+   * adopt path, the agent snapshot and version control all read `PcbSceneInput`.
+   * Drill layers have no scene representation and are left out.
+   */
+  toSceneInput(layout: PCBLayout): PcbSceneInput {
+    let copperIndex = 0;
+    const layers: PcbSceneInputLayer[] = [];
+    for (const layer of layout.layers) {
+      if (layer.type === 'drill') continue;
+      const kind = sceneLayerKind(layer.type);
+      const color = kind === 'copper'
+        ? (layer.color ?? COPPER_LAYER_COLORS[copperIndex++ % COPPER_LAYER_COLORS.length])
+        : (layer.color ?? (kind === 'silk' ? '#ffffff' : '#008800'));
+      layers.push({
+        id: layer.id,
+        name: layer.name,
+        kind,
+        color,
+        thicknessMm: layer.thickness,
+        side: layerSide(layer.name),
+      });
+    }
+
+    return {
+      widthMm: layout.width,
+      heightMm: layout.height,
+      thicknessMm: layout.designRules.boardThickness,
+      copperThicknessMm: layout.designRules.copperThickness,
+      layers,
+      traces: layout.traces.map(trace => ({
+        id: trace.id,
+        net: trace.net,
+        layerId: trace.layer,
+        widthMm: trace.width,
+        points: trace.points.map(point => ({ ...point })),
+      })),
+      vias: layout.vias.map(via => ({
+        id: via.id,
+        net: via.net,
+        x: via.position.x,
+        y: via.position.y,
+        padDiameterMm: via.pad,
+        drillDiameterMm: via.drill,
+      })),
+      components: layout.components.map(component => ({
+        id: component.componentId,
+        reference: component.reference,
+        footprint: component.footprint,
+        x: component.position.x,
+        y: component.position.y,
+        rotationDeg: component.rotation,
+        side: component.side,
+      })),
+    };
   }
 
   /**
@@ -629,6 +736,21 @@ export class SchematicToPcbConverter {
     const result = new DesignRuleChecker(this.toPcbDesign(layout), this.drcSettings(layout)).runDRC();
     const errors = result.violations.filter(v => v.severity === 'error').map(v => v.message);
     const warnings = result.violations.filter(v => v.severity === 'warning').map(v => v.message);
+
+    // The geometric DRC only sees copper that exists; a net the router gave up
+    // on has no copper to complain about, so the router's own report is the
+    // only thing that can call a partly-connected board broken.
+    const routing = layout.routing;
+    if (routing?.mode === 'netlist' && routing.unroutedNets.length > 0) {
+      errors.push(
+        `${routing.unroutedNets.length} of ${routing.routeableNets} net(s) were not fully routed: ${routing.unroutedNets.join(', ')}`,
+      );
+    }
+    if (routing?.mode === 'wire-copy') {
+      warnings.push(
+        'Traces are schematic wire geometry carried over unchanged — no pad-anchored routing ran, so net connectivity is unverified.',
+      );
+    }
 
     // A netless pad is a layout connectivity fact the geometric DRC does not
     // model. Report it once per pad rather than once per net.

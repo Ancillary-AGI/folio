@@ -123,7 +123,16 @@ export interface SimulationResult {
   collisions: number;
   energyConsumption: number;
   errors: string[];
-  performanceMetrics: Record<string, number>;
+  performanceMetrics: {
+    pathLength: number;
+    /**
+     * Dimensionless squared-jerk score in (0, 1], or `null` when the recorded
+     * trajectory has too few samples to estimate a third derivative. A short
+     * recording is not evidence of a smooth motion, so it gets no score.
+     */
+    smoothness: number | null;
+    efficiency: number;
+  };
 }
 
 /**
@@ -745,30 +754,36 @@ export class RoboticsSimulationService {
 
   /**
    * Smoothness score in (0, 1] from the dimensionless squared jerk of each
-   * moving joint.
+   * moving joint, or `null` when the recording cannot be judged at all.
    *
    * Jerk is estimated with a third divided difference over four consecutive
    * samples using their real timestamps, which is exact for cubic segments and
    * does not assume uniform sampling. Integrating jerk² over time and scaling
    * by `T⁵ / Δq²` makes the measure independent of sample count, duration and
    * joint units. A cubic smoothstep move has a value of 144 and scores 0.5;
-   * jerkier motions score lower, and a motionless path scores 1.
+   * jerkier motions score lower, and a path that records no joint travel
+   * scores 1.
+   *
+   * Fewer than four samples, no joint channels, or no elapsed time between the
+   * first and last sample return `null`: there is no third derivative to
+   * measure, and calling that "perfectly smooth" would grade the absence of
+   * data as quality.
    *
    * Sampled data cannot see a discontinuity between samples, so a linear ramp
    * whose velocity jumps only at the endpoints reads as perfectly smooth; this
    * is a roughness comparison inside the recorded motion, not a certified
    * acceleration or jerk bound.
    */
-  private calculateTrajectorySmoothness(trajectory: TrajectoryPoint[]): number {
-    if (trajectory.length < 4) return 1.0;
+  private calculateTrajectorySmoothness(trajectory: TrajectoryPoint[]): number | null {
+    if (trajectory.length < 4) return null;
     const duration = trajectory[trajectory.length - 1].timestamp - trajectory[0].timestamp;
-    if (!(duration > 0)) return 1.0;
+    if (!(duration > 0)) return null;
 
     const jointIds = new Set<string>();
     for (const point of trajectory) {
       for (const id of Object.keys(point.jointAngles)) jointIds.add(id);
     }
-    if (jointIds.size === 0) return 1.0;
+    if (jointIds.size === 0) return null;
 
     let totalDimensionlessJerk = 0;
     let movingJoints = 0;

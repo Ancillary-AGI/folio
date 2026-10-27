@@ -208,6 +208,36 @@ describe('frequency response and margins', () => {
     expect(margins.closedLoopStable).toBe(true)
   })
 
+  it('keeps a type-2 loop on the −180° low-frequency branch, not +180°', () => {
+    // 1/(s²(s+1)) starts two integrators deep: the asymptotic phase is −180° and
+    // it only gets worse. atan2 returns the principal value, whose sign at the
+    // wrap is numerically arbitrary, so the trace must be anchored by counting
+    // the poles at the origin rather than trusting the first sample.
+    const bode = bodeResponse(
+      { numerator: [1], denominator: [1, 1, 0, 0] },
+      { fMinHz: 0.01, fMaxHz: 10, points: 4 },
+    )
+    const firstOmega = 2 * Math.PI * 0.01
+    expect(bode[0].phaseDeg).toBeCloseTo(-180 - (Math.atan(firstOmega) * 180) / Math.PI, 9)
+    expect(bode[0].phaseDeg).toBeLessThan(-180)
+    expect(bode[3].phaseDeg).toBeLessThan(bode[0].phaseDeg)
+  })
+
+  it('reports the true −41° phase margin of the unstable 1/(s²(s+1)) loop', () => {
+    // |L| = 1 where ω²·√(1+ω²) = 1, i.e. ω² is the real root of x³+x²−1 = 0, so
+    // ω = 0.868837 rad/s, and ∠L = −180° − atan(ω) makes PM = −atan(ω) = −41.0°.
+    // Routh on s³+s²+1 (first column 1, 1, 0, 1) says the closed loop is unstable,
+    // which is the same verdict; a branch offset would have reported +319°.
+    const omegaCrossover = Math.sqrt(0.7548776662)
+    const margins = stabilityMargins(
+      { numerator: [1], denominator: [1, 1, 0, 0] },
+      { fMinHz: 1e-3, fMaxHz: 1e2 },
+    )
+    expect(margins.phaseMarginDeg).toBeCloseTo(-(Math.atan(omegaCrossover) * 180) / Math.PI, 1)
+    expect(margins.gainCrossoverHz).toBeCloseTo(omegaCrossover / (2 * Math.PI), 4)
+    expect(margins.closedLoopStable).toBe(false)
+  })
+
   it('reports a negative margin when the closed loop is unstable', () => {
     // 10/(s+1)^3 has 20 dB of gain at the −180° crossover, so GM = −2 dB.
     const margins = stabilityMargins(

@@ -287,7 +287,6 @@ export class I2CInterface {
   }
 
   async initialize(): Promise<void> {
-    console.log(`[I2C] Init — SDA:${this.config.sda} SCL:${this.config.scl} @ ${this.config.clockSpeed / 1000} kHz`)
     if (this.bridge?.state === 'connected') {
       // Send a JSON "init" command to a USB-I2C bridge (e.g. CP2112)
       const cmd = new TextEncoder().encode(JSON.stringify({ cmd: 'i2c_init', config: this.config }) + '\n')
@@ -382,7 +381,6 @@ export class SPIInterface {
   }
 
   async initialize(): Promise<void> {
-    console.log(`[SPI] Init — Mode ${this.config.mode} @ ${this.config.clockSpeed / 1e6} MHz`)
     if (this.bridge?.state === 'connected') {
       const cmd = new TextEncoder().encode(JSON.stringify({ cmd: 'spi_init', config: this.config }) + '\n')
       await this.bridge.write(cmd)
@@ -431,7 +429,8 @@ export class UARTInterface {
   constructor(private config: UARTConfig) {}
 
   async initialize(): Promise<void> {
-    console.log(`[UART] Init — ${this.config.baudRate} baud ${this.config.dataBits}${this.config.parity[0].toUpperCase()}${this.config.stopBits}`)
+    // A UART needs no wire-level setup in the browser: the OS adapter is
+    // configured when WebSerial opens the port in connect().
   }
 
   /**
@@ -480,12 +479,20 @@ export class UARTInterface {
 
   get isConnected(): boolean { return this._connected }
 
+  /**
+   * Attach an already-opened bridge — a USB-serial adapter wrapper or a test
+   * double — instead of going through the Web Serial port picker.
+   */
+  attachBridge(bridge: WebSerialBridge): void {
+    this.serialBridge = bridge
+    this._connected = bridge.state === 'connected'
+    bridge.onData(data => this._handleRx(data))
+  }
+
   async send(data: Uint8Array): Promise<void> {
     this.frames.push({ data: new Uint8Array(data), direction: 'tx', timestamp: Date.now() })
     if (this._connected && this.serialBridge) {
       await this.serialBridge.write(data)
-    } else {
-      console.log(`[UART SIM] TX:`, data)
     }
   }
 
@@ -547,36 +554,124 @@ export class UARTInterface {
 
 // ── CAN ───────────────────────────────────────────────────────────────────────
 
+/**
+ * Bit rates a Lawicel/SLCAN adapter can be programmed to with `S<code>`.
+ * Anything else (CAN FD rates, 33.3 kbit/s) is rejected instead of silently
+ * falling back to the adapter's previous speed — a wrong bit rate on a real
+ * bus means corrupted frames, not a degraded simulation.
+ */
+const SLCAN_SPEED_CODES: ReadonlyMap<number, number> = new Map([
+  [25_000, 0], [50_000, 1], [100_000, 2], [125_000, 3],
+  [250_000, 4], [500_000, 5], [800_000, 6], [1_000_000, 7],
+])
+
+/** Classic CAN carries at most 8 data bytes and a 0–8 DLC. */
+const CAN_MAX_DATA_BYTES = 8
+const CAN_MAX_STANDARD_ID = 0x7ff
+const CAN_MAX_EXTENDED_ID = 0x1fffffff
+
+/**
+ * SLCAN setup written to the bridge before the first frame: bit rate,
+ * operating mode, then open the bus. SLCAN has no loopback command, so
+ * loopback is emulated locally by echoing transmitted frames back in.
+ */
+function slcanSetupCommands(config: CANConfig): string[] {
+  const speed = SLCAN_SPEED_CODES.get(config.bitRate)
+  if (speed === undefined) {
+    const supported = Array.from(SLCAN_SPEED_CODES.keys()).sort((a, b) => a - b).join(', ')
+    throw new RangeError(`CAN bit rate ${config.bitRate} bps is not SLCAN-programmable (supported: ${supported} bps)`)
+  }
+  const mode = config.mode === 'listen_only' ? 'm1' : 'm0'
+  return [`S${speed}`, mode, 'O']
+}
+
+/** One CAN frame as an SLCAN line, terminated with the protocol's CR. */
+function encodeSLCANFrame(message: CANMessage): string {
+  const idDigits = message.extendedId ? 8 : 3
+  const id = message.id.toString(16).toUpperCase().padStart(idDigits, '0')
+  const type = message.remoteFrame
+    ? (message.extendedId ? 'R' : 'r')
+    : (message.extendedId ? 'T' : 't')
+  const data = Array.from(message.data, byte => byte.toString(16).toUpperCase().padStart(2, '0')).join('')
+  return `${type}${id}${message.data.length}${data}\r`
+}
+
+/** Reject frames a CAN controller would never put on the bus. */
+function assertValidFrame(message: CANMessage): void {
+  const maxId = message.extendedId ? CAN_MAX_EXTENDED_ID : CAN_MAX_STANDARD_ID
+  const width = message.extendedId ? '29-bit extended' : '11-bit standard'
+  if (!Number.isInteger(message.id) || message.id < 0 || message.id > maxId) {
+    throw new RangeError(`CAN identifier ${message.id} does not fit an ${width} id (0–${maxId})`)
+  }
+  if (message.data.length > CAN_MAX_DATA_BYTES) {
+    throw new RangeError(`classic CAN carries at most ${CAN_MAX_DATA_BYTES} data bytes, got ${message.data.length}`)
+  }
+  if (message.remoteFrame && message.data.length > 0) {
+    throw new RangeError('a CAN remote frame requests data and carries none itself')
+  }
+}
+
 export class CANInterface {
   private messages: CANMessage[] = []
   private filters: Array<{ id: number; mask: number; extended: boolean }> = []
   private rxCallbacks: Array<(msg: CANMessage) => void> = []
   /** CAN uses a UART bridge internally (e.g. Lawicel SLCAN protocol) */
   private uart: UARTInterface | null = null
+  /** SLCAN commands derived from the config; throws on an unusable bit rate. */
+  private readonly setupCommands: string[]
+  private bridgeConfigured = false
 
-  constructor(private config: CANConfig) {}
-
-  async initialize(): Promise<void> {
-    console.log(`[CAN] Init — ${this.config.bitRate} bps mode:${this.config.mode}`)
+  constructor(private config: CANConfig) {
+    if (config.samplePoint !== undefined && (config.samplePoint <= 0 || config.samplePoint > 100)) {
+      throw new RangeError(`CAN sample point must lie in (0, 100] %, got ${config.samplePoint}`)
+    }
+    if (config.sjw !== undefined && (!Number.isInteger(config.sjw) || config.sjw < 1 || config.sjw > 4)) {
+      throw new RangeError(`CAN synchronisation jump width must be 1–4 quanta, got ${config.sjw}`)
+    }
+    this.setupCommands = slcanSetupCommands(config)
   }
 
-  /** Optionally attach a UART bridge running the SLCAN protocol */
-  attachUARTBridge(uart: UARTInterface): void {
+  /** Bit rate, mode and sample point actually programmed onto the bus. */
+  getConfig(): CANConfig { return { ...this.config } }
+
+  async initialize(): Promise<void> {
+    // SLCAN adapters are programmed over the serial line, so the setup
+    // commands are written the first time a connected bridge is attached.
+    if (this.uart?.isConnected) await this.configureBridge()
+  }
+
+  /** Attach a UART bridge running the SLCAN protocol and program the adapter. */
+  async attachUARTBridge(uart: UARTInterface): Promise<void> {
     this.uart = uart
+    this.bridgeConfigured = false
     uart.onReceive(raw => this._parseSLCAN(raw))
+    if (uart.isConnected) await this.configureBridge()
+  }
+
+  private async configureBridge(): Promise<void> {
+    if (!this.uart || this.bridgeConfigured) return
+    this.bridgeConfigured = true
+    try {
+      for (const command of this.setupCommands) await this.uart.sendString(`${command}\r`)
+    } catch (error) {
+      this.bridgeConfigured = false
+      throw error
+    }
   }
 
   async send(message: CANMessage): Promise<boolean> {
+    assertValidFrame(message)
+    if (this.config.mode === 'listen_only') return false
     const msg: CANMessage = { ...message, timestamp: Date.now() }
     this.messages.push(msg)
 
     if (this.uart?.isConnected) {
-      // SLCAN format: "t{id:3X}{len}{data}\r"
-      const idStr = message.id.toString(16).padStart(3, '0').toUpperCase()
-      const dataStr = Array.from(message.data).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join('')
-      const slcan = `t${idStr}${message.data.length}${dataStr}\r`
-      await this.uart.sendString(slcan)
+      await this.configureBridge()
+      await this.uart.sendString(encodeSLCANFrame(msg))
     }
+    // Loopback is a controller-side setting SLCAN cannot express, so the
+    // interface echoes its own transmissions back through the receive path.
+    if (this.config.mode === 'loopback') this.simulateReceive(msg)
     return true
   }
 
@@ -614,16 +709,28 @@ export class CANInterface {
 
   private _parseSLCAN(raw: Uint8Array): void {
     const text = new TextDecoder().decode(raw).trim()
-    // "t{id:3X}{len}{data...}\r" or "T{id:8X}{len}{data...}\r"
-    const match = text.match(/^([tT])([0-9a-fA-F]{3,8})([0-9])([0-9a-fA-F]*)\r?$/)
-    if (!match) return
-    const extended = match[1] === 'T'
-    const id = parseInt(match[2], 16)
-    const dataLen = parseInt(match[3])
-    const dataHex = match[4]
-    const data = new Uint8Array(dataLen)
-    for (let i = 0; i < dataLen; i++) data[i] = parseInt(dataHex.slice(i * 2, i * 2 + 2), 16)
-    const msg: CANMessage = { id, data, extendedId: extended, remoteFrame: false, timestamp: Date.now() }
+    const type = text.charAt(0)
+    const extended = type === 'T' || type === 'R'
+    if (type !== 't' && type !== 'T' && type !== 'r' && type !== 'R') return
+    // The id field is fixed width: 3 hex digits for an 11-bit frame, 8 for a
+    // 29-bit one. Parsing it greedily would steal the DLC digit that follows.
+    const idDigits = extended ? 8 : 3
+    const idHex = text.slice(1, 1 + idDigits)
+    const dlcChar = text.charAt(1 + idDigits)
+    const dataHex = text.slice(2 + idDigits)
+    if (!/^[0-9a-fA-F]+$/.test(idHex) || !/^[0-8]$/.test(dlcChar)) return
+    const dlc = Number(dlcChar)
+    if (dataHex.length !== dlc * 2 || !/^[0-9a-fA-F]*$/.test(dataHex)) return
+    if ((type === 'r' || type === 'R') && dlc > 0) return
+    const data = new Uint8Array(dlc)
+    for (let i = 0; i < dlc; i++) data[i] = parseInt(dataHex.slice(i * 2, i * 2 + 2), 16)
+    const msg: CANMessage = {
+      id: parseInt(idHex, 16),
+      data,
+      extendedId: extended,
+      remoteFrame: type === 'r' || type === 'R',
+      timestamp: Date.now(),
+    }
     this.simulateReceive(msg)
   }
 

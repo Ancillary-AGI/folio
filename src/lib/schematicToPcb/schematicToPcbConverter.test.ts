@@ -188,6 +188,7 @@ describe('SchematicToPcbConverter', () => {
       layout.components.push({
         id: 'pcb-r1',
         componentId: 'r1',
+        reference: 'R1',
         footprint: 'RES-0805',
         position: { x: 10, y: 10, z: 0 },
         rotation: 0,
@@ -441,6 +442,118 @@ describe('SchematicToPcbConverter', () => {
         expect(copperIds.has(trace.layer)).toBe(true);
         expect(trace.points.length).toBeGreaterThanOrEqual(2);
       }
+    });
+  });
+
+  describe('routing report and scene projection', () => {
+    const resistor = {
+      id: 'resistor',
+      name: 'Resistor',
+      category: 'passive',
+      symbol: { width: 20, height: 10, paths: [] },
+      pins: [
+        { id: 'p1', name: '1', x: 0, y: 0, type: 'passive' as const },
+        { id: 'p2', name: '2', x: 20, y: 0, type: 'passive' as const },
+      ],
+      properties: {},
+    };
+    const placed = (id: string, reference: string, x: number, y: number) => ({
+      id,
+      componentId: 'resistor',
+      component: resistor,
+      position: { x, y },
+      rotation: 0,
+      scale: 1,
+      reference,
+      properties: {},
+    });
+    const baseOptions = {
+      boardSize: { width: 100, height: 80 },
+      layerCount: 2,
+      designRules: {
+        minTraceWidth: 0.2,
+        minTraceClearance: 0.2,
+        minDrillSize: 0.3,
+        minAnnularRing: 0.15,
+        boardThickness: 1.6,
+        copperThickness: 0.035,
+      },
+      optimizePlacement: false,
+    };
+    const twoResistorNetCircuit = makeSchematic(
+      'circuit-routing-report',
+      'Routing report',
+      [placed('r1', 'R1', 10, 10), placed('r2', 'R2', 40, 30)],
+      [
+        { id: 'w1', points: [], netName: 'NET_A', connectedPins: [
+          { componentId: 'r1', pinId: 'p1' },
+          { componentId: 'r2', pinId: 'p1' },
+        ] },
+      ],
+    );
+
+    it('carries the router outcome onto the layout', async () => {
+      const layout = await schematicToPcbConverter.convertSchematicToPCB(
+        twoResistorNetCircuit,
+        { ...baseOptions, autoRoute: true },
+      );
+
+      expect(layout.routing?.mode).toBe('netlist');
+      expect(layout.routing?.routeableNets).toBe(1);
+      expect(layout.routing?.unroutedNets).toEqual([]);
+      expect(layout.routing?.completionRate).toBe(1);
+    });
+
+    it('names copied wire geometry as unverified rather than claiming a route', async () => {
+      const layout = await schematicToPcbConverter.convertSchematicToPCB(
+        twoResistorNetCircuit,
+        { ...baseOptions, autoRoute: false },
+      );
+
+      expect(layout.routing).toEqual({
+        mode: 'wire-copy', routeableNets: null, unroutedNets: [], completionRate: null,
+      });
+      const validation = schematicToPcbConverter.validateDesign(layout);
+      expect(validation.warnings).toContain(
+        'Traces are schematic wire geometry carried over unchanged — no pad-anchored routing ran, so net connectivity is unverified.',
+      );
+    });
+
+    it('fails the board when the netlist router abandoned a net', async () => {
+      const layout = await schematicToPcbConverter.convertSchematicToPCB(
+        twoResistorNetCircuit,
+        { ...baseOptions, autoRoute: false },
+      );
+      layout.routing = { mode: 'netlist', routeableNets: 3, unroutedNets: ['NET_B', 'GND'], completionRate: 1 / 3 };
+
+      const validation = schematicToPcbConverter.validateDesign(layout);
+
+      expect(validation.valid).toBe(false);
+      expect(validation.errors).toContain('2 of 3 net(s) were not fully routed: NET_B, GND');
+    });
+
+    it('projects the converted board into the shared scene the 3-D preview reads', async () => {
+      const layout = await schematicToPcbConverter.convertSchematicToPCB(
+        twoResistorNetCircuit,
+        { ...baseOptions, autoRoute: true },
+      );
+
+      const scene = schematicToPcbConverter.toSceneInput(layout);
+
+      expect(scene.widthMm).toBe(100);
+      expect(scene.heightMm).toBe(80);
+      expect(scene.thicknessMm).toBe(1.6);
+      expect(scene.copperThicknessMm).toBe(0.035);
+      expect(scene.layers.filter(layer => layer.kind === 'copper').map(layer => layer.id))
+        .toEqual(['signal-1', 'signal-2']);
+      expect(scene.layers.filter(layer => layer.kind === 'silk')).toHaveLength(2);
+      expect(scene.layers.every(layer => layer.color.length > 0)).toBe(true);
+      expect(scene.components).toEqual([
+        expect.objectContaining({ id: 'r1', reference: 'R1', x: expect.any(Number) }),
+        expect.objectContaining({ id: 'r2', reference: 'R2', x: expect.any(Number) }),
+      ]);
+      expect(scene.traces).toHaveLength(layout.traces.length);
+      expect(scene.vias).toHaveLength(layout.vias.length);
     });
   });
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Check, X } from 'lucide-react'
+import type { CSSProperties } from 'react'
+import { ArrowLeft, ArrowRight, Check, Hand, X } from 'lucide-react'
 import { useAppStore } from '../stores/useAppStore'
 import { Button } from './ui/button'
 import { writeOnboardingStep } from '../lib/onboarding/onboardingStorage'
@@ -7,7 +8,7 @@ import {
   clampOnboardingStep,
   ONBOARDING_STEPS,
 } from '../lib/onboarding/onboardingSteps'
-import { computeTourLayout, type TourRect } from '../lib/onboarding/tourLayout'
+import { computeTourLayout, computeTourCaret, type TourCaret, type TourRect } from '../lib/onboarding/tourLayout'
 
 export interface OnboardingTourProps {
   onClose: () => void
@@ -39,6 +40,27 @@ function sameRect(a: TourRect | null, b: TourRect | null) {
   return a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height
 }
 
+/**
+ * The caret is a 12 px rotated square, so only one axis is set per side; the
+ * CSS variant owns the offset that pins it to the facing edge.
+ */
+function caretStyle(caret: TourCaret): CSSProperties {
+  return caret.side === 'top' || caret.side === 'bottom'
+    ? { left: caret.along }
+    : { top: caret.along }
+}
+
+/**
+ * Corner brackets drawn around the spotlight; the four L-shapes read as a
+ * viewfinder. Offsets are inline because the entry animation owns `transform`.
+ */
+const BRACKETS = [
+  { id: 'tl', sides: 'border-t-2 border-l-2', style: { top: -4, left: -4 } },
+  { id: 'tr', sides: 'border-t-2 border-r-2', style: { top: -4, right: -4 } },
+  { id: 'bl', sides: 'border-b-2 border-l-2', style: { bottom: -4, left: -4 } },
+  { id: 'br', sides: 'border-b-2 border-r-2', style: { bottom: -4, right: -4 } },
+] as const
+
 export default function OnboardingTour({
   onClose,
   onCreateProject,
@@ -52,7 +74,7 @@ export default function OnboardingTour({
   const activeIndex = useMemo(() => clampOnboardingStep(stepIndex), [stepIndex])
   const step = ONBOARDING_STEPS[activeIndex]
   const isLast = activeIndex === ONBOARDING_STEPS.length - 1
-  const showSampleAction = step.id === 'schematic'
+  const showSampleAction = step.action === 'load-sample-circuit'
   const StepIcon = step.icon
   const [targetRect, setTargetRect] = useState<TourRect | null>(null)
   const [cardSize, setCardSize] = useState({ width: 0, height: 0 })
@@ -151,6 +173,20 @@ export default function OnboardingTour({
     [targetRect, cardSize, viewport, step.placement],
   )
 
+  const caret = useMemo(
+    () => computeTourCaret(layout, cardSize.height, targetRect),
+    [layout, cardSize.height, targetRect],
+  )
+
+  /*
+   * A live step lets the engineer perform the gesture being taught instead of
+   * reading about it, so the card is keyed per step and every block re-mounts
+   * and re-rises in sequence. With motion off the same content is static.
+   */
+  const riseClass = animations ? 'animate-rise-in' : ''
+  const riseDelay = (delay: number): CSSProperties | undefined =>
+    animations ? { animationDelay: `${delay}ms` } : undefined
+
   const goTo = useCallback(
     (index: number) => {
       setStepIndex(Math.min(Math.max(index, 0), ONBOARDING_STEPS.length - 1))
@@ -172,15 +208,33 @@ export default function OnboardingTour({
     goTo(activeIndex + 1)
   }, [activeIndex, goTo, hasProject, onCreateProject])
 
+  /*
+   * A live step only means something when its target is actually on screen: on
+   * the project launcher the schematic step has no sheet to play with, so the
+   * tour falls back to a plain modal card instead of promising a gesture.
+   */
+  const isLiveStep = Boolean(step.handsOn && layout.spotlight)
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); finish() }
-      else if (event.key === 'ArrowRight') { event.preventDefault(); advance() }
-      else if (event.key === 'ArrowLeft') { event.preventDefault(); goTo(activeIndex - 1) }
+      if (event.key === 'Escape') { event.preventDefault(); finish(); return }
+      if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return
+      /*
+       * On a live step the canvas keeps its own keys (arrows pan a chart, R
+       * resets it). Only steal arrows while focus is inside the card, otherwise
+       * the tour would swallow the very gesture it is teaching.
+       */
+      const root = dialogRef.current
+      const focusIsOurs =
+        event.target instanceof Node && root !== null && root.contains(event.target)
+      if (isLiveStep && !focusIsOurs) return
+      event.preventDefault()
+      if (event.key === 'ArrowRight') advance()
+      else goTo(activeIndex - 1)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [activeIndex, advance, finish, goTo])
+  }, [activeIndex, advance, finish, goTo, isLiveStep])
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
@@ -208,14 +262,22 @@ export default function OnboardingTour({
   }, [])
 
   return (
-    <div className="fixed inset-0 z-[100]" role="presentation">
+    <div
+      className={`fixed inset-0 z-[100] ${isLiveStep ? 'pointer-events-none' : ''}`}
+      role="presentation"
+    >
       {/* No-target steps behave like a modal; targeted steps dim everything
        * except the spotlight and keep outside clicks inert so a stray click
-       * cannot silently end the tour mid-step. */}
+       * cannot silently end the tour mid-step. A live step dims far less: the
+       * app underneath it is meant to be operated, not admired. */}
       {layout.spotlight ? (
         <div className="absolute inset-0" aria-hidden="true" />
       ) : (
-        <div className="absolute inset-0 bg-overlay/70 backdrop-blur-[1px]" onClick={finish} aria-hidden="true" />
+        <div
+          className={`pointer-events-auto absolute inset-0 bg-overlay/70 backdrop-blur-[1px] ${animations ? 'animate-fade-in' : ''}`}
+          onClick={finish}
+          aria-hidden="true"
+        />
       )}
 
       {layout.spotlight && (
@@ -227,19 +289,37 @@ export default function OnboardingTour({
             left: layout.spotlight.left,
             width: layout.spotlight.width,
             height: layout.spotlight.height,
-            boxShadow: '0 0 0 9999px hsl(var(--overlay) / 0.72)',
+            boxShadow: `0 0 0 9999px hsl(var(--overlay) / ${isLiveStep ? 0.4 : 0.72})`,
           }}
-        />
+        >
+          {/* Slow halo: one pulsing ring is the only movement on screen, so the
+            * eye lands on the target before it reads the card. */}
+          {animations && (
+            <div
+              key={`halo-${step.id}`}
+              className="tour-halo absolute inset-0 rounded-xl"
+            />
+          )}
+          {BRACKETS.map((bracket) => (
+            <span
+              key={`${step.id}-${bracket.id}`}
+              className={`tour-bracket ${bracket.sides}`}
+              style={bracket.style}
+            />
+          ))}
+        </div>
       )}
 
       <div
         ref={dialogRef}
         role="dialog"
-        aria-modal="true"
+        /* A live step leaves the rest of the app operable, so it must not claim
+         * to be modal — screen readers would hide the canvas being taught. */
+        aria-modal={isLiveStep ? undefined : true}
         aria-labelledby="onboarding-title"
         aria-describedby="onboarding-summary"
         tabIndex={-1}
-        className={`app-panel fixed flex flex-col overflow-hidden rounded-xl border border-border shadow-2xl outline-none ${animations ? 'transition-[top,left,width]' : ''} ${motionClass}`}
+        className={`pointer-events-auto app-panel fixed flex flex-col overflow-visible rounded-xl border border-border shadow-2xl outline-none ${animations ? 'transition-[top,left,width]' : ''} ${motionClass}`}
         style={{
           top: layout.card.top,
           left: layout.card.left,
@@ -247,9 +327,21 @@ export default function OnboardingTour({
           maxHeight: 'min(36rem, calc(100vh - 2rem))',
         }}
       >
-        <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border bg-surface px-4 py-3">
+        {caret && (
+          <span
+            key={`${step.id}-caret`}
+            className={`tour-caret tour-caret-${caret.side} ${animations ? 'animate-fade-in' : ''}`}
+            style={caretStyle(caret)}
+            aria-hidden="true"
+          />
+        )}
+        <div className="flex flex-shrink-0 items-center justify-between gap-3 overflow-hidden rounded-t-xl border-b border-border bg-surface px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground" aria-hidden="true">
+            <span
+              key={`icon-${step.id}`}
+              className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground ${animations ? 'animate-rise-in' : ''}`}
+              aria-hidden="true"
+            >
               <StepIcon className="h-5 w-5" />
             </span>
             <div className="min-w-0">
@@ -277,21 +369,33 @@ export default function OnboardingTour({
           Step {activeIndex + 1} of {ONBOARDING_STEPS.length}: {step.title}
         </p>
         <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
-          <div className="px-4 py-4">
-            <h2 id="onboarding-title" className="text-lg font-semibold leading-snug text-card-foreground">{step.title}</h2>
-            <p id="onboarding-summary" className="mt-1.5 text-sm font-medium text-primary">{step.summary}</p>
-            <p className="mt-3 text-sm leading-relaxed text-card-foreground/90">{step.detail}</p>
-            <h3 className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">In this stage</h3>
+          <div key={step.id} className="px-4 py-4">
+            <h2 id="onboarding-title" className={`text-lg font-semibold leading-snug text-card-foreground ${riseClass}`} style={riseDelay(0)}>{step.title}</h2>
+            <p id="onboarding-summary" className={`mt-1.5 text-sm font-medium text-primary ${riseClass}`} style={riseDelay(60)}>{step.summary}</p>
+            <p className={`mt-3 text-sm leading-relaxed text-card-foreground/90 ${riseClass}`} style={riseDelay(120)}>{step.detail}</p>
+            {isLiveStep && (
+              <div className={`mt-3 flex items-start gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 ${riseClass}`} style={riseDelay(180)}>
+                <Hand className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                <p className="text-xs leading-relaxed text-card-foreground">
+                  Live step — nothing is locked. Do it on the highlighted control now, then press Continue.
+                </p>
+              </div>
+            )}
+            <h3 className={`mt-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${riseClass}`} style={riseDelay(200)}>In this stage</h3>
             <ul className="mt-2 space-y-1.5">
-              {step.checklist.map((item) => (
-                <li key={item} className="flex gap-2.5 text-sm leading-relaxed text-card-foreground">
+              {step.checklist.map((item, index) => (
+                <li
+                  key={item}
+                  className={`flex gap-2.5 text-sm leading-relaxed text-card-foreground ${riseClass}`}
+                  style={riseDelay(240 + index * 70)}
+                >
                   <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
                   <span>{item}</span>
                 </li>
               ))}
             </ul>
             {showSampleAction && (
-              <div className="mt-4 rounded-md border border-primary/40 bg-primary/5 p-3">
+              <div className={`mt-4 rounded-md border border-primary/40 bg-primary/5 p-3 ${riseClass}`} style={riseDelay(480)}>
                 <h3 className="text-sm font-semibold text-card-foreground">Run a known circuit</h3>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                   Loads the tested 1N5817 half-wave rectifier (6 parts, 4 nets): the transient run shows OUT
@@ -305,6 +409,34 @@ export default function OnboardingTour({
               </div>
             )}
           </div>
+        </div>
+        {/* Step rail: every visited step stays reachable, and the current one
+          * widens so position in the tour is readable without counting. */}
+        <div className="flex flex-shrink-0 items-center justify-center gap-1.5 border-t border-border bg-surface/60 px-4 py-2.5">
+          {ONBOARDING_STEPS.map((entry, index) => {
+            const state = index < activeIndex ? 'done' : index === activeIndex ? 'current' : 'todo'
+            return (
+              <button
+                key={entry.id}
+                type="button"
+                onClick={() => goTo(index)}
+                aria-current={state === 'current' ? 'step' : undefined}
+                aria-label={
+                  state === 'current'
+                    ? `Current step: ${entry.title}`
+                    : `${state === 'done' ? 'Reviewed' : 'Upcoming'} step ${index + 1}: ${entry.title}`
+                }
+                title={entry.title}
+                className={`tour-step-dot h-1.5 rounded-full border border-transparent ${
+                  state === 'current'
+                    ? 'w-7 bg-primary'
+                    : state === 'done'
+                      ? 'w-3.5 bg-primary/45 hover:bg-primary/70'
+                      : 'w-3.5 bg-muted hover:bg-border'
+                }`}
+              />
+            )
+          })}
         </div>
         {/* CAD-wizard footer: shared classes, never hand-rolled per dialog. */}
         <div className="cad-footer-row flex-shrink-0">
@@ -325,7 +457,7 @@ export default function OnboardingTour({
             )}
           </div>
         </div>
-        <p className="flex-shrink-0 border-t border-border px-4 py-2 text-[11px] leading-relaxed text-muted-foreground">
+        <p className="flex-shrink-0 overflow-hidden rounded-b-xl border-t border-border px-4 py-2 text-[11px] leading-relaxed text-muted-foreground">
           Arrow keys move between steps, Esc closes. Always validate critical results independently before fabrication or before connecting real hardware.
         </p>
       </div>

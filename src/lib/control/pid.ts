@@ -68,9 +68,28 @@ function assertGains(gains: PidGains): number {
 /**
  * `C(s) = kp + ki/s + kd·s/(τs+1)`, assembled as one rational function:
  * `[(kpτ+kd)s² + (kp+kiτ)s + ki] / [τs² + s]`.
+ *
+ * The denominator always carries the integrator `s` and the filter `τs+1`. Two
+ * structures cancel against it exactly, and the cancellation is done here rather
+ * than left in the fraction:
+ *
+ *   - `kd = 0` — the numerator becomes `(τs+1)(kp·s + ki)`, so the filter pole is
+ *     not real: a PI controller is `kp + ki/s`, with one integrator and no lag.
+ *   - `kd = 0` *and* `ki = 0` — what is left is the pure gain `kp`.
+ *
+ * Leaving an uncompensated pole at the origin in a proportional controller would
+ * make every downstream reader (pole/zero maps, stability classification,
+ * spectral abscissa) report a marginally stable loop that is in fact stable.
  */
 export function pidTransferFunction(gains: PidGains): TransferFunction {
   const tau = assertGains(gains);
+  if (gains.kd === 0) {
+    if (gains.ki === 0) return { numerator: [gains.kp], denominator: [1] };
+    return { numerator: [gains.kp, gains.ki], denominator: [1, 0] };
+  }
+  if (gains.ki === 0) {
+    return { numerator: [gains.kp * tau + gains.kd, gains.kp], denominator: [tau, 1] };
+  }
   return {
     numerator: [gains.kp * tau + gains.kd, gains.kp + gains.ki * tau, gains.ki],
     denominator: [tau, 1, 0],
