@@ -1,17 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useDemoRequest } from '../workspace/useDemoRequest'
 import { Activity, Download, Info, Radio, X } from 'lucide-react'
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
+import TraceChart, { type TraceSeries } from '../charts/TraceChart'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { Input } from '../ui/input'
@@ -109,6 +99,9 @@ function formatDb(value: number): string {
   if (!Number.isFinite(value)) return value > 0 ? '∞' : '−∞'
   return `${value.toFixed(2)} dB`
 }
+
+/** Axis ticks are whole decibels; a cursor readout keeps two decimals. */
+const decibelAxis = (value: number) => `${value.toFixed(0)} dB`
 
 function formatReturnLoss(value: number): string {
   if (Number.isNaN(value)) return '—'
@@ -447,8 +440,13 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
         s11: 20 * Math.log10(Math.max(Math.hypot(point.s11.real, point.s11.imag), 1e-12)),
       }))
     : []
-  const s21Color = seriesColors[0]
-  const s11Color = seriesColors[1] ?? seriesColors[0]
+  const sParameterSeries = useMemo<TraceSeries[]>(
+    () => [
+      { key: 's21', label: 'S21 transmission', color: seriesColors[0] },
+      { key: 's11', label: 'S11 reflection', color: seriesColors[1] ?? seriesColors[0], dash: '5 4' },
+    ],
+    [seriesColors],
+  )
 
   const exportAntenna = () => {
     if (!antennaData) return
@@ -854,72 +852,21 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
                       </span>
                     </CardHeader>
                     <CardContent>
-                      <div className="h-80 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={filterChartData} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-                            <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" />
-                            <XAxis
-                              dataKey="mhz"
-                              type="number"
-                              scale="log"
-                              domain={[filterData.startMHz, filterData.stopMHz]}
-                              tickFormatter={(value) => formatAxisFrequency(Number(value))}
-                              stroke="hsl(var(--muted-foreground))"
-                              fontSize={11}
-                              minTickGap={28}
-                            />
-                            <YAxis
-                              domain={[-80, 5]}
-                              ticks={[-80, -60, -40, -20, 0]}
-                              allowDataOverflow
-                              stroke="hsl(var(--muted-foreground))"
-                              fontSize={11}
-                              width={46}
-                              tickFormatter={(value) => `${value} dB`}
-                            />
-                            <Tooltip
-                              labelFormatter={(value) => formatFrequency(Number(value))}
-                              formatter={(value, name) => [
-                                `${Number(value).toFixed(2)} dB`,
-                                name === 's21' ? 'S21 — transmission' : 'S11 — reflection',
-                              ]}
-                              contentStyle={{
-                                background: 'hsl(var(--popover))',
-                                border: '1px solid hsl(var(--border))',
-                                borderRadius: 6,
-                                fontSize: 12,
-                              }}
-                            />
-                            <Legend
-                              formatter={(value) => (value === 's21' ? 'S21 transmission' : 'S11 reflection')}
-                              wrapperStyle={{ fontSize: 11 }}
-                            />
-                            <ReferenceLine
-                              y={-3.01}
-                              stroke="hsl(var(--muted-foreground))"
-                              strokeDasharray="4 4"
-                              label={{ value: '−3 dB', position: 'insideTopRight', fontSize: 10 }}
-                            />
-                            <Line
-                              type="monotone"
-                              dataKey="s21"
-                              stroke={s21Color}
-                              strokeWidth={2}
-                              dot={false}
-                              isAnimationActive={false}
-                            />
-                            <Line
-                              type="monotone"
-                              dataKey="s11"
-                              stroke={s11Color}
-                              strokeWidth={1.5}
-                              strokeDasharray="5 4"
-                              dot={false}
-                              isAnimationActive={false}
-                            />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
+                      <TraceChart
+                        data={filterChartData}
+                        series={sParameterSeries}
+                        xKey="mhz"
+                        height={320}
+                        xLabel="Frequency"
+                        xFormatter={formatAxisFrequency}
+                        yFormatter={decibelAxis}
+                        readoutFormatter={formatDb}
+                        logX
+                        yDomain={[-80, 5]}
+                        yTicks={[-80, -60, -40, -20, 0]}
+                        referencesY={[{ value: -3.01, label: '−3 dB' }]}
+                        ariaLabel="Filter S-parameter sweep"
+                      />
                     </CardContent>
                   </Card>
 

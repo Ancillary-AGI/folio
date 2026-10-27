@@ -318,6 +318,8 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
         x: selectedPart.x,
         y: selectedPart.y,
         rotation: selectedPart.rotation,
+        locked: selectedPart.locked,
+        visible: selectedPart.visible,
       }
     : null
 

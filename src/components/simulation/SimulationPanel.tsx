@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, type ChangeEvent } from 'react'
 import { Play, Download, Zap, BarChart3, X, AlertCircle, Info } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import TraceChart, { type TraceRow, type TraceSeries } from '../charts/TraceChart'
 import {
   spiceEngine,
   type CircuitNetlist,
@@ -32,7 +32,7 @@ import { assessDesignMargins, type MarginItem, type MarginStatus } from '../../l
 import { useTheme } from '../../lib/theme/useTheme'
 import { chartSeriesColors } from '../../lib/theme/tokens'
 import { describeError } from '../../lib/utils'
-import { formatEngineering } from '../../lib/simulation/formatEngineering'
+import { formatEngineering, formatEngineeringPrecise } from '../../lib/simulation/formatEngineering'
 import { useDemoRequest } from '../workspace/useDemoRequest'
 
 interface SimulationPanelProps {
@@ -623,39 +623,32 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
     URL.revokeObjectURL(url)
   }
   
-  const getWaveformData = () => {
+  const waveformData = useMemo<TraceRow[]>(() => {
     if (!simulationResults?.waveforms) return []
-    
+
     const selectedWaveformData = simulationResults.waveforms.filter(wf =>
       selectedWaveforms.includes(wf.name)
     )
-    
+
     if (selectedWaveformData.length === 0) return []
-    
+
     // Combine all selected waveforms into a single dataset
     const maxLength = Math.max(...selectedWaveformData.map(wf => wf.data.length))
-    
+
     return Array.from({ length: maxLength }, (_, i) => {
-      const point: Record<string, number> = {}
-      
+      const point: TraceRow = {}
+
       selectedWaveformData.forEach(waveform => {
         if (i < waveform.data.length) {
-          if (!point.x) point.x = waveform.data[i].x
+          if (point.x === undefined) point.x = waveform.data[i].x
           point[waveform.name] = waveform.data[i].y
         }
       })
-      
+
       return point
     })
-  }
+  }, [simulationResults, selectedWaveforms])
   
-  const getWaveformColors = () => {
-    return selectedWaveforms.reduce<Record<string, string>>((acc, name, index) => {
-      acc[name] = seriesColors[index % seriesColors.length]
-      return acc
-    }, {})
-  }
-
   // Magnitude and phase share a chart only if they get separate axes; otherwise
   // a ±90° phase curve flattens a millivolt Bode magnitude onto the zero line.
   const selectedWaveformUnits = selectedWaveforms
@@ -663,8 +656,33 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
     .filter((unit): unit is string => unit !== undefined)
   const hasMagnitudeSeries = selectedWaveformUnits.some((unit) => unit !== 'deg')
   const hasPhaseSeries = selectedWaveformUnits.some((unit) => unit === 'deg')
-  const phaseAxisId = hasMagnitudeSeries && hasPhaseSeries ? 'right' : 'left'
   const logFrequencyAxis = selectedAnalysis === 'ac' || selectedAnalysis === 'noise'
+
+  const traceSeries = useMemo<TraceSeries[]>(
+    () => selectedWaveforms.map((name, index) => {
+      const waveform = simulationResults?.waveforms.find((candidate) => candidate.name === name)
+      return {
+        key: name,
+        color: seriesColors[index % seriesColors.length],
+        unit: waveform?.unit,
+        axis: hasMagnitudeSeries && hasPhaseSeries && waveform?.unit === 'deg' ? 'right' : 'left',
+      }
+    }),
+    [selectedWaveforms, simulationResults, hasMagnitudeSeries, hasPhaseSeries, seriesColors],
+  )
+
+  // The x axis means something different per analysis: seconds, hertz, or the
+  // swept component value. Label and format it as what it actually is.
+  const traceXLabel = logFrequencyAxis
+    ? 'Frequency'
+    : selectedAnalysis === 'dc-sweep'
+      ? parameters.sweepSource ?? 'Sweep'
+      : 'Time'
+  const traceXFormatter = (value: number) => {
+    if (logFrequencyAxis) return `${formatEngineering(value)}Hz`
+    if (selectedAnalysis === 'dc-sweep') return value.toPrecision(4)
+    return `${formatEngineering(value)}s`
+  }
 
   // A tolerance sweep is a distribution of DC biases, not a waveform: one point
   // per signal, so a line chart would draw nothing. Tabulate mean and spread.
@@ -1481,84 +1499,19 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
                 {selectedAnalysis !== 'montecarlo' && selectedWaveforms.length > 0 && (
                   <div className="flex-1 min-h-0">
                     <h4 className="text-sm font-medium mb-2">Waveform Plot</h4>
-                    <div className="h-64 w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={getWaveformData()}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis
-                            dataKey="x"
-                            type="number"
-                            // A frequency sweep spans decades; a linear x axis
-                            // squeezes 10 Hz–1 kHz into the first pixel.
-                            scale={logFrequencyAxis ? 'log' : 'linear'}
-                            domain={logFrequencyAxis ? ['auto', 'auto'] : ['dataMin', 'dataMax']}
-                            tickFormatter={(value) => {
-                              if (logFrequencyAxis) return formatEngineering(value)
-                              // A sweep's x axis is a component value, not a time:
-                              // scientific notation on "2 volts" reads as noise.
-                              if (selectedAnalysis === 'dc-sweep') return value.toPrecision(4)
-                              return formatEngineering(value)
-                            }}
-                          />
-                          <YAxis
-                            yAxisId="left"
-                            width={62}
-                            tickFormatter={formatEngineering}
-                          />
-                          {hasPhaseSeries && hasMagnitudeSeries && (
-                            <YAxis
-                              yAxisId="right"
-                              orientation="right"
-                              width={56}
-                              tickFormatter={formatEngineering}
-                            />
-                          )}
-                          <Tooltip
-                            formatter={(value: number, name: string) => [
-                              typeof value === 'number' ? formatEngineering(value) : value,
-                              name
-                            ]}
-                            labelFormatter={(value: number) => {
-                              if (logFrequencyAxis) {
-                                return `Frequency: ${formatEngineering(value)}Hz`
-                              }
-                              if (selectedAnalysis === 'dc-sweep') {
-                                return `${parameters.sweepSource ?? 'TEMP'} = ${value}`
-                              }
-                              return `Time: ${value}s`
-                            }}
-                          />
-                          <Legend />
-                          {selectedWaveforms.map(name => (
-                            <Line
-                              key={name}
-                              yAxisId={
-                                simulationResults?.waveforms.find(
-                                  (waveform) => waveform.name === name,
-                                )?.unit === 'deg'
-                                  ? phaseAxisId
-                                  : 'left'
-                              }
-                              type="monotone"
-                              dataKey={name}
-                              stroke={getWaveformColors()[name]}
-                              strokeWidth={2}
-                              dot={false}
-                            />
-                          ))}
-                          {playhead !== null && selectedAnalysis === 'transient' && (
-                            <Line
-                              type="monotone"
-                              dataKey={() => playhead}
-                              stroke="#888"
-                              strokeDasharray="4 4"
-                              dot={false}
-                              isAnimationActive={false}
-                            />
-                          )}
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
+                    <TraceChart
+                      data={waveformData}
+                      series={traceSeries}
+                      logX={logFrequencyAxis}
+                      height={280}
+                      xLabel={traceXLabel}
+                      xFormatter={traceXFormatter}
+                      yFormatter={formatEngineering}
+                      readoutFormatter={formatEngineeringPrecise}
+                      rightFormatter={(value) => `${value.toFixed(0)}°`}
+                      markerX={selectedAnalysis === 'transient' ? playhead : null}
+                      ariaLabel="Circuit response"
+                    />
                     {selectedAnalysis === 'transient' && simulationResults.waveforms.length > 0 && (
                       <div className="mt-2 flex items-center gap-2">
                         <Button

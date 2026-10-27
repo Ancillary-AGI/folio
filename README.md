@@ -4,7 +4,7 @@ Browser-based, offline-first engineering workbench for electronic CAD, mechanica
 design, simulation, robotics, and embedded development. Everything runs locally
 unless you explicitly configure a backend; no account is required for local use.
 
-**Status:** active development. Lint, both typechecks, 1,783 tests across 195
+**Status:** active development. Lint, both typechecks, 1,807 tests across 198
 files, the icon-button accessibility audit, and the production build all pass.
 
 ---
@@ -52,7 +52,7 @@ rules); it makes no model or network call, and its output is advisory.
   [docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md#url-scheme-and-why-the-workbench-stays-one-spa).
 - **Command palette** (**Ctrl/⌘+K**): search and run any workspace mode, demo or
   document action with the keyboard.
-- **Guided tour** (first run, replayable from Settings): eight steps with an
+- **Guided tour** (first run, replayable from Settings): nine steps with an
   animated spotlight that follows the real control or panel each step describes,
   switches workspaces as it goes, and persists or resumes progress. Arrow keys,
   Esc and a tab trap work; reduced-motion users get instant positioning.
@@ -307,7 +307,7 @@ npm run lint            # ESLint, zero warnings
 npm run a11y:buttons    # every icon-only button has an accessible name
 npm run typecheck       # app TypeScript
 npm run typecheck:node  # Vite/build config TypeScript
-npm test                # Vitest, 1,783 tests / 195 files
+npm test                # Vitest, 1,807 tests / 198 files
 npm run build           # production build
 npm run verify          # all of the gates above, in order
 npm run preview         # preview the build on port 4173

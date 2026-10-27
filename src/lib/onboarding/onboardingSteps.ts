@@ -1,5 +1,5 @@
 import {
-  Activity, Bot, CircuitBoard, Cpu, GitBranch, History, Layers3, Shield,
+  Activity, Bot, CircuitBoard, Cpu, GitBranch, History, Layers3, Shield, TrendingUp,
   type LucideIcon,
 } from 'lucide-react'
 import type { WorkspaceMode } from '../../stores/useAppStore'
@@ -86,6 +86,21 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     target: 'simulation-toggle',
     fallbackTarget: 'workspace-nav',
     placement: 'bottom',
+  },
+  {
+    id: 'waveforms',
+    title: 'Read the response, not just the picture',
+    summary: 'Zoom, pan and pin a cursor to take real numbers off the solver output.',
+    detail:
+      'Every trace chart in the workbench shares the same gestures: drag to zoom a window, shift-drag to pan, scroll to zoom under the pointer, click to pin a readout, and plus, minus, arrow keys or R when the chart has keyboard focus. A pinned cursor reports a value at a solved sample, never one interpolated between samples, so what you read is what the solver produced.',
+    checklist: [
+      'Zoom to the edge you are judging: a switching transient, a filter corner, a phase crossover',
+      'Pin a cursor instead of eyeballing the axis when a number goes into a report',
+      'Re-read the stated model and solver limits before treating a curve as evidence',
+    ],
+    mode: 'simulation',
+    icon: TrendingUp,
+    target: 'workspace-canvas',
   },
   {
     id: 'convert',

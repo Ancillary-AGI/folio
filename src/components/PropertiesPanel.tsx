@@ -14,6 +14,8 @@ interface ComponentInstance {
   x: number;
   y: number;
   rotation?: number;
+  locked?: boolean;
+  visible?: boolean;
 }
 
 interface PropertiesPanelProps {
@@ -27,29 +29,101 @@ interface PropertiesPanelProps {
  * row rhythm of a CAD properties panel, not a web form. Edits stage locally
  * and reach the design through Apply; lock/visibility are live toggle rows.
  */
+/**
+ * Keys the inspector itself owns: the canvas and the netlist builder read these
+ * from the saved properties, so an added attribute with the same name would
+ * silently fight the transform rows above it.
+ */
+const RESERVED_KEYS = new Set(['x', 'y', 'rotation', 'locked', 'visible']);
+
+/** Stable stand-in for "nothing selected" so the reload effect has a fixed identity. */
+const NO_PROPERTIES: Record<string, string | number | boolean> = {}
+
 export default function PropertiesPanel({ component, onUpdate, onClose }: PropertiesPanelProps) {
-  const [properties, setProperties] = useState(component?.properties || {});
-  const [position, setPosition] = useState({ x: component?.x || 0, y: component?.y || 0 });
-  const [rotation, setRotation] = useState(component?.rotation || 0);
-  const [isLocked, setIsLocked] = useState(false);
-  const [isVisible, setIsVisible] = useState(true);
+  // The workspace rebuilds its `component` prop on every render, so the staged
+  // editor reloads from the values it mirrors rather than the prop's identity:
+  // switching a canvas tool mid-edit used to roll the un-applied edits back and
+  // re-disable Apply, silently discarding what the designer had just typed.
+  const selectedId = component?.id ?? null;
+  const committedProperties = component?.properties ?? NO_PROPERTIES;
+  const committedX = component?.x ?? 0;
+  const committedY = component?.y ?? 0;
+  const committedRotation = component?.rotation ?? 0;
+  const committedLocked = component?.locked ?? false;
+  const committedVisible = component?.visible ?? true;
+
+  const [properties, setProperties] = useState(committedProperties);
+  const [position, setPosition] = useState({ x: committedX, y: committedY });
+  const [rotation, setRotation] = useState(committedRotation);
+  const [isLocked, setIsLocked] = useState(committedLocked);
+  const [isVisible, setIsVisible] = useState(committedVisible);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [draftKey, setDraftKey] = useState('');
+  const [draftValue, setDraftValue] = useState('');
+  const [attributeError, setAttributeError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (component) {
-      setProperties(component.properties);
-      setPosition({ x: component.x, y: component.y });
-      setRotation(component.rotation ?? 0);
-      setIsLocked(false);
-      setIsVisible(true);
-      setHasUnsavedChanges(false);
-    }
-  }, [component]);
+    setProperties(committedProperties);
+    setPosition({ x: committedX, y: committedY });
+    setRotation(committedRotation);
+    setIsLocked(committedLocked);
+    setIsVisible(committedVisible);
+    setHasUnsavedChanges(false);
+    setDraftKey('');
+    setDraftValue('');
+    setAttributeError(null);
+  }, [
+    selectedId,
+    committedProperties,
+    committedX,
+    committedY,
+    committedRotation,
+    committedLocked,
+    committedVisible,
+  ]);
 
   if (!component) return null;
 
   const handlePropertyChange = (key: string, value: string | number | boolean) => {
     setProperties((prev) => ({ ...prev, [key]: value }));
+    setHasUnsavedChanges(true);
+  };
+
+  const addAttribute = () => {
+    const key = draftKey.trim();
+    if (!key) {
+      setAttributeError('Enter a parameter name.');
+      return;
+    }
+    if (!/^[A-Za-z][A-Za-z0-9_.]{0,31}$/.test(key)) {
+      setAttributeError('Names start with a letter and use letters, digits, "." or "_".');
+      return;
+    }
+    if (RESERVED_KEYS.has(key.toLowerCase())) {
+      setAttributeError(`"${key}" is set by the Transform and Display rows.`);
+      return;
+    }
+    if (properties[key] !== undefined) {
+      setAttributeError(`"${key}" is already an attribute of this part.`);
+      return;
+    }
+    const raw = draftValue.trim();
+    const numeric = raw === '' ? Number.NaN : Number(raw);
+    // '5V', '1u' and '0,0 1u,5' are SPICE-scaled or structured values and must
+    // stay text; only a bare number becomes a numeric field.
+    const value = Number.isFinite(numeric) && /^-?\d*\.?\d+(e-?\d+)?$/i.test(raw) ? numeric : raw;
+    handlePropertyChange(key, value);
+    setDraftKey('');
+    setDraftValue('');
+    setAttributeError(null);
+  };
+
+  const removeAttribute = (key: string) => {
+    setProperties((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
     setHasUnsavedChanges(true);
   };
 
@@ -244,42 +318,89 @@ export default function PropertiesPanel({ component, onUpdate, onClose }: Proper
         </div>
 
         {/* ── Attributes ── */}
-        {Object.keys(properties).length > 0 && (
-          <>
-            <div className="cad-section-title">Attributes</div>
-            {Object.entries(properties).map(([key, value]) => {
-              const propertyType = getPropertyType(key, value);
-              return (
-                <div key={key} className="cad-prop-row">
-                  <span className="cad-prop-label" title={key}>
-                    {formatPropertyLabel(key)}
-                  </span>
-                  {propertyType === 'checkbox' ? (
-                    <input
-                      type="checkbox"
-                      checked={value as boolean}
-                      onChange={(e) => handlePropertyChange(key, e.target.checked)}
-                      className="h-3 w-3 accent-primary"
-                      aria-label={formatPropertyLabel(key)}
-                    />
-                  ) : (
-                    <input
-                      type={propertyType}
-                      value={value as string | number}
-                      onChange={(e) =>
-                        handlePropertyChange(
-                          key,
-                          propertyType === 'number' ? parseFloat(e.target.value) || 0 : e.target.value
-                        )
-                      }
-                      className="cad-field"
-                      aria-label={formatPropertyLabel(key)}
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </>
+        <div className="cad-section-title">
+          <span>Attributes</span>
+          <span className="font-mono tabular-nums normal-case tracking-normal">
+            {Object.keys(properties).length}
+          </span>
+        </div>
+        {Object.entries(properties).map(([key, value]) => {
+          const propertyType = getPropertyType(key, value);
+          return (
+            <div key={key} className="cad-prop-row">
+              <span className="cad-prop-label" title={key}>
+                {formatPropertyLabel(key)}
+              </span>
+              <div className="flex min-w-0 items-center gap-1">
+                {propertyType === 'checkbox' ? (
+                  <input
+                    type="checkbox"
+                    checked={value as boolean}
+                    onChange={(e) => handlePropertyChange(key, e.target.checked)}
+                    className="h-3 w-3 accent-primary"
+                    aria-label={formatPropertyLabel(key)}
+                  />
+                ) : (
+                  <input
+                    type={propertyType}
+                    value={value as string | number}
+                    onChange={(e) =>
+                      handlePropertyChange(
+                        key,
+                        propertyType === 'number' ? parseFloat(e.target.value) || 0 : e.target.value
+                      )
+                    }
+                    className="cad-field"
+                    aria-label={formatPropertyLabel(key)}
+                  />
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-[22px] w-[22px] shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => removeAttribute(key)}
+                  title={`Remove ${key}`}
+                  aria-label={`Remove ${key} attribute`}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+        {/* A placed source is only as editable as the parameters you can give
+            it, so any SPICE key can be added here, not just the library defaults. */}
+        <div className="cad-prop-row">
+          <input
+            type="text"
+            value={draftKey}
+            onChange={(e) => setDraftKey(e.target.value)}
+            placeholder="parameter"
+            className="cad-field font-mono"
+            aria-label="New attribute name"
+          />
+          <input
+            type="text"
+            value={draftValue}
+            onChange={(e) => setDraftValue(e.target.value)}
+            placeholder="value"
+            className="cad-field font-mono"
+            aria-label="New attribute value"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-[22px] shrink-0 px-2 text-[10px]"
+            onClick={addAttribute}
+            aria-label="Add attribute"
+          >
+            Add
+          </Button>
+        </div>
+        {attributeError && (
+          <p className="px-2 text-[10px] text-destructive" role="alert">
+            {attributeError}
+          </p>
         )}
 
         {/* ── Pins ── */}

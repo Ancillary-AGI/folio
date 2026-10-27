@@ -12,15 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { Input } from '../ui/input'
 import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign'
 import { Badge } from '../ui/badge'
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
+import TraceChart from '../charts/TraceChart'
 import {
   bodeResponse,
   simulateStep,
@@ -34,6 +26,8 @@ import {
 } from '../../lib/control/transferFunction'
 import { pidClosedLoop, pidTransferFunction } from '../../lib/control/pid'
 import { describeError } from '../../lib/utils'
+import { chartSeriesColors } from '../../lib/theme/tokens'
+import { useTheme } from '../../lib/theme/useTheme'
 
 interface ControlSystemsPanelProps {
   onClose: () => void
@@ -114,6 +108,9 @@ export default function ControlSystemsPanel({ onClose }: ControlSystemsPanelProp
   const [dt, setDt] = useState(finiteOr(saved?.dt, 0.005))
   const [fMin, setFMin] = useState(finiteOr(saved?.fMin, 0.01))
   const [fMax, setFMax] = useState(finiteOr(saved?.fMax, 1000))
+
+  const { theme } = useTheme()
+  const seriesColors = useMemo(() => chartSeriesColors(theme), [theme])
 
   usePublishDomainDesign('control', {
     numeratorText, denominatorText, usePid, kp, ki, kd, filterTau, tEnd, dt, fMin, fMax,
@@ -370,20 +367,17 @@ export default function ControlSystemsPanel({ onClose }: ControlSystemsPanelProp
                       <CardTitle className="text-base">Step response</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={analysis.timeData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(value: number) => value.toFixed(2)} />
-                            <YAxis tickFormatter={(value: number) => formatNumber(value, 2)} />
-                            <Tooltip
-                              labelFormatter={(value: number) => `Time: ${value.toFixed(4)} s`}
-                              formatter={(value: number) => [formatNumber(value, 5), 'Output']}
-                            />
-                            <Line type="monotone" dataKey="output" stroke="#2563eb" strokeWidth={2} dot={false} isAnimationActive={false} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
+                      <TraceChart
+                        data={analysis.timeData}
+                        xKey="time"
+                        series={[{ key: 'output', label: 'Output', color: seriesColors[0] }]}
+                        xLabel="Time"
+                        xFormatter={(value) => `${formatNumber(value, 4)} s`}
+                        yFormatter={(value) => formatNumber(value, 3)}
+                        readoutFormatter={(value) => formatNumber(value, 6)}
+                        height={256}
+                        ariaLabel="Closed-loop step response"
+                      />
                       <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-muted-foreground">
                         <span>Final: {formatNumber(analysis.metrics.steadyState, 4)}</span>
                         <span>Rise 10–90 %: {formatNumber(analysis.metrics.riseTimeSeconds, 3)} s</span>
@@ -397,24 +391,18 @@ export default function ControlSystemsPanel({ onClose }: ControlSystemsPanelProp
                       <CardTitle className="text-base">Bode magnitude</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={analysis.bodeData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="decade" type="number" domain={['dataMin', 'dataMax']} ticks={decadeTicks} tickFormatter={(value: number) => `${(10 ** value).toPrecision(2)} Hz`} />
-                            <YAxis
-                              domain={[-140, 0]}
-                              ticks={[-120, -90, -60, -30, 0]}
-                              tickFormatter={(value: number) => `${formatNumber(value, 0)} dB`}
-                            />
-                            <Tooltip
-                              labelFormatter={(value: number) => `${(10 ** value).toPrecision(3)} Hz`}
-                              formatter={(value: number) => [`${value.toFixed(2)} dB`, 'Magnitude']}
-                            />
-                            <Line type="monotone" dataKey="magnitudeDb" stroke="#059669" strokeWidth={2} dot={false} isAnimationActive={false} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
+                      <TraceChart
+                        data={analysis.bodeData}
+                        xKey="decade"
+                        series={[{ key: 'magnitudeDb', label: 'Magnitude', unit: 'dB', color: seriesColors[1] }]}
+                        ticks={decadeTicks}
+                        xLabel="Frequency"
+                        xFormatter={(value) => `${(10 ** value).toPrecision(3)} Hz`}
+                        yFormatter={(value) => `${formatNumber(value, 0)} dB`}
+                        readoutFormatter={(value) => `${formatNumber(value, 2)} dB`}
+                        height={256}
+                        ariaLabel="Bode magnitude"
+                      />
                     </CardContent>
                   </Card>
 
@@ -423,20 +411,18 @@ export default function ControlSystemsPanel({ onClose }: ControlSystemsPanelProp
                       <CardTitle className="text-base">Bode phase</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={analysis.bodeData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="decade" type="number" domain={['dataMin', 'dataMax']} ticks={decadeTicks} tickFormatter={(value: number) => `${(10 ** value).toPrecision(2)} Hz`} />
-                            <YAxis tickFormatter={(value: number) => `${value}°`} />
-                            <Tooltip
-                              labelFormatter={(value: number) => `${(10 ** value).toPrecision(3)} Hz`}
-                              formatter={(value: number) => [`${value.toFixed(1)}°`, 'Phase']}
-                            />
-                            <Line type="monotone" dataKey="phaseDeg" stroke="#d97706" strokeWidth={2} dot={false} isAnimationActive={false} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
+                      <TraceChart
+                        data={analysis.bodeData}
+                        xKey="decade"
+                        series={[{ key: 'phaseDeg', label: 'Phase', unit: '°', color: seriesColors[2] }]}
+                        ticks={decadeTicks}
+                        xLabel="Frequency"
+                        xFormatter={(value) => `${(10 ** value).toPrecision(3)} Hz`}
+                        yFormatter={(value) => `${formatNumber(value, 0)}°`}
+                        readoutFormatter={(value) => `${formatNumber(value, 2)}°`}
+                        height={256}
+                        ariaLabel="Bode phase"
+                      />
                     </CardContent>
                   </Card>
 

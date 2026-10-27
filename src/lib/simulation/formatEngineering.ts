@@ -14,17 +14,30 @@ const SI_PREFIXES: Array<[number, string]> = [
 ]
 
 /**
- * Axis and tooltip numbers with an SI prefix. A noise floor of 2e-11 must read
- * as "20 p", not "0.00" five times down the axis.
+ * One argument on purpose. Chart tick formatters are called as
+ * `formatter(value, index)`, so a second (options) parameter here would receive
+ * the tick index and `toPrecision(0)` would throw at render time. Use
+ * `formatEngineeringPrecise` when a readout needs more digits.
  */
 export function formatEngineering(value: number): string {
+  return formatScaled(value, 3)
+}
+
+/** The same SI-prefixed scale with six significant digits, for cursor readouts. */
+export function formatEngineeringPrecise(value: number): string {
+  return formatScaled(value, 6)
+}
+
+function formatScaled(value: number, significantDigits: number): string {
   if (!Number.isFinite(value)) return '—'
   if (value === 0) return '0'
   const magnitude = Math.abs(value)
   const [scale, prefix] = SI_PREFIXES.find(([limit]) => magnitude >= limit) ?? [1e-24, 'y']
   // Round before choosing decimals: 99.9999999999 must read "100m", not
   // "100.0m", or float noise leaks into every axis label.
-  const scaled = Number((value / scale).toPrecision(3))
-  const decimals = Math.abs(scaled) >= 100 ? 0 : Math.abs(scaled) >= 10 ? 1 : 2
+  const digits = Math.min(Math.max(Math.trunc(significantDigits), 1), 100)
+  const scaled = Number((value / scale).toPrecision(digits))
+  const integralDigits = Math.abs(scaled) >= 1 ? Math.floor(Math.abs(scaled)).toString().length : 1
+  const decimals = Math.min(100, Math.max(0, digits - integralDigits))
   return `${scaled.toFixed(decimals)}${prefix}`
 }

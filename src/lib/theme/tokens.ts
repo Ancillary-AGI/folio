@@ -366,6 +366,16 @@ export function chartSeriesColors(themeId: ThemeId): string[] {
   return CHART_TOKEN_NAMES.map((token) => `hsl(${tokens[token]})`)
 }
 
+/**
+ * Literal `hsl(...)` for one non-series token, e.g. `--muted-foreground` for a
+ * grid line or reference marker. Same presentation-attribute reason as
+ * `chartSeriesColors`: a `var()` in an SVG `stroke` attribute is not resolved.
+ */
+export function chartColor(themeId: ThemeId, token: string): string {
+  const value = THEMES[themeId][token]
+  return value !== undefined && isHslTriplet(value) ? `hsl(${value})` : 'currentColor'
+}
+
 /** Human label for a preference, e.g. for the status bar and tooltips. */
 export function describeTheme(preference: ThemePreference, resolved: ThemeId): string {
   if (preference === 'system') {

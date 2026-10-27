@@ -34,7 +34,8 @@
 - **Placement**: click-to-arm or drag from the 39-part library, grid snap, rulers
 - **Wiring**: click-to-click routes, junctions, net labels, wire tool, delete tool
 - **Selection & editing**: properties inspector, reference designators, pin table,
-  position/rotation, undo/redo, autosave
+  position/rotation, arbitrary SPICE attributes added or removed per part,
+  undo/redo, autosave
 - **Multi-sheet**: global-label stitching, duplicate-reference rejection
 - **Interchange**: KiCad netlist import/export with round-trip tests
 
@@ -51,7 +52,12 @@
   X propagation, loop detection) runnable from the panel
 - **Mixed-signal**: lockstep bridge between digital events and analog PWL sources
 - **Netlists**: SPICE deck export and import
-- **Waveforms**: interactive charts with probes, measurements, and playback
+- **Waveforms**: charts with probes, measurements, and playback
+- **Chart interaction**: drag to zoom a window, shift-drag to pan, wheel to zoom
+  under the pointer, click to pin a cursor, `+`/`-`/arrows/`R` from the keyboard.
+  Zoomed windows snap onto solved samples and the readout prints those samples,
+  so a pinned cursor never reports an interpolated guess. Shared by the circuit,
+  control-systems, electric-machine and RF-filter plots
 - **Truth checks**: solver outputs compared against independently computed
   reference equations in the test suite
 
@@ -221,7 +227,7 @@
   theme names
 - **Units & behavior**: metric/imperial, animation toggle, autosave interval,
   onboarding replay
-- **Guided tour**: eight-step first-run walkthrough with an animated spotlight
+- **Guided tour**: nine-step first-run walkthrough with an animated spotlight
   that follows real controls across workspaces, reveals the component library,
   and persists or resumes progress; keyboard arrows, Esc, tab trapping and
   reduced-motion support
@@ -233,7 +239,7 @@
 
 - **CI**: lint (zero warnings), typecheck (app + build config), button-label
   audit, full test suite, production build
-- **Tests**: 1,783 tests across 195 files, including engine truth tests and React
+- **Tests**: 1,807 tests across 198 files, including engine truth tests and React
   render/integration tests
 - **Build**: heavily code-split; feature panels and vendor chunks load on demand
 

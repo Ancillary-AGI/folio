@@ -9,16 +9,7 @@ import { X, AlertCircle, Gauge } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { Input } from '../ui/input'
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
+import TraceChart, { type TraceSeries } from '../charts/TraceChart'
 import {
   BLDC_PRESETS,
   DC_MACHINE_PRESETS,
@@ -30,6 +21,9 @@ import {
   simulateStepper,
 } from '../../lib/electronics/machineDynamics'
 import { describeError } from '../../lib/utils'
+import { formatEngineering } from '../../lib/simulation/formatEngineering'
+import { chartSeriesColors } from '../../lib/theme/tokens'
+import { useTheme } from '../../lib/theme/useTheme'
 import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign'
 
 interface MachineSimulatorPanelProps {
@@ -61,6 +55,13 @@ function format(value: number, digits = 2, unit = ''): string {
   }
   return `${value.toFixed(digits)}${unit}`
 }
+
+/** Axis ticks stay compact; the cursor readout keeps the solved digits. */
+const secondsAxis = (value: number) => `${formatEngineering(value)}s`
+const engineeringAxis = (value: number) => formatEngineering(value)
+const ampereAxis = (value: number) => `${formatEngineering(value)} A`
+const percentAxis = (value: number) => `${value.toFixed(0)}%`
+const machineReadout = (value: number) => format(value, 4)
 
 interface MachineDesign {
   family?: Family
@@ -114,6 +115,46 @@ export default function MachineSimulatorPanel({ onClose }: MachineSimulatorPanel
   const [stepperLoad, setStepperLoad] = useState(machineNumber(saved?.stepperLoad, 0))
   const [duration, setDuration] = useState(machineNumber(saved?.duration, 1))
   const [dt, setDt] = useState(machineNumber(saved?.dt, 0.001))
+
+  const { theme } = useTheme()
+  const seriesColors = useMemo(() => chartSeriesColors(theme), [theme])
+  const dcSpeedSeries = useMemo<TraceSeries[]>(
+    () => [
+      { key: 'rpm', label: 'Speed (rpm)', color: seriesColors[0], unit: 'rpm' },
+      { key: 'current', label: 'Current (A)', color: seriesColors[1], axis: 'right', unit: 'A' },
+    ],
+    [seriesColors],
+  )
+  const bldcSeries = useMemo<TraceSeries[]>(
+    () => [
+      { key: 'rpm', label: 'Speed (rpm)', color: seriesColors[0], unit: 'rpm' },
+      { key: 'id', label: 'id (A)', color: seriesColors[2], unit: 'A' },
+      { key: 'iq', label: 'iq (A)', color: seriesColors[1], unit: 'A' },
+    ],
+    [seriesColors],
+  )
+  const stepperPositionSeries = useMemo<TraceSeries[]>(
+    () => [
+      { key: 'command', label: 'Command (steps)', color: seriesColors[3] },
+      { key: 'actual', label: 'Rotor (steps)', color: seriesColors[0] },
+    ],
+    [seriesColors],
+  )
+  const stepperSpeedSeries = useMemo<TraceSeries[]>(
+    () => [
+      { key: 'rate', label: 'Speed (steps/s)', color: seriesColors[0] },
+      { key: 'currentPct', label: 'Current (%)', color: seriesColors[1], axis: 'right' },
+    ],
+    [seriesColors],
+  )
+  const powerSeries = useMemo<TraceSeries[]>(
+    () => [
+      { key: 'torque', label: 'Torque (N·m)', color: seriesColors[2], unit: 'N·m' },
+      { key: 'electrical', label: 'Electrical (W)', color: seriesColors[3], unit: 'W' },
+      { key: 'mechanical', label: 'Mechanical (W)', color: seriesColors[4], unit: 'W' },
+    ],
+    [seriesColors],
+  )
 
   usePublishDomainDesign('machines', {
     family, dcPresetId, bldcPresetId, stepperPresetId, voltage, loadTorque, loadResistance,
@@ -412,39 +453,34 @@ export default function MachineSimulatorPanel({ onClose }: MachineSimulatorPanel
                   <Card>
                     <CardHeader className="pb-2"><CardTitle className="text-base">Speed and current</CardTitle></CardHeader>
                     <CardContent>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={result.speedData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(value: number) => `${value.toFixed(2)} s`} />
-                            <YAxis yAxisId="speed" tickFormatter={(value: number) => `${value.toFixed(0)}`} />
-                            <YAxis yAxisId="current" orientation="right" tickFormatter={(value: number) => `${value.toFixed(1)}`} />
-                            <Tooltip labelFormatter={(value: number) => `Time: ${value.toFixed(4)} s`} />
-                            <Legend />
-                            <Line yAxisId="speed" type="monotone" dataKey="rpm" name="Speed (rpm)" stroke="#2563eb" strokeWidth={2} dot={false} isAnimationActive={false} />
-                            <Line yAxisId="current" type="monotone" dataKey="current" name="Current (A)" stroke="#dc2626" strokeWidth={2} dot={false} isAnimationActive={false} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
+                      <TraceChart
+                        data={result.speedData}
+                        xKey="time"
+                        series={dcSpeedSeries}
+                        height={256}
+                        xLabel="Time"
+                        xFormatter={secondsAxis}
+                        yFormatter={engineeringAxis}
+                        readoutFormatter={machineReadout}
+                        rightFormatter={ampereAxis}
+                        ariaLabel="DC machine speed and current response"
+                      />
                     </CardContent>
                   </Card>
                   <Card>
                     <CardHeader className="pb-2"><CardTitle className="text-base">Torque and power</CardTitle></CardHeader>
                     <CardContent>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={result.powerData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(value: number) => `${value.toFixed(2)} s`} />
-                            <YAxis tickFormatter={(value: number) => value.toFixed(1)} />
-                            <Tooltip labelFormatter={(value: number) => `Time: ${value.toFixed(4)} s`} />
-                            <Legend />
-                            <Line type="monotone" dataKey="torque" name="Torque (N·m)" stroke="#7c3aed" strokeWidth={2} dot={false} isAnimationActive={false} />
-                            <Line type="monotone" dataKey="electrical" name="Electrical (W)" stroke="#d97706" strokeWidth={2} dot={false} isAnimationActive={false} />
-                            <Line type="monotone" dataKey="mechanical" name="Mechanical (W)" stroke="#059669" strokeWidth={2} dot={false} isAnimationActive={false} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
+                      <TraceChart
+                        data={result.powerData}
+                        xKey="time"
+                        series={powerSeries}
+                        height={256}
+                        xLabel="Time"
+                        xFormatter={secondsAxis}
+                        yFormatter={engineeringAxis}
+                        readoutFormatter={machineReadout}
+                        ariaLabel="DC machine torque and power response"
+                      />
                     </CardContent>
                   </Card>
                 </div>
@@ -461,39 +497,33 @@ export default function MachineSimulatorPanel({ onClose }: MachineSimulatorPanel
                   <Card>
                     <CardHeader className="pb-2"><CardTitle className="text-base">Speed and dq currents</CardTitle></CardHeader>
                     <CardContent>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={result.speedData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(value: number) => `${value.toFixed(2)} s`} />
-                            <YAxis tickFormatter={(value: number) => value.toFixed(0)} />
-                            <Tooltip labelFormatter={(value: number) => `Time: ${value.toFixed(4)} s`} />
-                            <Legend />
-                            <Line type="monotone" dataKey="rpm" name="Speed (rpm)" stroke="#2563eb" strokeWidth={2} dot={false} isAnimationActive={false} />
-                            <Line type="monotone" dataKey="id" name="id (A)" stroke="#7c3aed" strokeWidth={2} dot={false} isAnimationActive={false} />
-                            <Line type="monotone" dataKey="iq" name="iq (A)" stroke="#dc2626" strokeWidth={2} dot={false} isAnimationActive={false} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
+                      <TraceChart
+                        data={result.speedData}
+                        xKey="time"
+                        series={bldcSeries}
+                        height={256}
+                        xLabel="Time"
+                        xFormatter={secondsAxis}
+                        yFormatter={engineeringAxis}
+                        readoutFormatter={machineReadout}
+                        ariaLabel="BLDC speed and dq-current response"
+                      />
                     </CardContent>
                   </Card>
                   <Card>
                     <CardHeader className="pb-2"><CardTitle className="text-base">Torque and power</CardTitle></CardHeader>
                     <CardContent>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={result.powerData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(value: number) => `${value.toFixed(2)} s`} />
-                            <YAxis tickFormatter={(value: number) => value.toFixed(2)} />
-                            <Tooltip labelFormatter={(value: number) => `Time: ${value.toFixed(4)} s`} />
-                            <Legend />
-                            <Line type="monotone" dataKey="torque" name="Torque (N·m)" stroke="#7c3aed" strokeWidth={2} dot={false} isAnimationActive={false} />
-                            <Line type="monotone" dataKey="electrical" name="Electrical (W)" stroke="#d97706" strokeWidth={2} dot={false} isAnimationActive={false} />
-                            <Line type="monotone" dataKey="mechanical" name="Mechanical (W)" stroke="#059669" strokeWidth={2} dot={false} isAnimationActive={false} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
+                      <TraceChart
+                        data={result.powerData}
+                        xKey="time"
+                        series={powerSeries}
+                        height={256}
+                        xLabel="Time"
+                        xFormatter={secondsAxis}
+                        yFormatter={engineeringAxis}
+                        readoutFormatter={machineReadout}
+                        ariaLabel="BLDC torque and power response"
+                      />
                     </CardContent>
                   </Card>
                 </div>
@@ -510,38 +540,34 @@ export default function MachineSimulatorPanel({ onClose }: MachineSimulatorPanel
                   <Card>
                     <CardHeader className="pb-2"><CardTitle className="text-base">Command and rotor position</CardTitle></CardHeader>
                     <CardContent>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={result.positionData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(value: number) => `${value.toFixed(2)} s`} />
-                            <YAxis tickFormatter={(value: number) => value.toFixed(0)} />
-                            <Tooltip labelFormatter={(value: number) => `Time: ${value.toFixed(4)} s`} />
-                            <Legend />
-                            <Line type="monotone" dataKey="command" name="Command (steps)" stroke="#94a3b8" strokeWidth={2} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
-                            <Line type="monotone" dataKey="actual" name="Rotor (steps)" stroke="#2563eb" strokeWidth={2} dot={false} isAnimationActive={false} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
+                      <TraceChart
+                        data={result.positionData}
+                        xKey="time"
+                        series={stepperPositionSeries}
+                        height={256}
+                        xLabel="Time"
+                        xFormatter={secondsAxis}
+                        yFormatter={engineeringAxis}
+                        readoutFormatter={machineReadout}
+                        ariaLabel="Stepper command and rotor position response"
+                      />
                     </CardContent>
                   </Card>
                   <Card>
                     <CardHeader className="pb-2"><CardTitle className="text-base">Speed and phase current</CardTitle></CardHeader>
                     <CardContent>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={result.speedData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(value: number) => `${value.toFixed(2)} s`} />
-                            <YAxis yAxisId="rate" tickFormatter={(value: number) => value.toFixed(0)} />
-                            <YAxis yAxisId="current" orientation="right" tickFormatter={(value: number) => `${value.toFixed(0)}%`} />
-                            <Tooltip labelFormatter={(value: number) => `Time: ${value.toFixed(4)} s`} />
-                            <Legend />
-                            <Line yAxisId="rate" type="monotone" dataKey="rate" name="Speed (steps/s)" stroke="#2563eb" strokeWidth={2} dot={false} isAnimationActive={false} />
-                            <Line yAxisId="current" type="monotone" dataKey="currentPct" name="Current (%)" stroke="#dc2626" strokeWidth={2} dot={false} isAnimationActive={false} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
+                      <TraceChart
+                        data={result.speedData}
+                        xKey="time"
+                        series={stepperSpeedSeries}
+                        height={256}
+                        xLabel="Time"
+                        xFormatter={secondsAxis}
+                        yFormatter={engineeringAxis}
+                        readoutFormatter={machineReadout}
+                        rightFormatter={percentAxis}
+                        ariaLabel="Stepper speed and phase-current response"
+                      />
                     </CardContent>
                   </Card>
                 </div>
