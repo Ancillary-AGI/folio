@@ -235,7 +235,7 @@
   theme names
 - **Units & behavior**: metric/imperial, animation toggle, autosave interval,
   onboarding replay
-- **Guided tour**: eleven-step first-run walkthrough with an animated spotlight —
+- **Guided tour**: thirteen-step first-run walkthrough with an animated spotlight —
   pulsing halo, viewfinder brackets and a caret aimed at the control each step
   describes — that follows real controls across workspaces, reveals the component
   library, and persists or resumes progress. Gesture steps (wiring, chart zoom,
@@ -250,6 +250,35 @@
   an accessible name, enforced by `npm run a11y:buttons` in CI
 - **Language selector**: preference stored; English strings only today 🟡
 
+## 🎓 Help, Guides & Tutorials ✅
+
+- **CAD-style hover help**: resting on a tool-rail button, header control,
+  workspace family or workspace tab raises a delayed (550 ms) one-line
+  description with its keycap. Focus opens it immediately; Escape, scroll or a
+  pointer leave dismisses it. Placement is computed against the trigger and the
+  viewport, flips to whichever side fits and clamps on tiny windows, and the
+  trigger only carries `aria-describedby` while the tooltip is open.
+- **Help centre** (**F1**, **?**, the header help button or the workspace
+  **Guide** button): searchable tabs for tutorials, a guide to all 25
+  workspaces, the control reference and the shortcut table. It reads the same
+  description registry as the tooltips, so a control cannot be explained one way
+  on hover and another way in the guide; workspace guides show their capability
+  record count so a result can be bounded before it is trusted.
+- **Seven hands-on tutorials**: rectifier → transient → PCB → 3D → BOM, control
+  and the ML/heuristic toolbox, RF filters, two-link robotics, the mechanical
+  enclosure, HDL/FPGA/IC, and the agent verifier. Each starts from a real demo
+  board, switches workspace per step, names the actual buttons to press and what
+  should become visible. Progress is stored per tutorial in this browser and
+  resumable. **Steps are self-checked: the app does not watch the screen or grade
+  the result**, and the copy says so.
+- **Guided demos**: demos that a tutorial is built on carry a **Guided** chip in
+  the gallery with a one-click **Guided** action, so discovery and walkthrough
+  cannot name different boards. Tests fail if a tutorial cites a missing demo or
+  workspace.
+- **Tests**: tooltip timing, focus/dismiss behaviour and placement maths; help
+  centre search and tabs; tutorial integrity (real demo ids, real modes, step
+  copy) and runner progress; the shell's header and F1 entry points.
+
 ## 🛠 Quality Infrastructure ✅
 
 - **Capabilities and limits register**: `src/lib/workspace/limitsRegistry.ts`
@@ -263,7 +292,7 @@
   "always correct". Cloud-gated records carry a **cloud** marker.
 - **CI**: lint (zero warnings), typecheck (app + build config), button-label
   audit, full test suite, production build
-- **Tests**: 2,129 tests across 212 files, including engine truth tests and React
+- **Tests**: 2,166 tests across 216 files, including engine truth tests and React
   render/integration tests
 - **Build**: heavily code-split; feature panels and vendor chunks load on demand
 

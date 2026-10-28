@@ -15,8 +15,10 @@
   Activity,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
+import HoverHelp from '../ui/HoverHelp'
 import { useAppStore } from '../../stores/useAppStore'
 import { useProjectStore } from '../../stores/useProjectStore'
+import type { HelpTopicId } from '../../lib/help/helpTopics'
 import { buildDemoBoard } from '../../lib/demo/demoBoard'
 
 interface ToolRailProps {
@@ -25,16 +27,23 @@ interface ToolRailProps {
 }
 
 const POINTER_TOOLS = [
-  { id: 'select', label: 'Select', key: 'V', icon: MousePointer },
-  { id: 'wire', label: 'Wire', key: 'W', icon: Zap },
-  { id: 'delete', label: 'Delete', key: 'D', icon: Trash2 },
-] as const
+  { id: 'select', topicId: 'rail.select', label: 'Select', key: 'V', icon: MousePointer },
+  { id: 'wire', topicId: 'rail.wire', label: 'Wire', key: 'W', icon: Zap },
+  { id: 'delete', topicId: 'rail.delete', label: 'Delete', key: 'D', icon: Trash2 },
+] as const satisfies ReadonlyArray<{
+  id: 'select' | 'wire' | 'delete'
+  topicId: HelpTopicId
+  label: string
+  key: string
+  icon: typeof MousePointer
+}>
 
 const clampZoom = (zoom: number) => Math.min(8, Math.max(0.1, zoom))
 
 interface RailButtonProps {
-  title: string
-  ariaLabel?: string
+  /** Help topic id; its title, description and keys feed the hover guide. */
+  topicId: HelpTopicId
+  ariaLabel: string
   onClick: () => void
   active?: boolean
   ariaPressed?: boolean
@@ -44,7 +53,7 @@ interface RailButtonProps {
 
 /** One square rail button; the optional mono keycap advertises its shortcut. */
 function RailButton({
-  title,
+  topicId,
   ariaLabel,
   onClick,
   active,
@@ -53,17 +62,18 @@ function RailButton({
   children,
 }: RailButtonProps) {
   return (
-    <button
-      type="button"
-      className={`cad-rail-btn ${active ? 'cad-rail-btn-active' : ''}`}
-      aria-pressed={ariaPressed}
-      title={title}
-      aria-label={ariaLabel ?? title}
-      onClick={onClick}
-    >
-      {children}
-      {keyHint && <span className="cad-rail-key">{keyHint}</span>}
-    </button>
+    <HoverHelp topicId={topicId} placement="right">
+      <button
+        type="button"
+        className={`cad-rail-btn ${active ? 'cad-rail-btn-active' : ''}`}
+        aria-pressed={ariaPressed}
+        aria-label={ariaLabel}
+        onClick={onClick}
+      >
+        {children}
+        {keyHint && <span className="cad-rail-key">{keyHint}</span>}
+      </button>
+    </HoverHelp>
   )
 }
 
@@ -77,12 +87,12 @@ function UndoRedoRailButtons() {
   const canRedo = useProjectStore.getState().canRedo()
   return (
     <>
-      <RailButton title="Undo (Ctrl+Z)" ariaLabel="Undo" onClick={() => useProjectStore.getState().undo()}>
+      <RailButton topicId="rail.undo" ariaLabel="Undo" onClick={() => useProjectStore.getState().undo()}>
         <span style={{ opacity: canUndo ? 1 : 0.35 }}>
           <Undo2 className="h-4 w-4" />
         </span>
       </RailButton>
-      <RailButton title="Redo (Ctrl+Shift+Z)" ariaLabel="Redo" onClick={() => useProjectStore.getState().redo()}>
+      <RailButton topicId="rail.redo" ariaLabel="Redo" onClick={() => useProjectStore.getState().redo()}>
         <span style={{ opacity: canRedo ? 1 : 0.35 }}>
           <Redo2 className="h-4 w-4" />
         </span>
@@ -104,7 +114,7 @@ export default function ToolRail({ onSave }: ToolRailProps) {
       {POINTER_TOOLS.map((tool) => (
         <RailButton
           key={tool.id}
-          title={`${tool.label} tool (${tool.key})`}
+          topicId={tool.topicId}
           ariaLabel={`${tool.label} tool`}
           keyHint={tool.key}
           active={activeTool === tool.id}
@@ -119,7 +129,8 @@ export default function ToolRail({ onSave }: ToolRailProps) {
 
       {/* Sheet display toggles */}
       <RailButton
-        title={`Grid (${settings.showGrid ? 'on' : 'off'}) — press G`}
+        topicId="rail.grid"
+        ariaLabel={`Toggle grid (${settings.showGrid ? 'on' : 'off'})`}
         active={settings.showGrid}
         ariaPressed={settings.showGrid}
         keyHint="G"
@@ -128,7 +139,8 @@ export default function ToolRail({ onSave }: ToolRailProps) {
         <Grid3X3 className="h-4 w-4" />
       </RailButton>
       <RailButton
-        title={`Snap to grid (${settings.snapToGrid ? 'on' : 'off'})`}
+        topicId="rail.snap"
+        ariaLabel={`Toggle snap to grid (${settings.snapToGrid ? 'on' : 'off'})`}
         active={settings.snapToGrid}
         ariaPressed={settings.snapToGrid}
         onClick={() => updateSettings({ snapToGrid: !settings.snapToGrid })}
@@ -136,7 +148,8 @@ export default function ToolRail({ onSave }: ToolRailProps) {
         <Magnet className="h-4 w-4" />
       </RailButton>
       <RailButton
-        title={`Rulers (${settings.showRulers ? 'on' : 'off'})`}
+        topicId="rail.rulers"
+        ariaLabel={`Toggle rulers (${settings.showRulers ? 'on' : 'off'})`}
         active={settings.showRulers}
         ariaPressed={settings.showRulers}
         onClick={() => updateSettings({ showRulers: !settings.showRulers })}
@@ -147,14 +160,15 @@ export default function ToolRail({ onSave }: ToolRailProps) {
       <span className="cad-rail-sep" aria-hidden="true" />
 
       {/* View controls */}
-      <RailButton title="Zoom in" onClick={() => setZoom(clampZoom(viewport.zoom * 1.2))}>
+      <RailButton topicId="rail.zoom-in" ariaLabel="Zoom in" onClick={() => setZoom(clampZoom(viewport.zoom * 1.2))}>
         <ZoomIn className="h-4 w-4" />
       </RailButton>
-      <RailButton title="Zoom out" onClick={() => setZoom(clampZoom(viewport.zoom / 1.2))}>
+      <RailButton topicId="rail.zoom-out" ariaLabel="Zoom out" onClick={() => setZoom(clampZoom(viewport.zoom / 1.2))}>
         <ZoomOut className="h-4 w-4" />
       </RailButton>
       <RailButton
-        title="Fit design to view (F)"
+        topicId="rail.fit"
+        ariaLabel="Fit design to view"
         keyHint="F"
         onClick={() => window.dispatchEvent(new CustomEvent('folio:fit-view'))}
       >
@@ -163,7 +177,7 @@ export default function ToolRail({ onSave }: ToolRailProps) {
 
       <span className="cad-rail-sep" aria-hidden="true" />
 
-      <RailButton title="Save (Ctrl+S)" onClick={onSave}>
+      <RailButton topicId="rail.save" ariaLabel="Save design" onClick={onSave}>
         <Save className="h-4 w-4" />
       </RailButton>
 
@@ -172,7 +186,7 @@ export default function ToolRail({ onSave }: ToolRailProps) {
 
       {/* One-click proof: load the tested 6-part rectifier onto the sheet. */}
       <RailButton
-        title="Load demo rectifier board (tested: sim + fab)"
+        topicId="rail.demo"
         ariaLabel="Load demo rectifier board"
         onClick={() => {
           const board = buildDemoBoard();
@@ -187,7 +201,7 @@ export default function ToolRail({ onSave }: ToolRailProps) {
       </RailButton>
       {/* Simulation lives one tab to the right of the sheet — jump straight there. */}
       <RailButton
-        title="Open Simulation (run DC, sweep, transient on this sheet)"
+        topicId="rail.simulation"
         ariaLabel="Open Simulation workspace"
         onClick={() => useAppStore.getState().setWorkspaceMode('simulation')}
       >

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity, ArrowRightLeft, Box, Bot, Camera, ChevronLeft, ChevronRight, CircuitBoard, Code2, Cpu, FlaskConical,
-  Gauge, GitBranch, Grid3X3, Layers, List, Package, PenTool, Plug, Radio, RadioTower, RotateCw,
+  Gauge, GitBranch, Grid3X3, HelpCircle, Layers, List, Package, PenTool, Plug, Radio, RadioTower, RotateCw,
   ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, Terminal, Wrench, Zap,
   type LucideIcon,
 } from 'lucide-react'
@@ -9,6 +9,7 @@ import SchematicCanvas from '../SchematicCanvas'
 import ComponentLibrary from '../ComponentLibrary'
 import PropertiesPanel from '../PropertiesPanel'
 import ToolRail from './ToolRail'
+import HoverHelp from '../ui/HoverHelp'
 import { useAppStore, type WorkspaceMode } from '../../stores/useAppStore'
 import { useProjectStore } from '../../stores/useProjectStore'
 import {
@@ -58,6 +59,8 @@ interface DomainWorkspaceProps {
   libraryComponents: Component[]
   onSave: (data: Record<string, unknown>) => void
   onOpenDemos: () => void
+  /** Opens the help centre on this workspace's guide. */
+  onOpenHelp: () => void
   beforeSimulationRun?: () => string | null
   onSimulationRun?: () => void
 }
@@ -97,7 +100,7 @@ const GROUP_ICONS: Readonly<Record<WorkspaceGroupId, LucideIcon>> = {
   ops: ShieldCheck,
 }
 
-export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos, beforeSimulationRun, onSimulationRun }: DomainWorkspaceProps) {
+export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos, onOpenHelp, beforeSimulationRun, onSimulationRun }: DomainWorkspaceProps) {
   const {
     workspaceMode,
     setWorkspaceMode,
@@ -336,34 +339,46 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
               const Icon = GROUP_ICONS[group.id]
               const active = group.id === activeGroup
               return (
-                <button
-                  key={group.id}
-                  type="button"
-                  aria-pressed={active}
-                  title={group.description}
-                  onClick={() => setActiveGroup(group.id)}
-                  className={`flex h-7 flex-shrink-0 items-center gap-1.5 rounded-t-sm border-b-2 px-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors ${
-                    active
-                      ? 'border-b-primary bg-background text-foreground'
-                      : 'border-b-transparent text-muted-foreground hover:bg-accent hover:text-foreground'
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-                  {group.label}
-                  {active && <span className="cad-readout text-[9px] text-muted-foreground">{visibleModes.length}</span>}
-                </button>
+                <HoverHelp key={group.id} title={group.label} description={group.description} placement="bottom">
+                  <button
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setActiveGroup(group.id)}
+                    className={`flex h-7 flex-shrink-0 items-center gap-1.5 rounded-t-sm border-b-2 px-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors ${
+                      active
+                        ? 'border-b-primary bg-background text-foreground'
+                        : 'border-b-transparent text-muted-foreground hover:bg-accent hover:text-foreground'
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                    {group.label}
+                    {active && <span className="cad-readout text-[9px] text-muted-foreground">{visibleModes.length}</span>}
+                  </button>
+                </HoverHelp>
               )
             })}
           </div>
-          <button
-            type="button"
-            onClick={onOpenDemos}
-            className="flex h-7 flex-shrink-0 items-center gap-1.5 rounded-sm border border-primary/40 bg-primary/10 px-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-primary transition-colors hover:bg-primary/20"
-            title="Open the demo gallery (one tested scenario per workspace)"
-          >
-            <FlaskConical className="h-3.5 w-3.5" aria-hidden="true" />
-            Demos
-          </button>
+          <HoverHelp topicId="nav.demos" placement="bottom">
+            <button
+              type="button"
+              onClick={onOpenDemos}
+              className="flex h-7 flex-shrink-0 items-center gap-1.5 rounded-sm border border-primary/40 bg-primary/10 px-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-primary transition-colors hover:bg-primary/20"
+            >
+              <FlaskConical className="h-3.5 w-3.5" aria-hidden="true" />
+              Demos
+            </button>
+          </HoverHelp>
+          <HoverHelp topicId="nav.guide" placement="bottom">
+            <button
+              type="button"
+              onClick={onOpenHelp}
+              aria-label="Open the help centre and workspace guides"
+              className="flex h-7 flex-shrink-0 items-center gap-1.5 rounded-sm border border-border px-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <HelpCircle className="h-3.5 w-3.5" aria-hidden="true" />
+              Guide
+            </button>
+          </HoverHelp>
         </div>
         <div className="relative min-w-0">
           <div ref={modeRowRef} className="scrollbar-none flex min-w-0 items-stretch overflow-x-auto" role="group" aria-label={`${activeGroup} workspaces`}>
@@ -371,20 +386,20 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
               const Icon = MODE_ICONS[mode.id]
               const active = workspaceMode === mode.id
               return (
-                <button
-                  key={mode.id}
-                  type="button"
-                  title={mode.description}
-                  className={`cad-tab gap-1.5 ${active ? 'cad-tab-active' : ''}`}
-                  aria-current={active ? 'page' : undefined}
-                  onClick={() => {
-                    setPendingComponent(null)
-                    setWorkspaceMode(mode.id)
-                  }}
-                >
-                  <Icon className="h-3 w-3" aria-hidden="true" />
-                  {mode.label}
-                </button>
+                <HoverHelp key={mode.id} title={mode.label} description={mode.description} placement="bottom">
+                  <button
+                    type="button"
+                    className={`cad-tab gap-1.5 ${active ? 'cad-tab-active' : ''}`}
+                    aria-current={active ? 'page' : undefined}
+                    onClick={() => {
+                      setPendingComponent(null)
+                      setWorkspaceMode(mode.id)
+                    }}
+                  >
+                    <Icon className="h-3 w-3" aria-hidden="true" />
+                    {mode.label}
+                  </button>
+                </HoverHelp>
               )
             })}
           </div>

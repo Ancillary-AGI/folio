@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowRight, CheckCircle2, FlaskConical, Search, X } from 'lucide-react'
+import { ArrowRight, CheckCircle2, FlaskConical, GraduationCap, Search, X } from 'lucide-react'
 import { Button } from '../ui/button'
 import { DEMO_SCENARIOS, type DemoScenario } from '../../lib/demo/demoScenarios'
 import { loadDemoScenario } from '../../lib/demo/loadDemo'
+import { TUTORIALS, type Tutorial } from '../../lib/tutorials/tutorials'
 import { WORKSPACE_GROUPS, WORKSPACE_MODE_META, type WorkspaceGroupId } from '../../lib/workspace/modes'
 
 interface DemoGalleryProps {
@@ -10,6 +11,8 @@ interface DemoGalleryProps {
   onClose: () => void
   /** Overrides the default loader so the host can create a project, confirm replacement, etc. */
   onOpenScenario?: (scenario: DemoScenario) => void
+  /** Starts the guided walkthrough built on this demo, when one exists. */
+  onStartTutorial?: (tutorial: Tutorial) => void
 }
 
 type Filter = 'all' | WorkspaceGroupId
@@ -42,10 +45,17 @@ function matches(scenario: DemoScenario, query: string): boolean {
  * gallery is the discovery surface; `loadDemoScenario` does the state work so
  * the same scenarios are also reachable from the command palette.
  */
-export default function DemoGallery({ open, onClose, onOpenScenario }: DemoGalleryProps) {
+export default function DemoGallery({ open, onClose, onOpenScenario, onStartTutorial }: DemoGalleryProps) {
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
+
+  /* A tutorial is a demo plus a route through it; linking them here means the
+   * discovery surface and the guided surface cannot name different boards. */
+  const guidedByDemo = useMemo(
+    () => new Map(TUTORIALS.map((tutorial) => [tutorial.demoId, tutorial])),
+    [],
+  )
 
   useEffect(() => {
     if (!open) return
@@ -150,6 +160,7 @@ export default function DemoGallery({ open, onClose, onOpenScenario }: DemoGalle
             <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Demo scenarios">
               {visible.map((scenario) => {
                 const meta = WORKSPACE_MODE_META[scenario.mode]
+                const tutorial = guidedByDemo.get(scenario.id)
                 return (
                   <li key={scenario.id} className="flex">
                     <article className="flex min-w-0 flex-1 flex-col rounded-lg border border-border bg-card p-3 transition-colors hover:border-primary/50">
@@ -157,9 +168,16 @@ export default function DemoGallery({ open, onClose, onOpenScenario }: DemoGalle
                         <span className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
                           {meta.label}
                         </span>
-                        <span className="text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
-                          {WORKSPACE_GROUPS.find((group) => group.id === scenario.group)?.label}
-                        </span>
+                        {tutorial ? (
+                          <span className="flex items-center gap-1 rounded-sm bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-primary">
+                            <GraduationCap className="h-3 w-3" aria-hidden="true" />
+                            Guided
+                          </span>
+                        ) : (
+                          <span className="text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+                            {WORKSPACE_GROUPS.find((group) => group.id === scenario.group)?.label}
+                          </span>
+                        )}
                       </div>
                       <h3 className="text-[13px] font-semibold leading-snug text-foreground">{scenario.title}</h3>
                       <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{scenario.summary}</p>
@@ -171,15 +189,31 @@ export default function DemoGallery({ open, onClose, onOpenScenario }: DemoGalle
                           </li>
                         ))}
                       </ul>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="mt-3 h-7 w-full justify-between text-[11px]"
-                        onClick={() => openDemo(scenario)}
-                      >
-                        Open demo
-                        <ArrowRight className="h-3 w-3" aria-hidden="true" />
-                      </Button>
+                      <div className="mt-3 flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 min-w-0 flex-1 justify-between text-[11px]"
+                          onClick={() => openDemo(scenario)}
+                        >
+                          Open demo
+                          <ArrowRight className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
+                        </Button>
+                        {tutorial && onStartTutorial && (
+                          <Button
+                            size="sm"
+                            className="h-7 flex-shrink-0 gap-1 text-[11px]"
+                            onClick={() => {
+                              onStartTutorial(tutorial)
+                              onClose()
+                            }}
+                            aria-label={`Start the guided tutorial: ${tutorial.title}`}
+                          >
+                            <GraduationCap className="h-3 w-3" aria-hidden="true" />
+                            Guided
+                          </Button>
+                        )}
+                      </div>
                     </article>
                   </li>
                 )

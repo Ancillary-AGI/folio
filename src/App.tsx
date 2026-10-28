@@ -3,7 +3,7 @@ import {
   Cpu, FolderOpen, Menu, Bot, BarChart3, Settings, Package, Users,
   Download, Image, FileText, List, Lock, LogOut, Mic, MicOff,
   Shield, Bell, RefreshCw, History, RotateCcw, Moon, Sun, AlertCircle, FlaskConical, Search,
-  MoreHorizontal, ShieldCheck, ShieldAlert, X,
+  MoreHorizontal, ShieldCheck, ShieldAlert, HelpCircle, X,
 } from 'lucide-react'
 import { Button } from './components/ui/button'
 import type { PlacedComponent, Wire, User } from './types'
@@ -13,6 +13,7 @@ import { standardComponents } from './lib/componentLibrary'
 import { buildDemoBoard } from './lib/demo/demoBoard'
 import { isBoardDemoLoad, loadDemoScenario } from './lib/demo/loadDemo'
 import type { DemoScenario } from './lib/demo/demoScenarios'
+import { DEMO_SCENARIOS } from './lib/demo/demoScenarios'
 import { exportToImage, exportToNetlist, exportToJSON, exportToBOM, exportToGerber, downloadFile } from './lib/exportUtils'
 import { buildSchematicDrawing } from './lib/schematic/engineeringDrawing'
 import { pluginManager } from './lib/plugins/pluginManager'
@@ -22,7 +23,7 @@ import { nlpService } from './lib/nlp/nlpService'
 import { siemService } from './lib/siem/siemService'
 import { assetSecurity } from './lib/security/assetSecurity'
 import { backupService, type ProjectBackup } from './lib/backup/backupService'
-import { useAppStore } from './stores/useAppStore'
+import { useAppStore, type WorkspaceMode } from './stores/useAppStore'
 import {
   ADMIN_ROUTE,
   currentRoute,
@@ -46,6 +47,9 @@ import {
   resetOnboarding,
 } from './lib/onboarding/onboardingStorage'
 import DomainWorkspace from './components/workspace/DomainWorkspace'
+import HoverHelp from './components/ui/HoverHelp'
+import type { HelpTab } from './components/help/HelpCenter'
+import type { Tutorial } from './lib/tutorials/tutorials'
 import ProjectManager from './components/ProjectManager'
 import AuthForm from './components/AuthForm'
 import VoiceCommandBar from './components/nlp/VoiceCommandBar'
@@ -70,6 +74,8 @@ const DemoGallery = lazy(() => import('./components/workspace/DemoGallery'))
 const CommandPalette = lazy(() => import('./components/workspace/CommandPalette'))
 const AdminConsole = lazy(() => import('./components/admin/AdminConsole'))
 const LimitsDialog = lazy(() => import('./components/workspace/LimitsDialog'))
+const HelpCenter = lazy(() => import('./components/help/HelpCenter'))
+const TutorialRunner = lazy(() => import('./components/help/TutorialRunner'))
 
 const panelFallback = (
   <div className="flex h-full items-center justify-center p-4">
@@ -80,7 +86,6 @@ const panelFallback = (
 /** Shortcut chips must match the platform's modifier keys. */
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent)
 const DEMO_SHORTCUT_LABEL = IS_MAC ? '⇧⌘D' : 'Ctrl+Shift+D'
-const PALETTE_SHORTCUT_LABEL = IS_MAC ? '⌘K' : 'Ctrl+K'
 
 type PcbLayout = ReturnType<typeof useProjectStore.getState>['pcbLayout']
 
@@ -177,6 +182,9 @@ function App() {
   const [showDemoGallery, setShowDemoGallery] = useState(false)
   const [showLimits, setShowLimits] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
+  const [helpTab, setHelpTab] = useState<HelpTab>('tutorials')
+  const [activeTutorial, setActiveTutorial] = useState<Tutorial | null>(null)
   const [showCollaborativePanel, setShowCollaborativePanel] = useState(false)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const [collaborativeUsers, setCollaborativeUsers] = useState<CollabUser[]>([])
@@ -442,10 +450,21 @@ function App() {
     })
   }, [])
 
-  // ── Keyboard entry points: command palette (Ctrl/⌘+K) and demo gallery ─────
+  // ── Keyboard entry points: command palette (Ctrl/⌘+K), demo gallery and help ─
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const mod = event.metaKey || event.ctrlKey
+      const target = event.target
+      const typing =
+        target instanceof HTMLElement &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)
+      // F1 always works; `?` is a normal character in netlist and property fields.
+      if (event.key === 'F1' || (event.key === '?' && !mod && !typing)) {
+        event.preventDefault()
+        setHelpTab('tutorials')
+        setShowHelp(true)
+        return
+      }
       if (mod && !event.shiftKey && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         setShowCommandPalette((open) => !open)
@@ -566,11 +585,46 @@ function App() {
 
   // Gallery / palette entry point: a demo must be savable, and a board demo
   // must never silently overwrite an unsaved schematic.
-  const openDemoScenario = async (scenario: DemoScenario) => {
-    if (isBoardDemoLoad(scenario.load) && !confirmReplace(scenario.title)) return
-    if (!(await ensureProject())) return
+  const openDemoScenario = async (scenario: DemoScenario): Promise<boolean> => {
+    if (isBoardDemoLoad(scenario.load) && !confirmReplace(scenario.title)) return false
+    if (!(await ensureProject())) return false
     loadDemoScenario(scenario)
     recordPlatformUsage('demo.load', user, offlineMode, { scenario: scenario.title })
+    return true
+  }
+
+  const openHelp = (tab: HelpTab = 'tutorials') => {
+    // One help surface at a time: opening the centre parks an active tutorial
+    // (its step is already persisted) instead of stacking two panels.
+    setActiveTutorial(null)
+    setHelpTab(tab)
+    setShowHelp(true)
+  }
+
+  /*
+   * A tutorial starts from its own demo, so the first step is never a blank
+   * sheet: the same confirmation that protects a gallery demo protects it.
+   * Progress is written by the runner, not here.
+   */
+  const startTutorial = async (tutorial: Tutorial) => {
+    const scenario = DEMO_SCENARIOS.find((entry) => entry.id === tutorial.demoId)
+    if (!scenario) {
+      setNotice(`This tutorial starts from the “${tutorial.demoId}” demo, which is not in this build.`)
+      return
+    }
+    if (!(await openDemoScenario(scenario))) return
+    setShowHelp(false)
+    setActiveTutorial(tutorial)
+  }
+
+  const restartTutorialDemo = (tutorial: Tutorial) => {
+    const scenario = DEMO_SCENARIOS.find((entry) => entry.id === tutorial.demoId)
+    if (scenario) loadDemoScenario(scenario)
+  }
+
+  const openWorkspaceFromHelp = (mode: WorkspaceMode) => {
+    useAppStore.getState().setWorkspaceMode(mode)
+    setShowHelp(false)
   }
 
   const handleLoadSampleCircuit = async () => {
@@ -1249,18 +1303,22 @@ function App() {
       {/* ── Header ── */}
       <header className="app-chrome app-chrome-divider flex min-w-0 flex-shrink-0 items-center justify-between gap-2 px-4 py-2" data-tour="app-header">
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={openProjectManager} title="Projects" aria-label="Projects">
-            <FolderOpen className="w-4 h-4" />
-          </Button>
-          <Button
-            variant={sidebarOpen ? 'default' : 'ghost'}
-            size="icon"
-            onClick={toggleSidebar}
-            title="Toggle Library" aria-label="Toggle Library"
-            aria-pressed={sidebarOpen}
-          >
-            <Menu className="w-4 h-4" />
-          </Button>
+          <HoverHelp topicId="header.projects" placement="bottom">
+            <Button variant="ghost" size="icon" onClick={openProjectManager} aria-label="Projects">
+              <FolderOpen className="w-4 h-4" />
+            </Button>
+          </HoverHelp>
+          <HoverHelp topicId="header.library" placement="bottom">
+            <Button
+              variant={sidebarOpen ? 'default' : 'ghost'}
+              size="icon"
+              onClick={toggleSidebar}
+              aria-label="Toggle Library"
+              aria-pressed={sidebarOpen}
+            >
+              <Menu className="w-4 h-4" />
+            </Button>
+          </HoverHelp>
           <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
           <div className="flex min-w-0 items-center gap-2">
             <Cpu className="hidden h-4 w-4 flex-shrink-0 text-primary sm:block" />
@@ -1284,59 +1342,76 @@ function App() {
           <div className="hidden items-center gap-1 lg:flex">
             <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
             {/* Voice control */}
-            <Button
-              variant={isVoiceActive ? 'default' : 'ghost'}
-              size="icon"
-              onClick={toggleVoice}
-              title={isVoiceActive ? 'Stop voice control' : 'Start voice control'} aria-label={isVoiceActive ? 'Stop voice control' : 'Start voice control'}
-            >
-              {isVoiceActive ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-            </Button>
+            <HoverHelp topicId="header.voice" placement="bottom">
+              <Button
+                variant={isVoiceActive ? 'default' : 'ghost'}
+                size="icon"
+                onClick={toggleVoice}
+                aria-label={isVoiceActive ? 'Stop voice control' : 'Start voice control'}
+              >
+                {isVoiceActive ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              </Button>
+            </HoverHelp>
 
             {/* Security alerts — shield itself flags active alerts (no floating count pill) */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => useAppStore.getState().setWorkspaceMode('siem')}
-              title={activeAlertCount > 0 ? `${activeAlertCount} active security alert${activeAlertCount === 1 ? '' : 's'}` : 'Security alerts'} aria-label={activeAlertCount > 0 ? `${activeAlertCount} active security alert${activeAlertCount === 1 ? '' : 's'}` : 'Security alerts'}
-            >
-              <Shield className={activeAlertCount > 0 ? 'w-4 h-4 text-destructive' : 'w-4 h-4'} />
-            </Button>
+            <HoverHelp topicId="header.security" placement="bottom">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => useAppStore.getState().setWorkspaceMode('siem')}
+                aria-label={activeAlertCount > 0 ? `${activeAlertCount} active security alert${activeAlertCount === 1 ? '' : 's'}` : 'Security alerts'}
+              >
+                <Shield className={activeAlertCount > 0 ? 'w-4 h-4 text-destructive' : 'w-4 h-4'} />
+              </Button>
+            </HoverHelp>
 
-            <Button variant="ghost" size="icon" onClick={toggleAiChat} title="AI Assistant" aria-label="AI Assistant" data-tour="agent-button">
-              <Bot className="w-4 h-4" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={openAdmin} title="Administration" aria-label="Administration">
-              <ShieldCheck className="w-4 h-4" />
-            </Button>
+            <HoverHelp topicId="header.assistant" placement="bottom">
+              <Button variant="ghost" size="icon" onClick={toggleAiChat} aria-label="AI Assistant" data-tour="agent-button">
+                <Bot className="w-4 h-4" />
+              </Button>
+            </HoverHelp>
+            <HoverHelp topicId="header.admin" placement="bottom">
+              <Button variant="ghost" size="icon" onClick={openAdmin} aria-label="Administration">
+                <ShieldCheck className="w-4 h-4" />
+              </Button>
+            </HoverHelp>
             <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-            <Button variant="ghost" size="icon" onClick={() => useAppStore.getState().setWorkspaceMode('simulation')} title="Open simulation workspace" aria-label="Open simulation workspace" data-tour="simulation-toggle">
-              <BarChart3 className="w-4 h-4" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} title="Settings" aria-label="Settings">
-              <Settings className="w-4 h-4" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={openPluginPanel} title="Plugins" aria-label="Plugins">
-              <Package className="w-4 h-4" />
-            </Button>
+            <HoverHelp topicId="header.simulation" placement="bottom">
+              <Button variant="ghost" size="icon" onClick={() => useAppStore.getState().setWorkspaceMode('simulation')} aria-label="Open simulation workspace" data-tour="simulation-toggle">
+                <BarChart3 className="w-4 h-4" />
+              </Button>
+            </HoverHelp>
+            <HoverHelp topicId="header.settings" placement="bottom">
+              <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} aria-label="Settings">
+                <Settings className="w-4 h-4" />
+              </Button>
+            </HoverHelp>
+            <HoverHelp topicId="header.plugins" placement="bottom">
+              <Button variant="ghost" size="icon" onClick={openPluginPanel} aria-label="Plugins">
+                <Package className="w-4 h-4" />
+              </Button>
+            </HoverHelp>
             <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-            <Button variant="ghost" size="icon" onClick={() => setShowCollaborativePanel(true)} title="Collaboration" aria-label="Collaboration">
-              <Users className="w-4 h-4" />
-            </Button>
+            <HoverHelp topicId="header.collaboration" placement="bottom">
+              <Button variant="ghost" size="icon" onClick={() => setShowCollaborativePanel(true)} aria-label="Collaboration">
+                <Users className="w-4 h-4" />
+              </Button>
+            </HoverHelp>
             <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
           </div>
 
           <div className="relative" data-tour="version-history">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => { setShowVcsMenu(value => !value); refreshVcs() }}
-              title="Version history"
-              aria-label="Version history"
-              aria-expanded={showVcsMenu}
-            >
-              <History className="w-4 h-4" />
-            </Button>
+            <HoverHelp topicId="header.version-history" placement="bottom">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => { setShowVcsMenu(value => !value); refreshVcs() }}
+                aria-label="Version history"
+                aria-expanded={showVcsMenu}
+              >
+                <History className="w-4 h-4" />
+              </Button>
+            </HoverHelp>
             {showVcsMenu && (
               <div className="app-panel absolute right-0 z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-md border border-border shadow-xl">
                 <div className="p-3 border-b border-border">
@@ -1409,47 +1484,64 @@ function App() {
             )}
           </div>
           <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setShowCommandPalette(true)}
-            title={`Command palette (${PALETTE_SHORTCUT_LABEL})`}
-            aria-label="Command palette"
-            aria-haspopup="dialog"
-            data-tour="command-palette"
-          >
-            <Search className="w-4 h-4" />
-          </Button>
+          <HoverHelp topicId="header.palette" placement="bottom">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowCommandPalette(true)}
+              aria-label="Command palette"
+              aria-haspopup="dialog"
+              data-tour="command-palette"
+            >
+              <Search className="w-4 h-4" />
+            </Button>
+          </HoverHelp>
 
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex items-center gap-1 text-xs"
-            onClick={() => setShowDemoGallery(true)}
-            title={`Open the demo gallery (${DEMO_SHORTCUT_LABEL})`}
-            aria-label="Open the demo gallery"
-            aria-haspopup="dialog"
-          >
-            <FlaskConical className="h-4 w-4" />
-            <span className="hidden sm:inline">Demos</span>
-          </Button>
+          <HoverHelp topicId="header.help" placement="bottom">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => openHelp('tutorials')}
+              aria-label="Help and tutorials"
+              aria-haspopup="dialog"
+              data-tour="help-button"
+            >
+              <HelpCircle className="w-4 h-4" />
+            </Button>
+          </HoverHelp>
+
+          <HoverHelp topicId="nav.demos" placement="bottom">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-1 text-xs"
+              onClick={() => setShowDemoGallery(true)}
+              aria-label="Open the demo gallery"
+              aria-haspopup="dialog"
+            >
+              <FlaskConical className="h-4 w-4" />
+              <span className="hidden sm:inline">Demos</span>
+            </Button>
+          </HoverHelp>
 
           {/* Export menu */}
           <div className="relative">
-            <Button
-              variant="default"
-              size="sm"
-              className="flex items-center gap-1 text-xs"
-              onClick={() => {
-                setShowExportMenu(v => !v)
-                setExportStatus('')
-              }}
-              aria-label="Export design"
-              aria-expanded={showExportMenu}
-            >
-              <Download className="w-4 h-4" />
-              <span className="hidden sm:inline">Export</span>
-            </Button>
+            <HoverHelp topicId="header.export" placement="bottom">
+              <Button
+                variant="default"
+                size="sm"
+                className="flex items-center gap-1 text-xs"
+                onClick={() => {
+                  setShowExportMenu(v => !v)
+                  setExportStatus('')
+                }}
+                aria-label="Export design"
+                aria-expanded={showExportMenu}
+              >
+                <Download className="w-4 h-4" />
+                <span className="hidden sm:inline">Export</span>
+              </Button>
+            </HoverHelp>
             {showExportMenu && (
               <div className="app-panel absolute right-0 z-50 mt-2 w-56 rounded-md border border-border py-2 shadow-xl">
                 {[
@@ -1479,35 +1571,42 @@ function App() {
             )}
           </div>
 
-          <Button variant="ghost" size="icon" onClick={toggleTheme} title={themeToggleLabel} aria-label={themeToggleLabel}>
-            {themeIcon}
-          </Button>
-          <Button variant="ghost" size="icon" className="hidden sm:inline-flex" onClick={() => {
-            setCurrentProject(null)
-            setCurrentSchematic(null)
-            setCanvasData(null)
-            openProjectManager()
-          }} title="Back to Projects" aria-label="Back to Projects">
-            <RefreshCw className="w-4 h-4" />
-          </Button>
-          {!offlineMode && (
-            <Button variant="ghost" size="icon" className="hidden md:inline-flex" onClick={handleSignOut} title="Sign Out" aria-label="Sign Out">
-              <LogOut className="w-4 h-4" />
+          <HoverHelp topicId="header.theme" placement="bottom">
+            <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label={themeToggleLabel}>
+              {themeIcon}
             </Button>
+          </HoverHelp>
+          <HoverHelp topicId="header.back" placement="bottom">
+            <Button variant="ghost" size="icon" className="hidden sm:inline-flex" onClick={() => {
+              setCurrentProject(null)
+              setCurrentSchematic(null)
+              setCanvasData(null)
+              openProjectManager()
+            }} aria-label="Back to Projects">
+              <RefreshCw className="w-4 h-4" />
+            </Button>
+          </HoverHelp>
+          {!offlineMode && (
+            <HoverHelp topicId="header.sign-out" placement="bottom">
+              <Button variant="ghost" size="icon" className="hidden md:inline-flex" onClick={handleSignOut} aria-label="Sign Out">
+                <LogOut className="w-4 h-4" />
+              </Button>
+            </HoverHelp>
           )}
 
           <div className="relative lg:hidden">
-            <Button
-              variant={showMoreMenu ? 'default' : 'ghost'}
-              size="icon"
-              onClick={() => setShowMoreMenu(value => !value)}
-              title="More tools"
-              aria-label="More tools"
-              aria-haspopup="menu"
-              aria-expanded={showMoreMenu}
-            >
-              <MoreHorizontal className="w-4 h-4" />
-            </Button>
+            <HoverHelp topicId="header.more" placement="bottom">
+              <Button
+                variant={showMoreMenu ? 'default' : 'ghost'}
+                size="icon"
+                onClick={() => setShowMoreMenu(value => !value)}
+                aria-label="More tools"
+                aria-haspopup="menu"
+                aria-expanded={showMoreMenu}
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </Button>
+            </HoverHelp>
             {showMoreMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} aria-hidden="true" />
@@ -1563,6 +1662,7 @@ function App() {
           libraryComponents={paletteComponents}
           onSave={handleSave}
           onOpenDemos={() => setShowDemoGallery(true)}
+          onOpenHelp={() => openHelp('workspaces')}
           beforeSimulationRun={simulationQuotaError}
           onSimulationRun={recordSimulationRun}
         />
@@ -1660,23 +1760,25 @@ function App() {
             <AlertCircle className="h-3 w-3" /> {activeAlertCount} ALERT{activeAlertCount !== 1 ? 'S' : ''}
           </button>
         )}
-        <button
-          type="button"
-          onClick={openLimitsRegister}
-          data-tour="limits-button"
-          className="status-segment ml-auto hidden border-l border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:inline-flex"
-          title="Open the capabilities and limits registry"
-        >
-          <ShieldAlert className="h-3 w-3" /> LIMITS
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowDemoGallery(true)}
-          className="status-segment hidden border-l border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground lg:inline-flex"
-          title={`Open the demo gallery (${DEMO_SHORTCUT_LABEL})`}
-        >
-          <FlaskConical className="h-3 w-3" /> DEMOS <span className="cad-kbd ml-1">{DEMO_SHORTCUT_LABEL}</span>
-        </button>
+        <HoverHelp topicId="nav.limits" placement="top">
+          <button
+            type="button"
+            onClick={openLimitsRegister}
+            data-tour="limits-button"
+            className="status-segment ml-auto hidden border-l border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:inline-flex"
+          >
+            <ShieldAlert className="h-3 w-3" /> LIMITS
+          </button>
+        </HoverHelp>
+        <HoverHelp topicId="nav.demos" placement="top">
+          <button
+            type="button"
+            onClick={() => setShowDemoGallery(true)}
+            className="status-segment hidden border-l border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground lg:inline-flex"
+          >
+            <FlaskConical className="h-3 w-3" /> DEMOS <span className="cad-kbd ml-1">{DEMO_SHORTCUT_LABEL}</span>
+          </button>
+        </HoverHelp>
         <span className="status-segment hidden border-r-0 lg:inline-flex">
           <Bell className="w-3 h-3" aria-hidden="true" />
         </span>
@@ -1700,6 +1802,7 @@ function App() {
             open
             onClose={() => setShowDemoGallery(false)}
             onOpenScenario={openDemoScenario}
+            onStartTutorial={(tutorial) => { void startTutorial(tutorial) }}
           />
         )}
         {showCommandPalette && (
@@ -1709,12 +1812,34 @@ function App() {
             onSave={() => { void handleSave(getCheckpointData()) }}
             onOpenDemos={() => setShowDemoGallery(true)}
             onOpenLimits={openLimitsRegister}
+            onOpenHelp={() => openHelp('tutorials')}
             onToggleTheme={toggleTheme}
             onOpenScenario={openDemoScenario}
           />
         )}
         {showLimits && (
           <LimitsDialog open onClose={() => setShowLimits(false)} currentMode={workspaceMode} />
+        )}
+        {showHelp && (
+          <HelpCenter
+            open
+            initialTab={helpTab}
+            currentMode={workspaceMode}
+            onClose={() => setShowHelp(false)}
+            onOpenWorkspace={openWorkspaceFromHelp}
+            onStartTutorial={(tutorial) => { void startTutorial(tutorial) }}
+            onOpenDemos={() => { setShowHelp(false); setShowDemoGallery(true) }}
+            onOpenLimits={() => { setShowHelp(false); openLimitsRegister() }}
+          />
+        )}
+        {activeTutorial && (
+          <TutorialRunner
+            key={activeTutorial.id}
+            tutorial={activeTutorial}
+            onClose={() => setActiveTutorial(null)}
+            onRestartDemo={() => restartTutorialDemo(activeTutorial)}
+            onOpenHelp={() => openHelp('tutorials')}
+          />
         )}
       </Suspense>
       {showOnboarding && (

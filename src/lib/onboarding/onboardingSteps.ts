@@ -1,5 +1,5 @@
 import {
-  Activity, Bot, CircuitBoard, Cpu, GitBranch, History, Layers3, MousePointerClick, ScrollText,
+  Activity, Bot, CircuitBoard, Cpu, GitBranch, HelpCircle, History, Layers3, MousePointerClick, ScrollText,
   Shield, TrendingUp, type LucideIcon,
 } from 'lucide-react'
 import type { WorkspaceMode } from '../../stores/useAppStore'
@@ -93,6 +93,23 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     icon: MousePointerClick,
     target: 'tool-rail',
     placement: 'right',
+    handsOn: true,
+  },
+  {
+    id: 'families',
+    title: 'Four families hold twenty-five workspaces',
+    summary: 'Design, Electrical, Mechanical and Ops & AI each open their own tools; hover a tab to hear what it does.',
+    detail:
+      'The family strip groups the workbench by discipline and the row beneath it holds that family’s workspaces — schematic, simulation, PCB and fabrication under Design; control, machines, RF, HDL and silicon under Electrical; CAD, robotics, firmware, imaging, blocks and HIL under Mechanical; agents, parts, plugins, system, security and marketplace under Ops & AI. Each tab has a one-sentence description on hover, the Guide button opens the full workspace guide, and the demo gallery has a tested scenario for every mode.',
+    checklist: [
+      'Open a family you have not used and read its tabs',
+      'Hover a tab before opening it: the tooltip says what the workspace computes',
+      'Use Guide to compare what that workspace models and what it refuses to model',
+    ],
+    mode: 'schematic',
+    icon: Layers3,
+    target: 'workspace-nav',
+    placement: 'bottom',
     handsOn: true,
   },
   {
@@ -207,6 +224,22 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     icon: Bot,
     target: 'agent-button',
     fallbackTarget: 'workspace-canvas',
+    placement: 'bottom',
+  },
+  {
+    id: 'help',
+    title: 'Help lives in the chrome, not in a manual',
+    summary: 'Hover a control to hear what it does; press F1 for guides and hands-on tutorials.',
+    detail:
+      'Rest the pointer on any rail button, header control or workspace tab and a one-line explanation appears after a moment; every control that has a shortcut prints its keycap. Press F1 or ? anywhere to open the help centre: guided tutorials that load a working demo and walk the real buttons, a guide to each of the 25 workspaces, a control reference and the shortcut list. Tutorial steps are self-checked — the workbench does not watch your screen or grade the result.',
+    checklist: [
+      'Hover the wire tool on the rail: the tooltip names the tool and its key',
+      'Press F1, open Tutorials and start the rectifier walkthrough',
+      'Read a workspace guide before trusting its numbers',
+    ],
+    mode: 'schematic',
+    icon: HelpCircle,
+    target: 'help-button',
     placement: 'bottom',
   },
   {

@@ -4,7 +4,7 @@ Browser-based, offline-first engineering workbench for electronic CAD, mechanica
 design, simulation, robotics, and embedded development. Everything runs locally
 unless you explicitly configure a backend; no account is required for local use.
 
-**Status:** active development. Lint, both typechecks, 2,129 tests across 212
+**Status:** active development. Lint, both typechecks, 2,166 tests across 216
 files, the icon-button accessibility audit, and the production build all pass.
 
 ---
@@ -53,7 +53,18 @@ rules); it makes no model or network call, and its output is advisory.
 - **Command palette** (**Ctrl/⌘+K**): search and run any workspace mode, demo or
   document action with the keyboard, including the capabilities and limits
   register.
-- **Guided tour** (first run, replayable from Settings): eleven steps with an
+- **Hover help and the help centre** (**F1** or **?**, or the header help button):
+  resting on a rail button, header control or workspace tab raises a delayed
+  one-line description with its keycap, and the same registry fills the help
+  centre — a guide to all 25 workspaces, the control reference and a shortcut
+  table. Guides name the method and the limits; they do not promise validity.
+- **Hands-on tutorials**: seven walkthroughs — rectifier to fabrication, control
+  and the ML toolbox, RF filters, two-link robotics, the mechanical enclosure,
+  HDL/FPGA/IC and the agent verifier — each load a real demo board and name the
+  actual panel buttons plus what to look for. Steps are self-checked and say so;
+  progress is stored locally and resumable. Demos that a tutorial is built on
+  carry a **Guided** chip in the gallery.
+- **Guided tour** (first run, replayable from Settings): thirteen steps with an
   animated spotlight — pulsing halo, corner brackets and a caret that points at
   the control being described — that switches workspaces as it goes and persists
   or resumes progress. The steps that teach a gesture (wiring, chart zoom/pan,
@@ -330,7 +341,7 @@ npm run lint            # ESLint, zero warnings
 npm run a11y:buttons    # every icon-only button has an accessible name
 npm run typecheck       # app TypeScript
 npm run typecheck:node  # Vite/build config TypeScript
-npm test                # Vitest, 2,129 tests / 212 files
+npm test                # Vitest, 2,166 tests / 216 files
 npm run build           # production build
 npm run verify          # all of the gates above, in order
 npm run preview         # preview the build on port 4173

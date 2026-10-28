@@ -13,6 +13,7 @@ const renderPalette = (overrides: Partial<Parameters<typeof CommandPalette>[0]> 
     onSave: vi.fn(),
     onOpenDemos: vi.fn(),
     onOpenLimits: vi.fn(),
+    onOpenHelp: vi.fn(),
     onToggleTheme: vi.fn(),
     ...overrides,
   }
@@ -30,9 +31,9 @@ describe('CommandPalette', () => {
     renderPalette()
 
     expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument()
-    // Every workspace, every demo scenario, plus the four actions: gallery,
-    // capabilities and limits, save, theme.
-    expect(screen.getAllByRole('option')).toHaveLength(WORKSPACE_MODES.length + DEMO_SCENARIOS.length + 4)
+    // Every workspace, every demo scenario, plus the five actions: help,
+    // gallery, capabilities and limits, save, theme.
+    expect(screen.getAllByRole('option')).toHaveLength(WORKSPACE_MODES.length + DEMO_SCENARIOS.length + 5)
     expect(screen.getByRole('combobox')).toBeInTheDocument()
   })
 
@@ -79,6 +80,15 @@ describe('CommandPalette', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'limits' } })
     fireEvent.click(screen.getByText('Open capabilities and limits'))
     expect(props.onOpenLimits).toHaveBeenCalledTimes(1)
+    expect(props.onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('routes the help action to the host', () => {
+    const props = renderPalette()
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'tutorials' } })
+    fireEvent.click(screen.getByText('Open help and tutorials'))
+    expect(props.onOpenHelp).toHaveBeenCalledTimes(1)
     expect(props.onClose).toHaveBeenCalledTimes(1)
   })
 

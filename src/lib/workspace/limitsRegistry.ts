@@ -1047,6 +1047,33 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     ],
     validatedBy: ['src/lib/theme/theme.test.ts', 'src/__tests__/onboardingTour.test.tsx'],
   },
+  {
+    id: 'platform-help',
+    family: 'platform',
+    title: 'Hover help, guides and tutorials',
+    modes: [
+      'schematic', 'simulation', 'convert', 'pcb', 'preview3d', 'bom',
+      'control', 'machines', 'rf', 'hdl', 'icdesign', 'fpga',
+      'mechanical', 'robotics', 'embedded', 'imaging', 'visual', 'hil',
+      'twin', 'agents', 'components', 'plugins', 'dashboard', 'siem', 'marketplace',
+    ],
+    computes:
+      'One description registry shared by the delayed hover tooltips and the help centre, plus workspace guides, a control reference, the shortcut list and tutorials that load a named demo.',
+    method:
+      'A data registry keyed by control, rendered by a portal tooltip whose placement is computed against the trigger and viewport and flipped when it does not fit. The help centre reads the same registry, the live workspace metadata, the capability records and the demo catalogue; tutorials are validated against those demo ids and workspace modes by test.',
+    notCovered: [
+      'Tutorial steps are self-checked. The workbench does not watch the screen, inspect the design or grade the result; copying a step does not prove a circuit is correct.',
+      'Hover copy describes what a control does on screen. It is not a validity statement about any result the control produces.',
+      'Tutorial progress is stored in this browser only, and a cleared or blocked storage loses it rather than syncing it.',
+      'The shortcut list names only shortcuts that are implemented; a command without a key is described without one.',
+    ],
+    validatedBy: [
+      'src/__tests__/hoverHelp.test.tsx',
+      'src/__tests__/helpCenter.test.tsx',
+      'src/__tests__/tutorials.test.ts',
+      'src/__tests__/tutorialRunner.test.tsx',
+    ],
+  },
 ]
 
 /** Every mode the registry speaks for, derived so it cannot drift from the data. */

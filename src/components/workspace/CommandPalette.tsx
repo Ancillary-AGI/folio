@@ -11,6 +11,7 @@ interface CommandPaletteProps {
   onSave: () => void
   onOpenDemos: () => void
   onOpenLimits: () => void
+  onOpenHelp: () => void
   onToggleTheme: () => void
   /** Overrides the default loader so the host can create a project, confirm replacement, etc. */
   onOpenScenario?: (scenario: DemoScenario) => void
@@ -35,6 +36,7 @@ export default function CommandPalette({
   onSave,
   onOpenDemos,
   onOpenLimits,
+  onOpenHelp,
   onToggleTheme,
   onOpenScenario,
 }: CommandPaletteProps) {
@@ -59,13 +61,14 @@ export default function CommandPalette({
       run: () => (onOpenScenario ?? loadDemoScenario)(scenario),
     }))
     const actions: PaletteCommand[] = [
+      { id: 'action:help', label: 'Open help and tutorials', hint: 'Action · F1', kind: 'action', run: onOpenHelp },
       { id: 'action:demos', label: 'Open demo gallery', hint: 'Action', kind: 'action', run: onOpenDemos },
       { id: 'action:limits', label: 'Open capabilities and limits', hint: 'Action', kind: 'action', run: onOpenLimits },
       { id: 'action:save', label: 'Save design snapshot', hint: 'Action · Ctrl+S', kind: 'action', run: onSave },
       { id: 'action:theme', label: 'Toggle colour theme', hint: 'Action', kind: 'action', run: onToggleTheme },
     ]
     return [...workspaceCommands, ...demoCommands, ...actions]
-  }, [onOpenDemos, onOpenLimits, onOpenScenario, onSave, onToggleTheme])
+  }, [onOpenDemos, onOpenHelp, onOpenLimits, onOpenScenario, onSave, onToggleTheme])
 
   const filtered = useMemo(() => {
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean)

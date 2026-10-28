@@ -76,6 +76,23 @@ describe('App shell', () => {
     expect(screen.getAllByRole('button', { name: themeToggleName }).length).toBeGreaterThan(0)
   })
 
+  it('opens the help centre from the header and from F1', async () => {
+    render(<App />)
+    fireEvent.click((await screen.findAllByRole('button', { name: /new project/i }))[0])
+    await screen.findByTestId('schematic-canvas')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Help and tutorials' }))
+    expect(await screen.findByRole('dialog', { name: 'Help and tutorials' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close help' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Help and tutorials' })).not.toBeInTheDocument(),
+    )
+
+    fireEvent.keyDown(window, { key: 'F1' })
+    expect(await screen.findByRole('dialog', { name: 'Help and tutorials' })).toBeInTheDocument()
+  })
+
   it('opens the administration console from a deep link and returns to projects', async () => {
     window.history.replaceState(null, '', '/admin')
     render(<App />)
@@ -207,6 +224,9 @@ describe('App shell', () => {
     expect(localStorage.getItem(ONBOARDING_COMPLETED_KEY)).toBe('true')
   })
 
+  // Settings, the tour and the limits dialog are three lazy chunks plus a
+  // guided restart in one case; the default 10 s is not a budget this flow has
+  // ever reliably fit into on a loaded machine.
   it('hands the guide over to the limits register instead of stacking them', async () => {
     render(<App />)
     fireEvent.click(screen.getAllByRole('button', { name: /create project/i })[0])
@@ -223,7 +243,7 @@ describe('App shell', () => {
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: /one project/i })).not.toBeInTheDocument(),
     )
-  })
+  }, 30000)
 
   it('restarts the guide from Settings', async () => {
     render(<App />)

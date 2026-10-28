@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DemoGallery from '../components/workspace/DemoGallery'
 import { DEMO_SCENARIOS, scenariosForGroup } from '../lib/demo/demoScenarios'
+import { TUTORIALS } from '../lib/tutorials/tutorials'
 import { useAppStore } from '../stores/useAppStore'
 import { useProjectStore } from '../stores/useProjectStore'
 
@@ -43,6 +44,25 @@ describe('DemoGallery', () => {
     expect(useAppStore.getState().workspaceMode).toBe('schematic')
     expect(useProjectStore.getState().components).toHaveLength(6)
     expect(useProjectStore.getState().wires.length).toBeGreaterThan(0)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers a guided walkthrough for every demo a tutorial is built on', () => {
+    const onStartTutorial = vi.fn()
+    const onClose = vi.fn()
+    render(<DemoGallery open onClose={onClose} onStartTutorial={onStartTutorial} />)
+
+    // A tutorial is a route through a real demo; a stale demo id would leave
+    // the card unguided instead of starting a walkthrough of nothing.
+    for (const tutorial of TUTORIALS) {
+      expect(DEMO_SCENARIOS.some((scenario) => scenario.id === tutorial.demoId)).toBe(true)
+    }
+    const guided = screen.getAllByRole('button', { name: /^Start the guided tutorial:/ })
+    expect(guided).toHaveLength(TUTORIALS.length)
+
+    fireEvent.click(guided[0])
+    expect(onStartTutorial).toHaveBeenCalledTimes(1)
+    expect(onStartTutorial.mock.calls[0][0].demoId).toBe(TUTORIALS[0].demoId)
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
