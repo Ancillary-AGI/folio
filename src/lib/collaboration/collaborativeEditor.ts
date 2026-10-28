@@ -6,8 +6,9 @@
  *   • Implements a lightweight Operational Transformation-style operation queue:
  *       each operation has a lamport timestamp + userId for ordering
  *   • Falls back to an in-memory local session when Supabase is unavailable
- *   • Emits typed events: session:joined, user:joined, user:left,
- *     operation:received, cursor:moved, selection:changed, conflict:detected
+ *   • Emits typed events: session:joined, session:left, user:joined, user:left,
+ *     operation:received, cursor:moved, selection:changed, conflict:detected,
+ *     presence:state
  *
  * Operation types (extend as needed):
  *   component_add | component_update | component_remove
@@ -52,6 +53,17 @@ export interface CollabSession {
   operations: CollabOperation[]
 }
 
+/**
+ * Whether this client's presence is reaching the channel. Broadcast can still
+ * work while presence is not, so peers may show this user as stale or drop
+ * them from the roster; the panel must not claim a healthy realtime session
+ * without saying which half of it is down.
+ */
+export interface PresenceState {
+  broadcasting: boolean
+  reason: string | null
+}
+
 // ── Event emitter ─────────────────────────────────────────────────────────────
 
 type EventMap = {
@@ -63,6 +75,7 @@ type EventMap = {
   'cursor:moved': [{ userId: string; x: number; y: number }]
   'selection:changed': [{ userId: string; componentIds: string[] }]
   'conflict:detected': [{ local: CollabOperation; remote: CollabOperation }]
+  'presence:state': [PresenceState]
 }
 
 class TypedEventEmitter {
@@ -108,6 +121,7 @@ class CollaborativeEditor extends TypedEventEmitter {
   private opSeq = 0
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null
   private useRealtime = false
+  private presence: PresenceState = { broadcasting: false, reason: null }
 
   // ── Connection ──────────────────────────────────────────────────────────────
 
@@ -212,8 +226,14 @@ class CollaborativeEditor extends TypedEventEmitter {
           clearTimeout(timer)
           try {
             await this.channel!.track({ ...user, projectId })
-          } catch {
-            // Presence tracking is best-effort; broadcast still works.
+            this._setPresence({ broadcasting: true, reason: null })
+          } catch (error) {
+            // Broadcast still works without presence, so this degrades rather
+            // than fails — but the panel has to be told which half is down.
+            this._setPresence({
+              broadcasting: false,
+              reason: error instanceof Error ? error.message : 'the first presence broadcast failed',
+            })
           }
           this.useRealtime = true
           resolve()
@@ -242,6 +262,7 @@ class CollaborativeEditor extends TypedEventEmitter {
     this.currentSession = null
     this.currentUser = null
     this.useRealtime = false
+    this._setPresence({ broadcasting: false, reason: null })
     this.emit('session:left')
   }
 
@@ -306,10 +327,27 @@ class CollaborativeEditor extends TypedEventEmitter {
       if (this.currentUser) {
         this.currentUser.lastSeen = Date.now()
         if (this.useRealtime && this.channel) {
-          this.channel.track({ ...this.currentUser }).catch(() => {})
+          this.channel
+            .track({ ...this.currentUser })
+            .then(() => this._setPresence({ broadcasting: true, reason: null }))
+            .catch((error: unknown) => this._setPresence({
+              broadcasting: false,
+              reason: error instanceof Error ? error.message : 'the presence heartbeat failed',
+            }))
         }
       }
     }, 15_000)
+  }
+
+  /**
+   * Presence state is announced only when it changes: a healthy heartbeat
+   * repeating every 15 s must not re-render the panel, and a recovery has to be
+   * visible the same way a failure is.
+   */
+  private _setPresence(next: PresenceState): void {
+    if (this.presence.broadcasting === next.broadcasting && this.presence.reason === next.reason) return
+    this.presence = next
+    this.emit('presence:state', next)
   }
 
   private _stopHeartbeat(): void {
@@ -325,6 +363,7 @@ class CollaborativeEditor extends TypedEventEmitter {
   getCurrentUser(): CollabUser | null { return this.currentUser }
   getConnectedUsers(): CollabUser[] { return this.currentSession ? Array.from(this.currentSession.users.values()) : [] }
   isUsingRealtime(): boolean { return this.useRealtime }
+  getPresenceState(): PresenceState { return this.presence }
 }
 
 export const collaborativeEditor = new CollaborativeEditor()

@@ -3,7 +3,7 @@ import { Radio, RefreshCw, Share2, Trash2, Users, X } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { Input } from '../ui/input'
-import { collaborativeEditor, type CollabOperation, type CollabUser } from '../../lib/collaboration/collaborativeEditor'
+import { collaborativeEditor, type CollabOperation, type CollabUser, type PresenceState } from '../../lib/collaboration/collaborativeEditor'
 import {
   collaborationService,
   ROLE_PERMISSIONS,
@@ -36,6 +36,7 @@ export default function CollaborativePanel({ onClose }: CollaborativePanelProps)
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<CollaboratorRole>('editor')
   const [shareStatus, setShareStatus] = useState('')
+  const [presence, setPresence] = useState<PresenceState>(() => collaborativeEditor.getPresenceState())
 
   const refresh = useCallback(() => {
     setUsers(collaborativeEditor.getConnectedUsers())
@@ -45,15 +46,19 @@ export default function CollaborativePanel({ onClose }: CollaborativePanelProps)
 
   useEffect(() => {
     refresh()
+    setPresence(collaborativeEditor.getPresenceState())
+    const onPresence = (next: PresenceState) => setPresence(next)
     collaborativeEditor.on('session:joined', refresh)
     collaborativeEditor.on('user:joined', refresh)
     collaborativeEditor.on('user:left', refresh)
     collaborativeEditor.on('operation:received', refresh)
+    collaborativeEditor.on('presence:state', onPresence)
     return () => {
       collaborativeEditor.off('session:joined', refresh)
       collaborativeEditor.off('user:joined', refresh)
       collaborativeEditor.off('user:left', refresh)
       collaborativeEditor.off('operation:received', refresh)
+      collaborativeEditor.off('presence:state', onPresence)
     }
   }, [refresh])
 
@@ -61,6 +66,18 @@ export default function CollaborativePanel({ onClose }: CollaborativePanelProps)
   const me = currentSharingUser()
   const selectedProject = projects.find((project) => project.id === selectedProjectId)
   const canManage = selectedProject ? collaborationService.can(selectedProject.id, me.id, 'manage') : false
+  const realtime = collaborativeEditor.isUsingRealtime()
+  /*
+   * "Realtime session" only says the channel is subscribed. Presence is a
+   * separate broadcast, and when it fails the roster on every other machine
+   * goes stale while operations still flow — so the link half that is down is
+   * named rather than papered over.
+   */
+  const statusLabel = realtime
+    ? 'Realtime channel subscribed'
+    : connected
+      ? 'Local collaboration session — operations stay in this browser'
+      : 'No active session'
 
   const createProject = () => {
     try {
@@ -124,7 +141,24 @@ export default function CollaborativePanel({ onClose }: CollaborativePanelProps)
       <div className="flex gap-1"><Button variant="ghost" size="icon" onClick={refresh} aria-label="Refresh collaboration"><RefreshCw className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={onClose} aria-label="Close collaboration"><X className="h-4 w-4" /></Button></div>
     </CardHeader>
     <CardContent className="flex-1 space-y-5 overflow-y-auto p-4">
-      <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 p-3 text-xs"><Radio className={`h-3.5 w-3.5 ${collaborativeEditor.isUsingRealtime() ? 'text-success' : 'text-warning'}`} />{collaborativeEditor.isUsingRealtime() ? 'Realtime session' : connected ? 'Local collaboration session' : 'No active session'}</div>
+      <div
+        className={`flex items-start gap-2 rounded-md border p-3 text-xs ${
+          presence.reason ? 'border-destructive/40 bg-destructive/5' : realtime ? 'border-success/40 bg-success/5' : 'border-border bg-muted/40'
+        }`}
+      >
+        <Radio
+          className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${presence.reason ? 'text-destructive' : realtime ? 'text-success' : 'text-warning'}`}
+          aria-hidden="true"
+        />
+        <div className="min-w-0 space-y-0.5">
+          <p className="font-medium text-foreground">{statusLabel}</p>
+          {presence.reason && (
+            <p role="alert" className="leading-relaxed text-destructive">
+              Peers may not see you: presence broadcast failed ({presence.reason}). Operations still deliver.
+            </p>
+          )}
+        </div>
+      </div>
 
       <section className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Shared projects</h3>

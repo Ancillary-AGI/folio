@@ -213,6 +213,8 @@ export class WebSerialBridge {
       newline = this.lineBuffer.indexOf('\n')
       if (!line) continue
       let parsed: unknown
+      // A device stream carries unsolicited log lines as well as framed
+      // responses, so anything that is not JSON is skipped rather than routed.
       try { parsed = JSON.parse(line) } catch { continue }
       if (typeof parsed !== 'object' || parsed === null) continue
       const message = parsed as Record<string, unknown>

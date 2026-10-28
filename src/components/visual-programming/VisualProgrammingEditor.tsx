@@ -329,6 +329,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
   const [generatedCode, setGeneratedCode] = useState('');
   const [showCode, setShowCode] = useState(false);
   const [buildReport, setBuildReport] = useState<BuildReport | null>(null);
+  const [importNote, setImportNote] = useState<{ ok: boolean; text: string } | null>(null);
 
   usePublishDomainDesign('visual-blocks', toStoredGraph(nodes, edges), (next) => {
     const graph = readStoredGraph(next)
@@ -465,25 +466,51 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
     URL.revokeObjectURL(url);
   };
 
+  /*
+   * An imported file replaces the graph, so the previous build verdict no
+   * longer describes what is on screen: it is cleared with the graph and the
+   * status line returns to "Not built". Every refusal names the file and the
+   * reason, and entries the validator rejects are counted rather than dropped.
+   */
   const handleLoadProgram = () => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
     input.onchange = (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          try {
-            const programData = JSON.parse(e.target?.result as string);
-            setNodes(programData.nodes || []);
-            setEdges(programData.edges || []);
-          } catch (error) {
-            console.error('Failed to load program:', error);
-          }
-        };
-        reader.readAsText(file);
-      }
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onerror = () =>
+        setImportNote({ ok: false, text: `Could not read ${file.name}: ${reader.error?.message ?? 'the file could not be opened'}` });
+      reader.onload = () => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(String(reader.result));
+        } catch (error) {
+          setImportNote({ ok: false, text: `${file.name} is not JSON — ${error instanceof Error ? error.message : 'parse failed'}` });
+          return;
+        }
+        const graph = readStoredGraph(parsed);
+        if (!graph) {
+          setImportNote({ ok: false, text: `${file.name} has no nodes[] and edges[] arrays — it is not a block program file.` });
+          return;
+        }
+        const raw = parsed as { nodes: unknown[]; edges: unknown[] };
+        const rejected = raw.nodes.length - graph.nodes.length + (raw.edges.length - graph.edges.length);
+        setNodes(graph.nodes);
+        setEdges(graph.edges);
+        setGeneratedCode('');
+        setBuildReport(null);
+        setShowCode(false);
+        setImportNote({
+          ok: true,
+          text:
+            `Loaded ${graph.nodes.length} block${graph.nodes.length === 1 ? '' : 's'} and ` +
+            `${graph.edges.length} wire${graph.edges.length === 1 ? '' : 's'} from ${file.name}` +
+            (rejected > 0 ? ` — ${rejected} malformed entr${rejected === 1 ? 'y' : 'ies'} rejected.` : '.'),
+        });
+      };
+      reader.readAsText(file);
     };
     input.click();
   };
@@ -572,6 +599,19 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
                 Save
               </Button>
             </div>
+
+            {importNote && (
+              <p
+                role="status"
+                className={`rounded border px-2 py-1 text-xs ${
+                  importNote.ok
+                    ? 'border-border bg-muted/40 text-muted-foreground'
+                    : 'border-destructive/40 bg-destructive/10 text-destructive'
+                }`}
+              >
+                {importNote.text}
+              </p>
+            )}
             
             <Button
               variant="outline"

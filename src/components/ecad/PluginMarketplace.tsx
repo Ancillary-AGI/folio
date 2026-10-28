@@ -161,6 +161,14 @@ function manifestFor(plugin: BuiltinPluginDescriptor): PluginManifest {
   }
 }
 
+/**
+ * Packages the local registry refused while seeding. This runs once at module
+ * load, before any component can hold state, so refusals land here and the
+ * panel renders them: a card whose Install button is guaranteed to fail must
+ * not be presented as a healthy listing.
+ */
+const SEED_FAILURES: { name: string; reason: string }[] = []
+
 /** Seed the package registry once; installs then flow through the service. */
 function seedBuiltinRegistry(): void {
   for (const plugin of BUILTIN_PLUGINS) {
@@ -177,12 +185,24 @@ function seedBuiltinRegistry(): void {
         packagePayload: { tools: plugin.tools },
       })
     } catch (error) {
-      console.warn(`Could not register ${plugin.id}:`, error)
+      SEED_FAILURES.push({
+        name: plugin.name,
+        reason: error instanceof Error ? error.message : 'the registry refused this package',
+      })
     }
   }
+  // A default install can only run for a package that did register; letting the
+  // throw escape here would take the whole panel down with it.
   for (const plugin of BUILTIN_PLUGINS.filter((p) => p.defaultInstalled)) {
-    if (!marketplaceService.isInstalled(plugin.id)) {
-      marketplaceService.installPackage(plugin.id)
+    if (marketplaceService.getPackage(plugin.id) && !marketplaceService.isInstalled(plugin.id)) {
+      try {
+        marketplaceService.installPackage(plugin.id)
+      } catch (error) {
+        SEED_FAILURES.push({
+          name: plugin.name,
+          reason: error instanceof Error ? error.message : 'the default install failed',
+        })
+      }
     }
   }
 }
@@ -373,6 +393,12 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
         {tab === 'browse' && (
           <div className="p-3 space-y-2">
             {installError && <p role="alert" className="text-xs text-destructive">{installError}</p>}
+            {SEED_FAILURES.length > 0 && (
+              <p role="alert" className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+                {SEED_FAILURES.map((failure) => `${failure.name}: ${failure.reason}`).join(' · ')} — installing
+                these will fail until the local registry accepts them.
+              </p>
+            )}
             {/* Featured */}
             {!searchQuery && (
               <div className="mb-3">

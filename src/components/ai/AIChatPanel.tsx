@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
-import { Bot, Send, Trash2, Lightbulb, Cpu, Wrench, X, Loader2, Mic, MicOff, Copy, Check } from 'lucide-react'
+import { Bot, Send, Trash2, Lightbulb, Cpu, Wrench, X, Loader2, Mic, MicOff, Copy, Check, AlertTriangle } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Badge } from '../ui/badge'
@@ -59,6 +59,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
   const [isLoading, setIsLoading] = useState(false)
   const [isVoice, setIsVoice] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [copyFailedId, setCopyFailedId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -179,10 +180,20 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
     }
   }
 
-  const handleCopy = (id: string, content: string) => {
-    navigator.clipboard.writeText(content).catch(() => {})
-    setCopiedId(id)
-    setTimeout(() => setCopiedId(null), 1500)
+  /*
+   * The check mark is a claim that the text is on the clipboard, so it appears
+   * only after the write resolves. Clipboard access is denied outright in some
+   * browsers and non-secure contexts; saying "copied" there would be a lie.
+   */
+  const handleCopy = async (id: string, content: string) => {
+    try {
+      await navigator.clipboard.writeText(content)
+      setCopiedId(id)
+      setTimeout(() => setCopiedId((current) => (current === id ? null : current)), 1500)
+    } catch {
+      setCopyFailedId(id)
+      setTimeout(() => setCopyFailedId((current) => (current === id ? null : current)), 2500)
+    }
   }
 
   const clearChat = () => {
@@ -249,16 +260,31 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
               }`}>
                 {msg.content}
               </div>
-              <div className="flex items-center gap-2 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex items-center gap-2 mt-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                 <span className="text-xs text-muted-foreground">
                   {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
                 {msg.role === 'assistant' && (
                   <button
-                    className="text-xs text-muted-foreground hover:text-foreground"
+                    className={`text-xs hover:text-foreground ${
+                      copyFailedId === msg.id ? 'text-destructive' : 'text-muted-foreground'
+                    }`}
                     onClick={() => handleCopy(msg.id, msg.content)}
+                    aria-label={
+                      copyFailedId === msg.id
+                        ? 'Copy failed — clipboard access denied. Press to try again.'
+                        : copiedId === msg.id
+                          ? 'Copied to clipboard'
+                          : 'Copy reply to clipboard'
+                    }
                   >
-                    {copiedId === msg.id ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
+                    {copyFailedId === msg.id ? (
+                      <AlertTriangle className="w-3 h-3" />
+                    ) : copiedId === msg.id ? (
+                      <Check className="w-3 h-3 text-success" />
+                    ) : (
+                      <Copy className="w-3 h-3" />
+                    )}
                   </button>
                 )}
               </div>

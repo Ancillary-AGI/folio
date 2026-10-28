@@ -71,4 +71,51 @@ describe('AIChatPanel', () => {
     expect(screen.getByText('AI Design Assistant')).toBeInTheDocument()
     expect(screen.queryByText(/Circuit Analysis Report/)).not.toBeInTheDocument()
   })
+
+  /*
+   * The tick is a statement that the clipboard holds the text, so it may only
+   * appear once the write resolves. A denied write must report the denial
+   * instead of the same tick.
+   */
+  const stubClipboard = (writeText: () => Promise<void>) => {
+    Object.defineProperty(window.navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+  }
+
+  /* The reply is posted as more than one assistant bubble, so every copy
+   * control is addressed by index and only the clicked one changes state. */
+  const copyButton = (index = 0): HTMLElement =>
+    screen.getAllByRole('button', { name: 'Copy reply to clipboard' })[index]
+
+  it('marks a reply copied only after the clipboard write resolves', async () => {
+    let resolveWrite: () => void = () => {}
+    stubClipboard(() => new Promise<void>((resolve) => { resolveWrite = resolve }))
+
+    render(<AIChatPanel onClose={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: /Analyze circuit/ }))
+    await screen.findByText(/Circuit Analysis Report/)
+
+    fireEvent.click(copyButton())
+    expect(screen.queryByRole('button', { name: 'Copied to clipboard' })).not.toBeInTheDocument()
+
+    resolveWrite()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Copied to clipboard' })).toBeInTheDocument())
+  })
+
+  it('reports a denied clipboard write instead of claiming it copied', async () => {
+    stubClipboard(() => Promise.reject(new Error('Document is not focused')))
+
+    render(<AIChatPanel onClose={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: /Analyze circuit/ }))
+    await screen.findByText(/Circuit Analysis Report/)
+
+    fireEvent.click(copyButton())
+    expect(
+      await screen.findByRole('button', { name: /Copy failed — clipboard access denied/ }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Copied to clipboard' })).not.toBeInTheDocument()
+  })
 })

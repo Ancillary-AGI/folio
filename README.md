@@ -4,7 +4,7 @@ Browser-based, offline-first engineering workbench for electronic CAD, mechanica
 design, simulation, robotics, and embedded development. Everything runs locally
 unless you explicitly configure a backend; no account is required for local use.
 
-**Status:** active development. Lint, both typechecks, 2,107 tests across 208
+**Status:** active development. Lint, both typechecks, 2,119 tests across 212
 files, the icon-button accessibility audit, and the production build all pass.
 
 ---
@@ -265,7 +265,10 @@ rules); it makes no model or network call, and its output is advisory.
   owner, administrator, engineer and viewer, documented in
   [docs/ADMINISTRATION.md](docs/ADMINISTRATION.md).
   Real-time presence and operation broadcast use Supabase Realtime **when
-  configured**; otherwise the sharing model is local-only.
+  configured**; otherwise the sharing model is local-only, and the status row
+  says so. Presence and broadcast are separate channel calls: if the track
+  fails, the panel reports that peers may not see you rather than claiming a
+  healthy realtime session.
 - Plugin system with manifest validation, declared-permission gating, lifecycle
   hooks, marketplace install/uninstall. Plugin code runs in the page; permissions
   gate host API actions, not a security sandbox.
@@ -320,7 +323,7 @@ npm run lint            # ESLint, zero warnings
 npm run a11y:buttons    # every icon-only button has an accessible name
 npm run typecheck       # app TypeScript
 npm run typecheck:node  # Vite/build config TypeScript
-npm test                # Vitest, 2,107 tests / 208 files
+npm test                # Vitest, 2,119 tests / 212 files
 npm run build           # production build
 npm run verify          # all of the gates above, in order
 npm run preview         # preview the build on port 4173

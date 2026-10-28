@@ -194,7 +194,9 @@
 - **Sharing & roles**: owner/admin/editor/reviewer/viewer with permission checks
   and collaborator management (`collaborationService` tests)
 - **Real-time**: Supabase Realtime presence and operation broadcast when
-  configured; local-only otherwise 🟡
+  configured; local-only otherwise. Presence and broadcast are reported apart — a
+  failed presence track says peers may not see you instead of claiming a healthy
+  session 🟡
 - **Plugins**: manifest validation, declared-permission gating, lifecycle hooks,
   marketplace install/uninstall (unit-tested); not a security sandbox
 - **Asset security**: RBAC grants, AES-GCM-256 encryption/decryption, in-session
@@ -257,7 +259,7 @@
   "always correct". Cloud-gated records carry a **cloud** marker.
 - **CI**: lint (zero warnings), typecheck (app + build config), button-label
   audit, full test suite, production build
-- **Tests**: 2,107 tests across 208 files, including engine truth tests and React
+- **Tests**: 2,119 tests across 212 files, including engine truth tests and React
   render/integration tests
 - **Build**: heavily code-split; feature panels and vendor chunks load on demand
 
