@@ -288,6 +288,81 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
   },
   {
     category: 'semiconductor',
+    name: 'N-Channel FinFET',
+    is_standard: true,
+    symbol_data: {
+      width: 70,
+      height: 60,
+      paths: [
+        'M 0,30 L 25,30',
+        'M 25,10 L 25,50',
+        'M 30,15 L 30,25',
+        'M 30,32 L 30,42',
+        'M 30,20 L 50,20 L 50,5 L 70,5',
+        'M 30,37 L 50,37 L 50,55 L 70,55',
+        'M 50,37 L 50,20',
+        'M 43,37 L 50,44 L 57,37',
+        'M 34,15 L 34,25',
+        'M 38,15 L 38,25'
+      ]
+    },
+    pins: [
+      { id: 'drain', name: 'D', x: 70, y: 5, type: 'output' },
+      { id: 'gate', name: 'G', x: 0, y: 30, type: 'input' },
+      { id: 'source', name: 'S', x: 70, y: 55, type: 'output' }
+    ],
+    default_properties: {
+      type: 'FINFET-N',
+      family: 'finfet',
+      vto: '0.35',
+      kp: '2e-3',
+      lambda: '0.02',
+      dibl: '0.04',
+      ssub: '70',
+      fins: '4',
+      voltage: '1.8V',
+      current: '50mA'
+    }
+  },
+  {
+    category: 'semiconductor',
+    name: 'N-Channel GaN HEMT',
+    is_standard: true,
+    symbol_data: {
+      width: 70,
+      height: 60,
+      paths: [
+        'M 0,30 L 25,30',
+        'M 25,10 L 25,50',
+        'M 30,15 L 30,25',
+        'M 30,32 L 30,42',
+        'M 30,20 L 50,20 L 50,5 L 70,5',
+        'M 30,37 L 50,37 L 50,55 L 70,55',
+        'M 50,37 L 50,20',
+        'M 43,37 L 50,44 L 57,37',
+        'M 24,18 L 34,18',
+        'M 24,42 L 34,42'
+      ]
+    },
+    pins: [
+      { id: 'drain', name: 'D', x: 70, y: 5, type: 'output' },
+      { id: 'gate', name: 'G', x: 0, y: 30, type: 'input' },
+      { id: 'source', name: 'S', x: 70, y: 55, type: 'output' }
+    ],
+    default_properties: {
+      type: 'GAN-HEMT-N',
+      family: 'gan-hemt',
+      vto: '-2',
+      kp: '0.5',
+      lambda: '0.002',
+      dibl: '0.01',
+      ssub: '90',
+      voltage: '650V',
+      current: '30A'
+    }
+  },
+  {
+    category: 'semiconductor',
     name: 'N-Channel JFET',
     is_standard: true,
     symbol_data: {

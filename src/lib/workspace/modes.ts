@@ -25,7 +25,7 @@ export interface WorkspaceModeMeta {
 
 export const WORKSPACE_GROUPS: readonly WorkspaceGroup[] = [
   { id: 'design', label: 'Design', description: 'Schematic capture, simulation, PCB and fabrication' },
-  { id: 'electrical', label: 'Electrical', description: 'Control, machines, RF, HDL, FPGA and silicon' },
+  { id: 'electrical', label: 'Electrical', description: 'Control, machines, power grids, RF, HDL, FPGA and silicon' },
   { id: 'mechanical', label: 'Mechanical', description: 'CAD, robotics, firmware and hardware test' },
   { id: 'ops', label: 'Ops & AI', description: 'Digital twins, agents, plugins and monitoring' },
 ]
@@ -39,7 +39,8 @@ const MODES: readonly WorkspaceModeMeta[] = [
   { id: 'bom', label: 'BOM', group: 'design', description: 'Aggregate parts, costs and declared lifecycle status.' },
   { id: 'control', label: 'Control', group: 'electrical', description: 'LTI transfer functions, PID, Bode, margins and closed-loop step response.' },
   { id: 'machines', label: 'Machines', group: 'electrical', description: 'DC motor/generator, BLDC and stepper operating points and waveforms.' },
-  { id: 'rf', label: 'RF', group: 'electrical', description: 'Antenna, transmission-line and filter synthesis with far-field patterns.' },
+  { id: 'grid', label: 'Grid', group: 'electrical', description: 'Transmission and distribution power flow with generator limits and line loading.' },
+  { id: 'rf', label: 'RF', group: 'electrical', description: 'Antennas, filters, radio and fibre link budgets, NR/6G numerology and statevector quantum circuits.' },
   { id: 'hdl', label: 'HDL/RTL', group: 'electrical', description: 'Write, elaborate and simulate Verilog and VHDL.' },
   { id: 'icdesign', label: 'IC Design', group: 'electrical', description: 'Synthesize SKY130 RTL, floorplan, package and export GDSII.' },
   { id: 'fpga', label: 'FPGA', group: 'electrical', description: 'Elaborate HDL, estimate device resources and emit a design manifest.' },

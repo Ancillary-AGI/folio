@@ -66,7 +66,7 @@ export const CAPABILITY_FAMILIES: readonly CapabilityFamily[] = [
   { id: 'board', label: 'Board & fabrication', description: 'Netlist-to-board conversion, rules checks, routing, integrity estimates and manufacturing artifacts.' },
   { id: 'structure', label: 'Mechanical & structural', description: 'Beam and frame mechanics, enclosure geometry, printability and machine drawings.' },
   { id: 'motion', label: 'Robotics & mechanisms', description: 'Kinematics, rigid-body dynamics, trajectory replay and task checks.' },
-  { id: 'wave', label: 'RF & antennas', description: 'Antenna and transmission-line synthesis, RF two-port characterisation and far-field patterns.' },
+  { id: 'wave', label: 'RF, photonics & quantum', description: 'Antenna and transmission-line synthesis, radio and fibre link budgets, and statevector quantum circuits.' },
   { id: 'logic', label: 'HDL, FPGA & silicon', description: 'RTL subset elaboration, simulation, resource estimation and the SKY130 flow.' },
   { id: 'control', label: 'Control & ML toolbox', description: 'LTI analysis, PID design and tuning routes, and the heuristics the designer drives.' },
   { id: 'machine', label: 'Machines & parts', description: 'Electric-machine operating points plus part ratings, margins, catalogues and power sources.' },
@@ -205,17 +205,24 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     family: 'circuit',
     title: 'Reduced-order multiphysics',
     modes: ['simulation', 'mechanical', 'pcb'],
-    computes: 'Steady heat-conduction fields, 1-D axial bar and 2-D pin-jointed truss displacements and reactions, and 2-D electrostatic potential fields with a reported residual.',
+    computes: 'Steady heat-conduction fields, 1-D axial bar and 2-D pin-jointed truss displacements and reactions, 2-D electrostatic potential fields with a reported residual, air-standard and Rankine gas cycles, Darcy–Weisbach pipe flow and tree pipe networks, and Sabine/Eyring room acoustics with partition transmission loss.',
     method:
-      'Finite differences for the thermal and potential fields, direct stiffness for the bar and truss, all reusing the same dense LU solver as the circuit analyser and reporting the genuine linear residual.',
+      'Finite differences for the thermal and potential fields, direct stiffness for the bar and truss, all reusing the same dense LU solver as the circuit analyser and reporting the genuine linear residual. Cycles use constant-specific-heat air-standard relations, with an ideal Rankine cycle over a nominal saturated-water table interpolated in ln(p). Pipe friction is 64/Re below 2300 and Swamee–Jain above 4000; networks are validated as a tree and solved by continuity. Room acoustics is Sabine and Eyring over area-weighted absorption; partition TL is the mass law.',
     notCovered: [
       'Verified reduced-order solvers, not a general 3-D FEM suite.',
       'No contact, no plasticity, no frequency response.',
+      'Air-standard cycles assume constant specific heats, no pressure loss, no combustion chemistry or dissociation, and no regeneration unless the model states it.',
+      'The Rankine cycle uses a nominal saturated-water table at 0.05–100 bar: no superheat, no reheat, no feedwater heating, and an out-of-dome expansion is refused rather than extrapolated.',
+      'Pipe flow is single-phase, incompressible and steady. Friction switches discontinuously between the laminar and turbulent correlations across 2300–4000 Re; there is no transitional or compressible model.',
+      'Room acoustics assumes a diffuse field: no modal analysis, no diffraction or directivity, and Eyring collapses to zero at unit mean absorption rather than predicting a real room.',
       'Deterministic by construction: an earlier version of this module returned random node voltages, iteration counts and timings. That behaviour is gone and the tests pin it.',
     ],
     validatedBy: [
       'src/lib/simulation/multiphysics.test.ts',
       'src/lib/mechanical/structural.test.ts',
+      'src/lib/mechanical/thermofluids.test.ts',
+      'src/lib/mechanical/acoustics.test.ts',
+      'src/__tests__/mechanicalDesignPanel.test.tsx',
     ],
   },
   {
@@ -353,10 +360,11 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     family: 'board',
     title: 'Board 3-D view and mesh export',
     modes: ['preview3d'],
-    computes: 'A three-dimensional board scene and STL/OBJ meshes built from the routed layout — outline, copper layers, soldermask, pads breaking through, vias and footprint bodies.',
-    method: 'One scene geometry builder shared by the renderer and the exporters, so the picture and the mesh come from the same canonical board model rather than a separate demo slab.',
+    computes: 'A three-dimensional board scene and STL/OBJ meshes built from the routed layout — outline, copper layers, soldermask in the chosen lacquer colour, ENIG/HASL/OSP pad metal, pads breaking through, vias, silkscreen and footprint bodies.',
+    method: 'One scene geometry builder shared by the renderer and the exporters, so the picture and the mesh come from the same canonical board model rather than a separate demo slab. Mask colour and pad finish select the preview materials; copper and pad geometry are unchanged by them.',
     notCovered: [
       'A geometry preview and mesh exporter, not an electromagnetic, thermal or mechanical co-solve.',
+      'Mask colour and pad finish are visual choices for the preview; the fabrication package does not encode either, so the fab house will use its own process unless the order says otherwise.',
       'Every warning names the element falling outside the outline instead of silently clamping it.',
       'Degenerate face normals are excluded from STL rather than replaced by a tidy (0,0,1) lie about the geometry.',
     ],
@@ -557,6 +565,46 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
       'src/lib/simulation/transmissionLine.test.ts',
     ],
   },
+  {
+    id: 'wave-optical',
+    family: 'wave',
+    title: 'Fibre-optic link budget',
+    modes: ['rf'],
+    computes:
+      'OOK link margin from launch power, fibre, splice and connector loss, a chromatic-dispersion eye-closure penalty, PIN receiver sensitivity at a declared BER, and the achieved photons per bit beside the ideal ln(1/BER) bound.',
+    method:
+      'Closed-form loss addition; dispersion broadening σ = D·Δλ·L with the stated Gaussian penalty 5·log₁₀(1 + (2π·B·σ)²); receiver sensitivity from the Q-factor equation with shot, dark-current and declared thermal noise. The Q-factor comes from an inverted complementary error function.',
+    notCovered: [
+      'Fibre attenuation is the declared value at the operating wavelength; there is no wavelength-dependent attenuation model, OH-absorption peak or bend-loss model.',
+      'No fibre nonlinearity (SPM/XPM/FWM), polarisation-mode dispersion, amplifier ASE, forward-error correction or receiver equalisation.',
+      'The dispersion penalty is a Gaussian estimate, not a waveform, eye-diagram or DSP simulation.',
+      'The ln(1/BER) photon figure is an ideal photon-counting bound only; a PIN transimpedance receiver is not a photon counter and sits orders of magnitude above it.',
+    ],
+    validatedBy: [
+      'src/lib/photonics/opticalLink.test.ts',
+      'src/__tests__/rfPanel.test.tsx',
+    ],
+  },
+  {
+    id: 'wave-quantum',
+    family: 'wave',
+    title: 'Statevector quantum circuits',
+    modes: ['rf'],
+    computes:
+      'Exact unitary evolution of up to 12 qubits for H, X, Y, Z, S, T, Rx, Ry, Rz, CNOT, CZ and SWAP, with basis and marginal probabilities, ⟨Z⟩ per qubit and sampled measurement counts.',
+    method:
+      'A dense 2ⁿ complex amplitude vector; single-qubit gates are applied as 2×2 matrices to each pair of basis states, controlled gates permute or phase-flip amplitude pairs, and normalisation is checked rather than assumed. Sampling uses an injectable random source and leaves the state untouched.',
+    notCovered: [
+      'Noiseless pure-state simulation: no density matrices, noise channels, mid-circuit measurement, error mitigation or hardware calibration.',
+      'A sampled measurement is a statistical draw from the simulated distribution, not a hardware run; repeated shots are independent and the stored state is never collapsed.',
+      'No pulse-level control, analogue Hamiltonian evolution, variational optimisation or quantum error correction is modelled.',
+      'The 12-qubit cap is enforced by refusal; larger registers are not silently approximated.',
+    ],
+    validatedBy: [
+      'src/lib/quantum/statevector.test.ts',
+      'src/__tests__/rfPanel.test.tsx',
+    ],
+  },
   // ── logic ──────────────────────────────────────────────────────────────────
   {
     id: 'logic-hdl',
@@ -734,6 +782,24 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     ],
   },
   {
+    id: 'machine-grid',
+    family: 'machine',
+    title: 'Power-grid load flow',
+    modes: ['grid'],
+    computes:
+      'Bus voltage magnitudes and angles, generator and slack injections, branch flows, losses, line loading against a declared rating, and PV reactive-limit enforcement for the declared balanced network.',
+    method:
+      'Positive-sequence per-unit Y-bus assembled from series impedance, charging susceptance and an off-nominal tap ratio. Polar Newton–Raphson with an analytic Jacobian, flat start, backtracking step-halving line search, and PV-to-PQ conversion when a generator reaches a reactive limit. Radial distribution uses a backward/forward sweep on a validated tree with per-phase constant-power loads.',
+    notCovered: [
+      'Steady-state positive sequence only: no transient or voltage stability, electromagnetic transients, protection coordination, harmonics or phase imbalance.',
+      'Loads are constant power: no ZIP load, motor stalling, transformer saturation or phase-shifting transformers.',
+      'A case beyond the transfer limit returns converged: false with the last iterate; it is never presented as a solved low-voltage operating point.',
+      'Distribution assumes a balanced radial tree with no shunt capacitance, voltage regulators or conductor thermal model, and refuses a loop instead of approximating it.',
+      'No state estimation, contingency screening, economic dispatch or market data.',
+    ],
+    validatedBy: ['src/lib/power/loadFlow.test.ts', 'src/__tests__/powerGridPanel.test.tsx'],
+  },
+  {
     id: 'machine-margins',
     family: 'machine',
     title: 'Ratings, margins and thermal headroom',
@@ -812,7 +878,7 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
       'The browser half builds and verifies work; a Node-only sidecar executes it. Flash frames are newline-delimited JSON with request ids and per-request timeouts, every write is hash-checked before success is reported, and writes past the device size are refused rather than clipped. Where permissions allow, WebSerial and WebUSB are used directly; otherwise a localhost WebSocket companion bridge carries raw block SD/eMMC writes and OpenOCD JTAG/SWD.',
     notCovered: [
       'A browser cannot touch block devices. Without a granted port, uploadSketch returns an explicit no-transport refusal — an honest dead end, never a fake upload; the absence of WebSerial is a typed refusal.',
-      'The sidecar runs against a file-backed device in tests and development; a real deployment opens the SD device node.',
+      'No daemon entry point ships: the flash frame handler is exercised against a file-backed device in tests, and the companion bridge is a WebSocket client. A deployment must run its own listener on the declared endpoint and open the real device node.',
       'Simulated I2C and SPI buses answer by a declared convention (devices at even addresses 0x10 to 0x50, deterministic bytes from address and register) — that is a stand-in for a bridge, not hardware. Real traffic needs a connected native USB bridge; CAN is simulated or SLCAN over an attached UART.',
       'Malformed, wrong-length or non-byte replies are rejected, never zero-filled.',
       'A HIL pass proves the contract against the modelled board, not the behaviour of physical hardware.',
@@ -1053,7 +1119,7 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     title: 'Hover help, guides and tutorials',
     modes: [
       'schematic', 'simulation', 'convert', 'pcb', 'preview3d', 'bom',
-      'control', 'machines', 'rf', 'hdl', 'icdesign', 'fpga',
+      'control', 'machines', 'grid', 'rf', 'hdl', 'icdesign', 'fpga',
       'mechanical', 'robotics', 'embedded', 'imaging', 'visual', 'hil',
       'twin', 'agents', 'components', 'plugins', 'dashboard', 'siem', 'marketplace',
     ],

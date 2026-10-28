@@ -140,6 +140,18 @@ describe('Circuit3DViewer', () => {
     expect(screen.getByText('Top Copper')).toBeInTheDocument()
   })
 
+  it('selects the soldermask colour and pad finish previewed on the board', () => {
+    render(<Circuit3DViewer onClose={() => {}} />)
+    const black = screen.getByRole('button', { name: 'Matte black soldermask' })
+    expect(black).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(black)
+    expect(black).toHaveAttribute('aria-pressed', 'true')
+
+    const finish = screen.getByLabelText('Pad finish')
+    fireEvent.change(finish, { target: { value: 'hasl' } })
+    expect(screen.getByText(/Bright silver alloy/)).toBeInTheDocument()
+  })
+
   it('exports the routed board geometry', () => {
     useProjectStore.setState({
       pcbLayout: {

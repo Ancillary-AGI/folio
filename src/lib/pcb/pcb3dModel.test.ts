@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import * as THREE from 'three'
 import { buildPcbScene, type PcbSceneInput } from './pcbScene'
-import { buildPcbGroup, type PcbBoardGroupOptions } from './pcb3dModel'
+import {
+  buildPcbGroup,
+  PAD_FINISH_SPECS,
+  SOLDERMASK_SPECS,
+  type PcbBoardGroupOptions,
+} from './pcb3dModel'
 
 const LAYERS: PcbSceneInput['layers'] = [
   { id: 'top-cu', name: 'Top Copper', kind: 'copper', color: '#cc0000', side: 'top' },
@@ -129,6 +134,37 @@ function recordingContext(): { context: CanvasRenderingContext2D; cuts: Recorded
   }
   return { context: context as unknown as CanvasRenderingContext2D, cuts }
 }
+
+describe('soldermask and pad finish', () => {
+  it('paints the slab and the mask film in the selected colour', () => {
+    const scene = buildPcbScene(input())
+    const group = buildPcbGroup(scene, { ...OPTIONS, maskColor: 'black' })
+    const substrate = group.getObjectByName('pcb-substrate') as THREE.Mesh
+    const substrateMaterials = Array.isArray(substrate.material) ? substrate.material : [substrate.material]
+    const coat = substrateMaterials[0] as THREE.MeshPhysicalMaterial
+    expect(`#${coat.color.getHexString()}`).toBe(SOLDERMASK_SPECS.black.baseColor)
+    // The matte lacquer must be genuinely rougher than the standard gloss.
+    expect(coat.roughness).toBeGreaterThan(SOLDERMASK_SPECS.green.roughness)
+    expect(coat.clearcoat).toBeLessThan(SOLDERMASK_SPECS.green.clearcoat)
+
+    const overlay = group.getObjectByName('soldermask-overlay') as THREE.Mesh
+    const overlayMaterial = overlay.material as THREE.MeshPhysicalMaterial
+    expect(`#${overlayMaterial.color.getHexString()}`).toBe(SOLDERMASK_SPECS.black.overlayColor)
+    expect(overlayMaterial.opacity).toBeCloseTo(0.46, 6)
+  })
+
+  it('marks every copper land with the selected finish metal', () => {
+    const scene = buildPcbScene(input())
+    for (const finish of ['enig', 'hasl', 'osp'] as const) {
+      const group = buildPcbGroup(scene, { ...OPTIONS, padFinish: finish })
+      const [pad] = meshesWithPrefix(group, 'pad-D1-')
+      const material = pad.material as THREE.MeshStandardMaterial
+      expect(`#${material.color.getHexString()}`).toBe(PAD_FINISH_SPECS[finish].color)
+      expect(material.metalness).toBeCloseTo(PAD_FINISH_SPECS[finish].metalness, 6)
+      expect(material.roughness).toBeCloseTo(PAD_FINISH_SPECS[finish].roughness, 6)
+    }
+  })
+})
 
 describe('silkscreen artwork', () => {
   it('erases artwork over exposed pads instead of printing across copper', () => {

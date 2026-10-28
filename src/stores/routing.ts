@@ -36,6 +36,7 @@ export const WORKSPACE_ROUTES: Readonly<Record<WorkspaceMode, string>> = {
   simulation: '/simulation',
   control: '/control',
   machines: '/machines',
+  grid: '/grid',
   mechanical: '/cad',
   pcb: '/pcb',
   rf: '/rf',

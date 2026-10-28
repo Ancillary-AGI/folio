@@ -29,6 +29,7 @@ import {
   type Device,
   type InductorDevice,
   type JfetModelParams,
+  type MosfetFamily,
   type MosfetModelParams,
   type SourceWaveform,
 } from './devices'
@@ -123,7 +124,14 @@ const CLASSIFIERS: ReadonlyArray<{ kind: DeviceKind | 'ground'; matches: (type: 
     matches: (type, name) =>
       type.includes('transmissionline') || type.includes('delayline') || type.includes('tline') || /^tl?\d/i.test(name),
   },
-  { kind: 'mosfet', matches: (type, name) => type.includes('mosfet') || /^m\d/i.test(name) },
+  {
+    kind: 'mosfet',
+    matches: (type, name) =>
+      type.includes('mosfet') ||
+      type.includes('finfet') ||
+      type.includes('hemt') ||
+      /^m\d/i.test(name),
+  },
   { kind: 'jfet', matches: (type, name) => type.includes('jfet') || /^j\d/i.test(name) },
   {
     kind: 'voltage-switch',
@@ -427,7 +435,10 @@ const MODELLED_CARD_PARAMETERS: Readonly<Record<ModelDeviceKind, ReadonlySet<str
     'is', 'bf', 'br', 'nf', 'nr', 'vaf', 'var', 'ikf', 'ikr', 'ise', 'ne', 'isc', 'nc',
     'cje', 'vje', 'mje', 'cjc', 'vjc', 'mjc', 'fc', 'tf', 'tr', 'rb', 'rc', 're',
   ]),
-  mosfet: new Set(['vto', 'kp', 'gamma', 'phi', 'lambda', 'is', 'n', 'cgs', 'cgd']),
+  mosfet: new Set([
+    'vto', 'kp', 'gamma', 'phi', 'lambda', 'is', 'n', 'cgs', 'cgd',
+    'dibl', 'ssub', 'fins',
+  ]),
   jfet: new Set(['beta', 'vto', 'lambda', 'is', 'n', 'cgs', 'cgd']),
   diode: new Set(['is', 'n']),
 }
@@ -575,6 +586,18 @@ function parseJfetModel(component: Component): { polarity: 'n' | 'p'; model: Jfe
   }
 }
 
+/**
+ * Compact-model family declared on the symbol, not on a `.model` card: the card
+ * grammar is numeric-only, so a string family would be rejected there.
+ */
+function mosfetFamilyOf(component: Component): MosfetFamily {
+  const requested = pickParameter(component.parameters, 'family', 'modelFamily')
+  const text = `${component.type} ${component.name} ${typeof requested === 'string' ? requested : ''}`.toLowerCase()
+  if (text.includes('finfet')) return 'finfet'
+  if (/gan[-_ ]?(hemt|fet)|hemt/.test(text)) return 'gan-hemt'
+  return 'planar'
+}
+
 /** Parse Level-1 MOSFET model parameters, with SPICE's own defaults. */
 function parseMosfetModel(component: Component): { polarity: 'n' | 'p'; model: MosfetModelParams } {
   const declared = `${component.type} ${component.name}`.toLowerCase().replace(/[^a-z]/g, '')
@@ -587,6 +610,12 @@ function parseMosfetModel(component: Component): { polarity: 'n' | 'p'; model: M
         : 'n'
   const mosPart = partNumber(component)
   const mosCard = mosPart === undefined ? undefined : MOSFET_MODEL_DEFAULTS[mosPart]
+  const family = mosfetFamilyOf(component)
+  // A three-terminal HEMT has no body junction; its knee and swing defaults are
+  // the published ballpark for a GaN-on-Si power part, not a vendor card.
+  const bodyDiodeDefault = family === 'gan-hemt' ? 0 : 1e-14
+  const diblDefault = family === 'finfet' ? 0.04 : family === 'gan-hemt' ? 0.01 : 0
+  const swingDefault = family === 'gan-hemt' ? 90 : 70
   return {
     polarity,
     model: {
@@ -595,10 +624,21 @@ function parseMosfetModel(component: Component): { polarity: 'n' | 'p'; model: M
       gamma: modelParameter(component, mosCard, 0, 'body effect (gamma)', 'gamma'),
       phi: modelParameter(component, mosCard, 0.6, 'surface potential (phi)', 'phi'),
       lambda: modelParameter(component, mosCard, 0, 'channel-length modulation (lambda)', 'lambda'),
-      is: modelParameter(component, mosCard, 1e-14, 'body diode saturation current (is)', 'is'),
+      is: modelParameter(component, mosCard, bodyDiodeDefault, 'body diode saturation current (is)', 'is'),
       n: modelParameter(component, mosCard, 1, 'body diode coefficient (n)', 'n'),
       cgs: modelParameter(component, mosCard, 0, 'gate–source capacitance (cgs)', 'cgs'),
       cgd: modelParameter(component, mosCard, 0, 'gate–drain capacitance (cgd)', 'cgd'),
+      family,
+      dibl: modelParameter(component, mosCard, diblDefault, 'DIBL (dibl)', 'dibl'),
+      subthresholdMvPerDecade: modelParameter(
+        component,
+        mosCard,
+        swingDefault,
+        'subthreshold swing (ssub)',
+        'ssub',
+        'subthreshold',
+      ),
+      fins: modelParameter(component, mosCard, 1, 'parallel fins (fins)', 'fins', 'nfin'),
     },
   }
 }

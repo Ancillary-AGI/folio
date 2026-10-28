@@ -10,6 +10,76 @@ export interface PcbBoardGroupOptions {
   hiddenLayerIds: ReadonlySet<string>
   hiddenComponentIds: ReadonlySet<string>
   componentScale: number
+  /** Soldermask lacquer chosen for the preview; defaults to the classic green. */
+  maskColor?: PcbMaskColor
+  /** Surface finish that sets the exposed-copper metal; defaults to ENIG. */
+  padFinish?: PcbPadFinish
+}
+
+export type PcbMaskColor = 'green' | 'blue' | 'red' | 'black' | 'white' | 'purple'
+
+export type PcbPadFinish = 'enig' | 'hasl' | 'osp'
+
+export interface PcbMaskSpec {
+  label: string
+  /** Coat colour on the slab faces and edges. */
+  baseColor: string
+  /** Slightly lifted colour of the film laid over the copper. */
+  overlayColor: string
+  roughness: number
+  clearcoat: number
+  clearcoatRoughness: number
+}
+
+/**
+ * Soldermask is a pigmented epoxy, not paint: the hue comes from the pigment,
+ * the sheen from the cure. Matte black is deliberately rougher with almost no
+ * clearcoat — the finish most assembly houses use to hide weave texture.
+ */
+export const SOLDERMASK_SPECS: Record<PcbMaskColor, PcbMaskSpec> = {
+  green: { label: 'Green', baseColor: '#0b5c35', overlayColor: '#0d6b3e', roughness: 0.5, clearcoat: 0.3, clearcoatRoughness: 0.45 },
+  blue: { label: 'Blue', baseColor: '#123a5c', overlayColor: '#14486e', roughness: 0.5, clearcoat: 0.3, clearcoatRoughness: 0.45 },
+  red: { label: 'Red', baseColor: '#5c1414', overlayColor: '#6e1717', roughness: 0.5, clearcoat: 0.3, clearcoatRoughness: 0.45 },
+  black: { label: 'Matte black', baseColor: '#101214', overlayColor: '#121518', roughness: 0.68, clearcoat: 0.12, clearcoatRoughness: 0.6 },
+  white: { label: 'White', baseColor: '#d8d9cf', overlayColor: '#e4e5da', roughness: 0.54, clearcoat: 0.28, clearcoatRoughness: 0.5 },
+  purple: { label: 'Purple', baseColor: '#3a1f5c', overlayColor: '#47256e', roughness: 0.5, clearcoat: 0.3, clearcoatRoughness: 0.45 },
+}
+
+export interface PcbPadFinishSpec {
+  label: string
+  color: string
+  metalness: number
+  roughness: number
+  note: string
+}
+
+/**
+ * Pad finishes differ in what the eye sees: gold over nickel (ENIG), a bright
+ * reflowed tin-lead-free alloy (HASL), or bare copper protected by an organic
+ * layer (OSP). These are preview metals; the fab package does not encode them.
+ */
+export const PAD_FINISH_SPECS: Record<PcbPadFinish, PcbPadFinishSpec> = {
+  enig: {
+    label: 'ENIG (gold over nickel)',
+    color: '#c9a24a',
+    metalness: 0.55,
+    roughness: 0.55,
+    note: 'Satin gold; flat lands for fine pitch.',
+  },
+  hasl: {
+    label: 'HASL (lead-free)',
+    color: '#d5d9dd',
+    metalness: 0.72,
+    roughness: 0.4,
+    note: 'Bright silver alloy with slightly domed lands.',
+  },
+  osp: {
+    label: 'OSP (bare copper)',
+    color: '#b87333',
+    metalness: 0.45,
+    roughness: 0.62,
+    note: 'Copper tone under a thin organic coat.',
+  },
 }
 
 const BOARD_CORNER_MM = 2.2
@@ -618,10 +688,12 @@ export function buildPcbGroup(scene: PcbScene, options: PcbBoardGroupOptions): T
   // Satin ENIG, not a mirror: a fully metallic, low-roughness pad under a
   // punctual key light produces a single blown-white hotspot on whichever pad
   // happens to sit at the reflection angle, while its twin stays gold.
+  const finish = PAD_FINISH_SPECS[options.padFinish ?? 'enig']
+  const mask = SOLDERMASK_SPECS[options.maskColor ?? 'green']
   const padMaterial = new THREE.MeshStandardMaterial({
-    color: '#c9a24a',
-    metalness: 0.55,
-    roughness: 0.55,
+    color: finish.color,
+    metalness: finish.metalness,
+    roughness: finish.roughness,
     envMapIntensity: 0.8,
   })
   const leadMaterial = new THREE.MeshStandardMaterial({
@@ -660,16 +732,16 @@ export function buildPcbGroup(scene: PcbScene, options: PcbBoardGroupOptions): T
   if (options.showPCB) {
     const relief = createMaskReliefTexture()
     const fr4 = new THREE.MeshStandardMaterial({ color: '#b3a06c', roughness: 0.86, metalness: 0.02 })
-    const mask = new THREE.MeshPhysicalMaterial({
-      color: '#0b5c35',
-      roughness: 0.5,
+    const maskMaterial = new THREE.MeshPhysicalMaterial({
+      color: mask.baseColor,
+      roughness: mask.roughness,
       metalness: 0.03,
-      clearcoat: 0.3,
-      clearcoatRoughness: 0.45,
+      clearcoat: mask.clearcoat,
+      clearcoatRoughness: mask.clearcoatRoughness,
       bumpMap: relief ?? undefined,
       bumpScale: 0.35,
     })
-    const substrate = new THREE.Mesh(boardSlabGeometry(board.widthMm, board.heightMm, board.thicknessMm), [mask, fr4])
+    const substrate = new THREE.Mesh(boardSlabGeometry(board.widthMm, board.heightMm, board.thicknessMm), [maskMaterial, fr4])
     substrate.name = 'pcb-substrate'
     substrate.receiveShadow = true
     substrate.castShadow = true
@@ -679,14 +751,14 @@ export function buildPcbGroup(scene: PcbScene, options: PcbBoardGroupOptions): T
       const overlay = new THREE.Mesh(
         flatRoundedGeometry(board.widthMm - 0.2, board.heightMm - 0.2),
         new THREE.MeshPhysicalMaterial({
-          color: '#0d6b3e',
-          roughness: 0.46,
+          color: mask.overlayColor,
+          roughness: mask.roughness * 0.92,
           metalness: 0.05,
           transparent: true,
           opacity: MASK_OVERLAY_OPACITY,
           depthWrite: false,
-          clearcoat: 0.45,
-          clearcoatRoughness: 0.4,
+          clearcoat: mask.clearcoat + 0.15,
+          clearcoatRoughness: mask.clearcoatRoughness * 0.9,
           bumpMap: relief ?? undefined,
           bumpScale: 0.3,
         }),

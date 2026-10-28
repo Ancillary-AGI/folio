@@ -38,6 +38,16 @@ import {
   solveTruss,
 } from '../../lib/simulation/multiphysics';
 import {
+  analyseGasCycle,
+  analysePipeFlow,
+  type GasCycleId,
+} from '../../lib/mechanical/thermofluids';
+import {
+  analyseRoomAcoustics,
+  criticalDistanceM,
+  partitionTransmissionLoss,
+} from '../../lib/mechanical/acoustics';
+import {
   searchCantileverSection,
   type CantileverSizingResult,
 } from '../../lib/optimization/designSearch';
@@ -96,7 +106,7 @@ function emptyResult(thermal?: AnalysisResult['thermal']): AnalysisResult {
   };
 }
 
-type FieldMode = 'conduction' | 'axial' | 'truss' | 'electrostatic';
+type FieldMode = 'conduction' | 'axial' | 'truss' | 'electrostatic' | 'thermo' | 'pipe' | 'acoustics';
 
 interface FieldInputs {
   lengthM: number;
@@ -113,6 +123,19 @@ interface FieldInputs {
   plateWidthMm: number;
   relativePermittivity: number;
   voltage: number;
+  compressionRatio: number;
+  cutoffRatio: number;
+  pipeLengthM: number;
+  pipeDiameterMm: number;
+  pipeFlowLps: number;
+  roughnessMm: number;
+  minorLossK: number;
+  elevationM: number;
+  roomVolumeM3: number;
+  roomSurfaceM2: number;
+  absorption: number;
+  partitionMassKgM2: number;
+  frequencyHz: number;
 }
 
 interface FieldResult {
@@ -135,6 +158,19 @@ const DEFAULT_FIELD_INPUTS: FieldInputs = {
   plateWidthMm: 50,
   relativePermittivity: 1,
   voltage: 100,
+  compressionRatio: 8,
+  cutoffRatio: 2,
+  pipeLengthM: 20,
+  pipeDiameterMm: 50,
+  pipeFlowLps: 2,
+  roughnessMm: 0.0015,
+  minorLossK: 2,
+  elevationM: 0,
+  roomVolumeM3: 100,
+  roomSurfaceM2: 120,
+  absorption: 0.2,
+  partitionMassKgM2: 10,
+  frequencyHz: 500,
 };
 
 const FIELD_MODES: ReadonlyArray<{ id: FieldMode; label: string; description: string }> = [
@@ -158,6 +194,29 @@ const FIELD_MODES: ReadonlyArray<{ id: FieldMode; label: string; description: st
     label: 'Parallel plates',
     description: '2D Laplace field between plates; field, capacitance and stored energy from the grid.',
   },
+  {
+    id: 'thermo',
+    label: 'Gas / steam cycle',
+    description: 'Air-standard Carnot, Otto, Diesel and Brayton cycles, plus an ideal Rankine cycle over saturated-water data.',
+  },
+  {
+    id: 'pipe',
+    label: 'Pipe flow (Darcy–Weisbach)',
+    description: 'Friction factor, head loss, pressure drop and hydraulic power for a single pipe with minor losses.',
+  },
+  {
+    id: 'acoustics',
+    label: 'Room acoustics',
+    description: 'Sabine and Eyring reverberation time plus mass-law partition transmission loss.',
+  },
+];
+
+const GAS_CYCLE_OPTIONS: ReadonlyArray<{ id: GasCycleId; label: string }> = [
+  { id: 'otto', label: 'Otto (spark ignition)' },
+  { id: 'diesel', label: 'Diesel (compression ignition)' },
+  { id: 'brayton', label: 'Brayton (gas turbine)' },
+  { id: 'carnot', label: 'Carnot (upper bound)' },
+  { id: 'rankine', label: 'Rankine (steam)' },
 ];
 
 function FieldNumber({
@@ -289,6 +348,7 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
    * 2D Laplace), exposed with editable inputs — not a 3D FEM claim.
    */
   const [fieldMode, setFieldMode] = useState<FieldMode>('conduction');
+  const [cycleId, setCycleId] = useState<GasCycleId>('otto');
   const [fieldInputs, setFieldInputs] = useState<FieldInputs>(DEFAULT_FIELD_INPUTS);
   const [fieldResult, setFieldResult] = useState<FieldResult | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
@@ -583,7 +643,7 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
           ],
           note: 'Positive member force is tension. Supports are pinned at both ends of the span.',
         });
-      } else {
+      } else if (fieldMode === 'electrostatic') {
         const result = solveElectrostaticField({
           separation: fieldInputs.separationMm * 1e-3,
           plateWidth: fieldInputs.plateWidthMm * 1e-3,
@@ -606,6 +666,88 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
           ],
           note: 'A 2D Laplace field with Neumann side walls. The estimate assumes no fringing; the solve includes it at the plate edges.',
         });
+      } else if (fieldMode === 'thermo') {
+        const cycleInput =
+          cycleId === 'carnot'
+            ? { cycle: 'carnot' as const, coldK: fieldInputs.startC + 273.15, hotK: fieldInputs.endC + 273.15 }
+            : cycleId === 'otto'
+              ? {
+                cycle: 'otto' as const,
+                coldK: fieldInputs.startC + 273.15,
+                compressionRatio: fieldInputs.compressionRatio,
+                heatInputKJPerKg: 800,
+              }
+              : cycleId === 'diesel'
+                ? {
+                  cycle: 'diesel' as const,
+                  coldK: fieldInputs.startC + 273.15,
+                  compressionRatio: fieldInputs.compressionRatio,
+                  cutoffRatio: fieldInputs.cutoffRatio,
+                }
+                : cycleId === 'brayton'
+                  ? {
+                    cycle: 'brayton' as const,
+                    coldK: fieldInputs.startC + 273.15,
+                    pressureRatio: fieldInputs.compressionRatio,
+                    turbineInletK: fieldInputs.endC + 273.15,
+                  }
+                  : {
+                    cycle: 'rankine' as const,
+                    boilerPressureBar: Math.max(fieldInputs.compressionRatio, 0.1),
+                    condenserPressureBar: Math.max(fieldInputs.cutoffRatio, 0.05),
+                  };
+        const result = analyseGasCycle(cycleInput);
+        const peak = Math.max(...result.states.map((state) => state.temperatureK));
+        setFieldResult({
+          summary: [
+            ['Thermal efficiency', `${(result.thermalEfficiency * 100).toFixed(2)} %`],
+            ['Net work', `${result.netWorkKJPerKg.toFixed(1)} kJ/kg`],
+            ['Heat rejected', `${result.heatRejectedKJPerKg.toFixed(1)} kJ/kg`],
+            ['Heat supplied', `${result.heatInputKJPerKg.toFixed(1)} kJ/kg`],
+            ['Peak temperature', `${peak.toFixed(1)} K`],
+          ],
+          note: result.notes.join(' '),
+        });
+      } else if (fieldMode === 'pipe') {
+        const result = analysePipeFlow({
+          lengthM: fieldInputs.pipeLengthM,
+          diameterM: fieldInputs.pipeDiameterMm * 1e-3,
+          roughnessMm: fieldInputs.roughnessMm,
+          flowM3PerS: fieldInputs.pipeFlowLps / 1000,
+          minorLossCoefficient: fieldInputs.minorLossK,
+          elevationChangeM: fieldInputs.elevationM,
+        });
+        setFieldResult({
+          summary: [
+            ['Velocity', `${result.velocityMperS.toFixed(3)} m/s`],
+            ['Reynolds number', result.reynolds.toFixed(0)],
+            ['Friction factor', result.frictionFactor.toFixed(5)],
+            ['Major / minor loss', `${result.majorLossM.toFixed(2)} / ${result.minorLossM.toFixed(2)} m`],
+            ['Total head loss', `${result.totalHeadLossM.toFixed(2)} m`],
+            ['Pressure drop', `${(result.pressureDropPa / 1000).toFixed(2)} kPa`],
+            ['Hydraulic power', `${result.hydraulicPowerW.toFixed(1)} W`],
+          ],
+          note: `${result.regime[0].toUpperCase()}${result.regime.slice(1)} regime; water at 20 °C unless the fluid properties are changed in code.`,
+        });
+      } else {
+        const room = analyseRoomAcoustics({
+          volumeM3: fieldInputs.roomVolumeM3,
+          surfaces: [{ id: 'equivalent surface', areaM2: fieldInputs.roomSurfaceM2, absorptionCoefficient: fieldInputs.absorption }],
+        });
+        const partition = partitionTransmissionLoss({
+          surfaceMassKgPerM2: fieldInputs.partitionMassKgM2,
+          frequencyHz: fieldInputs.frequencyHz,
+        });
+        const summary: Array<[string, string]> = [
+          ['Sabine RT60', `${room.sabineRt60S.toFixed(3)} s`],
+          ['Eyring RT60', `${room.eyringRt60S.toFixed(3)} s`],
+          ['Mean absorption', room.meanAbsorptionCoefficient.toFixed(3)],
+          ['Partition TL', `${partition.transmissionLossDb.toFixed(1)} dB at ${fieldInputs.frequencyHz} Hz`],
+        ];
+        if (Number.isFinite(room.roomConstantM2)) {
+          summary.push(['Critical distance', `${criticalDistanceM(room.roomConstantM2).toFixed(2)} m`]);
+        }
+        setFieldResult({ summary, note: `${room.note} ${partition.note}` });
       }
     } catch (error) {
       setFieldResult(null);
@@ -1111,6 +1253,66 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
                       <FieldNumber id="field-plate" label="Plate width (mm)" value={fieldInputs.plateWidthMm} onChange={(v) => updateField('plateWidthMm', v)} />
                       <FieldNumber id="field-er" label="Relative εr" value={fieldInputs.relativePermittivity} onChange={(v) => updateField('relativePermittivity', v)} />
                       <FieldNumber id="field-voltage" label="Voltage (V)" value={fieldInputs.voltage} onChange={(v) => updateField('voltage', v)} />
+                    </>
+                  )}
+                  {fieldMode === 'thermo' && (
+                    <>
+                      <label className="col-span-2 text-xs text-muted-foreground">
+                        Cycle
+                        <select
+                          aria-label="Thermodynamic cycle"
+                          value={cycleId}
+                          onChange={(event) => setCycleId(event.target.value as GasCycleId)}
+                          className="mt-0.5 w-full rounded border border-input bg-background px-2 py-1 text-xs text-foreground"
+                        >
+                          {GAS_CYCLE_OPTIONS.map((option) => (
+                            <option key={option.id} value={option.id}>{option.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      {cycleId === 'rankine' ? (
+                        <>
+                          <FieldNumber id="field-boiler" label="Boiler (bar)" value={fieldInputs.compressionRatio} onChange={(v) => updateField('compressionRatio', v)} />
+                          <FieldNumber id="field-condenser" label="Condenser (bar)" value={fieldInputs.cutoffRatio} onChange={(v) => updateField('cutoffRatio', v)} />
+                        </>
+                      ) : (
+                        <>
+                          <FieldNumber id="field-cold" label="Cold / inlet (K)" value={fieldInputs.startC} onChange={(v) => updateField('startC', v)} />
+                          {(cycleId === 'carnot' || cycleId === 'brayton') && (
+                            <FieldNumber id="field-hot" label={cycleId === 'brayton' ? 'Turbine inlet (K)' : 'Hot reservoir (K)'} value={fieldInputs.endC} onChange={(v) => updateField('endC', v)} />
+                          )}
+                          {(cycleId === 'otto' || cycleId === 'diesel' || cycleId === 'brayton') && (
+                            <FieldNumber
+                              id="field-ratio"
+                              label={cycleId === 'brayton' ? 'Pressure ratio' : 'Compression ratio'}
+                              value={fieldInputs.compressionRatio}
+                              onChange={(v) => updateField('compressionRatio', v)}
+                            />
+                          )}
+                          {cycleId === 'diesel' && (
+                            <FieldNumber id="field-cutoff" label="Cut-off ratio" value={fieldInputs.cutoffRatio} onChange={(v) => updateField('cutoffRatio', v)} />
+                          )}
+                        </>
+                      )}
+                    </>
+                  )}
+                  {fieldMode === 'pipe' && (
+                    <>
+                      <FieldNumber id="field-pipe-length" label="Length (m)" value={fieldInputs.pipeLengthM} onChange={(v) => updateField('pipeLengthM', v)} />
+                      <FieldNumber id="field-pipe-diameter" label="Diameter (mm)" value={fieldInputs.pipeDiameterMm} onChange={(v) => updateField('pipeDiameterMm', v)} />
+                      <FieldNumber id="field-pipe-flow" label="Flow (L/s)" value={fieldInputs.pipeFlowLps} onChange={(v) => updateField('pipeFlowLps', v)} />
+                      <FieldNumber id="field-pipe-roughness" label="Roughness (mm)" value={fieldInputs.roughnessMm} onChange={(v) => updateField('roughnessMm', v)} />
+                      <FieldNumber id="field-pipe-minor" label="Minor K" value={fieldInputs.minorLossK} onChange={(v) => updateField('minorLossK', v)} />
+                      <FieldNumber id="field-pipe-elevation" label="Elevation (m)" value={fieldInputs.elevationM} onChange={(v) => updateField('elevationM', v)} />
+                    </>
+                  )}
+                  {fieldMode === 'acoustics' && (
+                    <>
+                      <FieldNumber id="field-room-volume" label="Room volume (m³)" value={fieldInputs.roomVolumeM3} onChange={(v) => updateField('roomVolumeM3', v)} />
+                      <FieldNumber id="field-room-surface" label="Surface (m²)" value={fieldInputs.roomSurfaceM2} onChange={(v) => updateField('roomSurfaceM2', v)} />
+                      <FieldNumber id="field-absorption" label="Absorption (0–1)" value={fieldInputs.absorption} step={0.01} onChange={(v) => updateField('absorption', v)} />
+                      <FieldNumber id="field-partition-mass" label="Partition (kg/m²)" value={fieldInputs.partitionMassKgM2} onChange={(v) => updateField('partitionMassKgM2', v)} />
+                      <FieldNumber id="field-frequency" label="Frequency (Hz)" value={fieldInputs.frequencyHz} onChange={(v) => updateField('frequencyHz', v)} />
                     </>
                   )}
                 </div>

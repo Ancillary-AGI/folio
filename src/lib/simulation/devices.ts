@@ -472,6 +472,17 @@ export interface BjtDevice extends DeviceBase {
  * MOSFET (SPICE level 1, Shichman–Hodges)
  * ──────────────────────────────────────────────────────────────────────────── */
 
+/**
+ * Compact-model family sharing the MOS gate stack.
+ *
+ * `planar` is level-1 Shichman–Hodges. The other two are reduced-order models
+ * built on the same terminal equations: a continuous EKV-style channel that
+ * carries subthreshold current, plus drain-induced barrier lowering. They are
+ * not BSIM-CMG or ASM-HEMT — no quantum confinement, no trap dynamics, no
+ * self-heating — and every result that uses them says so.
+ */
+export type MosfetFamily = 'planar' | 'finfet' | 'gan-hemt'
+
 export interface MosfetModelParams {
   /** Zero-bias threshold voltage, V (negative for a typical P-channel part). */
   vto: number
@@ -491,6 +502,14 @@ export interface MosfetModelParams {
   cgs: number
   /** Gate–drain capacitance, F. */
   cgd: number
+  /** Compact-model family; absent means a planar level-1 part. */
+  family?: MosfetFamily
+  /** Drain-induced barrier lowering, V of threshold shift per V of VDS. */
+  dibl?: number
+  /** Subthreshold swing, mV/decade. Values below the thermal limit are clamped. */
+  subthresholdMvPerDecade?: number
+  /** Number of parallel fins (FinFET only), multiplying KP. */
+  fins?: number
 }
 
 export interface MosfetDevice extends DeviceBase {

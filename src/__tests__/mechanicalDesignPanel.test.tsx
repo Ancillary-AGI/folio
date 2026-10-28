@@ -69,6 +69,31 @@ describe('MechanicalDesignPanel', () => {
     expect(screen.getByText('Parallel-plate estimate')).toBeInTheDocument()
   })
 
+  it('solves gas cycles, pipe flow and room acoustics from the same panel', () => {
+    render(<MechanicalDesignPanel onClose={() => {}} />)
+
+    fireEvent.change(screen.getByLabelText('Multiphysics solver'), { target: { value: 'thermo' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Solve$/ }))
+    expect(screen.getByText('Thermal efficiency')).toBeInTheDocument()
+    // Air-standard Otto at r = 8 and gamma = 1.4.
+    expect(screen.getByText('56.47 %')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Thermodynamic cycle'), { target: { value: 'rankine' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Solve$/ }))
+    expect(screen.getByText(/Ideal Rankine over nominal saturated-water data/)).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Multiphysics solver'), { target: { value: 'pipe' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Solve$/ }))
+    expect(screen.getByText('Pressure drop')).toBeInTheDocument()
+    expect(screen.getByText(/Turbulent regime/)).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Multiphysics solver'), { target: { value: 'acoustics' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Solve$/ }))
+    expect(screen.getByText('Sabine RT60')).toBeInTheDocument()
+    expect(screen.getByText('Eyring RT60')).toBeInTheDocument()
+    expect(screen.getByText(/Partition TL/)).toBeInTheDocument()
+  })
+
   it('reports invalid multiphysics inputs instead of a number', () => {
     render(<MechanicalDesignPanel onClose={() => {}} />)
     fireEvent.change(screen.getByLabelText('Length (m)'), { target: { value: '0' } })

@@ -106,16 +106,22 @@
   routed copper (closest edge gap, parallel length, skew converted at each
   pair's own effective permittivity, group match window the engineer declares —
   no field solve of the target differential impedance), BGA fanout, power
-  integrity, DDR constraints, HDI routing
+  integrity, DDR constraints, HDI routing. BGA fanout is a dog-bone via
+  proposal for one 256-ball study and is not committed to the board copper; HDI
+  checks a microvia layer span and routes on a single-layer grid without layer
+  changes; IBIS uploads parse pins, models, C_comp and clamp I-V tables (no V-T
+  ramp, no transient buffer), and the eye remains a closed-form lattice
 - **Fabrication**: Gerber RS-274X, Excellon drill, centroid/PnP, BOM, JLCPCB DRC
   gate, and enclosure STEP export
 - **Encrypted export**: AES-GCM-256 project snapshots with PBKDF2 key derivation
 
-## 🧮 Compute Acceleration ✅
+## 🧮 Compute Acceleration ✅ (thermal only)
 
 - **Capability probe**: reports WebGPU adapter, Worker support, shared memory,
   and the recommended thermal path in the System Dashboard
 - **Three real thermal paths**: WebGPU WGSL Jacobi, Web Worker, main-thread SOR
+- **Scope**: the accelerated path solves the PCB steady-temperature grid. No
+  circuit, EM, HDL or trajectory workload is GPU- or FPGA-executed
 - **Correctness gate**: GPU output is accepted only when the shared residual
   converges; otherwise dispatch falls back and reports the path that succeeded
 - **Browser-verified**: GPU and CPU peaks/averages agree within 0.01 °C on tested
@@ -128,8 +134,13 @@
   deflection, stress, modal frequencies, buckling, assembly transforms, AP214
   STEP export (one closed shell per component through the shared geometry
   writer), constrained particle-swarm section sizing with closed-form
-  re-verification. Reduced-order beam model — not a 3D FEM solver, and plates
-  are analysed as beams (🟡)
+  re-verification. Reduced-order multiphysics alongside the beam: steady
+  1-D conduction, axial bar and pin-jointed truss, 2-D electrostatic fields,
+  air-standard and ideal Rankine cycles, Darcy–Weisbach pipe flow and tree pipe
+  networks, plus Sabine/Eyring room acoustics and mass-law partition TL.
+  Air-standard cycles assume constant specific heats and no pressure loss; the
+  Rankine table is nominal saturated water at 0.05–100 bar. Not a 3D FEM/CFD
+  solver, and plates are analysed as beams (🟡)
 - **3D**: Three.js circuit/PCB viewer, mesh printability metrics, STL export, and
   real FDM slicing to G-code (contours with hole orientation, clipped infill,
   solid shells, raft/brim/skirt, relative volumetric extrusion). Limits: single
@@ -151,7 +162,11 @@
   collision modelling (🟡 not a certified dynamics sign-off)
 - **RF**: antenna and filter synthesis with a dedicated workspace panel;
   numerically integrated dipole/monopole directivity and an optimiser that
-  refuses unreachable targets ✅
+  refuses unreachable targets. The same panel carries radio link budgets with
+  ITU-R atmospheric/rain loss and NR/6G numerology, an OOK fibre link budget
+  (declared attenuation, Gaussian dispersion penalty, PIN sensitivity from the
+  Q-equation, photons-per-bit against the ideal bound), and exact statevector
+  quantum circuits up to 12 qubits with sampled measurement counts ✅
 
 ## 💻 HDL, FPGA & IC ✅
 
@@ -179,8 +194,13 @@
   network call is made, so answers are advisory, not predictions ✅
 - **AI chat panel**: conversational UI over those heuristics, with confidence
   metadata and feedback
-- **Agents**: EDA tool harness and symbolic verifier
-- **Datasheet importer** and **plugin marketplace** panels
+- **Agents**: EDA tool harness with per-call budgets, approvals and an audit
+  trail, plus a deterministic autopilot. The Assistant plans from keyword rules,
+  not a hosted model, and the cloud runner is a transport contract only
+- **Datasheet importer** (text, Markdown and CSV — PDF is refused) and **plugin
+  marketplace** panels. The marketplace is a local registry of permission-gated
+  manifests; plugin-declared tool bodies have no runtime, and nothing is fetched
+  from a hosted store
 - **Optimisation**: evolutionary/multi-objective helpers and seeded particle-swarm
   section sizing (unit-tested, deterministic per seed)
 
@@ -292,7 +312,7 @@
   "always correct". Cloud-gated records carry a **cloud** marker.
 - **CI**: lint (zero warnings), typecheck (app + build config), button-label
   audit, full test suite, production build
-- **Tests**: 2,166 tests across 216 files, including engine truth tests and React
+- **Tests**: 2,283 tests across 225 files, including engine truth tests and React
   render/integration tests
 - **Build**: heavily code-split; feature panels and vendor chunks load on demand
 
@@ -308,10 +328,11 @@
   foundry-validated device-model certification
 - Crosstalk, IBIS transient, or full-wave EM analysis
 - 3-D FEA, CFD, or contact solvers for mechanical and thermal work
-- Quantum-electronic device/transmon simulation, photonic waveguide/laser
-  design, room/structural acoustics, HVAC psychrometric load design, avionics
-  flight dynamics, and process-plant flowsheet simulation — these are not
-  domains in the workbench today and are not represented by placeholder panels
+- Quantum-electronic device/transmon physics, photonic waveguide/laser design,
+  detailed room/structural acoustics (only the diffuse-field Sabine/Eyring
+  estimate is present), HVAC psychrometric load design, avionics flight
+  dynamics, and process-plant flowsheet simulation — these are not domains in
+  the workbench today and are not represented by placeholder panels
 - Nano/micro-scale TCAD, atomistic or molecular dynamics, and multi-scale
   coupling between them and the board-level tools
 - A general cross-domain optimiser that jointly sizes electrical, mechanical,

@@ -23,7 +23,13 @@ import { STLExporter } from '../../lib/3d/stlExporter';
 import { objExporter } from '../../lib/3d/objExporter';
 import { arvrPreviewService } from '../../lib/arvr/arvrPreview';
 import { buildPcbScene, type PcbScene } from '../../lib/pcb/pcbScene';
-import { buildPcbGroup } from '../../lib/pcb/pcb3dModel';
+import {
+  buildPcbGroup,
+  PAD_FINISH_SPECS,
+  SOLDERMASK_SPECS,
+  type PcbMaskColor,
+  type PcbPadFinish,
+} from '../../lib/pcb/pcb3dModel';
 
 interface XRSessionLike {
   addEventListener(type: 'end', listener: () => void): void;
@@ -293,6 +299,8 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
   const [shadows, setShadows] = useState(true);
   const [pixelRatio, setPixelRatio] = useState(1.5);
   const [componentScale, setComponentScale] = useState(1);
+  const [maskColor, setMaskColor] = useState<PcbMaskColor>('green');
+  const [padFinish, setPadFinish] = useState<PcbPadFinish>('enig');
   const [xrStatus, setXrStatus] = useState('');
   const [xrBusy, setXrBusy] = useState(false);
   const glRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -332,8 +340,10 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
         hiddenLayerIds: hiddenLayerSet,
         hiddenComponentIds: hiddenComponentSet,
         componentScale,
+        maskColor,
+        padFinish,
       }),
-    [scene, showPCB, showTraces, showComponents, hiddenLayerSet, hiddenComponentSet, componentScale],
+    [scene, showPCB, showTraces, showComponents, hiddenLayerSet, hiddenComponentSet, componentScale, maskColor, padFinish],
   );
 
   // A schematic-scale circuit on a 100 x 80 mm outline is a few millimetres
@@ -972,6 +982,55 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                     </Button>
                   </div>
                 ))}
+              </CardContent>
+            </Card>
+
+            {/* Board appearance — how the fabricated board is expected to look */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">Board appearance</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div>
+                  <span className="text-xs font-medium">Soldermask</span>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5" role="group" aria-label="Soldermask colour">
+                    {(Object.keys(SOLDERMASK_SPECS) as PcbMaskColor[]).map((id) => {
+                      const spec = SOLDERMASK_SPECS[id]
+                      const active = maskColor === id
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setMaskColor(id)}
+                          aria-label={`${spec.label} soldermask`}
+                          aria-pressed={active}
+                          title={spec.label}
+                          className={`h-7 w-7 rounded-full border-2 transition-transform ${
+                            active ? 'scale-110 border-primary ring-2 ring-primary/30' : 'border-border hover:scale-105'
+                          }`}
+                          style={{ backgroundColor: spec.overlayColor }}
+                        />
+                      )
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium" htmlFor="pad-finish">Pad finish</label>
+                  <select
+                    id="pad-finish"
+                    value={padFinish}
+                    onChange={(event) => setPadFinish(event.target.value as PcbPadFinish)}
+                    className="mt-1 w-full rounded border border-input bg-background px-2 py-1 text-xs"
+                  >
+                    {(Object.keys(PAD_FINISH_SPECS) as PcbPadFinish[]).map((id) => (
+                      <option key={id} value={id}>{PAD_FINISH_SPECS[id].label}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+                    {PAD_FINISH_SPECS[padFinish].note} Appearance is a preview; the fabrication package does
+                    not encode mask colour or finish.
+                  </p>
+                </div>
               </CardContent>
             </Card>
 

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Activity, ArrowRightLeft, Box, Bot, Camera, ChevronLeft, ChevronRight, CircuitBoard, Code2, Cpu, FlaskConical,
+  Activity, ArrowRightLeft, Box, Bot, Cable, Camera, ChevronLeft, ChevronRight, CircuitBoard, Code2, Cpu, FlaskConical,
   Gauge, GitBranch, Grid3X3, HelpCircle, Layers, List, Package, PenTool, Plug, Radio, RadioTower, RotateCw,
   ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, Terminal, Wrench, Zap,
   type LucideIcon,
@@ -28,6 +28,7 @@ import type { Schematic } from '../../types'
 const MechanicalDesignPanel = lazy(() => import('../mechanical/MechanicalDesignPanel'))
 const ControlSystemsPanel = lazy(() => import('../control/ControlSystemsPanel'))
 const MachineSimulatorPanel = lazy(() => import('../electronics/MachineSimulatorPanel'))
+const PowerGridPanel = lazy(() => import('../electronics/PowerGridPanel'))
 const PCBDesignPanel = lazy(() => import('../pcb/PCBDesignPanel'))
 const RFDesignPanel = lazy(() => import('../rf/RFDesignPanel'))
 const SchematicToPcbPanel = lazy(() =>
@@ -74,6 +75,7 @@ const MODE_ICONS: Readonly<Record<WorkspaceMode, LucideIcon>> = {
   bom: List,
   control: SlidersHorizontal,
   machines: RotateCw,
+  grid: Cable,
   rf: Radio,
   hdl: Code2,
   icdesign: Cpu,
@@ -472,6 +474,7 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
           )}
           {workspaceMode === 'control' && <ControlSystemsPanel onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'machines' && <MachineSimulatorPanel onClose={() => setWorkspaceMode('schematic')} />}
+          {workspaceMode === 'grid' && <PowerGridPanel onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'mechanical' && <MechanicalDesignPanel onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'pcb' && <PCBDesignPanel onClose={() => setWorkspaceMode('schematic')} onPreview3D={() => setWorkspaceMode('preview3d')} />}
           {workspaceMode === 'rf' && <RFDesignPanel onClose={() => setWorkspaceMode('schematic')} />}

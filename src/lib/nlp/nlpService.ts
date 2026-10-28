@@ -124,6 +124,7 @@ const WORKSPACE_ALIASES: Record<string, WorkspaceMode> = {
   schematic: 'schematic', circuit: 'schematic', wiring: 'schematic',
   control: 'control', pid: 'control', bode: 'control', controller: 'control',
   motor: 'machines', motors: 'machines', generator: 'machines', machine: 'machines', stepper: 'machines', bldc: 'machines',
+  grid: 'grid', transmission: 'grid', distribution: 'grid', feeder: 'grid', substation: 'grid', loadflow: 'grid',
   pcb: 'pcb', board: 'pcb', layout: 'pcb',
   mechanical: 'mechanical', cad: 'mechanical', '3d': 'mechanical',
   preview: 'preview3d', view: 'preview3d', ar: 'preview3d', vr: 'preview3d',

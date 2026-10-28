@@ -8,6 +8,7 @@ export type WorkspaceMode =
   | 'simulation'
   | 'control'
   | 'machines'
+  | 'grid'
   | 'mechanical'
   | 'pcb'
   | 'rf'

@@ -532,17 +532,30 @@ export interface MosfetBias {
 }
 
 /** Region of operation, used in notes and tests. */
-export type MosfetRegion = 'cutoff' | 'triode' | 'saturation'
+export type MosfetRegion = 'cutoff' | 'subthreshold' | 'triode' | 'saturation'
 
 /**
- * Level-1 MOSFET bias point.
+ * MOSFET bias point.
  *
- * SPICE evaluates the triode expression for `vds < vgs − von` and the
- * saturation expression beyond it, which is Schichman–Hodges verbatim. The bulk
- * threshold shift uses `sqrt(phi − vbs)` with the argument floored at a small
- * positive value: a strongly forward-biased bulk is clamped by the bulk diode,
- * which is stamped separately, so the square root is never asked for a negative
- * number.
+ * A planar part is level-1 Shichman–Hodges. SPICE evaluates the triode
+ * expression for `vds < vgs − von` and the saturation expression beyond it. The
+ * bulk threshold shift uses `sqrt(phi − vbs)` with the argument floored at a
+ * small positive value: a strongly forward-biased bulk is clamped by the bulk
+ * diode, which is stamped separately, so the square root is never asked for a
+ * negative number.
+ *
+ * A FinFET or GaN HEMT card uses a continuous EKV-style channel instead, so
+ * subthreshold conduction is modelled rather than switched off at threshold:
+ *
+ *   I(v) = 2·KP·(n·Vt)² · ln²(1 + exp(v / (2·n·Vt)))
+ *
+ * which tends to the level-1 square law in strong inversion and to the
+ * exponential subthreshold law below it, with no discontinuity for Newton to
+ * step across. The swing sets n (S = n·Vt·ln10) and is clamped at the
+ * Boltzmann limit of 60 mV/decade. DIBL lowers the threshold with drain voltage;
+ * the FinFET card scales KP by its fin count. Neither family models quantum
+ * confinement, gate leakage, traps or self-heating — those are declared limits,
+ * not equations this function evaluates.
  *
  * The channel is symmetric. When `vds < 0` the roles of drain and source swap,
  * exactly as in SPICE's `mode` handling: evaluating `vgs = vgs − vds`,
@@ -553,7 +566,8 @@ export type MosfetRegion = 'cutoff' | 'triode' | 'saturation'
  * Both bulk junctions are modelled (source–bulk and drain–bulk), as MOS1 does.
  * The drain–bulk diode is what clamps a switching node driven below the
  * substrate; omitting it leaves the drain free to swing to any negative
- * voltage without body conduction.
+ * voltage without body conduction. A GaN HEMT card normally sets `is = 0`,
+ * because a three-terminal HEMT has no body junction.
  */
 export function mosfetBias(
   device: MosfetDevice,
@@ -594,31 +608,79 @@ export function mosfetBias(
     }
   }
 
+  const family = m.family ?? 'planar'
+
   /* Forward-direction channel: drain at or above the source. */
   const channel = (
     gate: number,
     drain: number,
     bulk: number,
   ): { id: number; gm: number; gds: number; gmb: number; von: number } => {
-    const { von, dvon } = bodyThreshold(bulk)
-    const vgst = gate - von
-    let id = 0
-    let gm = 0
-    let gds = 0
-    if (vgst > 0) {
-      const factor = 1 + m.lambda * drain
-      if (drain < vgst) {
-        id = m.kp * (vgst * drain - (drain * drain) / 2) * factor
-        gm = m.kp * drain * factor
-        gds = m.kp * ((vgst - drain) * factor + m.lambda * (vgst * drain - (drain * drain) / 2))
-      } else {
-        id = (m.kp / 2) * vgst * vgst * factor
-        gm = m.kp * vgst * factor
-        gds = (m.kp / 2) * vgst * vgst * m.lambda
+    const { von: von0, dvon } = bodyThreshold(bulk)
+    if (family === 'planar') {
+      const vgst = gate - von0
+      let id = 0
+      let gm = 0
+      let gds = 0
+      if (vgst > 0) {
+        const factor = 1 + m.lambda * drain
+        if (drain < vgst) {
+          id = m.kp * (vgst * drain - (drain * drain) / 2) * factor
+          gm = m.kp * drain * factor
+          gds = m.kp * ((vgst - drain) * factor + m.lambda * (vgst * drain - (drain * drain) / 2))
+        } else {
+          id = (m.kp / 2) * vgst * vgst * factor
+          gm = m.kp * vgst * factor
+          gds = (m.kp / 2) * vgst * vgst * m.lambda
+        }
       }
+      // ∂id/∂vbs = ∂id/∂vgst · (−∂von/∂vbs), which is positive when gamma > 0.
+      return { id, gm, gds, gmb: -gm * dvon, von: von0 }
     }
-    // ∂id/∂vbs = ∂id/∂vgst · (−∂von/∂vbs), which is positive when gamma > 0.
-    return { id, gm, gds, gmb: -gm * dvon, von }
+
+    /*
+     * Compact family channel. The swing sets the subthreshold slope factor and
+     * is clamped at the 60 mV/decade Boltzmann limit, so a card asking for a
+     * steeper swing gets the physical floor rather than an unphysical fit.
+     */
+    const swingMv = m.subthresholdMvPerDecade ?? (family === 'gan-hemt' ? 90 : 70)
+    const nSub = Math.max(1, (swingMv * 1e-3) / (thermal * Math.LN10))
+    const nVt = nSub * thermal
+    const dibl = Math.max(0, m.dibl ?? (family === 'finfet' ? 0.04 : 0.01))
+    const fins = family === 'finfet' ? Math.max(1, Math.round(m.fins ?? 1)) : 1
+    const kp = m.kp * fins
+    const von = von0 - dibl * drain
+    const vgst = gate - von
+
+    // Softplus and its logistic derivative, evaluated without overflow.
+    const softplus = (x: number): number =>
+      x > 30 ? x : x < -30 ? Math.exp(x) : Math.log1p(Math.exp(x))
+    const logistic = (x: number): number =>
+      x > 30 ? 1 : x < -30 ? Math.exp(x) : 1 / (1 + Math.exp(-x))
+    const prefactor = 2 * kp * nVt * nVt
+    const current = (v: number): number => {
+      const l = softplus(v / (2 * nVt))
+      return prefactor * l * l
+    }
+    const slope = (v: number): number => {
+      const x = v / (2 * nVt)
+      return (prefactor * softplus(x) * logistic(x)) / nVt
+    }
+
+    const forward = current(vgst)
+    const reverseCurrent = current(vgst - drain)
+    const dForward = slope(vgst)
+    const dReverse = slope(vgst - drain)
+    const factor = 1 + m.lambda * drain
+    return {
+      id: (forward - reverseCurrent) * factor,
+      gm: (dForward - dReverse) * factor,
+      // DIBL moves the threshold with drain; the reverse term also sees the
+      // drain directly through `vgst − drain`.
+      gds: (dForward * dibl + dReverse * (1 - dibl)) * factor + (forward - reverseCurrent) * m.lambda,
+      gmb: -(dForward - dReverse) * factor * dvon,
+      von,
+    }
   }
 
   const reverse = vds < 0
@@ -776,7 +838,9 @@ export function mosfetRegion(bias: MosfetBias): MosfetRegion {
   const gate = bias.reverse ? bias.vgs - bias.vds : bias.vgs
   const drain = bias.reverse ? -bias.vds : bias.vds
   const vgst = gate - bias.von
-  if (vgst <= 0) return 'cutoff'
+  // A compact family conducts below threshold; reporting that as cutoff would
+  // hide the leakage the model exists to represent.
+  if (vgst <= 0) return bias.id === 0 ? 'cutoff' : 'subthreshold'
   return drain < vgst ? 'triode' : 'saturation'
 }
 

@@ -718,6 +718,155 @@ describe('level-1 MOSFET', () => {
   })
 })
 
+/**
+ * FinFET and GaN HEMT cards run the same terminal equations as a MOSFET with a
+ * continuous channel. Every expectation below is the EKV expression evaluated
+ * by hand — the square-law limit, a tenfold current per decade of swing, the
+ * DIBL shift — not a recorded solver output.
+ */
+describe('FinFET and GaN HEMT compact families', () => {
+  const familyDevice = (
+    family: 'finfet' | 'gan-hemt',
+    overrides: Partial<MosfetDevice['model']> = {},
+  ): MosfetDevice => ({
+    kind: 'mosfet',
+    name: 'M1',
+    p: 'D',
+    n: 'S',
+    polarity: 'n',
+    d: 'D',
+    g: 'G',
+    s: 'S',
+    b: 'S',
+    model: {
+      vto: 0.35,
+      kp: 1e-3,
+      gamma: 0,
+      phi: 0.6,
+      lambda: 0,
+      is: 0,
+      n: 1,
+      cgs: 0,
+      cgd: 0,
+      family,
+      dibl: 0,
+      subthresholdMvPerDecade: 70,
+      ...overrides,
+    },
+  })
+
+  const softplus = (x: number): number =>
+    x > 30 ? x : x < -30 ? Math.exp(x) : Math.log1p(Math.exp(x))
+
+  it('moves ten times the current per declared decade of subthreshold swing', () => {
+    const device = familyDevice('finfet')
+    const low = mosfetBias(device, -0.1, 0.05, 0, thermal)
+    const high = mosfetBias(device, -0.03, 0.05, 0, thermal)
+    expect(mosfetRegion(low)).toBe('subthreshold')
+    expect(low.id).toBeGreaterThan(0)
+    expect(high.id / low.id).toBeCloseTo(10, 1)
+  })
+
+  it('clamps a swing below the 60 mV/decade thermal limit', () => {
+    const fast = mosfetBias(familyDevice('finfet', { subthresholdMvPerDecade: 30 }), 0.05, 0.05, 0, thermal)
+    const floor = mosfetBias(familyDevice('finfet', { subthresholdMvPerDecade: 55 }), 0.05, 0.05, 0, thermal)
+    expect(fast.id).toBe(floor.id)
+  })
+
+  it('lowers the threshold with drain bias by the declared DIBL', () => {
+    const device = familyDevice('finfet', { dibl: 0.05 })
+    const lowDrain = mosfetBias(device, 0.1, 0.5, 0, thermal)
+    const highDrain = mosfetBias(device, 0.1, 1.5, 0, thermal)
+    const n = Math.max(1, (70e-3) / (thermal * Math.LN10))
+    const nVt = n * thermal
+    const current = (vgst: number): number => softplus(vgst / (2 * nVt)) ** 2
+    const expected =
+      current(0.1 - (0.35 - 0.05 * 1.5)) / current(0.1 - (0.35 - 0.05 * 0.5))
+    expect(highDrain.id / lowDrain.id).toBeCloseTo(expected, 3)
+    expect(highDrain.id / lowDrain.id).toBeGreaterThan(3)
+  })
+
+  it('gives a GaN HEMT no body junction and a depletion-mode operating point', () => {
+    const device = familyDevice('gan-hemt', { vto: -2, kp: 0.5, is: 0 })
+    const bias = mosfetBias(device, 0, 5, 0.6, thermal)
+    // A three-terminal HEMT has no body diode: a forward bulk holds no current.
+    expect(bias.ibs).toBe(0)
+    expect(bias.gbs).toBe(0)
+    // Depletion mode is on at VGS = 0; ½·0.5·2² = 1 A in saturation.
+    expect(mosfetRegion(bias)).toBe('saturation')
+    expect(bias.id).toBeCloseTo(1, 2)
+  })
+
+  it('matches finite-difference Jacobians in forward and reverse mode', () => {
+    for (const family of ['finfet', 'gan-hemt'] as const) {
+      const device = familyDevice(family, {
+        vto: family === 'finfet' ? 0.35 : -2,
+        gamma: 0.2,
+        lambda: 0.02,
+        dibl: 0.03,
+        is: 1e-14,
+      })
+      for (const [vgs, vds] of [
+        [1.5, 2],
+        [0.5, 0.2],
+        [0.5, -0.4],
+      ] as const) {
+        const vbs = 0
+        const bias = mosfetBias(device, vgs, vds, vbs, thermal)
+        const h = 1e-8
+        expect((mosfetBias(device, vgs + h, vds, vbs, thermal).id - bias.id) / h).toBeCloseTo(bias.gm, 6)
+        expect((mosfetBias(device, vgs, vds + h, vbs, thermal).id - bias.id) / h).toBeCloseTo(bias.gds, 6)
+        expect((mosfetBias(device, vgs, vds, vbs + h, thermal).id - bias.id) / h).toBeCloseTo(bias.gmb, 6)
+      }
+    }
+  })
+
+  it('scales a FinFET channel by its fin count in a DC solve', async () => {
+    const solve = (fins: number) =>
+      spiceEngine.simulate(
+        netlist(
+          [
+            dc('VDD', ['VDD', '0'], 10),
+            dc('VG', ['G', '0'], 3),
+            resistor('RD', ['VDD', 'D'], '1k'),
+            { type: 'n_channel_finfet', name: 'M1', nodes: ['D', 'G', '0'], parameters: { vto: 1, kp: 1e-4, fins, dibl: 0, lambda: 0 } },
+          ],
+          [{ type: 'dc' }],
+        ),
+      )
+    const single = await solve(1)
+    const quad = await solve(4)
+    expect(single.success).toBe(true)
+    expect(quad.success).toBe(true)
+    // ½·1e-4·(3−1)² = 0.2 mA → 0.2 V per 1 kΩ; four fins carry four times it.
+    expect(voltageAt(single, 'D')).toBeCloseTo(9.8, 3)
+    expect(voltageAt(quad, 'D')).toBeCloseTo(9.2, 3)
+  })
+
+  it('classifies a FinFET symbol from its type and a HEMT from its type', () => {
+    const { model, errors } = buildCircuitModel({
+      title: 'compact families',
+      components: [
+        dc('VDD', ['VDD', '0'], 5),
+        { type: 'n_channel_finfet', name: 'M1', nodes: ['D', 'G', '0'], parameters: { vto: 0.35, fins: 4 } },
+        { type: 'n_channel_gan_hemt', name: 'M2', nodes: ['D2', 'G2', '0'], parameters: {} },
+      ],
+      analyses: [{ type: 'dc' }],
+    })
+    expect(errors).toEqual([])
+    const finfet = model.devices.find((entry) => entry.name === 'M1')
+    const hemt = model.devices.find((entry) => entry.name === 'M2')
+    if (finfet?.kind !== 'mosfet' || hemt?.kind !== 'mosfet') throw new Error('family symbols did not classify')
+    expect(finfet.model.family).toBe('finfet')
+    expect(finfet.model.fins).toBe(4)
+    expect(hemt.model.family).toBe('gan-hemt')
+    // A HEMT card defaults to no body junction and no body effect.
+    expect(hemt.model.is).toBe(0)
+    expect(hemt.model.gamma).toBe(0)
+    expect(hemt.model.subthresholdMvPerDecade).toBe(90)
+  })
+})
+
 describe('op-amp macromodel', () => {
   const opAmp = (name: string, nodes: string[], parameters: Record<string, string | number> = {}): Component => ({
     type: 'op_amp',

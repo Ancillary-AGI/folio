@@ -13,6 +13,8 @@ const PIN_ORDER: Readonly<Record<string, ReadonlyArray<string>>> = {
   'pnp_transistor': ['collector', 'base', 'emitter'],
   'n_channel_mosfet': ['drain', 'gate', 'source'],
   'p_channel_mosfet': ['drain', 'gate', 'source'],
+  'n_channel_finfet': ['drain', 'gate', 'source'],
+  'n_channel_gan_hemt': ['drain', 'gate', 'source'],
   'n_channel_jfet': ['drain', 'gate', 'source'],
   'p_channel_jfet': ['drain', 'gate', 'source'],
   'voltage_controlled_switch': ['positive', 'negative', 'control_pos', 'control_neg'],

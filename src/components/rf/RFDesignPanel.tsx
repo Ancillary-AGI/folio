@@ -19,16 +19,38 @@ import {
   type RFCircuit,
   type ScatteringParameters,
 } from '../../lib/rf/rfCircuitDesign'
+import {
+  CANDIDATE_6G_BANDS,
+  candidateBandsFor,
+  linkBudget,
+  numerology,
+  rainAttenuationDbPerKm,
+  slantRangeM,
+  specificAttenuationDbPerKm,
+  type LinkBudgetResult,
+} from '../../lib/rf/linkBudget'
 import { useTheme } from '../../lib/theme/useTheme'
 import { chartSeriesColors } from '../../lib/theme/tokens'
 import { describeError } from '../../lib/utils'
 import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign'
+import { opticalLink, type OpticalLinkResult } from '../../lib/photonics/opticalLink'
+import {
+  MAX_QUBITS,
+  qubitProbabilities,
+  sampleCounts,
+  simulateCircuit,
+  type MeasurementCounts,
+  type QuantumGate,
+  type QuantumGateType,
+  type QuantumState,
+} from '../../lib/quantum/statevector'
 
 interface RFDesignPanelProps {
   onClose: () => void
 }
 
-type PanelTab = 'antenna' | 'filter'
+type PanelTab = 'antenna' | 'filter' | 'link' | 'photonics' | 'quantum'
+type LinkScenario = 'terrestrial' | 'satellite'
 type AntennaKind = 'dipole' | 'monopole' | 'patch' | 'yagi' | 'phased'
 type FilterKind = 'lowpass' | 'highpass' | 'bandpass'
 
@@ -58,6 +80,21 @@ const FILTER_LABELS: Record<FilterKind, string> = {
   lowpass: 'Low-pass',
   highpass: 'High-pass',
   bandpass: 'Band-pass',
+}
+
+const QUANTUM_GATE_LABELS: Record<QuantumGateType, string> = {
+  h: 'Hadamard (H)',
+  x: 'Pauli X',
+  y: 'Pauli Y',
+  z: 'Pauli Z',
+  s: 'Phase (S)',
+  t: 'π/8 (T)',
+  rx: 'Rotation X',
+  ry: 'Rotation Y',
+  rz: 'Rotation Z',
+  cnot: 'CNOT',
+  cz: 'Controlled Z',
+  swap: 'SWAP',
 }
 
 const DIMENSION_LABELS: Record<string, string> = {
@@ -162,6 +199,24 @@ function downloadText(filename: string, content: string, type: string): void {
   anchor.download = filename
   anchor.click()
   URL.revokeObjectURL(url)
+}
+
+function gateSummary(gate: QuantumGate): string {
+  const label = QUANTUM_GATE_LABELS[gate.type]
+  if (gate.type === 'cnot' || gate.type === 'cz') return `${label} · q${gate.control}→q${gate.target}`
+  if (gate.type === 'swap') return `${label} · q${gate.control}↔q${gate.target}`
+  if (gate.type === 'rx' || gate.type === 'ry' || gate.type === 'rz') {
+    return `${label} · q${gate.qubit} · ${(((gate.angle ?? 0) * 180) / Math.PI).toFixed(1)}°`
+  }
+  return `${label} · q${gate.qubit}`
+}
+
+function formatAmplitude(amplitude: { re: number; im: number }): string {
+  const re = Math.abs(amplitude.re) < 5e-4 ? 0 : amplitude.re
+  const im = Math.abs(amplitude.im) < 5e-4 ? 0 : amplitude.im
+  if (im === 0) return re.toFixed(3)
+  if (re === 0) return `${im.toFixed(3)}i`
+  return `${re.toFixed(3)} ${im < 0 ? '−' : '+'} ${Math.abs(im).toFixed(3)}i`
 }
 
 interface NumberFieldProps {
@@ -319,7 +374,24 @@ interface RFDesign {
   bandwidthMHz?: number
   order?: number
   impedance?: number
+  linkScenario?: LinkScenario
+  linkDistanceKm?: number
+  linkAltitudeKm?: number
+  linkElevationDeg?: number
+  linkTxPowerDbm?: number
+  linkTxGainDbi?: number
+  linkRxGainDbi?: number
+  linkBandwidthMHz?: number
+  linkNoiseFigureDb?: number
+  linkRequiredEbN0Db?: number
+  linkBitRateMbps?: number
+  linkRainRate?: number
+  linkAtmospheric?: boolean
+  numerologyMu?: number
 }
+
+const linkTabOf = (value: unknown): PanelTab =>
+  value === 'filter' || value === 'link' || value === 'photonics' || value === 'quantum' ? value : 'antenna'
 
 const rfNumber = (value: unknown, fallback: number): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback
@@ -329,8 +401,7 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
   const seriesColors = useMemo(() => chartSeriesColors(theme), [theme])
 
   const saved = loadDomainDesign<RFDesign>('rf')
-  const savedTab = saved?.tab === 'filter' ? 'filter' : 'antenna'
-  const [tab, setTab] = useState<PanelTab>(savedTab)
+  const [tab, setTab] = useState<PanelTab>(linkTabOf(saved?.tab))
   useDemoRequest('rf-filter', () => setTab('filter'))
 
   const [antennaKind, setAntennaKind] = useState<AntennaKind>(
@@ -357,11 +428,61 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
   const [order, setOrder] = useState(rfNumber(saved?.order, 5))
   const [impedance, setImpedance] = useState(rfNumber(saved?.impedance, 50))
 
+  const [linkScenario, setLinkScenario] = useState<LinkScenario>(
+    saved?.linkScenario === 'satellite' ? 'satellite' : 'terrestrial',
+  )
+  const [linkDistanceKm, setLinkDistanceKm] = useState(rfNumber(saved?.linkDistanceKm, 10))
+  const [linkAltitudeKm, setLinkAltitudeKm] = useState(rfNumber(saved?.linkAltitudeKm, 550))
+  const [linkElevationDeg, setLinkElevationDeg] = useState(rfNumber(saved?.linkElevationDeg, 30))
+  const [linkTxPowerDbm, setLinkTxPowerDbm] = useState(rfNumber(saved?.linkTxPowerDbm, 30))
+  const [linkTxGainDbi, setLinkTxGainDbi] = useState(rfNumber(saved?.linkTxGainDbi, 20))
+  const [linkRxGainDbi, setLinkRxGainDbi] = useState(rfNumber(saved?.linkRxGainDbi, 0))
+  const [linkBandwidthMHz, setLinkBandwidthMHz] = useState(rfNumber(saved?.linkBandwidthMHz, 20))
+  const [linkNoiseFigureDb, setLinkNoiseFigureDb] = useState(rfNumber(saved?.linkNoiseFigureDb, 5))
+  const [linkRequiredEbN0Db, setLinkRequiredEbN0Db] = useState(rfNumber(saved?.linkRequiredEbN0Db, 6))
+  const [linkBitRateMbps, setLinkBitRateMbps] = useState(rfNumber(saved?.linkBitRateMbps, 10))
+  const [linkRainRate, setLinkRainRate] = useState(rfNumber(saved?.linkRainRate, 0))
+  const [linkAtmospheric, setLinkAtmospheric] = useState(saved?.linkAtmospheric !== false)
+  const [numerologyMu, setNumerologyMu] = useState(rfNumber(saved?.numerologyMu, 0))
+
+  const [fibreWavelengthNm, setFibreWavelengthNm] = useState(1550)
+  const [fibreLaunchDbm, setFibreLaunchDbm] = useState(0)
+  const [fibreBitRateGbps, setFibreBitRateGbps] = useState(10)
+  const [fibreLengthKm, setFibreLengthKm] = useState(40)
+  const [fibreAttenuation, setFibreAttenuation] = useState(0.2)
+  const [fibreConnectorLossDb, setFibreConnectorLossDb] = useState(1)
+  const [fibreSpliceCount, setFibreSpliceCount] = useState(8)
+  const [fibreSpliceLossDb, setFibreSpliceLossDb] = useState(0.1)
+  const [fibreDispersion, setFibreDispersion] = useState(17)
+  const [fibreLinewidthNm, setFibreLinewidthNm] = useState(0.1)
+  const [fibreResponsivity, setFibreResponsivity] = useState(0.8)
+  const [fibreNoisePAPerSqrtHz, setFibreNoisePAPerSqrtHz] = useState(5)
+  const [fibreDarkCurrentNa, setFibreDarkCurrentNa] = useState(5)
+  const [fibreBerExponent, setFibreBerExponent] = useState(9)
+  const [fibreSystemMarginDb, setFibreSystemMarginDb] = useState(3)
+
+  const [quantumQubits, setQuantumQubits] = useState(2)
+  const [quantumGates, setQuantumGates] = useState<QuantumGate[]>([
+    { type: 'h', qubit: 0 },
+    { type: 'cnot', control: 0, target: 1 },
+  ])
+  const [quantumGateType, setQuantumGateType] = useState<QuantumGateType>('h')
+  const [quantumQubitInput, setQuantumQubitInput] = useState(0)
+  const [quantumControlInput, setQuantumControlInput] = useState(0)
+  const [quantumTargetInput, setQuantumTargetInput] = useState(1)
+  const [quantumAngleDeg, setQuantumAngleDeg] = useState(45)
+  const [quantumShots, setQuantumShots] = useState(1000)
+  const [quantumCounts, setQuantumCounts] = useState<MeasurementCounts | null>(null)
+  const [quantumBuilderError, setQuantumBuilderError] = useState<string | null>(null)
+
   usePublishDomainDesign('rf', {
     tab, antennaKind, frequencyMHz, substrateHeightMM, dielectricConstant, yagiElements,
     arrayElements, arrayLayout, filterKind, cutoffMHz, bandwidthMHz, order, impedance,
+    linkScenario, linkDistanceKm, linkAltitudeKm, linkElevationDeg, linkTxPowerDbm,
+    linkTxGainDbi, linkRxGainDbi, linkBandwidthMHz, linkNoiseFigureDb, linkRequiredEbN0Db,
+    linkBitRateMbps, linkRainRate, linkAtmospheric, numerologyMu,
   }, (next) => {
-    setTab(next.tab === 'filter' ? 'filter' : 'antenna')
+    setTab(linkTabOf(next.tab))
     if (next.antennaKind && ['dipole', 'monopole', 'patch', 'yagi', 'phased'].includes(next.antennaKind)) {
       setAntennaKind(next.antennaKind)
     }
@@ -378,6 +499,20 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
     setBandwidthMHz(rfNumber(next.bandwidthMHz, bandwidthMHz))
     setOrder(rfNumber(next.order, order))
     setImpedance(rfNumber(next.impedance, impedance))
+    setLinkScenario(next.linkScenario === 'satellite' ? 'satellite' : 'terrestrial')
+    setLinkDistanceKm(rfNumber(next.linkDistanceKm, linkDistanceKm))
+    setLinkAltitudeKm(rfNumber(next.linkAltitudeKm, linkAltitudeKm))
+    setLinkElevationDeg(rfNumber(next.linkElevationDeg, linkElevationDeg))
+    setLinkTxPowerDbm(rfNumber(next.linkTxPowerDbm, linkTxPowerDbm))
+    setLinkTxGainDbi(rfNumber(next.linkTxGainDbi, linkTxGainDbi))
+    setLinkRxGainDbi(rfNumber(next.linkRxGainDbi, linkRxGainDbi))
+    setLinkBandwidthMHz(rfNumber(next.linkBandwidthMHz, linkBandwidthMHz))
+    setLinkNoiseFigureDb(rfNumber(next.linkNoiseFigureDb, linkNoiseFigureDb))
+    setLinkRequiredEbN0Db(rfNumber(next.linkRequiredEbN0Db, linkRequiredEbN0Db))
+    setLinkBitRateMbps(rfNumber(next.linkBitRateMbps, linkBitRateMbps))
+    setLinkRainRate(rfNumber(next.linkRainRate, linkRainRate))
+    setLinkAtmospheric(next.linkAtmospheric !== false)
+    setNumerologyMu(rfNumber(next.numerologyMu, numerologyMu))
   })
 
   const antenna = useMemo<AntennaResult | { error: string }>(() => {
@@ -441,10 +576,155 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
     }
   }, [filterKind, cutoffMHz, bandwidthMHz, order, impedance])
 
+  const link = useMemo<LinkBudgetResult | { error: string }>(() => {
+    try {
+      const distanceM =
+        linkScenario === 'satellite'
+          ? slantRangeM(linkAltitudeKm * 1000, linkElevationDeg)
+          : linkDistanceKm * 1000
+      return linkBudget({
+        frequencyHz: frequencyMHz * 1e6,
+        txPowerDbm: linkTxPowerDbm,
+        txAntennaGainDbi: linkTxGainDbi,
+        rxAntennaGainDbi: linkRxGainDbi,
+        distanceM,
+        bandwidthHz: linkBandwidthMHz * 1e6,
+        receiverNoiseFigureDb: linkNoiseFigureDb,
+        requiredEbN0Db: linkRequiredEbN0Db,
+        bitRateBps: linkBitRateMbps * 1e6,
+        atmospheric: linkAtmospheric,
+        rainRateMmPerHour: linkRainRate,
+      })
+    } catch (error) {
+      return { error: describeError(error) }
+    }
+  }, [
+    frequencyMHz, linkScenario, linkAltitudeKm, linkElevationDeg, linkDistanceKm,
+    linkTxPowerDbm, linkTxGainDbi, linkRxGainDbi, linkBandwidthMHz, linkNoiseFigureDb,
+    linkRequiredEbN0Db, linkBitRateMbps, linkRainRate, linkAtmospheric,
+  ])
+
   const antennaData = 'error' in antenna ? null : antenna
   const filterData = 'error' in filter ? null : filter
+  const linkData = 'error' in link ? null : link
   const antennaError = 'error' in antenna ? antenna.error : 'Antenna design failed.'
   const filterError = 'error' in filter ? filter.error : 'Filter design failed.'
+  const linkError = 'error' in link ? link.error : 'Link budget failed.'
+
+  const photonic = useMemo<OpticalLinkResult | { error: string }>(() => {
+    try {
+      return opticalLink({
+        wavelengthNm: fibreWavelengthNm,
+        launchPowerDbm: fibreLaunchDbm,
+        bitRateGbps: fibreBitRateGbps,
+        lengthKm: fibreLengthKm,
+        attenuationDbPerKm: fibreAttenuation,
+        connectorLossDb: fibreConnectorLossDb,
+        spliceCount: Math.round(fibreSpliceCount),
+        spliceLossDb: fibreSpliceLossDb,
+        dispersionPsPerNmKm: fibreDispersion,
+        transmitterLinewidthNm: fibreLinewidthNm,
+        receiverResponsivityAW: fibreResponsivity,
+        receiverNoisePAPerSqrtHz: fibreNoisePAPerSqrtHz * 1e-12,
+        darkCurrentNa: fibreDarkCurrentNa,
+        targetBer: 10 ** -fibreBerExponent,
+        systemMarginDb: fibreSystemMarginDb,
+      })
+    } catch (error) {
+      return { error: describeError(error) }
+    }
+  }, [
+    fibreWavelengthNm, fibreLaunchDbm, fibreBitRateGbps, fibreLengthKm, fibreAttenuation,
+    fibreConnectorLossDb, fibreSpliceCount, fibreSpliceLossDb, fibreDispersion, fibreLinewidthNm,
+    fibreResponsivity, fibreNoisePAPerSqrtHz, fibreDarkCurrentNa, fibreBerExponent, fibreSystemMarginDb,
+  ])
+
+  const quantum = useMemo<QuantumState | { error: string }>(() => {
+    try {
+      return simulateCircuit(quantumQubits, quantumGates)
+    } catch (error) {
+      return { error: describeError(error) }
+    }
+  }, [quantumQubits, quantumGates])
+
+  const photonicData = 'error' in photonic ? null : photonic
+  const photonicError = 'error' in photonic ? photonic.error : 'Optical link budget failed.'
+  const quantumData = 'error' in quantum ? null : quantum
+  const quantumError = 'error' in quantum ? quantum.error : 'Quantum circuit failed to simulate.'
+  const quantumMarginals = quantumData ? qubitProbabilities(quantumData) : []
+  const quantumTwoQubitGate =
+    quantumGateType === 'cnot' || quantumGateType === 'cz' || quantumGateType === 'swap'
+  const quantumRotationGate =
+    quantumGateType === 'rx' || quantumGateType === 'ry' || quantumGateType === 'rz'
+
+  const addQuantumGate = () => {
+    setQuantumBuilderError(null)
+    const gate: QuantumGate = quantumTwoQubitGate
+      ? { type: quantumGateType, control: quantumControlInput, target: quantumTargetInput }
+      : quantumRotationGate
+        ? { type: quantumGateType, qubit: quantumQubitInput, angle: (quantumAngleDeg * Math.PI) / 180 }
+        : { type: quantumGateType, qubit: quantumQubitInput }
+    try {
+      simulateCircuit(quantumQubits, [...quantumGates, gate])
+      setQuantumGates((previous) => [...previous, gate])
+      setQuantumCounts(null)
+    } catch (error) {
+      setQuantumBuilderError(describeError(error))
+    }
+  }
+
+  const applyQuantumPreset = (preset: 'bell' | 'ghz' | 'hadamard' | 'phase') => {
+    setQuantumBuilderError(null)
+    setQuantumCounts(null)
+    if (preset === 'ghz') {
+      setQuantumQubits(3)
+      setQuantumGates([
+        { type: 'h', qubit: 0 },
+        { type: 'cnot', control: 0, target: 1 },
+        { type: 'cnot', control: 1, target: 2 },
+      ])
+    } else if (preset === 'hadamard') {
+      setQuantumQubits(1)
+      setQuantumGates([{ type: 'h', qubit: 0 }])
+    } else if (preset === 'phase') {
+      setQuantumQubits(1)
+      setQuantumGates([{ type: 'h', qubit: 0 }, { type: 's', qubit: 0 }])
+    } else {
+      setQuantumQubits(2)
+      setQuantumGates([{ type: 'h', qubit: 0 }, { type: 'cnot', control: 0, target: 1 }])
+    }
+  }
+
+  const runQuantumMeasurement = () => {
+    if (!quantumData) return
+    setQuantumBuilderError(null)
+    try {
+      setQuantumCounts(sampleCounts(quantumData, Math.round(quantumShots)))
+    } catch (error) {
+      setQuantumBuilderError(describeError(error))
+    }
+  }
+
+  const quantumOutcomes = quantumData
+    ? quantumData.probabilities
+        .map((probability, index) => ({ probability, index }))
+        .filter((outcome) => outcome.probability > 1e-12)
+        .sort((a, b) => b.probability - a.probability)
+    : []
+
+  const linkDistanceM =
+    linkScenario === 'satellite'
+      ? (() => {
+          try {
+            return slantRangeM(linkAltitudeKm * 1000, linkElevationDeg)
+          } catch {
+            return Number.NaN
+          }
+        })()
+      : linkDistanceKm * 1000
+  const linkNumerology = numerology(Math.min(6, Math.max(0, Math.round(numerologyMu))))
+  const carrierHz = frequencyMHz * 1e6
+  const linkBands = candidateBandsFor(carrierHz)
 
   const antennaGains = antennaData ? antennaData.pattern.gain.map((point) => point[0]) : []
   const peakGain = antennaGains.length > 0 ? Math.max(...antennaGains) : Number.NaN
@@ -515,15 +795,15 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
             <Radio className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-sm font-semibold text-foreground">RF &amp; Microwave</h1>
+            <h1 className="text-sm font-semibold text-foreground">RF, Photonics &amp; Quantum</h1>
             <p className="text-xs text-muted-foreground">
-              Antenna synthesis and lumped Butterworth filters, computed from first principles
+              Antennas, lumped filters, radio and fibre link budgets, NR/6G numerology and exact statevector circuits
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex rounded-md border border-border bg-muted p-0.5" role="tablist" aria-label="RF design tool">
-            {(['antenna', 'filter'] as const).map((value) => (
+            {(['antenna', 'filter', 'link', 'photonics', 'quantum'] as const).map((value) => (
               <button
                 key={value}
                 type="button"
@@ -536,7 +816,15 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                {value === 'antenna' ? 'Antennas' : 'Filters'}
+                {value === 'antenna'
+                  ? 'Antennas'
+                  : value === 'filter'
+                    ? 'Filters'
+                    : value === 'link'
+                      ? 'Link & 6G'
+                      : value === 'photonics'
+                        ? 'Photonics'
+                        : 'Quantum'}
               </button>
             ))}
           </div>
@@ -663,7 +951,7 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
                 </CardContent>
               </Card>
             </>
-          ) : (
+          ) : tab === 'filter' ? (
             <>
               <Card>
                 <CardHeader className="pb-3">
@@ -743,6 +1031,476 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
                   Butterworth prototype with equal terminations; the ladder is evaluated as an ABCD cascade
                   and converted to S-parameters. Elements are ideal unless a Q is attached. Component values
                   are exact synthesis values, not snapped to an E-series.
+                </CardContent>
+              </Card>
+            </>
+          ) : tab === 'link' ? (
+            <>
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Link budget</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-1">
+                    <label htmlFor="link-scenario" className="text-xs font-medium text-muted-foreground">
+                      Scenario
+                    </label>
+                    <select
+                      id="link-scenario"
+                      value={linkScenario}
+                      onChange={(event) => setLinkScenario(event.target.value as LinkScenario)}
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="terrestrial">Terrestrial path</option>
+                      <option value="satellite">Satellite (LEO slant range)</option>
+                    </select>
+                  </div>
+                  <NumberField
+                    id="link-frequency"
+                    label="Carrier frequency"
+                    value={frequencyMHz}
+                    unit="MHz"
+                    min={1}
+                    step={100}
+                    onChange={setFrequencyMHz}
+                  />
+                  {linkScenario === 'satellite' ? (
+                    <>
+                      <NumberField
+                        id="link-altitude"
+                        label="Satellite altitude"
+                        value={linkAltitudeKm}
+                        unit="km"
+                        min={0}
+                        step={50}
+                        onChange={setLinkAltitudeKm}
+                      />
+                      <NumberField
+                        id="link-elevation"
+                        label="Elevation angle"
+                        value={linkElevationDeg}
+                        unit="°"
+                        min={0.1}
+                        max={90}
+                        step={5}
+                        onChange={setLinkElevationDeg}
+                      />
+                    </>
+                  ) : (
+                    <NumberField
+                      id="link-distance"
+                      label="Path length"
+                      value={linkDistanceKm}
+                      unit="km"
+                      min={0.001}
+                      step={10}
+                      onChange={setLinkDistanceKm}
+                    />
+                  )}
+                  <NumberField
+                    id="link-tx-power"
+                    label="Transmit power"
+                    value={linkTxPowerDbm}
+                    unit="dBm"
+                    step={1}
+                    onChange={setLinkTxPowerDbm}
+                  />
+                  <NumberField
+                    id="link-tx-gain"
+                    label="Transmit antenna gain"
+                    value={linkTxGainDbi}
+                    unit="dBi"
+                    step={1}
+                    onChange={setLinkTxGainDbi}
+                  />
+                  <NumberField
+                    id="link-rx-gain"
+                    label="Receive antenna gain"
+                    value={linkRxGainDbi}
+                    unit="dBi"
+                    step={1}
+                    onChange={setLinkRxGainDbi}
+                  />
+                  <NumberField
+                    id="link-bandwidth"
+                    label="Channel bandwidth"
+                    value={linkBandwidthMHz}
+                    unit="MHz"
+                    min={0.001}
+                    step={5}
+                    onChange={setLinkBandwidthMHz}
+                  />
+                  <NumberField
+                    id="link-bit-rate"
+                    label="Information bit rate"
+                    value={linkBitRateMbps}
+                    unit="Mbit/s"
+                    min={0.001}
+                    step={1}
+                    onChange={setLinkBitRateMbps}
+                  />
+                  <NumberField
+                    id="link-noise-figure"
+                    label="Receiver noise figure"
+                    value={linkNoiseFigureDb}
+                    unit="dB"
+                    min={0}
+                    step={1}
+                    onChange={setLinkNoiseFigureDb}
+                  />
+                  <NumberField
+                    id="link-required-ebn0"
+                    label="Required Eb/N0"
+                    value={linkRequiredEbN0Db}
+                    unit="dB"
+                    step={1}
+                    onChange={setLinkRequiredEbN0Db}
+                  />
+                  <NumberField
+                    id="link-rain"
+                    label="Rainfall rate"
+                    value={linkRainRate}
+                    unit="mm/h"
+                    min={0}
+                    step={5}
+                    onChange={setLinkRainRate}
+                  />
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={linkAtmospheric}
+                      onChange={(event) => setLinkAtmospheric(event.target.checked)}
+                      className="h-4 w-4 rounded border-input"
+                    />
+                    Include sea-level atmospheric loss
+                  </label>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <Info className="h-4 w-4" />
+                    Model basis
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="text-xs leading-relaxed text-muted-foreground">
+                  Friis free-space loss, kTB noise, Shannon capacity and the Eb/N0 conversion. Atmospheric
+                  loss is log-interpolated from ITU-R P.676 sea-level spot values (7.5 g/m³ water vapour);
+                  rain uses ITU-R P.838 coefficients. No multipath, interference, blockage or antenna
+                  misalignment is modelled.
+                </CardContent>
+              </Card>
+            </>
+          ) : tab === 'photonics' ? (
+            <>
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Fibre span</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <NumberField
+                    id="fibre-wavelength"
+                    label="Wavelength"
+                    value={fibreWavelengthNm}
+                    unit="nm"
+                    min={1}
+                    step={10}
+                    onChange={setFibreWavelengthNm}
+                  />
+                  <NumberField
+                    id="fibre-launch"
+                    label="Launch power"
+                    value={fibreLaunchDbm}
+                    unit="dBm"
+                    step={1}
+                    onChange={setFibreLaunchDbm}
+                  />
+                  <NumberField
+                    id="fibre-bitrate"
+                    label="Bit rate"
+                    value={fibreBitRateGbps}
+                    unit="Gbit/s"
+                    min={0.001}
+                    step={1}
+                    onChange={setFibreBitRateGbps}
+                  />
+                  <NumberField
+                    id="fibre-length"
+                    label="Fibre span"
+                    value={fibreLengthKm}
+                    unit="km"
+                    min={0}
+                    step={5}
+                    onChange={setFibreLengthKm}
+                  />
+                  <NumberField
+                    id="fibre-attenuation"
+                    label="Attenuation at this wavelength"
+                    value={fibreAttenuation}
+                    unit="dB/km"
+                    min={0}
+                    step={0.01}
+                    onChange={setFibreAttenuation}
+                  />
+                  <NumberField
+                    id="fibre-connector-loss"
+                    label="Connector / patch loss"
+                    value={fibreConnectorLossDb}
+                    unit="dB"
+                    min={0}
+                    step={0.1}
+                    onChange={setFibreConnectorLossDb}
+                  />
+                  <NumberField
+                    id="fibre-splice-count"
+                    label="Fusion splices"
+                    value={fibreSpliceCount}
+                    min={0}
+                    step={1}
+                    onChange={setFibreSpliceCount}
+                  />
+                  <NumberField
+                    id="fibre-splice-loss"
+                    label="Loss per splice"
+                    value={fibreSpliceLossDb}
+                    unit="dB"
+                    min={0}
+                    step={0.01}
+                    onChange={setFibreSpliceLossDb}
+                  />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Dispersion and receiver</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <NumberField
+                    id="fibre-dispersion"
+                    label="Chromatic dispersion"
+                    value={fibreDispersion}
+                    unit="ps/(nm·km)"
+                    min={0}
+                    step={1}
+                    onChange={setFibreDispersion}
+                  />
+                  <NumberField
+                    id="fibre-linewidth"
+                    label="Transmitter RMS linewidth"
+                    value={fibreLinewidthNm}
+                    unit="nm"
+                    min={0}
+                    step={0.01}
+                    onChange={setFibreLinewidthNm}
+                  />
+                  <NumberField
+                    id="fibre-responsivity"
+                    label="Photodiode responsivity"
+                    value={fibreResponsivity}
+                    unit="A/W"
+                    min={0.001}
+                    step={0.05}
+                    onChange={setFibreResponsivity}
+                  />
+                  <NumberField
+                    id="fibre-noise-density"
+                    label="Receiver noise density"
+                    value={fibreNoisePAPerSqrtHz}
+                    unit="pA/√Hz"
+                    min={0}
+                    step={0.5}
+                    onChange={setFibreNoisePAPerSqrtHz}
+                  />
+                  <NumberField
+                    id="fibre-dark-current"
+                    label="Photodiode dark current"
+                    value={fibreDarkCurrentNa}
+                    unit="nA"
+                    min={0}
+                    step={1}
+                    onChange={setFibreDarkCurrentNa}
+                  />
+                  <NumberField
+                    id="fibre-ber-exponent"
+                    label="Target BER = 10⁻ⁿ"
+                    value={fibreBerExponent}
+                    min={2}
+                    max={15}
+                    step={1}
+                    onChange={setFibreBerExponent}
+                  />
+                  <NumberField
+                    id="fibre-system-margin"
+                    label="Ageing and repair allowance"
+                    value={fibreSystemMarginDb}
+                    unit="dB"
+                    min={0}
+                    step={0.5}
+                    onChange={setFibreSystemMarginDb}
+                  />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <Info className="h-4 w-4" />
+                    Model basis
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="text-xs leading-relaxed text-muted-foreground">
+                  OOK fibre budget from the declared attenuation, splice and connector losses; chromatic
+                  dispersion is a Gaussian eye-closure estimate; PIN sensitivity solves the Q-equation
+                  with shot, dark-current and thermal noise. No fibre nonlinearity, polarisation-mode
+                  dispersion, amplifier noise or FEC is modelled.
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <>
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Register</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <NumberField
+                    id="quantum-qubits"
+                    label="Qubits"
+                    value={quantumQubits}
+                    min={1}
+                    max={MAX_QUBITS}
+                    step={1}
+                    onChange={(value) => {
+                      setQuantumQubits(Math.round(value))
+                      setQuantumGates([])
+                      setQuantumCounts(null)
+                      setQuantumBuilderError(null)
+                    }}
+                  />
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    Changing the register clears the gate list. Qubit 0 is the leftmost bit of every basis
+                    label; the simulator holds 2ⁿ complex amplitudes.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button variant="outline" size="sm" onClick={() => applyQuantumPreset('bell')}>
+                      Bell pair
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => applyQuantumPreset('ghz')}>
+                      GHZ-3
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => applyQuantumPreset('hadamard')}>
+                      |+⟩
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => applyQuantumPreset('phase')}>
+                      H then S
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Add gate</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-1">
+                    <label htmlFor="quantum-gate-type" className="text-xs font-medium text-muted-foreground">
+                      Gate
+                    </label>
+                    <select
+                      id="quantum-gate-type"
+                      aria-label="Quantum gate"
+                      value={quantumGateType}
+                      onChange={(event) => setQuantumGateType(event.target.value as QuantumGateType)}
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      {(Object.keys(QUANTUM_GATE_LABELS) as QuantumGateType[]).map((type) => (
+                        <option key={type} value={type}>
+                          {QUANTUM_GATE_LABELS[type]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {quantumTwoQubitGate ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      <NumberField
+                        id="quantum-control"
+                        label="Control qubit"
+                        value={quantumControlInput}
+                        min={0}
+                        max={quantumQubits - 1}
+                        step={1}
+                        onChange={setQuantumControlInput}
+                      />
+                      <NumberField
+                        id="quantum-target"
+                        label="Target qubit"
+                        value={quantumTargetInput}
+                        min={0}
+                        max={quantumQubits - 1}
+                        step={1}
+                        onChange={setQuantumTargetInput}
+                      />
+                    </div>
+                  ) : (
+                    <NumberField
+                      id="quantum-qubit"
+                      label="Qubit"
+                      value={quantumQubitInput}
+                      min={0}
+                      max={quantumQubits - 1}
+                      step={1}
+                      onChange={setQuantumQubitInput}
+                    />
+                  )}
+                  {quantumRotationGate && (
+                    <NumberField
+                      id="quantum-angle"
+                      label="Rotation angle"
+                      value={quantumAngleDeg}
+                      unit="°"
+                      step={15}
+                      onChange={setQuantumAngleDeg}
+                    />
+                  )}
+                  <Button variant="outline" className="w-full gap-2" onClick={addQuantumGate}>
+                    Add gate
+                  </Button>
+                  {quantumBuilderError && (
+                    <p role="alert" className="text-xs text-destructive">
+                      {quantumBuilderError}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Measure</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <NumberField
+                    id="quantum-shots"
+                    label="Shots"
+                    value={quantumShots}
+                    min={1}
+                    max={1_000_000}
+                    step={100}
+                    onChange={setQuantumShots}
+                  />
+                  <Button
+                    className="w-full gap-2"
+                    onClick={runQuantumMeasurement}
+                    disabled={!quantumData}
+                  >
+                    Run measurement
+                  </Button>
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    Sampling is statistical and draws from the exact distribution. The stored state is not
+                    collapsed, so re-running draws independent shots.
+                  </p>
                 </CardContent>
               </Card>
             </>
@@ -1021,6 +1779,502 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
                 </>
               ) : (
                 <ErrorCard message={filterError} />
+              )}
+            </div>
+          )}
+
+          {tab === 'link' && (
+            <div className="space-y-4">
+              {linkData ? (
+                <>
+                  <div className="flex flex-wrap items-end justify-between gap-3">
+                    <div>
+                      <h2 className="text-lg font-semibold text-foreground">
+                        Link budget · {formatFrequency(frequencyMHz)}
+                      </h2>
+                      <p className="text-xs text-muted-foreground">
+                        {linkScenario === 'satellite'
+                          ? `${linkAltitudeKm} km orbit at ${linkElevationDeg}° elevation · ${(linkDistanceM / 1000).toFixed(0)} km slant range`
+                          : `${linkDistanceKm} km terrestrial path`}{' '}
+                        · {linkBandwidthMHz} MHz channel · {linkBitRateMbps} Mbit/s
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Metric label="Link margin" value={formatDb(linkData.linkMarginDb)} />
+                      <Metric label="Received Eb/N0" value={formatDb(linkData.ebN0Db)} />
+                      <Metric
+                        label="Shannon bound"
+                        value={formatEng(linkData.shannonCapacityBps, 'bit/s')}
+                      />
+                    </div>
+                  </div>
+
+                  <div
+                    role="status"
+                    className={`rounded-md border px-3 py-2 text-sm ${
+                      linkData.closes
+                        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600'
+                        : 'border-destructive/40 bg-destructive/10 text-destructive'
+                    }`}
+                  >
+                    {linkData.closes
+                      ? `Link closes with ${linkData.linkMarginDb.toFixed(2)} dB margin against the ${linkRequiredEbN0Db} dB requirement.`
+                      : `Link fails by ${Math.abs(linkData.linkMarginDb).toFixed(2)} dB against the ${linkRequiredEbN0Db} dB requirement.`}
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm">Power chain</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <dl className="space-y-2 text-xs">
+                          {([
+                            ['Transmitter power', `${linkTxPowerDbm.toFixed(1)} dBm`],
+                            ['EIRP', formatDb(linkData.txEirpDbm)],
+                            ['Free-space loss', formatDb(-linkData.freeSpaceLossDb)],
+                            ['Atmospheric loss', formatDb(-linkData.atmosphericLossDb)],
+                            ['Rain loss', formatDb(-linkData.rainLossDb)],
+                            ['Receive antenna gain', `${linkRxGainDbi >= 0 ? '+' : ''}${linkRxGainDbi.toFixed(1)} dBi`],
+                            ['Received power', formatDb(linkData.receivedPowerDbm)],
+                            ['Noise floor', formatDb(linkData.noiseFloorDbm)],
+                            ['Signal-to-noise ratio', formatDb(linkData.snrDb)],
+                            ['Required Eb/N0', `${linkRequiredEbN0Db.toFixed(1)} dB`],
+                          ] as const).map(([label, value]) => (
+                            <div
+                              key={label}
+                              className="flex items-center justify-between gap-4 border-b border-border/60 pb-1.5 last:border-0 last:pb-0"
+                            >
+                              <dt className="text-muted-foreground">{label}</dt>
+                              <dd className="font-mono text-foreground">{value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="flex items-center gap-2 text-sm">
+                          <Info className="h-4 w-4" />
+                          What this result assumes
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2 text-xs leading-relaxed text-muted-foreground">
+                        <ul className="list-disc space-y-1 pl-4">
+                          {linkData.assumptions.map((assumption) => (
+                            <li key={assumption}>{assumption}</li>
+                          ))}
+                        </ul>
+                        <p className="rounded-md bg-muted/60 p-2">
+                          Specific attenuation at {formatFrequency(frequencyMHz)}:{' '}
+                          <span className="font-mono text-foreground">
+                            {specificAttenuationDbPerKm(carrierHz).toFixed(3)} dB/km
+                          </span>{' '}
+                          clear air,{' '}
+                          <span className="font-mono text-foreground">
+                            {rainAttenuationDbPerKm(carrierHz, linkRainRate).toFixed(3)} dB/km
+                          </span>{' '}
+                          at {linkRainRate} mm/h.
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <Card>
+                    <CardHeader className="flex-row items-center justify-between pb-2">
+                      <CardTitle className="text-sm">NR numerology and candidate bands</CardTitle>
+                      <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                        Numerology µ
+                        <select
+                          value={Math.round(numerologyMu)}
+                          onChange={(event) => setNumerologyMu(Number(event.target.value))}
+                          className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                          aria-label="NR numerology"
+                        >
+                          {[0, 1, 2, 3, 4, 5, 6].map((value) => (
+                            <option key={value} value={value}>
+                              {value}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <dl className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+                        {([
+                          ['Subcarrier spacing', formatEng(linkNumerology.subcarrierSpacingHz, 'Hz')],
+                          ['Symbol length', `${linkNumerology.symbolUs.toFixed(3)} µs`],
+                          ['Slot length', `${linkNumerology.slotUs.toFixed(3)} µs`],
+                          ['Slots per frame', String(linkNumerology.slotsPerFrame)],
+                          ['Symbols per frame', String(linkNumerology.symbolsPerFrame)],
+                          ['Sample rate (4096 FFT)', formatEng(linkNumerology.sampleRateHz, 'Hz')],
+                        ] as const).map(([label, value]) => (
+                          <div key={label} className="rounded-md border border-border/60 px-2 py-1.5">
+                            <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                              {label}
+                            </dt>
+                            <dd className="font-mono text-foreground">{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+
+                      <div className="space-y-1">
+                        {CANDIDATE_6G_BANDS.map((band) => {
+                          const active = linkBands.some((candidate) => candidate.name === band.name)
+                          return (
+                            <div
+                              key={band.name}
+                              className={`rounded-md border px-2 py-1.5 text-xs ${
+                                active ? 'border-primary/50 bg-primary/10' : 'border-border/60'
+                              }`}
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="font-medium text-foreground">{band.name}</span>
+                                <span className="font-mono text-[11px] text-muted-foreground">
+                                  {formatFrequency(band.startHz / 1e6)} – {formatFrequency(band.stopHz / 1e6)}
+                                </span>
+                              </div>
+                              <p className="text-[11px] leading-snug text-muted-foreground">{band.note}</p>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <p className="text-[11px] leading-relaxed text-muted-foreground">
+                        Candidate 6G bands are research and WRC agenda items, not allocations. Numerology
+                        follows the NR relation 15·2^µ kHz; a slot is 14 symbols, and the 4096-point FFT is
+                        the largest NR defines.
+                      </p>
+                    </CardContent>
+                  </Card>
+                </>
+              ) : (
+                <ErrorCard message={linkError} />
+              )}
+            </div>
+          )}
+
+          {tab === 'photonics' && (
+            <div className="space-y-4">
+              {photonicData ? (
+                <>
+                  <div className="flex flex-wrap items-end justify-between gap-3">
+                    <div>
+                      <h2 className="text-lg font-semibold text-foreground">
+                        Optical budget · {fibreLengthKm} km at {fibreWavelengthNm} nm
+                      </h2>
+                      <p className="text-xs text-muted-foreground">
+                        {fibreBitRateGbps} Gbit/s OOK · BER 1e−{fibreBerExponent} · {fibreLaunchDbm} dBm launch ·{' '}
+                        {fibreResponsivity} A/W photodiode
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Metric label="Link margin" value={formatDb(photonicData.linkMarginDb)} />
+                      <Metric label="Received power" value={formatDb(photonicData.receivedPowerDbm)} />
+                      <Metric label="Receiver sensitivity" value={formatDb(photonicData.receiverSensitivityDbm)} />
+                    </div>
+                  </div>
+
+                  <div
+                    role="status"
+                    className={`rounded-md border px-3 py-2 text-sm ${
+                      photonicData.closes
+                        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600'
+                        : 'border-destructive/40 bg-destructive/10 text-destructive'
+                    }`}
+                  >
+                    {photonicData.closes
+                      ? `Optical link closes with ${photonicData.linkMarginDb.toFixed(2)} dB margin after the ${fibreSystemMarginDb} dB ageing allowance.`
+                      : `Optical link fails by ${Math.abs(photonicData.linkMarginDb).toFixed(2)} dB after the ${fibreSystemMarginDb} dB ageing allowance.`}
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm">Power chain</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <dl className="space-y-2 text-xs">
+                          {([
+                            ['Launch power', formatDb(fibreLaunchDbm)],
+                            ['Fibre loss', formatDb(-photonicData.fibreLossDb)],
+                            ['Splice loss', formatDb(-photonicData.spliceLossDb)],
+                            ['Connector loss', formatDb(-photonicData.connectorLossDb)],
+                            ['Dispersion penalty', formatDb(-photonicData.dispersionPenaltyDb)],
+                            ['Received power', formatDb(photonicData.receivedPowerDbm)],
+                            ['Receiver sensitivity', formatDb(photonicData.receiverSensitivityDbm)],
+                            ['Ageing allowance', formatDb(-fibreSystemMarginDb)],
+                          ] as const).map(([label, value]) => (
+                            <div
+                              key={label}
+                              className="flex items-center justify-between gap-4 border-b border-border/60 pb-1.5 last:border-0 last:pb-0"
+                            >
+                              <dt className="text-muted-foreground">{label}</dt>
+                              <dd className="font-mono text-foreground">{value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="flex items-center gap-2 text-sm">
+                          <Info className="h-4 w-4" />
+                          Photon budget
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2 text-xs">
+                        <dl className="space-y-2">
+                          {([
+                            ['Optical frequency', `${photonicData.opticalFrequencyThz.toFixed(3)} THz`],
+                            ['Photon energy', `${formatEng(photonicData.photonEnergyJ, 'J')}`],
+                            ['Q factor', photonicData.qFactor.toFixed(3)],
+                            [
+                              'Photons per bit at sensitivity',
+                              `${photonicData.photonsPerBitAtSensitivity.toFixed(0)} photons/bit`,
+                            ],
+                            [
+                              'Ideal ln(1/BER) bound',
+                              `${photonicData.quantumLimitPhotonsPerBit.toFixed(1)} photons/bit`,
+                            ],
+                          ] as const).map(([label, value]) => (
+                            <div
+                              key={label}
+                              className="flex items-center justify-between gap-4 border-b border-border/60 pb-1.5 last:border-0 last:pb-0"
+                            >
+                              <dt className="text-muted-foreground">{label}</dt>
+                              <dd className="font-mono text-foreground">{value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                        <p className="rounded-md bg-muted/60 p-2 leading-relaxed">
+                          The ln(1/BER) figure is an ideal photon-counting bound. A PIN transimpedance
+                          receiver is not a photon counter, so the achieved sensitivity sits far above it.
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm">Chromatic dispersion</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <dl className="space-y-2 text-xs">
+                          {([
+                            ['Pulse broadening σ', `${photonicData.dispersionBroadeningPs.toFixed(2)} ps`],
+                            ['Bit period', `${(1000 / fibreBitRateGbps).toFixed(2)} ps`],
+                            ['σ / bit period', photonicData.dispersionRatio.toFixed(3)],
+                            ['Eye-closure penalty', formatDb(photonicData.dispersionPenaltyDb)],
+                          ] as const).map(([label, value]) => (
+                            <div key={label} className="flex items-center justify-between gap-4">
+                              <dt className="text-muted-foreground">{label}</dt>
+                              <dd className="font-mono text-foreground">{value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                          σ = D·Δλ·L and the penalty is 5·log₁₀(1 + (2π·B·σ)²), a Gaussian eye-closure
+                          estimate rather than a waveform simulation.
+                        </p>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="flex items-center gap-2 text-sm">
+                          <Info className="h-4 w-4" />
+                          What this result assumes
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <ul className="list-disc space-y-1 pl-4 text-xs leading-relaxed text-muted-foreground">
+                          {photonicData.assumptions.map((assumption) => (
+                            <li key={assumption}>{assumption}</li>
+                          ))}
+                        </ul>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </>
+              ) : (
+                <ErrorCard message={photonicError} />
+              )}
+            </div>
+          )}
+
+          {tab === 'quantum' && (
+            <div className="space-y-4">
+              {quantumData ? (
+                <>
+                  <div className="flex flex-wrap items-end justify-between gap-3">
+                    <div>
+                      <h2 className="text-lg font-semibold text-foreground">
+                        Statevector · {quantumQubits} qubit{quantumQubits === 1 ? '' : 's'}
+                      </h2>
+                      <p className="text-xs text-muted-foreground">
+                        {quantumGates.length} gate{quantumGates.length === 1 ? '' : 's'} ·{' '}
+                        {quantumData.amplitudes.length} amplitudes · exact unitary evolution
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {quantumMarginals.map((probability, qubit) => (
+                        <Metric
+                          key={qubit}
+                          label={`P(q${qubit} = 1)`}
+                          value={probability.toFixed(4)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Circuit</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {quantumGates.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          The empty circuit is |{quantumData.basisLabels[0]}⟩ — add a gate or choose a preset.
+                        </p>
+                      ) : (
+                        <ol className="space-y-1.5">
+                          {quantumGates.map((gate, index) => (
+                            <li
+                              key={`${index}-${gate.type}`}
+                              className="flex items-center justify-between gap-3 rounded-md border border-border/60 px-2 py-1.5 text-xs"
+                            >
+                              <span className="font-mono text-foreground">
+                                {index + 1}. {gateSummary(gate)}
+                              </span>
+                              <button
+                                type="button"
+                                aria-label={`Remove gate ${index + 1}`}
+                                onClick={() => {
+                                  setQuantumGates((previous) =>
+                                    previous.filter((_, gateIndex) => gateIndex !== index),
+                                  )
+                                  setQuantumCounts(null)
+                                }}
+                                className="text-muted-foreground transition-colors hover:text-destructive"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </li>
+                          ))}
+                        </ol>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm">Basis probabilities</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="border-b border-border text-[10px] uppercase tracking-wide text-muted-foreground">
+                              <th className="pb-1.5 font-medium">Basis</th>
+                              <th className="pb-1.5 text-right font-medium">Probability</th>
+                              <th className="pb-1.5 text-right font-medium">Amplitude</th>
+                              <th className="pb-1.5 text-right font-medium">Phase</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {quantumOutcomes.slice(0, 16).map(({ probability, index }) => {
+                              const amplitude = quantumData.amplitudes[index]
+                              const phase = (Math.atan2(amplitude.im, amplitude.re) * 180) / Math.PI
+                              return (
+                                <tr key={index} className="border-b border-border/40 last:border-0">
+                                  <td className="py-1 font-mono text-foreground">
+                                    |{quantumData.basisLabels[index]}⟩
+                                  </td>
+                                  <td className="py-1 text-right font-mono text-foreground">
+                                    {(probability * 100).toFixed(3)} %
+                                  </td>
+                                  <td className="py-1 text-right font-mono text-muted-foreground">
+                                    {formatAmplitude(amplitude)}
+                                  </td>
+                                  <td className="py-1 text-right font-mono text-muted-foreground">
+                                    {phase.toFixed(1)}°
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                        {quantumOutcomes.length > 16 && (
+                          <p className="mt-2 text-[11px] text-muted-foreground">
+                            Showing the 16 most probable of {quantumOutcomes.length} non-zero outcomes.
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm">Sampled measurement</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {quantumCounts ? (
+                          <>
+                            <p
+                              role="status"
+                              className="rounded-md border border-border/60 bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground"
+                            >
+                              {quantumCounts.total} shots produced {quantumCounts.outcomes.length} observed
+                              outcome{quantumCounts.outcomes.length === 1 ? '' : 's'}. Sampling is
+                              statistical; the exact probabilities are listed alongside.
+                            </p>
+                            <ul className="space-y-2">
+                              {quantumCounts.outcomes.map((outcome) => (
+                                <li key={outcome.label}>
+                                  <div className="flex items-center justify-between gap-3 text-xs">
+                                    <span className="font-mono text-foreground">|{outcome.label}⟩</span>
+                                    <span className="font-mono text-muted-foreground">
+                                      {outcome.count} · {(outcome.frequency * 100).toFixed(1)} %
+                                    </span>
+                                  </div>
+                                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+                                    <div
+                                      className="h-full rounded-full bg-primary"
+                                      style={{ width: `${Math.min(100, outcome.frequency * 100)}%` }}
+                                    />
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            Run a measurement to draw shots from the exact distribution.
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="flex items-center gap-2 text-sm">
+                        <Info className="h-4 w-4" />
+                        What this simulator is not
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-xs leading-relaxed text-muted-foreground">
+                      A noiseless pure-state simulator with no density matrices, mid-circuit measurement,
+                      gate error or hardware calibration. Sampling draws independent shots; it never
+                      collapses the stored state. Physical noise and device characterisation are not
+                      modelled.
+                    </CardContent>
+                  </Card>
+                </>
+              ) : (
+                <ErrorCard message={quantumError} />
               )}
             </div>
           )}
