@@ -202,6 +202,24 @@ describe('App shell', () => {
     expect(localStorage.getItem(ONBOARDING_COMPLETED_KEY)).toBe('true')
   })
 
+  it('hands the guide over to the limits register instead of stacking them', async () => {
+    render(<App />)
+    fireEvent.click(screen.getAllByRole('button', { name: /create project/i })[0])
+    await screen.findByTestId('schematic-canvas')
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Settings' })[0])
+    fireEvent.click(await screen.findByRole('button', { name: 'Restart guided setup' }, { timeout: 20000 }))
+    await screen.findByRole('dialog', { name: /one project/i }, { timeout: 5000 })
+
+    // Reading the register is the point of the last step, so opening it from the
+    // status bar must not leave a coach mark hovering over the panel.
+    fireEvent.click(screen.getByRole('button', { name: 'LIMITS' }))
+    expect(await screen.findByRole('dialog', { name: 'Capabilities and limits' })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: /one project/i })).not.toBeInTheDocument(),
+    )
+  })
+
   it('restarts the guide from Settings', async () => {
     render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: 'Settings' }))
@@ -222,6 +240,7 @@ describe('App shell', () => {
         onCreateProject={() => {}}
         onLoadSampleCircuit={() => {}}
         onLoadDemoBoard={() => {}}
+        onOpenLimits={() => {}}
         hasProject={false}
         stepIndex={0}
         setStepIndex={() => {}}

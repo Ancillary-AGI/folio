@@ -1,6 +1,6 @@
 import {
-  Activity, Bot, CircuitBoard, Cpu, GitBranch, History, Layers3, MousePointerClick, Shield,
-  TrendingUp, type LucideIcon,
+  Activity, Bot, CircuitBoard, Cpu, GitBranch, History, Layers3, MousePointerClick, ScrollText,
+  Shield, TrendingUp, type LucideIcon,
 } from 'lucide-react'
 import type { WorkspaceMode } from '../../stores/useAppStore'
 
@@ -33,7 +33,7 @@ export interface OnboardingStep {
   /** Preferred side of the target for the coach mark. */
   placement?: 'top' | 'right' | 'bottom' | 'left'
   /** Optional interactive affordance rendered inside the step. */
-  action?: 'load-sample-circuit'
+  action?: 'load-sample-circuit' | 'open-limits'
   /**
    * The step teaches a gesture the engineer should try right now. The overlay
    * stops swallowing pointer events, so the app stays live behind the card and
@@ -208,6 +208,23 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     target: 'agent-button',
     fallbackTarget: 'workspace-canvas',
     placement: 'bottom',
+  },
+  {
+    id: 'limits',
+    title: 'Know the boundary of every number',
+    summary: 'One registry states what each analysis computes, how, and what it refuses to model.',
+    detail:
+      'The LIMITS button in the status bar opens a registry of the whole workbench: the method behind each result — LU on the MNA matrix, Newton-Raphson with gmin stamping, damped least-squares IK, a Lee and A* routing grid — the test file that pins it, and a block naming what is not modelled. It is blunt on purpose: the noise figure is thermal plus diode and never total, antenna gain equals integrated directivity under a stated loss-free assumption, the fab gate implements one vendor profile, and no agent tool touches hardware. A result you cannot bound is a result you cannot use.',
+    checklist: [
+      'Read the Not covered block before a number goes into a report',
+      'Filter the registry to the workspace you are in, then search a method name such as MNA, IK or relay',
+      'Open the test file named on the row when a claim decides something real',
+    ],
+    mode: 'schematic',
+    icon: ScrollText,
+    target: 'limits-button',
+    placement: 'top',
+    action: 'open-limits',
   },
 ]
 

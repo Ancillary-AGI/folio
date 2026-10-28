@@ -4,7 +4,7 @@ Browser-based, offline-first engineering workbench for electronic CAD, mechanica
 design, simulation, robotics, and embedded development. Everything runs locally
 unless you explicitly configure a backend; no account is required for local use.
 
-**Status:** active development. Lint, both typechecks, 2,089 tests across 206
+**Status:** active development. Lint, both typechecks, 2,107 tests across 208
 files, the icon-button accessibility audit, and the production build all pass.
 
 ---
@@ -51,14 +51,23 @@ rules); it makes no model or network call, and its output is advisory.
   shared live state; see
   [docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md#url-scheme-and-why-the-workbench-stays-one-spa).
 - **Command palette** (**Ctrl/⌘+K**): search and run any workspace mode, demo or
-  document action with the keyboard.
-- **Guided tour** (first run, replayable from Settings): ten steps with an
+  document action with the keyboard, including the capabilities and limits
+  register.
+- **Guided tour** (first run, replayable from Settings): eleven steps with an
   animated spotlight — pulsing halo, corner brackets and a caret that points at
   the control being described — that switches workspaces as it goes and persists
   or resumes progress. The steps that teach a gesture (wiring, chart zoom/pan,
   3D orbit) leave the app live so you can try them inside the tour; the rest are
   modal. Arrow keys, Esc, clickable step dots and a tab trap work; reduced-motion
-  users get instant positioning and no halo.
+  users get instant positioning and no halo. The last step hands off to the
+  limits register rather than to a "you're done" screen.
+- **Capabilities and limits register** (`LIMITS` in the status bar): one machine
+  readable list — `src/lib/workspace/limitsRegistry.ts`, rendered by the dialog
+  so the two cannot drift — stating for each family of results what is computed,
+  the method actually in the source, the test files that pin it, and what the
+  model refuses to cover. Tests enforce that every cited file exists, that every
+  workspace mode is named, and that no positive claim uses the words
+  "guarantee", "certified", "zero errors" or "always correct".
 - A contextual status bar reports the active mode, schematic metrics, theme and
   unsaved state.
 
@@ -311,7 +320,7 @@ npm run lint            # ESLint, zero warnings
 npm run a11y:buttons    # every icon-only button has an accessible name
 npm run typecheck       # app TypeScript
 npm run typecheck:node  # Vite/build config TypeScript
-npm test                # Vitest, 2,089 tests / 206 files
+npm test                # Vitest, 2,107 tests / 208 files
 npm run build           # production build
 npm run verify          # all of the gates above, in order
 npm run preview         # preview the build on port 4173
@@ -356,6 +365,13 @@ src/
 
 ## Honest limits
 
+The same statements live inside the product: `src/lib/workspace/limitsRegistry.ts`
+records what each analysis computes, the method behind it, the test file that
+pins it and what it refuses to model, and the `LIMITS` dialog renders that file.
+Tests fail if a cited test file disappears, if a workspace mode is left
+unspeaking, or if a positive claim uses hedging-free wording such as "guaranteed"
+or "zero errors". The bullets below are the prose form of that register.
+
 - Simulations are engineering approximations for design exploration, not
   certified sign-off. Validate thermal, SI, EMC, and structural results against
   measured hardware before fabrication.
@@ -382,7 +398,12 @@ src/
   Polynomial roots, Bode curves and margins are computed from the declared
   transfer function; nonlinear plants, MIMO state feedback, observers and
   hardware-in-the-loop controller tuning are not included. The PID loop is
-  simulated, not auto-tuned.
+  simulated, and it can also be auto-tuned: rules of thumb on an identified
+  first-order-plus-dead-time model, relay auto-tuning, bounded search over the
+  closed-loop simulation and Gaussian-process surrogate search, each reporting
+  its cost breakdown, margins, termination reason and evaluation budget. The
+  linear routes judge the continuous-time loop — actuator saturation and
+  anti-windup are nonlinear and are checked separately with the sampled loop.
 - Electric machines use lumped-parameter models (armature R/L, torque and back-EMF
   constants, inertia, viscous damping). Magnetic saturation, cogging, eddy/
   hysteresis losses, thermal derating and finite-element field solutions are not
@@ -401,11 +422,13 @@ src/
 - Real-time collaboration needs Supabase Realtime; the role/share UI works
   locally without it.
 - The installable plugin surface is permission-gated but not sandboxed.
-- The agent tool surface is electrical-first: schematic capture, SPICE, ERC,
-  ratings/thermal margins and PCB plan commands. Its live feedback is the
-  canonical schematic snapshot and waveforms; mechanical, robotics, RF, HDL/IC
-  and 3-D PCB surfaces are not yet agent-driven. Extending the harness to those
-  domains is future work.
+- The agent tool surface covers the schematic, the routed board and the
+  mechanical assembly: observe, edit, wire, simulate, assess, verify, route and
+  export for each, plus fabrication checks on the PCB. Its live feedback is the
+  canonical snapshot (schematic SVG, board layout, assembly view) and waveforms.
+  Robotics, RF, HDL/IC, digital-twin and plugin authoring are not agent-driven
+  yet; the Tools tab in the assistant lists exactly which calls exist rather than
+  describing a wider surface than the harness registers.
 - The language selector stores a preference; only English strings ship.
 - No GDPR, ISO 27001, or IEC 62443 certification is claimed.
 

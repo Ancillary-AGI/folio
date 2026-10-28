@@ -12,6 +12,7 @@ const renderPalette = (overrides: Partial<Parameters<typeof CommandPalette>[0]> 
     onClose: vi.fn(),
     onSave: vi.fn(),
     onOpenDemos: vi.fn(),
+    onOpenLimits: vi.fn(),
     onToggleTheme: vi.fn(),
     ...overrides,
   }
@@ -29,7 +30,9 @@ describe('CommandPalette', () => {
     renderPalette()
 
     expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument()
-    expect(screen.getAllByRole('option')).toHaveLength(WORKSPACE_MODES.length + DEMO_SCENARIOS.length + 3)
+    // Every workspace, every demo scenario, plus the four actions: gallery,
+    // capabilities and limits, save, theme.
+    expect(screen.getAllByRole('option')).toHaveLength(WORKSPACE_MODES.length + DEMO_SCENARIOS.length + 4)
     expect(screen.getByRole('combobox')).toBeInTheDocument()
   })
 
@@ -68,6 +71,15 @@ describe('CommandPalette', () => {
 
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(props.onClose).toHaveBeenCalledTimes(2)
+  })
+
+  it('routes the capabilities and limits action to the host', () => {
+    const props = renderPalette()
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'limits' } })
+    fireEvent.click(screen.getByText('Open capabilities and limits'))
+    expect(props.onOpenLimits).toHaveBeenCalledTimes(1)
+    expect(props.onClose).toHaveBeenCalledTimes(1)
   })
 
   it('reports when nothing matches', () => {

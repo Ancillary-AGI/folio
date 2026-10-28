@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { ArrowLeft, ArrowRight, Check, Hand, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Hand, ShieldAlert, X } from 'lucide-react'
 import { useAppStore } from '../stores/useAppStore'
 import { Button } from './ui/button'
 import { writeOnboardingStep } from '../lib/onboarding/onboardingStorage'
+import { CAPABILITY_RECORDS } from '../lib/workspace/limitsRegistry'
 import {
   clampOnboardingStep,
   ONBOARDING_STEPS,
@@ -15,6 +16,7 @@ export interface OnboardingTourProps {
   onCreateProject: () => void
   onLoadSampleCircuit: () => void
   onLoadDemoBoard: () => void
+  onOpenLimits: () => void
   hasProject: boolean
   stepIndex: number
   setStepIndex: (step: number | ((current: number) => number)) => void
@@ -66,6 +68,7 @@ export default function OnboardingTour({
   onCreateProject,
   onLoadSampleCircuit,
   onLoadDemoBoard,
+  onOpenLimits,
   hasProject,
   stepIndex,
   setStepIndex,
@@ -75,6 +78,7 @@ export default function OnboardingTour({
   const step = ONBOARDING_STEPS[activeIndex]
   const isLast = activeIndex === ONBOARDING_STEPS.length - 1
   const showSampleAction = step.action === 'load-sample-circuit'
+  const showLimitsAction = step.action === 'open-limits'
   const StepIcon = step.icon
   const [targetRect, setTargetRect] = useState<TourRect | null>(null)
   const [cardSize, setCardSize] = useState({ width: 0, height: 0 })
@@ -207,6 +211,14 @@ export default function OnboardingTour({
     if (!hasProject) onCreateProject()
     goTo(activeIndex + 1)
   }, [activeIndex, goTo, hasProject, onCreateProject])
+
+  /* The registry is the tour's hand-off, so opening it closes the guide: an
+   * engineer reading the limits of a solver is past being shown around, and a
+   * coach mark hovering over that panel would only get in the way. */
+  const openLimits = useCallback(() => {
+    onOpenLimits()
+    finish()
+  }, [finish, onOpenLimits])
 
   /*
    * A live step only means something when its target is actually on screen: on
@@ -406,6 +418,18 @@ export default function OnboardingTour({
                   <Button variant="outline" size="sm" className="h-9 justify-center whitespace-nowrap" onClick={onLoadDemoBoard}>Load rectifier</Button>
                   <Button variant="outline" size="sm" className="h-9 justify-center whitespace-nowrap" onClick={onLoadSampleCircuit}>Load divider</Button>
                 </div>
+              </div>
+            )}
+            {showLimitsAction && (
+              <div className={`mt-4 rounded-md border border-primary/40 bg-primary/5 p-3 ${riseClass}`} style={riseDelay(480)}>
+                <h3 className="text-sm font-semibold text-card-foreground">Take the register with you</h3>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  {CAPABILITY_RECORDS.length} records, each naming the method, the test files and the not-modelled
+                  list for one family of results. Filter it to the workspace you are in, or search a solver name.
+                </p>
+                <Button variant="outline" size="sm" className="mt-2 h-9 w-full justify-center whitespace-nowrap" onClick={openLimits}>
+                  <ShieldAlert className="mr-2 h-4 w-4 shrink-0" /> Open capabilities and limits
+                </Button>
               </div>
             )}
           </div>

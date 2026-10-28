@@ -3,7 +3,7 @@ import {
   Cpu, FolderOpen, Menu, Bot, BarChart3, Settings, Package, Users,
   Download, Image, FileText, List, Lock, LogOut, Mic, MicOff,
   Shield, Bell, RefreshCw, History, RotateCcw, Moon, Sun, AlertCircle, FlaskConical, Search,
-  MoreHorizontal, ShieldCheck, X,
+  MoreHorizontal, ShieldCheck, ShieldAlert, X,
 } from 'lucide-react'
 import { Button } from './components/ui/button'
 import type { PlacedComponent, Wire, User } from './types'
@@ -69,6 +69,7 @@ const SettingsPanel = lazy(() => import('./components/SettingsPanel'))
 const DemoGallery = lazy(() => import('./components/workspace/DemoGallery'))
 const CommandPalette = lazy(() => import('./components/workspace/CommandPalette'))
 const AdminConsole = lazy(() => import('./components/admin/AdminConsole'))
+const LimitsDialog = lazy(() => import('./components/workspace/LimitsDialog'))
 
 const panelFallback = (
   <div className="flex h-full items-center justify-center p-4">
@@ -167,6 +168,7 @@ function App() {
   const [notice, setNotice] = useState('')
   const [showPluginPanel, setShowPluginPanel] = useState(false)
   const [showDemoGallery, setShowDemoGallery] = useState(false)
+  const [showLimits, setShowLimits] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [showCollaborativePanel, setShowCollaborativePanel] = useState(false)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
@@ -507,6 +509,16 @@ function App() {
     resetOnboarding()
     setOnboardingStep(0)
     setShowOnboarding(true)
+  }
+
+  /*
+   * The register is the thing being read, so it must never sit underneath a
+   * coach mark: opening it from the status bar or the palette ends a running
+   * tour exactly as the tour's own final step does.
+   */
+  const openLimitsRegister = () => {
+    setShowLimits(true)
+    if (showOnboarding) closeOnboarding()
   }
 
   const confirmReplace = (label: string): boolean => {
@@ -1176,12 +1188,18 @@ function App() {
             <SettingsPanel onClose={() => setShowSettings(false)} onRestartOnboarding={restartOnboarding} />
           </Suspense>
         )}
+        {showLimits && (
+          <Suspense fallback={panelFallback}>
+            <LimitsDialog open onClose={() => setShowLimits(false)} />
+          </Suspense>
+        )}
         {showOnboarding && (
           <OnboardingTour
             onClose={closeOnboarding}
             onCreateProject={() => { void handleNewProject() }}
             onLoadSampleCircuit={() => { void handleLoadSampleCircuit() }}
             onLoadDemoBoard={() => { void handleLoadDemoBoard() }}
+            onOpenLimits={openLimitsRegister}
             hasProject={Boolean(currentProject)}
             stepIndex={onboardingStep}
             setStepIndex={setOnboardingStep}
@@ -1611,8 +1629,17 @@ function App() {
         )}
         <button
           type="button"
+          onClick={openLimitsRegister}
+          data-tour="limits-button"
+          className="status-segment ml-auto hidden border-l border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:inline-flex"
+          title="Open the capabilities and limits registry"
+        >
+          <ShieldAlert className="h-3 w-3" /> LIMITS
+        </button>
+        <button
+          type="button"
           onClick={() => setShowDemoGallery(true)}
-          className="status-segment ml-auto hidden border-l border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground lg:inline-flex"
+          className="status-segment hidden border-l border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground lg:inline-flex"
           title={`Open the demo gallery (${DEMO_SHORTCUT_LABEL})`}
         >
           <FlaskConical className="h-3 w-3" /> DEMOS <span className="cad-kbd ml-1">{DEMO_SHORTCUT_LABEL}</span>
@@ -1648,9 +1675,13 @@ function App() {
             onClose={() => setShowCommandPalette(false)}
             onSave={() => { void handleSave(getCheckpointData()) }}
             onOpenDemos={() => setShowDemoGallery(true)}
+            onOpenLimits={openLimitsRegister}
             onToggleTheme={toggleTheme}
             onOpenScenario={openDemoScenario}
           />
+        )}
+        {showLimits && (
+          <LimitsDialog open onClose={() => setShowLimits(false)} currentMode={workspaceMode} />
         )}
       </Suspense>
       {showOnboarding && (
@@ -1659,6 +1690,7 @@ function App() {
           onCreateProject={() => { void handleNewProject() }}
           onLoadSampleCircuit={() => { void handleLoadSampleCircuit() }}
           onLoadDemoBoard={() => { void handleLoadDemoBoard() }}
+          onOpenLimits={openLimitsRegister}
           hasProject
           stepIndex={onboardingStep}
           setStepIndex={setOnboardingStep}

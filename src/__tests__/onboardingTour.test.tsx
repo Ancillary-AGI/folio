@@ -132,18 +132,21 @@ describe('onboarding tour curriculum', () => {
 
 function renderTour(stepIndex: number) {
   const setStepIndex = vi.fn()
+  const onOpenLimits = vi.fn()
+  const onClose = vi.fn()
   const utils = render(
     <OnboardingTour
-      onClose={() => {}}
+      onClose={onClose}
       onCreateProject={() => {}}
       onLoadSampleCircuit={() => {}}
       onLoadDemoBoard={() => {}}
+      onOpenLimits={onOpenLimits}
       hasProject
       stepIndex={stepIndex}
       setStepIndex={setStepIndex}
     />,
   )
-  return { ...utils, setStepIndex }
+  return { ...utils, setStepIndex, onOpenLimits, onClose }
 }
 
 const stepIndexById = (id: string) => {
@@ -175,6 +178,23 @@ describe('onboarding tour behaviour', () => {
 
     renderTour(stepIndexById('waveforms'))
     expect(screen.queryByRole('button', { name: /load rectifier/i })).not.toBeInTheDocument()
+  })
+
+  it('hands off to the limits register on the step that declares it', () => {
+    const declared = ONBOARDING_STEPS.findIndex((entry) => entry.action === 'open-limits')
+    expect(declared).toBe(ONBOARDING_STEP_COUNT - 1)
+
+    const { onOpenLimits, onClose, unmount } = renderTour(declared)
+    const action = screen.getByRole('button', { name: /open capabilities and limits/i })
+    // Opening the registry is the end of the guide, not a step within it: an
+    // engineer reading solver limits is past being shown around.
+    fireEvent.click(action)
+    expect(onOpenLimits).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalledTimes(1)
+    unmount()
+
+    renderTour(declared - 1)
+    expect(screen.queryByRole('button', { name: /open capabilities and limits/i })).not.toBeInTheDocument()
   })
 
   it('leaves a live step operable and a teaching step modal', () => {

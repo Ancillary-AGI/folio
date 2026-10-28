@@ -17,17 +17,19 @@
   Mechanical and Ops & AI families, each with an icon and description, replacing
   a single 25-tab ribbon.
 - **Command palette**: **Ctrl/⌘+K** searches every workspace, every demo and
-  document actions (save, theme, gallery) with arrow-key navigation.
+  document actions (save, theme, gallery, limits register) with arrow-key
+  navigation.
 - **Contextual status bar**: mode description, schematic metrics when on the
-  sheet, theme and unsaved state everywhere; a DEMOS shortcut included. Readouts
-  are prioritised by width rather than clipped on narrow viewports.
+  sheet, theme and unsaved state everywhere; a **DEMOS** shortcut and a
+  **LIMITS** entry that opens the capabilities register. Readouts are
+  prioritised by width rather than clipped on narrow viewports.
 - **Responsive workstation shell**: palettes dock beside the sheet at ≥1280 px
   and become scrim-backed drawers below it, so the canvas keeps a usable width.
   Secondary header tools collapse into a **More** menu, and the tab rail
   auto-scrolls the active workspace into view.
 - **Tests**: gallery loading/filtering/Escape, palette filtering/keyboard
   execution, scenario coverage of all 25 modes, routed-board geometry, compact
-  header menu routing and drawer dismissal.
+  header menu routing, drawer dismissal and the limits-register filters.
 
 ## 🎯 Schematic Editor ✅
 
@@ -231,21 +233,31 @@
   theme names
 - **Units & behavior**: metric/imperial, animation toggle, autosave interval,
   onboarding replay
-- **Guided tour**: ten-step first-run walkthrough with an animated spotlight —
+- **Guided tour**: eleven-step first-run walkthrough with an animated spotlight —
   pulsing halo, viewfinder brackets and a caret aimed at the control each step
   describes — that follows real controls across workspaces, reveals the component
   library, and persists or resumes progress. Gesture steps (wiring, chart zoom,
   3D orbit) stay live so you can try them mid-tour; the rest are modal. Keyboard
-  arrows, Esc, clickable step dots, tab trapping and reduced-motion support
+  arrows, Esc, clickable step dots, tab trapping and reduced-motion support. The
+  final step hands off to the limits register instead of a completion screen.
 - **Accessibility**: keyboard-operable toolbars; every icon-only button must have
   an accessible name, enforced by `npm run a11y:buttons` in CI
 - **Language selector**: preference stored; English strings only today 🟡
 
 ## 🛠 Quality Infrastructure ✅
 
+- **Capabilities and limits register**: `src/lib/workspace/limitsRegistry.ts`
+  holds one record per family of results — what it computes, the numerical or
+  analytical method in the source, the test files that pin it, and an explicit
+  list of what is not modelled, refused, or unproven. The **LIMITS** dialog
+  renders that file rather than restating it, so an in-app claim and the registry
+  cannot diverge. Integrity tests fail the build if a cited test file is missing,
+  if a workspace mode is named by no record, if a record states no method or no
+  limits, or if a positive claim says "guaranteed", "certified", "zero errors" or
+  "always correct". Cloud-gated records carry a **cloud** marker.
 - **CI**: lint (zero warnings), typecheck (app + build config), button-label
   audit, full test suite, production build
-- **Tests**: 2,089 tests across 206 files, including engine truth tests and React
+- **Tests**: 2,107 tests across 208 files, including engine truth tests and React
   render/integration tests
 - **Build**: heavily code-split; feature panels and vendor chunks load on demand
 
