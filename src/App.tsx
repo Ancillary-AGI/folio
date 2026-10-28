@@ -37,7 +37,7 @@ import { useProjectStore } from './stores/useProjectStore'
 import type { CanvasComponent, CanvasWire } from './stores/useProjectStore'
 import { vcsService, type VcsCommit } from './lib/vcs/vcsService'
 import { createDefaultMechanicalParts, type MechanicalPart } from './lib/mechanical/partModel'
-import OnboardingTour from './components/OnboardingTour'
+import OnboardingTour, { type TourExitReason } from './components/OnboardingTour'
 import { ONBOARDING_STEP_COUNT } from './lib/onboarding/onboardingSteps'
 import {
   hasCompletedOnboarding,
@@ -154,6 +154,13 @@ function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [onboardingStep, setOnboardingStep] = useState(() => readOnboardingStep(ONBOARDING_STEP_COUNT))
+  /*
+   * Which steps the guide actually opened. The count lives here, beside the step
+   * state, so the ledger can say how much was read instead of assuming the whole
+   * curriculum was — a card closed on step two is not a finished tour.
+   */
+  const tourStepsOpened = useRef<Set<number>>(new Set())
+  const tourIsOpen = useRef(false)
   const [loading, setLoading] = useState(true)
   const [libraryComponents, setLibraryComponents] = useState<Component[]>([])
   const [canvasData, setCanvasData] = useState<Record<string, unknown> | null>(null)
@@ -327,9 +334,21 @@ function App() {
     return () => subscription.unsubscribe()
   }, [])
 
+  const openTour = useCallback((step: number) => {
+    tourStepsOpened.current = new Set([step])
+    tourIsOpen.current = true
+    setOnboardingStep(step)
+    setShowOnboarding(true)
+  }, [])
+
+  const showTourStep = useCallback((step: number) => {
+    tourStepsOpened.current.add(step)
+    setOnboardingStep(step)
+  }, [])
+
   useEffect(() => {
-    if (user && !hasCompletedOnboarding()) setShowOnboarding(true)
-  }, [user])
+    if (user && !hasCompletedOnboarding()) openTour(readOnboardingStep(ONBOARDING_STEP_COUNT))
+  }, [openTour, user])
 
   useEffect(() => {
     if (!user) return
@@ -498,17 +517,31 @@ function App() {
     }
   }
 
-  const closeOnboarding = () => {
+  const closeOnboarding = (reason: TourExitReason) => {
+    // One close of a running guide records. The register hand-off can reach here
+    // twice in a single click — from the tour's own button and from the shell —
+    // and a duplicated ledger row would double-count the same tour.
+    if (!tourIsOpen.current) return
+    tourIsOpen.current = false
+    const steps = tourStepsOpened.current.size
     markOnboardingComplete()
     setShowOnboarding(false)
     setOnboardingStep(0)
-    recordPlatformUsage('onboarding.complete', user, offlineMode, { steps: ONBOARDING_STEP_COUNT })
+    recordPlatformUsage(
+      reason === 'finished' ? 'onboarding.complete' : 'onboarding.exit',
+      user,
+      offlineMode,
+      {
+        steps,
+        total: ONBOARDING_STEP_COUNT,
+        ...(reason === 'finished' ? {} : { reason }),
+      },
+    )
   }
 
   const restartOnboarding = () => {
     resetOnboarding()
-    setOnboardingStep(0)
-    setShowOnboarding(true)
+    openTour(0)
   }
 
   /*
@@ -518,7 +551,7 @@ function App() {
    */
   const openLimitsRegister = () => {
     setShowLimits(true)
-    if (showOnboarding) closeOnboarding()
+    if (showOnboarding) closeOnboarding('dismissed')
   }
 
   const confirmReplace = (label: string): boolean => {
@@ -1202,7 +1235,7 @@ function App() {
             onOpenLimits={openLimitsRegister}
             hasProject={Boolean(currentProject)}
             stepIndex={onboardingStep}
-            setStepIndex={setOnboardingStep}
+            setStepIndex={showTourStep}
           />
         )}
       </div>
@@ -1693,7 +1726,7 @@ function App() {
           onOpenLimits={openLimitsRegister}
           hasProject
           stepIndex={onboardingStep}
-          setStepIndex={setOnboardingStep}
+          setStepIndex={showTourStep}
         />
       )}
     </div>

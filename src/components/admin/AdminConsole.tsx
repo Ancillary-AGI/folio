@@ -42,6 +42,7 @@ const USAGE_KIND_LABELS: Record<UsageKind, string> = {
   'simulation.run': 'Simulation run',
   'agent.run': 'Agent run',
   'onboarding.complete': 'Guided tour finished',
+  'onboarding.exit': 'Guided tour ended early',
   'admin.open': 'Administration opened',
 }
 

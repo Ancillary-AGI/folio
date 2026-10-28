@@ -895,6 +895,7 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
       'A corrupted or hash-mismatched record is reported, never served silently as history.',
       'Local-first: no remote repository, no push or pull, no merge engine or branch federation.',
       'Persistence is browser storage: a cleared origin clears the history, which is why backup export exists.',
+      'The launcher states the revision count stored in this browser, never a cloud-side history, and a project read that failed is named as a failure with a retry instead of being dressed up as "no projects yet".',
     ],
     validatedBy: [
       'src/lib/vcs/vcsService.test.ts',
@@ -1019,6 +1020,7 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
       'A limit of null means unlimited and the owner is always unlimited, so a workspace can never lock itself out of administration.',
       'When the cloud schema is absent or unreachable the console says so instead of rendering a made-up user list, and it labels cloud-only capabilities without faking invitations.',
       'The ledger never leaves the browser and is not an analytics pipeline; mirroring to the cloud table is best-effort and only in a configured deployment, and a failed mirror never breaks the design action it was recording.',
+      'The guided tour counts itself honestly: a card closed before the last step is recorded as an exit carrying the number of steps actually opened, and only reaching the end — or taking the register hand-off there — is recorded as a finished tour.',
       'Console numbers are this client ledger, not a billing system.',
     ],
     validatedBy: [
@@ -1026,6 +1028,7 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
       'src/lib/admin/quotaPolicy.test.ts',
       'src/lib/admin/usageLedger.test.ts',
       'src/__tests__/adminConsole.test.tsx',
+      'src/__tests__/appShell.test.tsx',
     ],
   },
   {
@@ -1038,6 +1041,8 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
       'Raw HSL token triplets applied through CSS custom properties, with a class on the root element that collapses animation and transition durations when the animation setting is off or the system prefers reduced motion.',
     notCovered: [
       'The language selector stores a preference; only English strings ship.',
+      'The tour spotlight tracks the element its marker query really matched, re-attaching the layout observer when a lazy workspace mounts or a viewport crossing swaps a control for its duplicate; a target that has left the viewport entirely falls back to a plain centred card instead of a spotlight around nothing.',
+      'When a coach mark has nowhere beside the target to sit, it picks the dock corner that leaves the target visible and, if the card would bury it anyway, drops the spotlight instead of drawing brackets the engineer cannot see; below 620 px of viewport height the stage checklist folds away to buy that room, and a window shorter than the card still gets a teaching card rather than a false spotlight.',
       'Theme tokens live in code, not in the stylesheet, so a theme change cannot desync from the canvas colours.',
     ],
     validatedBy: ['src/lib/theme/theme.test.ts', 'src/__tests__/onboardingTour.test.tsx'],

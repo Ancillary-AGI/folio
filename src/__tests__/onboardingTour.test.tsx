@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import OnboardingTour from '../components/OnboardingTour'
 import { computeTourLayout, computeTourCaret, type TourRect } from '../lib/onboarding/tourLayout'
@@ -65,6 +65,31 @@ describe('onboarding tour layout', () => {
     expect(layout.placement).toBe('dock')
     expect(layout.card.left + layout.card.width).toBeLessThanOrEqual(viewport.width - 16)
     expect(layout.card.top + card.height).toBeLessThanOrEqual(viewport.height - 16)
+  })
+
+  it('docks on the free side when the preferred corner would bury the target', () => {
+    // A panel on the right of a narrow window: the bottom-right dock that the
+    // old rule always chose would sit exactly on top of it.
+    const panel: TourRect = { top: 120, left: 380, width: 400, height: 300 }
+    const layout = computeTourLayout(panel, { width: 420, height: 400 }, { width: 800, height: 600 })
+    expect(layout.placement).toBe('dock')
+    expect(layout.card.left).toBe(16)
+    expect(layout.card.top).toBe(184)
+    const centre = {
+      x: layout.spotlight!.left + layout.spotlight!.width / 2,
+      y: layout.spotlight!.top + layout.spotlight!.height / 2,
+    }
+    expect(centre.x).toBeGreaterThan(layout.card.left + layout.card.width)
+  })
+
+  it('drops the spotlight instead of docking a card over the target', () => {
+    // The live short-viewport case: a top bar, a card nearly as tall as the
+    // window and nowhere to put it. A hidden halo is not a spotlight, so the
+    // step has to present itself as the teaching card it actually is.
+    const topBar: TourRect = { top: 57, left: 8, width: 494, height: 61 }
+    const layout = computeTourLayout(topBar, { width: 420, height: 393 }, { width: 510, height: 425 })
+    expect(layout.placement).toBe('center')
+    expect(layout.spotlight).toBeNull()
   })
 
   it('falls back to a centred card when the target scrolled out of view', () => {
@@ -232,10 +257,85 @@ describe('onboarding tour behaviour', () => {
       host.remove()
     }
   })
+
+  it('folds the stage checklist away when the window is too short for a spotlight', () => {
+    const index = stepIndexById('editor-tools')
+    const original = Object.getOwnPropertyDescriptor(window, 'innerHeight')
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 500 })
+    try {
+      const { unmount } = renderTour(index)
+      const summary = screen.getByText(new RegExp(`In this stage \\(${ONBOARDING_STEPS[index].checklist.length}\\)`))
+      const details = summary.closest('details')
+      expect(details).not.toBeNull()
+      // Folded by default, so the card can shrink enough to leave its target visible.
+      expect(details!.open).toBe(false)
+      unmount()
+    } finally {
+      if (original) Object.defineProperty(window, 'innerHeight', original)
+      else delete (window as unknown as { innerHeight?: number }).innerHeight
+    }
+
+    // A window with room keeps the list in the open, where it costs nothing.
+    renderTour(index)
+    expect(screen.getByRole('heading', { name: 'In this stage' })).toBeInTheDocument()
+    expect(screen.queryByText(/In this stage \(/)).not.toBeInTheDocument()
+  })
 })
 
-describe('onboarding tour caret', () => {
-  const spotRect: TourRect = { top: 100, left: 600, width: 80, height: 32 }
+describe('onboarding tour target observation', () => {
+  const box = (top: number): DOMRect =>
+    ({ top, left: 40, width: 44, height: 320, right: 84, bottom: top + 320, x: 40, y: top, toJSON: () => ({}) }) as DOMRect
+
+  const mountTarget = (marker: string, top = 120): HTMLElement => {
+    const host = document.createElement('div')
+    host.setAttribute('data-tour', marker)
+    host.getBoundingClientRect = () => box(top)
+    document.body.appendChild(host)
+    return host
+  }
+
+  it('follows the element the tour really matched, including one that mounts late', async () => {
+    const observed: string[] = []
+    const unobserved: string[] = []
+    const RealObserver = global.ResizeObserver
+    // Only tour markers are recorded: the card measures itself with a second
+    // observer, and that is not what this test is about.
+    const record = (element: Element, into: string[]) => {
+      const marker = element.getAttribute('data-tour')
+      if (marker) into.push(marker)
+    }
+    global.ResizeObserver = class {
+      observe(element: Element) {
+        record(element, observed)
+      }
+      unobserve(element: Element) {
+        record(element, unobserved)
+      }
+      disconnect() {}
+    } as unknown as typeof ResizeObserver
+    try {
+      // The rail is not in the document when the card mounts: a workspace chunk
+      // can still be loading. The observer must attach when it appears.
+      renderTour(stepIndexById('editor-tools'))
+      expect(observed).toEqual([])
+
+      const first = mountTarget('tool-rail')
+      await waitFor(() => expect(observed).toEqual(['tool-rail']))
+
+      // A viewport crossing can swap the matched node for its duplicate; the
+      // stale one has to stop driving the spotlight.
+      first.remove()
+      mountTarget('tool-rail', 200)
+      await waitFor(() => expect(unobserved).toEqual(['tool-rail']))
+      await waitFor(() => expect(observed).toEqual(['tool-rail', 'tool-rail']))
+    } finally {
+      global.ResizeObserver = RealObserver
+      document.querySelectorAll('[data-tour]').forEach((node) => node.remove())
+    }
+  })
+})
+
+describe('onboarding tour caret', () => {  const spotRect: TourRect = { top: 100, left: 600, width: 80, height: 32 }
 
   it('sits on the card edge that faces the target', () => {
     const layout = computeTourLayout(spotRect, card, viewport, 'bottom')

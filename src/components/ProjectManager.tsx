@@ -5,7 +5,7 @@ import { vcsService } from '../lib/vcs/vcsService'
 import { backupService } from '../lib/backup/backupService'
 import { Button } from './ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
-import { Plus, FolderOpen, Calendar, User, Search, Trash2, ArrowRight } from 'lucide-react'
+import { Plus, FolderOpen, Calendar, History, RotateCw, Search, Trash2, ArrowRight } from 'lucide-react'
 
 interface ProjectManagerProps {
   onSelectProject: (project: Project) => void
@@ -17,7 +17,6 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
-  const [selectedProject, setSelectedProject] = useState<string | null>(null)
   const [projectError, setProjectError] = useState<string | null>(null)
 
   const loadProjects = useCallback(async () => {
@@ -43,6 +42,17 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
   useEffect(() => {
     void loadProjects()
   }, [loadProjects])
+
+  /*
+   * A failed read is not an empty workspace: the list has to say what went wrong
+   * and offer to try again, instead of inviting the engineer to create a project
+   * while their existing ones sit unreachable.
+   */
+  const retryLoad = () => {
+    setProjectError(null)
+    setLoading(true)
+    void loadProjects()
+  }
 
   const handleDeleteProject = async (projectId: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -84,6 +94,10 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
     project.description?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
+  // A read that failed with nothing to show is a different state from a search
+  // that matched nothing, and different again from a workspace with no projects.
+  const listFailure = projectError !== null && projects.length === 0
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -98,7 +112,9 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
         <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">Folio workbench</p>
         <h1 className="mb-2 text-2xl font-bold text-foreground sm:text-3xl">Your Projects</h1>
         <p className="max-w-2xl text-muted-foreground">
-          Schematic, PCB, mechanical, robotics and systems projects — stored on this device.
+          {offlineMode
+            ? 'Schematic, PCB, mechanical, robotics and firmware state for every project lives on this device.'
+            : 'Project rows live in your cloud workspace; version history and backups stay in this browser.'}
         </p>
         <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Supported disciplines">
           {['Schematic', 'PCB', '3D preview', 'Simulation', 'Mechanical', 'HDL / IC', 'Robotics', 'Operations'].map((discipline) => (
@@ -112,7 +128,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
         </ul>
       </div>
 
-      {projectError && (
+      {projectError && !listFailure && (
         <div
           role="alert"
           className="mb-6 flex items-start justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
@@ -147,7 +163,19 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
         </Button>
       </div>
 
-      {filteredProjects.length === 0 ? (
+      {listFailure ? (
+        <Card className="text-center py-12">
+          <CardContent>
+            <FolderOpen className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">The project list could not be read</h3>
+            <p className="mx-auto mb-4 max-w-md text-muted-foreground">{projectError}</p>
+            <Button variant="outline" onClick={retryLoad} className="mx-auto flex items-center gap-2">
+              <RotateCw className="w-4 h-4" />
+              Try again
+            </Button>
+          </CardContent>
+        </Card>
+      ) : filteredProjects.length === 0 ? (
         <Card className="text-center py-12">
           <CardContent>
             <FolderOpen className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
@@ -170,16 +198,19 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredProjects.map((project) => (
+          {filteredProjects.map((project) => {
+            // Commit history is device-local even for a cloud row, so this is the
+            // revision count on this browser — not the project's whole history.
+            const repo = vcsService.getRepo(project.id)
+            const revisionCount = repo ? Object.keys(repo.commits).length : 0
+            const historyTitle = repo
+              ? `${revisionCount} ${revisionCount === 1 ? 'commit' : 'commits'} on branch ${repo.currentBranch}, stored in this browser`
+              : 'No commit has been taken from this browser for this project'
+            return (
             <Card
               key={project.id}
-              className={`cursor-pointer transition-all hover:border-primary/40 hover:shadow-lg ${
-                selectedProject === project.id ? 'ring-2 ring-primary' : ''
-              }`}
-              onClick={() => {
-                setSelectedProject(project.id)
-                onSelectProject(project)
-              }}
+              className="cursor-pointer transition-all hover:border-primary/40 hover:shadow-lg"
+              onClick={() => onSelectProject(project)}
             >
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
@@ -205,13 +236,18 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
               
               <CardContent className="pt-0">
                 <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1" title="Last modified on this device">
                     <Calendar className="w-3 h-3" />
                     {new Date(project.updated_at).toLocaleDateString()}
                   </div>
-                  <div className="flex items-center gap-1">
-                    <User className="w-3 h-3" />
-                    Owner
+                  <div
+                    className="flex items-center gap-1"
+                    title={historyTitle}
+                  >
+                    <History className="w-3 h-3" />
+                    {repo
+                      ? `${revisionCount} local revision${revisionCount === 1 ? '' : 's'} · ${repo.currentBranch}`
+                      : 'No local history'}
                   </div>
                 </div>
                 
@@ -228,7 +264,6 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
                     className="h-6 gap-1 px-1.5 text-xs text-primary hover:text-primary"
                     onClick={(e) => {
                       e.stopPropagation()
-                      setSelectedProject(project.id)
                       onSelectProject(project)
                     }}
                     aria-label={`Open ${project.name}`}
@@ -238,7 +273,8 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
                 </div>
               </CardContent>
             </Card>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

@@ -241,7 +241,11 @@
   library, and persists or resumes progress. Gesture steps (wiring, chart zoom,
   3D orbit) stay live so you can try them mid-tour; the rest are modal. Keyboard
   arrows, Esc, clickable step dots, tab trapping and reduced-motion support. The
-  final step hands off to the limits register instead of a completion screen.
+  card offers to create a project for as long as no design is open, docks in the
+  corner that keeps its target visible rather than covering it (folding its
+  checklist on short windows), and a guide closed early is recorded as an exit
+  counting the steps actually opened.
+  The final step hands off to the limits register instead of a completion screen.
 - **Accessibility**: keyboard-operable toolbars; every icon-only button must have
   an accessible name, enforced by `npm run a11y:buttons` in CI
 - **Language selector**: preference stored; English strings only today 🟡
@@ -259,7 +263,7 @@
   "always correct". Cloud-gated records carry a **cloud** marker.
 - **CI**: lint (zero warnings), typecheck (app + build config), button-label
   audit, full test suite, production build
-- **Tests**: 2,119 tests across 212 files, including engine truth tests and React
+- **Tests**: 2,129 tests across 212 files, including engine truth tests and React
   render/integration tests
 - **Build**: heavily code-split; feature panels and vendor chunks load on demand
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { ArrowLeft, ArrowRight, Check, Hand, ShieldAlert, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, ChevronDown, Hand, ShieldAlert, X } from 'lucide-react'
 import { useAppStore } from '../stores/useAppStore'
 import { Button } from './ui/button'
 import { writeOnboardingStep } from '../lib/onboarding/onboardingStorage'
@@ -11,18 +11,36 @@ import {
 } from '../lib/onboarding/onboardingSteps'
 import { computeTourLayout, computeTourCaret, type TourCaret, type TourRect } from '../lib/onboarding/tourLayout'
 
+/**
+ * How the guide ended. The ledger distinguishes these because "the engineer
+ * finished the curriculum" and "they closed the card on step two" are different
+ * facts, and the admin console renders them apart. How many steps were opened is
+ * counted by the shell, which owns the step state.
+ */
+export type TourExitReason = 'finished' | 'skipped' | 'dismissed'
+
 export interface OnboardingTourProps {
-  onClose: () => void
+  onClose: (reason: TourExitReason) => void
   onCreateProject: () => void
   onLoadSampleCircuit: () => void
   onLoadDemoBoard: () => void
   onOpenLimits: () => void
   hasProject: boolean
   stepIndex: number
-  setStepIndex: (step: number | ((current: number) => number)) => void
+  setStepIndex: (step: number) => void
 }
 
 const EMPTY_VIEWPORT = { width: 1280, height: 800 }
+
+/*
+ * A card pinned to the viewport's max height leaves no room for the spotlight
+ * beside it, so on a short window every step degrades into a blocking modal.
+ * Below this height the stage checklist folds behind a disclosure, which buys
+ * back the height a bottom or side placement needs. When even that is not
+ * enough, the step presents itself as the teaching card it really is rather
+ * than drawing brackets underneath the card.
+ */
+const COMPACT_VIEWPORT_HEIGHT = 620
 
 function readViewport() {
   if (typeof window === 'undefined') return EMPTY_VIEWPORT
@@ -109,6 +127,8 @@ export default function OnboardingTour({
     }
     let cancelled = false
     let frame = 0
+    let observed: Element | null = null
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => update()) : null
     /* Duplicated controls (desktop header vs compact menu) can coexist in the
      * DOM; pick the one that is actually laid out at this viewport width. */
     const query = () => {
@@ -122,7 +142,19 @@ export default function OnboardingTour({
     }
     const update = () => {
       if (cancelled) return
-      const next = measuredRect(query())
+      const element = query()
+      /*
+       * The observer has to follow the element the tour really matched. A lazy
+       * workspace chunk mounts its canvas after this effect ran, and a viewport
+       * crossing swaps the desktop control for its compact twin — observing only
+       * whatever existed at setup would leave the spotlight tracking a stale node.
+       */
+      if (observer && element !== observed) {
+        if (observed) observer.unobserve(observed)
+        if (element) observer.observe(element)
+        observed = element
+      }
+      const next = measuredRect(element)
       setTargetRect((previous) => (sameRect(previous, next) ? previous : next))
     }
     update()
@@ -135,9 +167,6 @@ export default function OnboardingTour({
     }
     frame = requestAnimationFrame(tick)
     const timers = [80, 240, 600, 1200, 2400].map((delay) => window.setTimeout(update, delay))
-    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null
-    const element = query()
-    if (observer && element) observer.observe(element)
     window.addEventListener('resize', update)
     window.addEventListener('scroll', update, true)
     return () => {
@@ -197,16 +226,16 @@ export default function OnboardingTour({
     },
     [setStepIndex],
   )
-  const finish = useCallback(() => onClose(), [onClose])
   /*
-   * Project creation is explicit: the tour explains on step 1 and offers a
-   * single clearly-labelled action there. Advancing never creates anything —
-   * KiCad/Altium wizards review, they don't mutate the design behind Next.
+   * The reason is the only thing the card reports: how many steps were opened is
+   * counted by the shell, which owns the step state, so a count can never be
+   * claimed by the component that is being closed.
    */
+  const exit = useCallback((reason: TourExitReason) => onClose(reason), [onClose])
   const advance = useCallback(() => {
-    if (isLast) finish()
+    if (isLast) exit('finished')
     else goTo(activeIndex + 1)
-  }, [activeIndex, finish, goTo, isLast])
+  }, [activeIndex, exit, goTo, isLast])
   const createAndAdvance = useCallback(() => {
     if (!hasProject) onCreateProject()
     goTo(activeIndex + 1)
@@ -216,9 +245,11 @@ export default function OnboardingTour({
    * engineer reading the limits of a solver is past being shown around, and a
    * coach mark hovering over that panel would only get in the way. */
   const openLimits = useCallback(() => {
+    // Closing first is what keeps the ledger single-entry: the shell then knows
+    // the guide was finished rather than interrupted on the way to the register.
+    exit('finished')
     onOpenLimits()
-    finish()
-  }, [finish, onOpenLimits])
+  }, [exit, onOpenLimits])
 
   /*
    * A live step only means something when its target is actually on screen: on
@@ -227,9 +258,19 @@ export default function OnboardingTour({
    */
   const isLiveStep = Boolean(step.handsOn && layout.spotlight)
 
+  const compact = viewport.height < COMPACT_VIEWPORT_HEIGHT
+
+  /*
+   * Project creation is a choice, never a side effect of pressing Next. It is
+   * offered for as long as no design is open: a guide resumed on the launcher has
+   * no sheet, rail or canvas to spotlight, so every remaining step would otherwise
+   * stay a picture of the tool instead of the tool.
+   */
+  const needsProject = !hasProject
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); finish(); return }
+      if (event.key === 'Escape') { event.preventDefault(); exit('dismissed'); return }
       if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return
       /*
        * On a live step the canvas keeps its own keys (arrows pan a chart, R
@@ -246,7 +287,7 @@ export default function OnboardingTour({
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [activeIndex, advance, finish, goTo, isLiveStep])
+  }, [activeIndex, advance, exit, goTo, isLiveStep])
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
@@ -273,6 +314,21 @@ export default function OnboardingTour({
     }
   }, [])
 
+  const stageChecklist = (
+    <ul className="mt-2 space-y-1.5">
+      {step.checklist.map((item, index) => (
+        <li
+          key={item}
+          className={`flex gap-2.5 text-sm leading-relaxed text-card-foreground ${riseClass}`}
+          style={riseDelay(240 + index * 70)}
+        >
+          <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
+  )
+
   return (
     <div
       className={`fixed inset-0 z-[100] ${isLiveStep ? 'pointer-events-none' : ''}`}
@@ -287,7 +343,7 @@ export default function OnboardingTour({
       ) : (
         <div
           className={`pointer-events-auto absolute inset-0 bg-overlay/70 backdrop-blur-[1px] ${animations ? 'animate-fade-in' : ''}`}
-          onClick={finish}
+          onClick={() => exit('dismissed')}
           aria-hidden="true"
         />
       )}
@@ -372,7 +428,7 @@ export default function OnboardingTour({
             >
               <div className={`h-full bg-primary ${animations ? 'transition-[width] duration-300 motion-reduce:transition-none' : ''}`} style={{ width: `${((activeIndex + 1) / ONBOARDING_STEPS.length) * 100}%` }} />
             </div>
-            <Button variant="ghost" size="icon" onClick={finish} aria-label="Close the guide">
+            <Button variant="ghost" size="icon" onClick={() => exit('dismissed')} aria-label="Close the guide">
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -393,19 +449,27 @@ export default function OnboardingTour({
                 </p>
               </div>
             )}
-            <h3 className={`mt-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${riseClass}`} style={riseDelay(200)}>In this stage</h3>
-            <ul className="mt-2 space-y-1.5">
-              {step.checklist.map((item, index) => (
-                <li
-                  key={item}
-                  className={`flex gap-2.5 text-sm leading-relaxed text-card-foreground ${riseClass}`}
-                  style={riseDelay(240 + index * 70)}
-                >
-                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
+            {compact ? (
+              /* A short window has no room for both a full-height card and the
+               * control it describes, so the list folds away behind a disclosure
+               * and the spotlight keeps its space. The body is keyed per step, so
+               * every new step starts folded again. */
+              <details className={`group mt-4 ${riseClass}`} style={riseDelay(200)}>
+                <summary className="flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground">
+                  <ChevronDown
+                    className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none"
+                    aria-hidden="true"
+                  />
+                  In this stage ({step.checklist.length})
+                </summary>
+                {stageChecklist}
+              </details>
+            ) : (
+              <>
+                <h3 className={`mt-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${riseClass}`} style={riseDelay(200)}>In this stage</h3>
+                {stageChecklist}
+              </>
+            )}
             {showSampleAction && (
               <div className={`mt-4 rounded-md border border-primary/40 bg-primary/5 p-3 ${riseClass}`} style={riseDelay(480)}>
                 <h3 className="text-sm font-semibold text-card-foreground">Run a known circuit</h3>
@@ -464,12 +528,20 @@ export default function OnboardingTour({
         </div>
         {/* CAD-wizard footer: shared classes, never hand-rolled per dialog. */}
         <div className="cad-footer-row flex-shrink-0">
-          <Button variant="ghost" size="sm" onClick={finish}>Skip the guide</Button>
+          <Button variant="ghost" size="sm" onClick={() => exit('skipped')}>Skip the guide</Button>
           <div className="cad-action-pair">
-            <Button variant="outline" size="sm" onClick={() => goTo(activeIndex - 1)} disabled={activeIndex === 0} aria-label="Previous step">
-              <ArrowLeft className="mr-2 h-4 w-4 shrink-0" />Back
-            </Button>
-            {activeIndex === 0 && !hasProject ? (
+            {/* While no design is open the inert Back slot carries the
+              * non-mutating forward move instead — the same thing the right-arrow
+              * key already does. Before this, only the pointer path could create a
+              * project and the keyboard path could not, for one and the same step. */}
+            {needsProject ? (
+              <Button variant="outline" size="sm" onClick={advance}>Keep reading</Button>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => goTo(activeIndex - 1)} disabled={activeIndex === 0} aria-label="Previous step">
+                <ArrowLeft className="mr-2 h-4 w-4 shrink-0" />Back
+              </Button>
+            )}
+            {needsProject ? (
               <Button size="sm" onClick={createAndAdvance}>
                 New project<ArrowRight className="ml-2 h-4 w-4 shrink-0" />
               </Button>

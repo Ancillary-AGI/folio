@@ -33,12 +33,17 @@ import { useAppStore } from '../stores/useAppStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import { offlineProjectStore } from '../lib/offlineProjectStore'
 import { buildDemoBoard } from '../lib/demo/demoBoard'
+import { getUsageEvents, resetUsageLedger } from '../lib/admin/usageLedger'
+import { ONBOARDING_STEP_COUNT } from '../lib/onboarding/onboardingSteps'
 
 const ONBOARDING_COMPLETED_KEY = 'folio.onboarding.completed.v2'
 const themeToggleName = /^switch to (dark|light) theme$/i
 
 beforeEach(() => {
   localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
+  // The usage ledger is a module singleton backed by localStorage; tour tests
+  // read it, so every case starts from an empty one.
+  resetUsageLedger()
   // Projects persist in localStorage, and earlier tests create some. Start each
   // test from the first-run state so the empty project list is deterministic.
   localStorage.removeItem('folio.offlineProjects')
@@ -230,10 +235,70 @@ describe('App shell', () => {
     expect(await screen.findByRole('dialog', { name: /one project/i }, { timeout: 5000 })).toBeInTheDocument()
   })
 
-  it('keeps Back/Continue equal height in a fixed footer row', async () => {
+  it('keeps the forward controls equal height in a fixed footer row', async () => {
     const { default: OnboardingTour } = await import('../components/OnboardingTour')
-    // First run with no project: the wizard offers an explicit New-project
-    // action instead of creating one behind Continue.
+    const setStepIndex = vi.fn()
+    const onCreateProject = vi.fn()
+    // First run with no project: creating one is an explicit, labelled choice,
+    // and the inert Back slot carries the non-mutating forward move instead, so
+    // the pointer and the right-arrow key do the same thing.
+    render(
+      <OnboardingTour
+        onClose={() => {}}
+        onCreateProject={onCreateProject}
+        onLoadSampleCircuit={() => {}}
+        onLoadDemoBoard={() => {}}
+        onOpenLimits={() => {}}
+        hasProject={false}
+        stepIndex={0}
+        setStepIndex={setStepIndex}
+      />,
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    const readOn = screen.getByRole('button', { name: 'Keep reading' })
+    const create = screen.getByRole('button', { name: /^new project$/i })
+    expect(screen.queryByRole('button', { name: 'Previous step' })).not.toBeInTheDocument()
+    expect(dialog).toContainElement(readOn)
+    expect(dialog).toContainElement(create)
+    // Shared CAD footer classes: fixed row, grid pair, equal heights.
+    expect(readOn.closest('.cad-footer-row')).not.toBeNull()
+    expect(create.closest('.cad-action-pair')).not.toBeNull()
+    expect(create.getBoundingClientRect().height).toBe(readOn.getBoundingClientRect().height)
+
+    fireEvent.click(readOn)
+    expect(setStepIndex).toHaveBeenCalledWith(1)
+    expect(onCreateProject).not.toHaveBeenCalled()
+  })
+
+  it('shows Back and Continue once a project is open', async () => {
+    const { default: OnboardingTour } = await import('../components/OnboardingTour')
+    render(
+      <OnboardingTour
+        onClose={() => {}}
+        onCreateProject={() => {}}
+        onLoadSampleCircuit={() => {}}
+        onLoadDemoBoard={() => {}}
+        onOpenLimits={() => {}}
+        hasProject
+        stepIndex={3}
+        setStepIndex={() => {}}
+      />,
+    )
+
+    await screen.findByRole('dialog')
+    expect(screen.getByRole('button', { name: 'Previous step' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /^Continue$/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Keep reading' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^new project$/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps offering the project choice while no design is open', async () => {
+    const { default: OnboardingTour } = await import('../components/OnboardingTour')
+    const setStepIndex = vi.fn()
+    // A guide resumed on the launcher has no sheet, rail or canvas to spotlight.
+    // The offer to create a design stays on every step, and the dot rail keeps the
+    // visited steps reachable in place of Back.
     render(
       <OnboardingTour
         onClose={() => {}}
@@ -242,23 +307,57 @@ describe('App shell', () => {
         onLoadDemoBoard={() => {}}
         onOpenLimits={() => {}}
         hasProject={false}
-        stepIndex={0}
-        setStepIndex={() => {}}
+        stepIndex={5}
+        setStepIndex={setStepIndex}
       />,
     )
 
-    const dialog = await screen.findByRole('dialog')
-    const back = screen.getByRole('button', { name: 'Previous step' })
-    const next = screen.getByRole('button', { name: /^new project/i })
-    expect(dialog).toContainElement(back)
-    expect(dialog).toContainElement(next)
-    // Shared CAD footer classes: fixed row, grid pair, equal heights.
-    const row = back.closest('.cad-footer-row')
-    expect(row).not.toBeNull()
-    const pair = back.closest('.cad-action-pair')
-    expect(pair).not.toBeNull()
-    // Equal heights on screen, not just equal classes.
-    expect(next.getBoundingClientRect().height).toBe(back.getBoundingClientRect().height)
+    await screen.findByRole('dialog')
+    expect(screen.getByRole('button', { name: /^new project$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Keep reading' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Previous step' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Reviewed step 1:/ })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep reading' }))
+    expect(setStepIndex).toHaveBeenCalledWith(6)
+  })
+
+  it('records a guide closed early as an exit, not as a finished tour', async () => {
+    localStorage.removeItem(ONBOARDING_COMPLETED_KEY)
+    render(<App />)
+    await screen.findByRole('dialog')
+
+    // Two cards opened, then the card was closed: the ledger must not claim the
+    // curriculum was finished, nor that every step was read.
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`^Upcoming step ${ONBOARDING_STEP_COUNT}:`) }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close the guide' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    const tourEvents = getUsageEvents().filter((event) => event.kind.startsWith('onboarding'))
+    expect(tourEvents.map((event) => event.kind)).toEqual(['onboarding.exit'])
+    expect(tourEvents[0]?.detail).toMatchObject({
+      steps: 2,
+      total: ONBOARDING_STEP_COUNT,
+      reason: 'dismissed',
+    })
+  })
+
+  it('records one completion when the guide hands over to the register', async () => {
+    localStorage.removeItem(ONBOARDING_COMPLETED_KEY)
+    render(<App />)
+    await screen.findByRole('dialog')
+
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`^Upcoming step ${ONBOARDING_STEP_COUNT}:`) }))
+    fireEvent.click(await screen.findByRole('button', { name: /open capabilities and limits/i }))
+    expect(await screen.findByRole('dialog', { name: 'Capabilities and limits' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /one project/i })).not.toBeInTheDocument())
+
+    // The hand-off closes the tour from the card and the shell in one click; only
+    // the card's own exit may reach the ledger.
+    const tourEvents = getUsageEvents().filter((event) => event.kind.startsWith('onboarding'))
+    expect(tourEvents.map((event) => event.kind)).toEqual(['onboarding.complete'])
+    expect(tourEvents[0]?.detail).toMatchObject({ steps: 2, total: ONBOARDING_STEP_COUNT })
+    expect(tourEvents[0]?.detail?.reason).toBeUndefined()
   })
 
   it('arms the wire tool on the rail (click-to-click wiring)', async () => {

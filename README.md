@@ -4,7 +4,7 @@ Browser-based, offline-first engineering workbench for electronic CAD, mechanica
 design, simulation, robotics, and embedded development. Everything runs locally
 unless you explicitly configure a backend; no account is required for local use.
 
-**Status:** active development. Lint, both typechecks, 2,119 tests across 212
+**Status:** active development. Lint, both typechecks, 2,129 tests across 212
 files, the icon-button accessibility audit, and the production build all pass.
 
 ---
@@ -59,7 +59,14 @@ rules); it makes no model or network call, and its output is advisory.
   or resumes progress. The steps that teach a gesture (wiring, chart zoom/pan,
   3D orbit) leave the app live so you can try them inside the tour; the rest are
   modal. Arrow keys, Esc, clickable step dots and a tab trap work; reduced-motion
-  users get instant positioning and no halo. The last step hands off to the
+  users get instant positioning and no halo. While no design is open the card
+  offers to create one, and taking it carries the guide into the workspace the
+  next steps point at. A coach mark never sits on the control it is describing:
+  it docks in whichever corner leaves that control in the clear, folds the stage
+  checklist away on a short window to buy that room, and gives up the spotlight
+  rather than draw brackets underneath the card. Closing the guide early
+  is recorded as an exit carrying the number of steps actually opened — only
+  reaching the end is a finished tour. The last step hands off to the
   limits register rather than to a "you're done" screen.
 - **Capabilities and limits register** (`LIMITS` in the status bar): one machine
   readable list — `src/lib/workspace/limitsRegistry.ts`, rendered by the dialog
@@ -323,7 +330,7 @@ npm run lint            # ESLint, zero warnings
 npm run a11y:buttons    # every icon-only button has an accessible name
 npm run typecheck       # app TypeScript
 npm run typecheck:node  # Vite/build config TypeScript
-npm test                # Vitest, 2,119 tests / 212 files
+npm test                # Vitest, 2,129 tests / 212 files
 npm run build           # production build
 npm run verify          # all of the gates above, in order
 npm run preview         # preview the build on port 4173

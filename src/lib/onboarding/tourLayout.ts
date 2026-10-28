@@ -106,17 +106,28 @@ export function computeTourLayout(
     }
   }
 
-  // Large editors fill most of the viewport: dock the card out of the way
-  // instead of covering the element the step is describing.
-  return {
-    placement: 'dock',
-    spotlight: spot,
-    card: {
-      left: Math.max(VIEWPORT_MARGIN, viewport.width - width - VIEWPORT_MARGIN),
-      top: Math.max(VIEWPORT_MARGIN, viewport.height - height - VIEWPORT_MARGIN),
-      width,
-    },
-  }
+  /*
+   * Docking is the last honest option, so it has to choose a corner instead of
+   * always taking the bottom-right one: a card taller than the space left for it
+   * is pushed back onto the top margin, where it silently buries the bar it came
+   * to describe. A spotlight the card sits on is not a spotlight, so the corners
+   * are tried in preference order and the guide drops to a plain teaching card
+   * when none of them keeps the target's centre in the clear.
+   */
+  const dockLeft = Math.max(VIEWPORT_MARGIN, viewport.width - width - VIEWPORT_MARGIN)
+  const dockTop = Math.max(VIEWPORT_MARGIN, viewport.height - height - VIEWPORT_MARGIN)
+  const spotCentre = { x: spot.left + spot.width / 2, y: spot.top + spot.height / 2 }
+  const coversTarget = (left: number, top: number) =>
+    spotCentre.x >= left && spotCentre.x <= left + width && spotCentre.y >= top && spotCentre.y <= top + height
+  const corner = [
+    { left: dockLeft, top: dockTop },
+    { left: VIEWPORT_MARGIN, top: dockTop },
+    { left: dockLeft, top: VIEWPORT_MARGIN },
+    { left: VIEWPORT_MARGIN, top: VIEWPORT_MARGIN },
+  ].find((candidate) => !coversTarget(candidate.left, candidate.top))
+
+  if (!corner) return centred
+  return { placement: 'dock', spotlight: spot, card: { ...corner, width } }
 }
 
 /** Half of the 12 px caret square. */

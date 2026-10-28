@@ -20,7 +20,10 @@ export type UsageKind =
   | 'export.run'
   | 'simulation.run'
   | 'agent.run'
+  /** The engineer reached the last step and finished or took the hand-off. */
   | 'onboarding.complete'
+  /** The guide was closed or skipped before the last step. */
+  | 'onboarding.exit'
   | 'admin.open'
 
 export interface UsageEvent {
