@@ -93,6 +93,78 @@ describe('App shell', () => {
     expect(await screen.findByRole('dialog', { name: 'Help and tutorials' })).toBeInTheDocument()
   })
 
+  it('opens help and the command palette from the project launcher', async () => {
+    render(<App />)
+    await screen.findByRole('button', { name: /create project/i })
+
+    // The launcher advertises the same global shortcuts as the workbench, so it
+    // has to mount the surfaces they open, not just the project list.
+    fireEvent.keyDown(window, { key: 'F1' })
+    expect(await screen.findByRole('dialog', { name: 'Help and tutorials' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Close help' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Help and tutorials' })).not.toBeInTheDocument(),
+    )
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    expect(await screen.findByRole('dialog', { name: 'Command palette' })).toBeInTheDocument()
+  })
+
+  it('names the project list in the tab title instead of a workspace', async () => {
+    window.history.replaceState(null, '', '/projects')
+    render(<App />)
+    await screen.findByRole('button', { name: /create project/i })
+
+    // No design is open, so claiming the tab shows "Schematic" is a lie about
+    // what the user is looking at.
+    expect(document.title).toBe('Projects · Folio')
+
+    fireEvent.click(screen.getAllByRole('button', { name: /create project/i })[0])
+    await screen.findByTestId('schematic-canvas')
+    const project = useProjectStore.getState().currentProject
+    expect(document.title).toBe(`${project?.name} — Schematic · Folio`)
+  })
+
+  it('replaces an open overlay instead of stacking the next one', async () => {
+    render(<App />)
+    await screen.findByRole('button', { name: /create project/i })
+
+    fireEvent.keyDown(window, { key: 'F1' })
+    await screen.findByRole('dialog', { name: 'Help and tutorials' })
+
+    // The palette and the help centre share the viewport, so a second shortcut
+    // has to swap the surface rather than bury the first under a fresh scrim.
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    expect(await screen.findByRole('dialog', { name: 'Command palette' })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Help and tutorials' })).not.toBeInTheDocument(),
+    )
+
+    fireEvent.keyDown(window, { key: 'F1' })
+    expect(await screen.findByRole('dialog', { name: 'Help and tutorials' })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument(),
+    )
+  })
+
+  it('ignores workbench shortcuts while the administration route is open', async () => {
+    window.history.replaceState(null, '', '/admin')
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Administration' })
+
+    // No workbench overlay is mounted on this route, so honouring the shortcut
+    // would only queue hidden open state that appears on the way back.
+    fireEvent.keyDown(window, { key: 'F1' })
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    expect(screen.queryByRole('dialog', { name: 'Help and tutorials' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to projects' }))
+    await screen.findByRole('button', { name: /create project/i })
+    expect(screen.queryByRole('dialog', { name: 'Help and tutorials' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument()
+  })
+
   it('opens the administration console from a deep link and returns to projects', async () => {
     window.history.replaceState(null, '', '/admin')
     render(<App />)
@@ -239,7 +311,11 @@ describe('App shell', () => {
     // Reading the register is the point of the last step, so opening it from the
     // status bar must not leave a coach mark hovering over the panel.
     fireEvent.click(screen.getByRole('button', { name: 'LIMITS' }))
-    expect(await screen.findByRole('dialog', { name: 'Capabilities and limits' })).toBeInTheDocument()
+    // LimitsDialog is a lazy chunk; on a loaded CI box it can take longer than
+    // the 1 s default to mount after the tour has already cost its budget.
+    expect(
+      await screen.findByRole('dialog', { name: 'Capabilities and limits' }, { timeout: 10000 }),
+    ).toBeInTheDocument()
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: /one project/i })).not.toBeInTheDocument(),
     )
@@ -369,7 +445,9 @@ describe('App shell', () => {
 
     fireEvent.click(screen.getByRole('button', { name: new RegExp(`^Upcoming step ${ONBOARDING_STEP_COUNT}:`) }))
     fireEvent.click(await screen.findByRole('button', { name: /open capabilities and limits/i }))
-    expect(await screen.findByRole('dialog', { name: 'Capabilities and limits' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('dialog', { name: 'Capabilities and limits' }, { timeout: 10000 }),
+    ).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByRole('dialog', { name: /one project/i })).not.toBeInTheDocument())
 
     // The hand-off closes the tour from the card and the shell in one click; only

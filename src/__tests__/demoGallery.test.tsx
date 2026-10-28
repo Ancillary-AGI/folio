@@ -66,6 +66,23 @@ describe('DemoGallery', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps the search and family filter when the host re-renders', () => {
+    const { rerender } = render(<DemoGallery open onClose={() => {}} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Electrical' }))
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search demos' }), { target: { value: 'dipole' } })
+    expect(screen.getByText('2.4 GHz dipole antenna')).toBeInTheDocument()
+
+    // The shell passes an inline close handler; a changing identity must not be
+    // mistaken for a fresh opening, which cleared the filter while it was in use.
+    rerender(<DemoGallery open onClose={() => {}} />)
+
+    expect(screen.getByRole('searchbox', { name: 'Search demos' })).toHaveValue('dipole')
+    expect(screen.getByRole('button', { name: 'Electrical' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('2.4 GHz dipole antenna')).toBeInTheDocument()
+    expect(screen.queryByText('Half-wave rectifier')).not.toBeInTheDocument()
+  })
+
   it('stages a routed 3-D demo with real copper and closes on Escape', () => {
     const onClose = vi.fn()
     const { rerender } = render(<DemoGallery open onClose={onClose} />)

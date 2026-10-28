@@ -45,6 +45,13 @@ export default function LimitsDialog({ open, onClose, currentMode = null }: Limi
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const searchRef = useRef<HTMLInputElement>(null)
 
+  // Callers pass an inline close handler; reacting to its identity would reset
+  // the filter and steal focus on every unrelated parent render.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
   useEffect(() => {
     if (!open) return
     setQuery('')
@@ -54,7 +61,7 @@ export default function LimitsDialog({ open, onClose, currentMode = null }: Limi
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault()
-        onClose()
+        onCloseRef.current()
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -62,7 +69,7 @@ export default function LimitsDialog({ open, onClose, currentMode = null }: Limi
       cancelAnimationFrame(frame)
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [open, onClose])
+  }, [open])
 
   const visible = useMemo(
     () => filterCapabilities(filter, query, modeOnly && currentMode ? currentMode : null),

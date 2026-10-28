@@ -16,7 +16,7 @@ import {
   readQuotaPolicies, type AdminRole, type QuotaLimits,
 } from '../../lib/admin/quotaPolicy'
 import {
-  countUsage, resetUsageLedger, subscribeUsage, summarizeUsage, usageSince,
+  countUsage, getUsageEvents, resetUsageLedger, subscribeUsage, summarizeUsage, usageSince,
   type UsageEvent, type UsageKind,
 } from '../../lib/admin/usageLedger'
 import { recordPlatformUsage } from '../../lib/admin/usageRecorder'
@@ -72,14 +72,23 @@ function formatTime(timestamp: number): string {
 function downloadCsv(filename: string, header: string[], rows: string[][]): void {
   const escape = (value: string): string => `"${value.replace(/"/g, '""')}"`
   const csv = [header, ...rows].map((row) => row.map(escape).join(',')).join('\r\n')
-  if (typeof URL === 'undefined' || typeof document === 'undefined') return
+  if (
+    typeof document === 'undefined' ||
+    typeof URL === 'undefined' ||
+    typeof URL.createObjectURL !== 'function'
+  ) return
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = filename
+  anchor.rel = 'noopener'
+  // Detached anchors are not clickable in every browser, and revoking the URL
+  // in the same task can cancel the download before it starts.
+  document.body.appendChild(anchor)
   anchor.click()
-  URL.revokeObjectURL(url)
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
 function Kpi({ label, value, hint, icon: Icon }: { label: string; value: string; hint: string; icon: typeof Gauge }) {
@@ -224,6 +233,9 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
     simulationsToday: countUsage('simulation.run', startOfToday(), user.id),
     storageMb: environment?.storageUsedMb ?? 0,
   }
+  // A missing estimate is not zero usage; the storage row says so instead.
+  const storageMeasured = environment?.storageUsedMb != null
+  const ledgerTotal = getUsageEvents().length
 
   const subjectRole = access?.role ?? 'user'
   const rows = quotaRows(subjectRole, quotaUsage)
@@ -572,6 +584,13 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
               </div>
             </div>
 
+            {environment?.cloudUsageMirrorError && (
+              <p role="alert" className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+                The last usage mirror failed: {environment.cloudUsageMirrorError}. The event is still recorded on this
+                device, but cloud-wide reports and server-side quota checks did not see it.
+              </p>
+            )}
+
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <Kpi label="Events" value={String(summary.total)} hint={`Window: ${usageDays} days`} icon={Activity} />
               <Kpi label="Workspaces" value={String(summary.byMode.length)} hint="Distinct workspaces opened" icon={Layers} />
@@ -650,7 +669,15 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
               <div>
                 <h3 className="text-xs font-semibold text-foreground">Device ledger</h3>
-                <p className="mt-1 text-[11px] text-muted-foreground">Clearing removes recorded usage from this browser. Audit events are unaffected.</p>
+                <p className="mt-1 max-w-xl text-[11px] text-muted-foreground">
+                  Clearing removes all {ledgerTotal.toLocaleString()} recorded event{ledgerTotal === 1 ? '' : 's'} from this
+                  browser, not only the rows in the current window. Audit events are kept.
+                </p>
+                {environment && !environment.ledgerPersistent && (
+                  <p className="mt-1 max-w-xl text-[11px] font-medium text-warning">
+                    This browser refused durable storage, so the ledger lives in memory only and is lost when the tab closes.
+                  </p>
+                )}
               </div>
               {clearArmed ? (
                 <div className="flex items-center gap-2">
@@ -660,12 +687,14 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
                     className="flex items-center gap-1.5"
                     onClick={() => {
                       resetUsageLedger()
-                      siemService.logAuditEvent({ user: user.id, action: 'admin:usage_cleared', resource: 'usage-ledger', details: { offlineMode } })
+                      siemService.logAuditEvent({ user: user.id, action: 'admin:usage_cleared', resource: 'usage-ledger', details: { offlineMode, cleared: ledgerTotal } })
                       setClearArmed(false)
                       setRevision((value) => value + 1)
+                      // The clear itself is an audit event; show it without a manual refresh.
+                      setAudit(siemService.getAuditTrail({ limit: 200 }))
                     }}
                   >
-                    <Trash2 className="h-3.5 w-3.5" /> Clear {filteredEvents.length === 0 ? 'ledger' : `${filteredEvents.length} shown`}
+                    <Trash2 className="h-3.5 w-3.5" /> Clear {ledgerTotal === 0 ? 'ledger' : `all ${ledgerTotal.toLocaleString()} events`}
                   </Button>
                   <Button variant="ghost" size="sm" onClick={() => setClearArmed(false)}>Cancel</Button>
                 </div>
@@ -696,12 +725,23 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
                 {rows.map((row) => (
                   <div key={row.id} className="rounded-md border border-border bg-background p-3">
                     <p className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">{row.label}</p>
-                    <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">
-                      {row.used.toLocaleString()} {row.limit === null ? <span className="text-muted-foreground">/ unlimited</span> : <span className="text-muted-foreground">/ {row.limit.toLocaleString()} {row.unit}</span>}
-                    </p>
-                    <div className="mt-2 h-1.5 rounded-full bg-muted">
-                      <div className={`h-1.5 rounded-full ${row.status === 'fail' ? 'bg-destructive' : row.status === 'warn' ? 'bg-warning' : 'bg-success'}`} style={{ width: `${row.limit === null || row.limit === 0 ? (row.used > 0 ? 100 : 0) : Math.min(100, (row.used / row.limit) * 100)}%` }} />
-                    </div>
+                    {row.id === 'storage' && !storageMeasured ? (
+                      <>
+                        <p className="mt-1 text-sm font-semibold text-muted-foreground">Unavailable</p>
+                        <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
+                          The browser did not report a storage estimate, so this row is not compared to the policy.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">
+                          {row.used.toLocaleString()} {row.limit === null ? <span className="text-muted-foreground">/ unlimited</span> : <span className="text-muted-foreground">/ {row.limit.toLocaleString()} {row.unit}</span>}
+                        </p>
+                        <div className="mt-2 h-1.5 rounded-full bg-muted">
+                          <div className={`h-1.5 rounded-full ${row.status === 'fail' ? 'bg-destructive' : row.status === 'warn' ? 'bg-warning' : 'bg-success'}`} style={{ width: `${row.limit === null || row.limit === 0 ? (row.used > 0 ? 100 : 0) : Math.min(100, (row.used / row.limit) * 100)}%` }} />
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
@@ -874,7 +914,11 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
               <div className="rounded-lg border border-border bg-card p-4">
                 <p className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Usage ledger</p>
                 <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">{environment?.ledgerEvents ?? 0} events</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">Append-only, capped at 5,000 entries, stored under folio.usage.v1.</p>
+                <p className={`mt-1 text-[11px] ${environment && !environment.ledgerPersistent ? 'text-warning' : 'text-muted-foreground'}`}>
+                  {environment && !environment.ledgerPersistent
+                    ? 'Stored in memory only: this browser refused durable storage, so events are lost when the tab closes.'
+                    : 'Append-only, capped at 5,000 entries, persisted under folio.usage.v1 in this browser.'}
+                </p>
               </div>
               <div className="rounded-lg border border-border bg-card p-4">
                 <p className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Governance schema</p>

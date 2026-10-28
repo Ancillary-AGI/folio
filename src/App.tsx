@@ -214,6 +214,14 @@ function App() {
   /* Administration is a sibling route, not a modal: it survives reloads and
    * Back returns to whichever screen opened it. */
   const openAdmin = () => {
+    // Overlays are not mounted on the administration route; clear them so a
+    // shortcut pressed just before navigating cannot leave hidden open state.
+    setShowHelp(false)
+    setShowCommandPalette(false)
+    setShowDemoGallery(false)
+    setShowLimits(false)
+    setShowSettings(false)
+    setActiveTutorial(null)
     setShowAdmin(true)
     setShowExportMenu(false)
     setShowVcsMenu(false)
@@ -314,14 +322,16 @@ function App() {
     const mode = WORKSPACE_MODE_META[workspaceMode].label
     document.title = currentProject
       ? `${isDirty ? '● ' : ''}${currentProject.name} — ${mode} · Folio`
-      : `${mode} · Folio`
-  }, [currentProject, isDirty, showAdmin, workspaceMode])
+      : showProjectManager
+        ? 'Projects · Folio'
+        : `${mode} · Folio`
+  }, [currentProject, isDirty, showAdmin, showProjectManager, workspaceMode])
 
   /* Opening a workspace is the workbench's most meaningful usage signal. */
   useEffect(() => {
-    if (!user || showAdmin) return
+    if (!user || showAdmin || !currentProject) return
     recordPlatformUsage('workspace.open', user, offlineMode, { mode: workspaceMode })
-  }, [user, offlineMode, showAdmin, workspaceMode])
+  }, [user, offlineMode, showAdmin, currentProject, workspaceMode])
 
   // ── Auth ────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -453,25 +463,39 @@ function App() {
   // ── Keyboard entry points: command palette (Ctrl/⌘+K), demo gallery and help ─
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      // Administration is a sibling surface with no workbench overlays mounted;
+      // honouring these keys there would only create invisible open state.
+      if (isAdminPath(window.location.pathname)) return
       const mod = event.metaKey || event.ctrlKey
       const target = event.target
       const typing =
         target instanceof HTMLElement &&
         (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)
+      // These surfaces share the viewport, so a shortcut replaces whatever is
+      // already open instead of stacking a second modal over it.
       // F1 always works; `?` is a normal character in netlist and property fields.
       if (event.key === 'F1' || (event.key === '?' && !mod && !typing)) {
         event.preventDefault()
+        setShowCommandPalette(false)
+        setShowDemoGallery(false)
+        setShowLimits(false)
         setHelpTab('tutorials')
         setShowHelp(true)
         return
       }
       if (mod && !event.shiftKey && event.key.toLowerCase() === 'k') {
         event.preventDefault()
+        setShowHelp(false)
+        setShowDemoGallery(false)
+        setShowLimits(false)
         setShowCommandPalette((open) => !open)
         return
       }
       if (mod && event.shiftKey && event.key.toLowerCase() === 'd') {
         event.preventDefault()
+        setShowHelp(false)
+        setShowCommandPalette(false)
+        setShowLimits(false)
         setShowDemoGallery((open) => !open)
       }
     }
@@ -1225,6 +1249,62 @@ function App() {
     )
   }
 
+  /*
+   * Shared overlay stack for the workbench and the project launcher. Both
+   * screens advertise the same global shortcuts, so both must mount the
+   * surfaces those shortcuts open; the administration route intentionally
+   * does not.
+   */
+  const overlayStack = (
+    <Suspense fallback={panelFallback}>
+      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} onRestartOnboarding={restartOnboarding} />}
+      {showDemoGallery && (
+        <DemoGallery
+          open
+          onClose={() => setShowDemoGallery(false)}
+          onOpenScenario={openDemoScenario}
+          onStartTutorial={(tutorial) => { void startTutorial(tutorial) }}
+        />
+      )}
+      {showCommandPalette && (
+        <CommandPalette
+          open
+          onClose={() => setShowCommandPalette(false)}
+          onSave={() => { void handleSave(getCheckpointData()) }}
+          onOpenDemos={() => setShowDemoGallery(true)}
+          onOpenLimits={openLimitsRegister}
+          onOpenHelp={() => openHelp('tutorials')}
+          onToggleTheme={toggleTheme}
+          onOpenScenario={openDemoScenario}
+        />
+      )}
+      {showLimits && (
+        <LimitsDialog open onClose={() => setShowLimits(false)} currentMode={workspaceMode} />
+      )}
+      {showHelp && (
+        <HelpCenter
+          open
+          initialTab={helpTab}
+          currentMode={workspaceMode}
+          onClose={() => setShowHelp(false)}
+          onOpenWorkspace={openWorkspaceFromHelp}
+          onStartTutorial={(tutorial) => { void startTutorial(tutorial) }}
+          onOpenDemos={() => { setShowHelp(false); setShowDemoGallery(true) }}
+          onOpenLimits={() => { setShowHelp(false); openLimitsRegister() }}
+        />
+      )}
+      {activeTutorial && (
+        <TutorialRunner
+          key={activeTutorial.id}
+          tutorial={activeTutorial}
+          onClose={() => setActiveTutorial(null)}
+          onRestartDemo={() => restartTutorialDemo(activeTutorial)}
+          onOpenHelp={() => openHelp('tutorials')}
+        />
+      )}
+    </Suspense>
+  )
+
   if (!user) return <AuthForm onAuthSuccess={() => {}} />
 
   if (showAdmin) {
@@ -1270,16 +1350,7 @@ function App() {
         </header>
         <NoticeBanner message={notice} onDismiss={() => setNotice('')} />
         <ProjectManager onSelectProject={handleSelectProject} onNewProject={handleNewProject} offlineMode={offlineMode} />
-        {showSettings && (
-          <Suspense fallback={panelFallback}>
-            <SettingsPanel onClose={() => setShowSettings(false)} onRestartOnboarding={restartOnboarding} />
-          </Suspense>
-        )}
-        {showLimits && (
-          <Suspense fallback={panelFallback}>
-            <LimitsDialog open onClose={() => setShowLimits(false)} />
-          </Suspense>
-        )}
+        {overlayStack}
         {showOnboarding && (
           <OnboardingTour
             onClose={closeOnboarding}
@@ -1795,53 +1866,7 @@ function App() {
         canvasRef={canvasRef}
       />
 
-      <Suspense fallback={panelFallback}>
-        {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} onRestartOnboarding={restartOnboarding} />}
-        {showDemoGallery && (
-          <DemoGallery
-            open
-            onClose={() => setShowDemoGallery(false)}
-            onOpenScenario={openDemoScenario}
-            onStartTutorial={(tutorial) => { void startTutorial(tutorial) }}
-          />
-        )}
-        {showCommandPalette && (
-          <CommandPalette
-            open
-            onClose={() => setShowCommandPalette(false)}
-            onSave={() => { void handleSave(getCheckpointData()) }}
-            onOpenDemos={() => setShowDemoGallery(true)}
-            onOpenLimits={openLimitsRegister}
-            onOpenHelp={() => openHelp('tutorials')}
-            onToggleTheme={toggleTheme}
-            onOpenScenario={openDemoScenario}
-          />
-        )}
-        {showLimits && (
-          <LimitsDialog open onClose={() => setShowLimits(false)} currentMode={workspaceMode} />
-        )}
-        {showHelp && (
-          <HelpCenter
-            open
-            initialTab={helpTab}
-            currentMode={workspaceMode}
-            onClose={() => setShowHelp(false)}
-            onOpenWorkspace={openWorkspaceFromHelp}
-            onStartTutorial={(tutorial) => { void startTutorial(tutorial) }}
-            onOpenDemos={() => { setShowHelp(false); setShowDemoGallery(true) }}
-            onOpenLimits={() => { setShowHelp(false); openLimitsRegister() }}
-          />
-        )}
-        {activeTutorial && (
-          <TutorialRunner
-            key={activeTutorial.id}
-            tutorial={activeTutorial}
-            onClose={() => setActiveTutorial(null)}
-            onRestartDemo={() => restartTutorialDemo(activeTutorial)}
-            onOpenHelp={() => openHelp('tutorials')}
-          />
-        )}
-      </Suspense>
+      {overlayStack}
       {showOnboarding && (
         <OnboardingTour
           onClose={closeOnboarding}

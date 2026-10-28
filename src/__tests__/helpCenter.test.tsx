@@ -64,6 +64,28 @@ describe('help center', () => {
     expect(screen.getByText('Close the open dialog or guide')).toBeInTheDocument()
   })
 
+  it('keeps the open tab and query when the host re-renders', () => {
+    const props = {
+      open: true,
+      currentMode: 'schematic' as const,
+      onOpenWorkspace: vi.fn(),
+      onStartTutorial: vi.fn(),
+      onOpenDemos: vi.fn(),
+      onOpenLimits: vi.fn(),
+    }
+    const { rerender } = render(<HelpCenter {...props} onClose={() => {}} />)
+
+    fireEvent.click(screen.getByRole('tab', { name: /workspace guides/i }))
+    fireEvent.change(screen.getByRole('searchbox', { name: /search help/i }), { target: { value: 'RF' } })
+
+    // An inline close handler gets a new identity on every host render; that
+    // must not snap the engineer back to the tutorial tab mid-search.
+    rerender(<HelpCenter {...props} onClose={() => {}} />)
+
+    expect(screen.getByRole('tab', { name: /workspace guides/i })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('searchbox', { name: /search help/i })).toHaveValue('RF')
+  })
+
   it('closes on Escape and from the close button', () => {
     const props = renderHelp()
     fireEvent.keyDown(window, { key: 'Escape' })

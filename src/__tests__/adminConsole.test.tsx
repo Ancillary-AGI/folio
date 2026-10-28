@@ -4,7 +4,7 @@ import '@testing-library/jest-dom/vitest'
 import AdminConsole from '../components/admin/AdminConsole'
 import type { User } from '../types'
 import { QUOTA_STORAGE_KEY } from '../lib/admin/quotaPolicy'
-import { USAGE_STORAGE_KEY, recordUsage, resetUsageLedger } from '../lib/admin/usageLedger'
+import { USAGE_STORAGE_KEY, getUsageEvents, recordUsage, resetUsageLedger } from '../lib/admin/usageLedger'
 
 const owner: User = { id: 'owner-1', name: 'Local User', email: 'local@offline', role: 'owner' }
 
@@ -97,5 +97,83 @@ describe('AdminConsole (local owner)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to projects' }))
     expect(onBack).toHaveBeenCalledTimes(1)
+  })
+
+  it('downloads the visible usage rows as a CSV file', async () => {
+    recordUsage('export.run', owner.id, { format: 'netlist' }, Date.now())
+    const originalCreate = URL.createObjectURL
+    const originalRevoke = URL.revokeObjectURL
+    const createObjectURL = vi.fn(() => 'blob:usage')
+    const revokeObjectURL = vi.fn()
+    URL.createObjectURL = createObjectURL
+    URL.revokeObjectURL = revokeObjectURL
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    try {
+      render(<AdminConsole user={owner} offlineMode onBack={vi.fn()} />)
+      await screen.findByRole('heading', { name: 'Administration' })
+      fireEvent.click(screen.getByRole('tab', { name: 'Usage' }))
+
+      fireEvent.click(await screen.findByRole('button', { name: 'CSV' }))
+      expect(createObjectURL).toHaveBeenCalledTimes(1)
+      expect(click).toHaveBeenCalledTimes(1)
+      // The object URL is released after the browser has taken the download.
+      await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith('blob:usage'))
+    } finally {
+      click.mockRestore()
+      URL.createObjectURL = originalCreate
+      URL.revokeObjectURL = originalRevoke
+    }
+  })
+
+  it('names the whole ledger before clearing it, including rows outside the window', async () => {
+    // One event is older than the default 14-day window: the confirmation must
+    // describe what the action deletes, not just what the table happens to show.
+    recordUsage('export.run', owner.id, { format: 'netlist' }, Date.now() - 40 * 24 * 3600 * 1000)
+    recordUsage('simulation.run', owner.id, {}, Date.now())
+    render(<AdminConsole user={owner} offlineMode onBack={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Administration' })
+    fireEvent.click(screen.getByRole('tab', { name: 'Usage' }))
+
+    expect(await screen.findByText(/removes all 3 recorded events/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: "Clear this device's ledger" }))
+    fireEvent.click(screen.getByRole('button', { name: /clear all 3 events/i }))
+
+    await waitFor(() => expect(getUsageEvents()).toHaveLength(0))
+    fireEvent.click(screen.getByRole('tab', { name: 'Audit trail' }))
+    expect(await screen.findByText('admin:usage_cleared')).toBeInTheDocument()
+  })
+
+  it('reports storage as unavailable instead of zero when the browser offers no estimate', async () => {
+    const originalStorage = Object.getOwnPropertyDescriptor(navigator, 'storage')
+    Object.defineProperty(navigator, 'storage', { value: undefined, configurable: true })
+    try {
+      render(<AdminConsole user={owner} offlineMode onBack={vi.fn()} />)
+      await screen.findByRole('heading', { name: 'Administration' })
+      fireEvent.click(screen.getByRole('tab', { name: 'Quotas' }))
+
+      expect(await screen.findByText('Unavailable')).toBeInTheDocument()
+      expect(screen.getByText(/did not report a storage estimate/)).toBeInTheDocument()
+    } finally {
+      if (originalStorage) Object.defineProperty(navigator, 'storage', originalStorage)
+      else Object.defineProperty(navigator, 'storage', { value: undefined, configurable: true })
+    }
+  })
+
+  it('warns when the browser refuses to persist the usage ledger', async () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('quota exceeded')
+    })
+    try {
+      render(<AdminConsole user={owner} offlineMode onBack={vi.fn()} />)
+      await screen.findByRole('heading', { name: 'Administration' })
+      fireEvent.click(screen.getByRole('tab', { name: 'Usage' }))
+
+      expect(await screen.findByText(/lives in memory only/)).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('tab', { name: 'Environment' }))
+      expect(await screen.findByText(/Stored in memory only/)).toBeInTheDocument()
+    } finally {
+      setItem.mockRestore()
+      resetUsageLedger()
+    }
   })
 })

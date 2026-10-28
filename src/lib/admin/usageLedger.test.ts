@@ -113,6 +113,41 @@ describe('usage ledger', () => {
     expect(summary.daily[summary.daily.length - 1]).toEqual({ date: usageDayKey(now), count: 2 })
   })
 
+  it('reports a refused write and recovers on the next successful one', async () => {
+    vi.resetModules()
+    const fresh = await import('./usageLedger')
+    expect(fresh.isUsageLedgerPersistent()).toBe(true)
+
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('quota exceeded')
+    })
+    try {
+      fresh.recordUsage('export.run', 'u1', undefined, 1000)
+      // The event is still usable this session, but it is not durable.
+      expect(fresh.getUsageEvents()).toHaveLength(1)
+      expect(fresh.isUsageLedgerPersistent()).toBe(false)
+    } finally {
+      setItem.mockRestore()
+    }
+
+    fresh.recordUsage('demo.load', 'u1', undefined, 5000)
+    expect(fresh.isUsageLedgerPersistent()).toBe(true)
+  })
+
+  it('treats a store that refuses reads as non-durable', async () => {
+    vi.resetModules()
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('storage blocked')
+    })
+    try {
+      const fresh = await import('./usageLedger')
+      expect(fresh.getUsageEvents()).toHaveLength(0)
+      expect(fresh.isUsageLedgerPersistent()).toBe(false)
+    } finally {
+      getItem.mockRestore()
+    }
+  })
+
   it('ignores malformed stored rows after a fresh module load', async () => {
     localStorage.setItem(USAGE_STORAGE_KEY, JSON.stringify([{ id: 'x' }, 'nope', null]))
     vi.resetModules()

@@ -281,10 +281,10 @@ export interface ShortcutRow {
 }
 
 export const SHORTCUTS: readonly ShortcutRow[] = [
-  { keys: ['F1'], action: 'Open help and tutorials', where: 'Anywhere' },
-  { keys: ['?'], action: 'Open help and tutorials', where: 'Anywhere outside a text field' },
-  { keys: ['Ctrl', 'K'], action: 'Command palette: workspaces, demos and actions', where: 'Anywhere' },
-  { keys: ['Ctrl', 'Shift', 'D'], action: 'Demo gallery', where: 'Anywhere' },
+  { keys: ['F1'], action: 'Open help and tutorials', where: 'Workbench' },
+  { keys: ['?'], action: 'Open help and tutorials', where: 'Workbench outside a text field' },
+  { keys: ['Ctrl', 'K'], action: 'Command palette: workspaces, demos and actions', where: 'Workbench' },
+  { keys: ['Ctrl', 'Shift', 'D'], action: 'Demo gallery', where: 'Workbench' },
   { keys: ['V'], action: 'Select tool', where: 'Schematic' },
   { keys: ['W'], action: 'Wire tool', where: 'Schematic' },
   { keys: ['D'], action: 'Delete tool', where: 'Schematic' },
@@ -293,6 +293,6 @@ export const SHORTCUTS: readonly ShortcutRow[] = [
   { keys: ['Ctrl', 'Z'], action: 'Undo the last edit', where: 'Schematic' },
   { keys: ['Ctrl', 'Shift', 'Z'], action: 'Redo the undone edit', where: 'Schematic' },
   { keys: ['Ctrl', 'S'], action: 'Save the current snapshot', where: 'Schematic' },
-  { keys: ['Esc'], action: 'Close the open dialog or guide', where: 'Anywhere' },
+  { keys: ['Esc'], action: 'Close the open dialog or guide', where: 'Workbench' },
   { keys: ['←', '→'], action: 'Previous or next guided-tour step', where: 'Guided tour' },
 ] as const

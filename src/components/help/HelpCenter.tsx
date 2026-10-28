@@ -91,6 +91,13 @@ export default function HelpCenter({
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
 
+  // Callers pass an inline close handler; reacting to its identity would reset
+  // the tab and query and steal focus on every unrelated parent render.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
   useEffect(() => {
     if (!open) return
     setTab(initialTab)
@@ -99,7 +106,7 @@ export default function HelpCenter({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault()
-        onClose()
+        onCloseRef.current()
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -107,9 +114,9 @@ export default function HelpCenter({
       cancelAnimationFrame(frame)
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [open, initialTab, onClose])
+  }, [open, initialTab])
 
-  const terms = termsFor(query)
+  const terms = useMemo(() => termsFor(query), [query])
 
   const tutorials = useMemo(
     () =>

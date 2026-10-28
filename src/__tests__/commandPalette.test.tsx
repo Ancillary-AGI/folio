@@ -100,4 +100,30 @@ describe('CommandPalette', () => {
     fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' })
     expect(useAppStore.getState().workspaceMode).toBe('schematic')
   })
+
+  it('keeps the query when the host re-renders with a fresh close handler', () => {
+    const props = {
+      open: true,
+      onSave: vi.fn(),
+      onOpenDemos: vi.fn(),
+      onOpenLimits: vi.fn(),
+      onOpenHelp: vi.fn(),
+      onToggleTheme: vi.fn(),
+    }
+    const { rerender } = render(<CommandPalette {...props} onClose={() => {}} />)
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'dipole' } })
+    expect(screen.getAllByRole('option')).toHaveLength(1)
+
+    // Hosts pass inline handlers, so their identity changes on every unrelated
+    // render. The palette must not treat that as a fresh opening: doing so
+    // cleared the search and stole focus while the engineer was typing.
+    const latestClose = vi.fn()
+    rerender(<CommandPalette {...props} onClose={latestClose} />)
+
+    expect(screen.getByRole('combobox')).toHaveValue('dipole')
+    expect(screen.getAllByRole('option')).toHaveLength(1)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(latestClose).toHaveBeenCalledTimes(1)
+  })
 })

@@ -1,6 +1,6 @@
 # Administration and governance
 
-Verified against the working tree on 2026-10-26.
+Verified against the working tree on 2026-10-28.
 
 The administration console is a separate surface from the multi-domain CAD
 workspace. It lives at `/admin` (header shield button, or the More menu on narrow
@@ -48,7 +48,11 @@ deployment out of administration.
 - `workspace.open`, `demo.load`
 - `project.create`, `project.open`
 - `vcs.commit`, `export.run`, `simulation.run`
-- `agent.run`, `onboarding.complete`, `admin.open`
+- `agent.run`, `onboarding.complete`, `onboarding.exit`, `admin.open`
+
+`onboarding.exit` records a guide that was closed or skipped before the last
+step; its detail carries `steps` (how many cards were actually opened), `total`
+and the exit `reason`. A closed guide is never reported as a finished tour.
 
 Properties:
 
@@ -56,13 +60,21 @@ Properties:
 - Consecutive duplicates within 3 seconds (same kind, user and detail) collapse.
 - Backdated events are preserved, not collapsed.
 - Fully local: no analytics service, no third-party call.
+- If the browser refuses `localStorage` (blocked or full), events stay in memory
+  for the session and the Usage and Environment tabs say the ledger is not
+  durable instead of implying it survives the tab.
 - The Usage tab offers 7/14/30/90-day windows, a kind filter, CSV export, a daily
   chart, per-workspace and per-user totals, and a two-step "clear this device's
   ledger" action.
+- Clearing is a **whole-ledger** action: the confirmation names the total number
+  of stored events, not just the rows visible in the current window. Audit events
+  are kept, and the clear itself is written to the audit trail.
 
 In cloud mode `src/lib/admin/usageRecorder.ts` mirrors each event into
 `usage_events`. Mirroring is best-effort: a failed insert never breaks the design
-action, and the local ledger remains authoritative for the device.
+action, and the local ledger remains authoritative for the device. A failed
+mirror is surfaced in the Usage tab, naming the database error, because the
+cloud-wide report and the server-side quota trigger did not see that event.
 
 ## Quota enforcement
 
@@ -81,7 +93,9 @@ authority:
 - `enforce_usage_quota()` — `BEFORE INSERT ON usage_events` for `export.run` and
   `simulation.run`, counts today's events and raises at the daily limit.
 - Storage is **not** enforced server-side. The console reports the browser's
-  storage estimate and labels the storage row as advisory.
+  storage estimate and labels the storage row as advisory. When the browser
+  provides no estimate, the row reads **Unavailable** and is not compared to the
+  policy; a missing estimate is never rendered as zero usage.
 - Cloud daily limits count from `date_trunc('day', now())` in the database
   session timezone (UTC by default), so a device in another timezone may see a
   day boundary that differs from its local ledger. The browser check uses the
@@ -141,13 +155,18 @@ Guards:
 ## Verification
 
 - `src/lib/admin/usageLedger.test.ts` — dedupe, backdated events, cap,
-  aggregation, malformed storage.
+  aggregation, malformed storage, and refused reads/writes reported as
+  non-durable rather than silently lost.
 - `src/lib/admin/quotaPolicy.test.ts` — defaults, parsing, persistence,
   enforcement decisions, status thresholds.
 - `src/lib/admin/adminService.test.ts` — offline/cloud access resolution, missing
   schema, self-demotion guard, audit records, capability labels.
 - `src/__tests__/adminConsole.test.tsx` — overview, people, usage, quota save,
-  invalid limits, environment, back navigation.
-- `src/__tests__/appShell.test.tsx` — `/admin` deep link and return to projects.
+  invalid limits, environment, back navigation, CSV download, whole-ledger clear
+  scope, unavailable storage estimate and the non-durable ledger warning.
+- `src/__tests__/adminMirrorError.test.tsx` — a failed `usage_events` mirror is
+  reported in the Usage tab instead of looking like a successful sync.
+- `src/__tests__/appShell.test.tsx` — `/admin` deep link, return to projects,
+  launcher overlays, and workbench shortcuts being ignored on `/admin`.
 - `src/stores/routing.test.ts` — `/admin` is recognised without becoming a
   workspace mode.

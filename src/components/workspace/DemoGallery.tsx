@@ -57,6 +57,13 @@ export default function DemoGallery({ open, onClose, onOpenScenario, onStartTuto
     [],
   )
 
+  // Callers pass an inline close handler; reacting to its identity would clear
+  // the query and steal focus on every unrelated parent render.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
   useEffect(() => {
     if (!open) return
     setQuery('')
@@ -64,7 +71,7 @@ export default function DemoGallery({ open, onClose, onOpenScenario, onStartTuto
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault()
-        onClose()
+        onCloseRef.current()
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -72,7 +79,7 @@ export default function DemoGallery({ open, onClose, onOpenScenario, onStartTuto
       cancelAnimationFrame(frame)
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [open, onClose])
+  }, [open])
 
   const visible = useMemo(
     () =>

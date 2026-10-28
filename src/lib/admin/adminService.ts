@@ -18,7 +18,8 @@ import {
   validateQuotaLimits,
   writeQuotaPolicies,
 } from './quotaPolicy'
-import { getUsageEvents } from './usageLedger'
+import { getUsageEvents, isUsageLedgerPersistent } from './usageLedger'
+import { getLastCloudUsageError } from './usageRecorder'
 
 export type MemberStatus = 'active' | 'suspended'
 
@@ -54,6 +55,10 @@ export interface AdminEnvironment {
   storageUsedMb: number | null
   storageQuotaMb: number | null
   ledgerEvents: number
+  /** False when the browser refused to persist the ledger. */
+  ledgerPersistent: boolean
+  /** Last failure to mirror a usage event into `usage_events`, if any. */
+  cloudUsageMirrorError: string | null
 }
 
 export interface AdminCapabilities {
@@ -390,6 +395,8 @@ export async function loadEnvironment(): Promise<AdminEnvironment> {
     storageUsedMb,
     storageQuotaMb,
     ledgerEvents: getUsageEvents().length,
+    ledgerPersistent: isUsageLedgerPersistent(),
+    cloudUsageMirrorError: getLastCloudUsageError(),
   }
 }
 

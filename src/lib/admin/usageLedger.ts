@@ -45,6 +45,7 @@ export interface UsageSummary {
 let sequence = 0
 let cache: UsageEvent[] = []
 let cacheLoaded = false
+let persistenceFailed = false
 const listeners = new Set<() => void>()
 
 function isUsageEvent(value: unknown): value is UsageEvent {
@@ -62,22 +63,36 @@ function read(): UsageEvent[] {
   if (cacheLoaded) return cache
   cacheLoaded = true
   if (typeof localStorage === 'undefined') return cache
+  let raw: string | null
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(USAGE_STORAGE_KEY) ?? '[]')
+    raw = localStorage.getItem(USAGE_STORAGE_KEY)
+  } catch {
+    // A store that refuses reads is not durable, even if writes have not run yet.
+    persistenceFailed = true
+    return cache
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw ?? '[]')
     cache = Array.isArray(parsed) ? parsed.filter(isUsageEvent).slice(-USAGE_EVENT_CAP) : []
   } catch {
+    // Corrupt JSON is discarded, not a storage failure: the next append rewrites it.
     cache = []
   }
   return cache
 }
 
 function persist(events: UsageEvent[]): void {
-  if (typeof localStorage === 'undefined') return
+  if (typeof localStorage === 'undefined') {
+    persistenceFailed = true
+    return
+  }
   try {
     localStorage.setItem(USAGE_STORAGE_KEY, JSON.stringify(events))
+    persistenceFailed = false
   } catch {
     // Storage can be full or blocked. The in-memory ledger stays usable for
-    // this session; the admin console reports that the ledger is session-only.
+    // this session; `isUsageLedgerPersistent()` lets the admin console say so.
+    persistenceFailed = true
   }
 }
 
@@ -125,6 +140,15 @@ export function getUsageEvents(): readonly UsageEvent[] {
   return read()
 }
 
+/**
+ * True when the ledger is being written to durable browser storage. A blocked
+ * or full store leaves the in-memory ledger usable for this session only, and
+ * the administration console labels that state instead of implying durability.
+ */
+export function isUsageLedgerPersistent(): boolean {
+  return typeof localStorage !== 'undefined' && !persistenceFailed
+}
+
 export function subscribeUsage(listener: () => void): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)
@@ -135,11 +159,14 @@ export function resetUsageLedger(): void {
   cache = []
   cacheLoaded = true
   sequence = 0
-  if (typeof localStorage !== 'undefined') {
+  if (typeof localStorage === 'undefined') {
+    persistenceFailed = true
+  } else {
     try {
       localStorage.removeItem(USAGE_STORAGE_KEY)
+      persistenceFailed = false
     } catch {
-      // ignore
+      persistenceFailed = true
     }
   }
   notify()

@@ -97,6 +97,22 @@ describe('LimitsDialog', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
+  it('keeps the search and family filter when the host re-renders', () => {
+    const { rerender } = render(<LimitsDialog open onClose={() => {}} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /^Circuit simulation/i }))
+    fireEvent.change(screen.getByPlaceholderText(/search methods/i), { target: { value: 'modified nodal' } })
+    expect(expectRow('circuit-dc').trigger).toHaveAttribute('aria-expanded', 'true')
+
+    // A new inline close handler is not a new opening; resetting here discarded
+    // the engineer's filter and search mid-query.
+    rerender(<LimitsDialog open onClose={() => {}} />)
+
+    expect(screen.getByRole('button', { name: /^Circuit simulation/i })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByPlaceholderText(/search methods/i)).toHaveValue('modified nodal')
+    expect(expectRow('circuit-dc').trigger).toHaveAttribute('aria-expanded', 'true')
+  })
+
   it('closes on Escape and on the scrim, and never on the panel itself', () => {
     const { onClose } = open()
     const panel = screen.getByRole('dialog', { name: /capabilities and limits/i })
