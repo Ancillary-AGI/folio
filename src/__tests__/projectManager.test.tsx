@@ -117,7 +117,7 @@ describe('ProjectManager (offline)', () => {
     ).toHaveLength(0)
   })
 
-  it('states the commit history each project really has on this device', async () => {
+  it('states the commit history each project really has in the workspace', async () => {
     const committed = offlineProjectStore.create('user-1', 'Buck Converter')
     offlineProjectStore.create('user-1', 'Never Committed')
     vcsService.initRepo(committed.id)
@@ -128,10 +128,10 @@ describe('ProjectManager (offline)', () => {
 
     // A count, not "Owner": the card states a fact the engineer can act on, and
     // says plainly when a project has no local history at all.
-    expect(screen.getByText('1 local revision · main')).toBeInTheDocument()
-    expect(screen.getByTitle('1 commit on branch main, stored in this browser')).toBeInTheDocument()
+    expect(screen.getByText('1 revision · main')).toBeInTheDocument()
+    expect(screen.getByTitle('1 commit on branch main, stored with the project')).toBeInTheDocument()
     expect(screen.getByText('Never Committed')).toBeInTheDocument()
-    expect(screen.getAllByText('No local history')).toHaveLength(1)
+    expect(screen.getAllByText('No revisions yet')).toHaveLength(1)
   })
 })
 

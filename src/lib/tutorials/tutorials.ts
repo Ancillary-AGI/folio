@@ -72,6 +72,12 @@ export const TUTORIALS: readonly Tutorial[] = [
         mode: 'pcb',
       },
       {
+        title: 'Reserve space and measure it',
+        do: 'Pick Keep-out and drag a rectangle in an empty corner, then pick Measure and click two points across the board.',
+        see: 'The keep-out is hatched wherever you draw it, and DRC reports routed copper that lies inside it. The ruler gives the straight-line distance and Δx/Δy between two snapped points. A keep-out is an axis-aligned rectangle, not a polygon, and the measurement is session-only.',
+        mode: 'pcb',
+      },
+      {
         title: 'Inspect the physical board',
         do: 'Open 3D / AR and orbit the board.',
         see: 'The routed board with part bodies. The outline and copper come from the PCB you just checked, not from a separate model.',

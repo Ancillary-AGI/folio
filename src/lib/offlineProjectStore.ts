@@ -46,7 +46,7 @@ export const offlineProjectStore = {
       id: `local-${Date.now()}-${offlineProjectSeq}`,
       user_id: userId,
       name,
-      description: 'Local-only engineering project',
+      description: 'Engineering project',
       created_at: now,
       updated_at: now,
       canvas_data: { components: [], wires: [], viewport: { zoom: 1, pan: { x: 0, y: 0 } } },

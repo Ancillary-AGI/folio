@@ -10,14 +10,14 @@ opens with or without a project loaded.
 
 ## What is implemented
 
-| Capability | Local mode (no Supabase vars) | Cloud mode (Supabase configured) |
+| Capability | Standalone mode (no Supabase vars) | Cloud mode (Supabase configured) |
 | --- | --- | --- |
-| Access check | Device owner, always allowed | `profiles.role` is owner/admin and `status = active` |
-| People list | One local owner | `profiles` rows, newest sign-ups included |
-| Role changes | Not applicable (one owner) | Admin update, audited |
+| Access check | Workspace administrator, always allowed | `profiles.role` is owner/admin and `status = active` |
+| People list | One administrator | `profiles` rows, newest sign-ups included |
+| Role changes | Not applicable (one administrator) | Admin update, audited |
 | Suspend/restore | Not applicable | Admin update; self-suspension refused |
 | Invitations | Not applicable | **Not shipped** — needs a service-role server function |
-| Usage ledger | Device-local, `folio.usage.v1` | Local ledger plus best-effort `usage_events` rows |
+| Usage ledger | Workspace ledger, `folio.usage.v1` | Workspace ledger plus best-effort `usage_events` rows |
 | Cloud usage feed | Not applicable | Aggregated from `usage_events` (last 10,000 rows) |
 | Quota policies | Cached in `folio.quotas.v1` | Same cache, hydrated from and written back to `quota_policies` |
 | Project quota | Enforced before a project is created | Enforced in the browser *and* by a Postgres trigger |

@@ -25,7 +25,7 @@ describe('CollaborativePanel status row', () => {
     collaborativeEditor.disconnect()
   })
 
-  it('says plainly that a local session does not leave this browser', async () => {
+  it('says plainly that a solo session does not wait for a realtime deployment', async () => {
     render(<CollaborativePanel onClose={() => {}} />)
 
     // Connecting fires the panel's listeners, so the join belongs in act().
@@ -33,7 +33,7 @@ describe('CollaborativePanel status row', () => {
       await collaborativeEditor.connect(user, 'project-status')
     })
 
-    const status = await screen.findByText(/operations stay in this browser/i)
+    const status = await screen.findByText(/operations apply in order/i)
     expect(status).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })

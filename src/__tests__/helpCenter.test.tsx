@@ -64,6 +64,26 @@ describe('help center', () => {
     expect(screen.getByText('Close the open dialog or guide')).toBeInTheDocument()
   })
 
+  it('states what the shell does for access, and what it does not', () => {
+    renderHelp()
+    fireEvent.click(screen.getByRole('tab', { name: /control reference/i }))
+
+    const access = screen.getByRole('region', { name: 'Access and reach' })
+    expect(within(access).getByText(/Skip to the workspace/)).toBeInTheDocument()
+
+    // The list has to keep its confessions visible: a claims sheet that only
+    // shows the wins is the failure mode this app is built to avoid.
+    const gaps = within(access).getAllByText(/^Not covered:/)
+    expect(gaps.length).toBeGreaterThan(0)
+    expect(within(access).getByText(/no screen reader has actually read/i)).toBeInTheDocument()
+
+    // Search reaches it too, rather than hiding it under an unrelated empty state.
+    const search = screen.getByRole('searchbox', { name: /search help/i })
+    fireEvent.change(search, { target: { value: 'high-contrast' } })
+    expect(within(access).getByText(/Windows high-contrast/)).toBeInTheDocument()
+    expect(within(access).queryByText(/Skip to the workspace/)).toBeNull()
+  })
+
   it('keeps the open tab and query when the host re-renders', () => {
     const props = {
       open: true,

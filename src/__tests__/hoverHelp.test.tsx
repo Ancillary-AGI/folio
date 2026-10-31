@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import HoverHelp from '../components/ui/HoverHelp'
-import { HELP_TOPICS, HELP_TOPICS_BY_GROUP, SHORTCUTS, getHelpTopic } from '../lib/help/helpTopics'
+import { HELP_TOPICS, HELP_TOPICS_BY_GROUP, getHelpTopic } from '../lib/help/helpTopics'
+import { SHORTCUTS_BY_ID } from '../lib/keymap/shortcuts'
 import { computeTooltipPlacement } from '../lib/help/tooltipLayout'
 
 describe('help topic registry', () => {
@@ -28,12 +29,16 @@ describe('help topic registry', () => {
     expect(getHelpTopic('missing.topic')).toBeUndefined()
   })
 
-  it('lists shortcuts with a key, an action and where it applies', () => {
-    expect(SHORTCUTS.length).toBeGreaterThan(0)
-    for (const row of SHORTCUTS) {
-      expect(row.keys.length).toBeGreaterThan(0)
-      expect(row.action.trim().length).toBeGreaterThan(0)
-      expect(row.where.trim().length).toBeGreaterThan(0)
+  it('points control topics at a live registry binding or literal keys', () => {
+    const bound = HELP_TOPICS.filter((topic) => 'shortcutId' in topic && topic.shortcutId)
+    expect(bound.length).toBeGreaterThan(0)
+    for (const topic of bound) {
+      // The binding must exist in the live registry, not just be spelled right.
+      const binding = topic as { shortcutId: string }
+      expect(SHORTCUTS_BY_ID.has(binding.shortcutId)).toBe(true)
+    }
+    for (const topic of HELP_TOPICS) {
+      if ('keys' in topic && topic.keys) expect(topic.keys.length).toBeGreaterThan(0)
     }
   })
 })
@@ -74,7 +79,7 @@ describe('hover help', () => {
     )
     const trigger = screen.getByRole('button', { name: 'Save' })
     act(() => trigger.focus())
-    expect(screen.getByRole('tooltip')).toHaveTextContent('Save this snapshot of the design to this device.')
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Save this snapshot of the design to the workspace.')
 
     act(() => trigger.blur())
     expect(screen.queryByRole('tooltip')).toBeNull()

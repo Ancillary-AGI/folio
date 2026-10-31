@@ -249,8 +249,12 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
       return;
     }
 
-    if (!compilationResult?.success) {
-      setToolchainError('Compile the sketch successfully before uploading.');
+    if (!compilationResult?.success || compilationResult.analysisOnly) {
+      setToolchainError(
+        compilationResult?.analysisOnly
+          ? 'Upload needs a compiled image. This build ran static analysis only — compile with arduino-cli or the Arduino IDE to flash the board.'
+          : 'Compile the sketch successfully before uploading.',
+      );
       return;
     }
 
@@ -281,15 +285,19 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
     try {
       const result = await boardProgrammer.compileSketch(code);
       setCompilationResult(result);
-      if (result.success && selectedPort) {
+      if (result.success && result.analysisOnly) {
+        setToolchainError(
+          'Static analysis passed, but no machine code was produced. Install arduino-cli or open the sketch in the Arduino IDE to build and upload it.',
+        );
+      } else if (result.success && !selectedPort) {
+        setToolchainError('No serial port is available in this browser build, so upload cannot proceed.');
+      } else if (result.success && selectedPort) {
         setIsUploading(true);
         try {
           setUploadResult(await boardProgrammer.uploadSketch(selectedPort));
         } finally {
           setIsUploading(false);
         }
-      } else if (result.success && !selectedPort) {
-        setToolchainError('No serial port is available in this browser build, so upload cannot proceed.');
       }
     } catch (error) {
       setCompilationResult({
@@ -357,8 +365,9 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
   return (
     <div className="fixed inset-0 bg-overlay/70 flex items-center justify-center z-50">
       <div className="app-panel flex max-h-[92dvh] w-full max-w-7xl flex-col overflow-y-auto rounded-xl border border-border shadow-2xl lg:h-[90vh] lg:flex-row lg:overflow-hidden">
-        {/* Code Editor */}
-        <div className="flex min-h-0 flex-1 flex-col">
+        {/* Code Editor — natural height while the panel stacks on narrow
+            viewports, so the configuration column cannot squeeze it to zero. */}
+        <div className="flex shrink-0 flex-col lg:min-h-0 lg:shrink lg:flex-1">
           <div className="app-panel-header">
             <h3 className="font-semibold text-surface-foreground">Arduino Programming</h3>
             <div className="flex items-center gap-2">
@@ -524,9 +533,19 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
 
               <Button
                 onClick={handleUpload}
-                disabled={isUploading || !compilationResult?.success || !selectedPort}
+                disabled={
+                  isUploading ||
+                  !compilationResult?.success ||
+                  compilationResult.analysisOnly === true ||
+                  !selectedPort
+                }
                 variant="secondary"
                 className="flex items-center gap-2"
+                title={
+                  compilationResult?.analysisOnly
+                    ? 'Static analysis produces no machine code to flash — install arduino-cli or use the Arduino IDE.'
+                    : 'Flash the compiled image to the selected port.'
+                }
               >
                 {isUploading ? (
                   <>
@@ -541,14 +560,17 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                 )}
               </Button>
 
-              <Button
-                onClick={handleCompileAndUpload}
-                disabled={isCompiling || isUploading || !selectedPort}
-                className="flex items-center gap-2"
-              >
-                <Play className="w-4 h-4" />
-                Compile & Upload
-              </Button>
+              {arduinoIDEVersion ? (
+                <Button
+                  onClick={handleCompileAndUpload}
+                  disabled={isCompiling || isUploading || !selectedPort}
+                  className="flex items-center gap-2"
+                  title="Compile with the detected toolchain, then upload the image."
+                >
+                  <Play className="w-4 h-4" />
+                  Compile &amp; Upload
+                </Button>
+              ) : null}
 
               <Button
                 variant="outline"
@@ -785,6 +807,13 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                       <div className="text-muted-foreground">v{library.version}</div>
                     </div>
                   ))}
+                  {installedLibraries.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      No installed libraries were found. The list comes from arduino-cli, which this
+                      browser build cannot run; on a host with the toolchain, install with{' '}
+                      <code>arduino-cli lib install &lt;name&gt;</code>.
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>

@@ -14,6 +14,7 @@ import { resolveFootprint } from '../manufacturing/footprintLibrary'
 import {
   autoroute,
   buildRouterPads,
+  routerGridMm,
   type RouterConfig,
   type RouterPad,
   type RouterResult,
@@ -25,15 +26,41 @@ export const SCHEMATIC_UNITS_PER_MM = 10
 /** Clearance between the package extent and the board outline. */
 export const BOARD_MARGIN_MM = 5
 
+/**
+ * The signal rules the board is routed with — an ordinary four-layer prototype
+ * fab takes 0.2 / 0.2 mm without argument. The grid is derived from them rather
+ * than written beside them, because the two have to agree: see `routerGridMm`.
+ */
+const BOARD_MIN_TRACE_WIDTH_MM = 0.2
+const BOARD_MIN_SPACING_MM = 0.2
+
 /** Grid and rule set shared by the panel's button and `eda.route`. */
-export const BOARD_ROUTER_DEFAULTS = {
-  gridMm: 0.5,
-  minTraceWidthMm: 0.2,
-  minSpacingMm: 0.2,
+const BOARD_ROUTER_DEFAULTS = {
+  gridMm: routerGridMm(BOARD_MIN_SPACING_MM, BOARD_MIN_TRACE_WIDTH_MM),
+  minTraceWidthMm: BOARD_MIN_TRACE_WIDTH_MM,
+  minSpacingMm: BOARD_MIN_SPACING_MM,
   viaDrillMm: 0.3,
   viaPadMm: 0.6,
   viaPenalty: 8,
 } as const
+
+/**
+ * The shared rules with a caller's overrides applied.
+ *
+ * A caller that tightens the clearance gets the grid that clearance asks for,
+ * unless it names a grid itself — which the demos do, having measured the cell
+ * their own pitch needs. A grid left at the default while the rules change is
+ * the failure `routerGridMm` exists to prevent.
+ */
+export function boardRouterRules(
+  overrides: Partial<RouterConfig> = {},
+): Omit<RouterConfig, 'boardWidthMm' | 'boardHeightMm' | 'layers'> {
+  const rules = { ...BOARD_ROUTER_DEFAULTS, ...overrides }
+  return {
+    ...rules,
+    gridMm: overrides.gridMm ?? routerGridMm(rules.minSpacingMm, rules.minTraceWidthMm),
+  }
+}
 
 export const BOARD_SCENE_LAYERS: PcbSceneInputLayer[] = [
   { id: 'top-cu', name: 'Top Copper', kind: 'copper', color: '#cc0000', visible: true, thicknessMm: 0.035, side: 'top' },
@@ -210,8 +237,7 @@ export function routePlacedBoard(
     boardWidthMm: size.width,
     boardHeightMm: size.height,
     layers: ['F.Cu', 'B.Cu'],
-    ...BOARD_ROUTER_DEFAULTS,
-    ...overrides,
+    ...boardRouterRules(overrides),
   })
   return { nets, pads, result }
 }
@@ -275,6 +301,7 @@ export function fabCopperFromRoutedTraces(traces: readonly RoutedCopper[]): FabT
       netName: trace.netName,
       layer: layer.layer,
       layerName: layer.name,
+      innerIndex: layer.innerIndex,
     }
   })
 }

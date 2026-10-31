@@ -273,7 +273,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
   /*
    * Gallery demo: open a real package, show its manifest and declared
    * permissions, then install it through the same permission-gated service the
-   * Install button uses. Installing here is a local registry operation, not a
+   * Install button uses. Installing here is a registry operation, not a
    * download; native engines still need the companion daemon.
    */
   const runPermissionsDemo = () => {
@@ -328,9 +328,9 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
     }
     const listing = designMarketplace.publish({
       title: draft.name.trim(),
-      author: 'Local user',
+      author: 'Workspace owner',
       category: 'plugin',
-      description: draft.description.trim() || 'Community plugin published from this device.',
+      description: draft.description.trim() || 'Community plugin published from this workspace.',
       version: '0.1.0',
       license: 'MIT',
       tags: [draft.category],
@@ -338,7 +338,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
       payload: { entry: draft.entry.trim() || 'index.js', category: draft.category },
     })
     setCommunityItems(designMarketplace.search(searchQuery))
-    setPublishStatus(`Published "${listing.title}" to the local catalog.`)
+    setPublishStatus(`Published "${listing.title}" to the workspace catalog.`)
     setDraft({ name: '', category: 'tool', description: '', entry: 'dist/index.js' })
   }
 
@@ -396,7 +396,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
             {SEED_FAILURES.length > 0 && (
               <p role="alert" className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
                 {SEED_FAILURES.map((failure) => `${failure.name}: ${failure.reason}`).join(' · ')} — installing
-                these will fail until the local registry accepts them.
+                these will fail until the registry accepts them.
               </p>
             )}
             {/* Featured */}

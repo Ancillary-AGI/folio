@@ -12,6 +12,8 @@ import type { WorkspaceGroupId } from '../workspace/modes'
 export type DemoLoad =
   | 'demo-board'
   | 'demo-pcb'
+  | 'showcase-pcb'
+  | 'laptop-pcb'
   | 'pcb-autoroute'
   | 'rectifier-transient'
   | 'fpga-verilog'
@@ -93,6 +95,33 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     summary: 'Inspect the routed copper, vias, pads and parts, then export the same mesh as STL.',
     proves: ['Real copper geometry', 'Layer and part visibility', 'Mesh export'],
     load: 'demo-pcb',
+  },
+  {
+    id: 'showcase-4l-3d',
+    title: 'Four-layer controller board',
+    mode: 'preview3d',
+    group: 'design',
+    summary: 'A 90 x 68 mm buck-plus-LDO MCU board: 46 real packages, poured ground and 3.3 V planes with anti-pads, and all 26 nets closed by the same A* autorouter the PCB workspace runs.',
+    proves: ['Four-layer stackup with plane pours', 'Fine-pitch QFP fan-out', 'Autorouted to 100%, DRC clean'],
+    load: 'showcase-pcb',
+  },
+  {
+    id: 'laptop-mainboard',
+    title: 'Laptop mainboard, laid out',
+    mode: 'pcb',
+    group: 'design',
+    summary: 'A 245 x 90 mm mainboard on the stackup a real laptop uses: BGA-256 SoC, two LPDDR packages, SPI flash, embedded controller, buck rails on poured planes, and USB-C, eDP, NVMe and keyboard connectors on the edges.',
+    proves: ['56 packages on an eight-layer stackup', 'Six poured planes, 427 stitch vias', '52 of 66 nets routed, the other 14 named'],
+    load: 'laptop-pcb',
+  },
+  {
+    id: 'laptop-mainboard-3d',
+    title: 'Laptop mainboard in 3D',
+    mode: 'preview3d',
+    group: 'design',
+    summary: 'The same board as eight copper layers: routed top and bottom copper, plane films with anti-pad holes, and real BGA, QFP and connector packages. The fourteen nets this router could not close are listed as unrouted instead of drawn as invented copper.',
+    proves: ['Eight-layer stackup rendered', 'Plane pours, anti-pads and stitches', 'Unrouted nets reported, not faked'],
+    load: 'laptop-pcb',
   },
   {
     id: 'rectifier-bom',
@@ -341,7 +370,7 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     title: 'Publish a design bundle',
     mode: 'marketplace',
     group: 'ops',
-    summary: 'Publish the proven rectifier bundle and see it appear in the local marketplace index.',
+    summary: 'Publish the proven rectifier bundle and see it appear in the marketplace index.',
     proves: ['Bundle packaging', 'Versioned listing', 'Local install state'],
     load: 'marketplace-bundle',
   },

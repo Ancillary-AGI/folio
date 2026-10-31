@@ -77,8 +77,8 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
 
       if (error) throw error
 
-      // History and backups live in this browser even when the project row was
-      // cloud-owned, so deleting the project must purge them too.
+      // History and backups live in workspace storage even when the project row
+      // was cloud-owned, so deleting the project must purge them too.
       vcsService.removeRepo(projectId)
       backupService.deleteProjectBackups(projectId)
       setProjects(projects.filter(p => p.id !== projectId))
@@ -109,12 +109,12 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
   return (
     <div className="mx-auto max-w-6xl p-4 sm:p-6">
       <div className="mb-8">
-        <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">Folio workbench</p>
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">Project library</p>
         <h1 className="mb-2 text-2xl font-bold text-foreground sm:text-3xl">Your Projects</h1>
         <p className="max-w-2xl text-muted-foreground">
           {offlineMode
-            ? 'Schematic, PCB, mechanical, robotics and firmware state for every project lives on this device.'
-            : 'Project rows live in your cloud workspace; version history and backups stay in this browser.'}
+            ? 'Schematic, PCB, mechanical, robotics and firmware state for every project is kept together.'
+            : 'Projects are stored in your cloud workspace; version history and backups are kept with each project.'}
         </p>
         <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Supported disciplines">
           {['Schematic', 'PCB', '3D preview', 'Simulation', 'Mechanical', 'HDL / IC', 'Robotics', 'Operations'].map((discipline) => (
@@ -199,13 +199,14 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredProjects.map((project) => {
-            // Commit history is device-local even for a cloud row, so this is the
-            // revision count on this browser — not the project's whole history.
+            // Commit history is kept with the local workspace even for a cloud row,
+            // so this is the revision count available here — not the project's
+            // whole history on other machines.
             const repo = vcsService.getRepo(project.id)
             const revisionCount = repo ? Object.keys(repo.commits).length : 0
             const historyTitle = repo
-              ? `${revisionCount} ${revisionCount === 1 ? 'commit' : 'commits'} on branch ${repo.currentBranch}, stored in this browser`
-              : 'No commit has been taken from this browser for this project'
+              ? `${revisionCount} ${revisionCount === 1 ? 'commit' : 'commits'} on branch ${repo.currentBranch}, stored with the project`
+              : 'No commit has been taken for this project yet'
             return (
             <Card
               key={project.id}
@@ -236,7 +237,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
               
               <CardContent className="pt-0">
                 <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                  <div className="flex items-center gap-1" title="Last modified on this device">
+                  <div className="flex items-center gap-1" title="Last modified">
                     <Calendar className="w-3 h-3" />
                     {new Date(project.updated_at).toLocaleDateString()}
                   </div>
@@ -246,8 +247,8 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
                   >
                     <History className="w-3 h-3" />
                     {repo
-                      ? `${revisionCount} local revision${revisionCount === 1 ? '' : 's'} · ${repo.currentBranch}`
-                      : 'No local history'}
+                      ? `${revisionCount} revision${revisionCount === 1 ? '' : 's'} · ${repo.currentBranch}`
+                      : 'No revisions yet'}
                   </div>
                 </div>
                 

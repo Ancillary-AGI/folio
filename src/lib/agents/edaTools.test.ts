@@ -4,7 +4,10 @@ import { planEdaFlow, planEdaRun, registerEdaTools } from './edaTools';
 import type { Component } from '../supabase';
 import { standardComponents } from '../componentLibrary';
 import { buildDemoBoard } from '../demo/demoBoard';
+import { boxMeshObj } from '../3d/meshFixtures';
+import { parseObj } from '../3d/objImporter';
 import type { PcbSceneInput } from '../pcb/pcbScene';
+import { useEnclosureStore } from '../../stores/useEnclosureStore';
 import { useProjectStore, type CanvasComponent, type CanvasWire } from '../../stores/useProjectStore';
 import type { PcbSnapshot } from './pcbSnapshot';
 
@@ -85,17 +88,69 @@ interface ObserveResult {
   source: 'store' | 'payload';
   snapshot: PcbSnapshot;
   svg: string;
+  enclosure: EnclosureBlock | null;
+}
+
+interface EnclosureBlock {
+  name: string;
+  format: 'ascii' | 'binary' | 'obj';
+  assumedUnit: 'mm';
+  cavityMm: { width: number; depth: number; height: number };
+  stackMm: { width: number; depth: number; height: number };
+  clearanceMm: { negX: number; posX: number; negZ: number; posZ: number; negY: number; posY: number };
+  tightestMm: number;
+  tightestSide: string;
+  fits: boolean;
+  shell: string;
+  shellClosed: boolean | null;
+  openEdges: number;
+  nonManifoldEdges: number;
+  inconsistentEdges: number;
+  alignment: string;
+  role: string;
+}
+
+/** A board with one top-side part, so lid room is the interesting clearance. */
+const BOARD: PcbSceneInput = {
+  widthMm: 40,
+  heightMm: 20,
+  thicknessMm: 1.6,
+  layers: [
+    { id: 'top-cu', name: 'Top Copper', kind: 'copper', color: '#cc0000', visible: true, side: 'top' },
+    { id: 'bot-cu', name: 'Bottom Copper', kind: 'copper', color: '#ffaa00', visible: true, side: 'bottom' },
+  ],
+  traces: [],
+  vias: [],
+  components: [{ id: 'r1', reference: 'R1', footprint: '0805', x: 20, y: 10 }],
+};
+
+function importEnclosure(name: string, objText: string, projectId: string | null = null): void {
+  useEnclosureStore.getState().setEnclosure({ name, mesh: parseObj(objText), projectId });
+}
+
+/**
+ * Observe a payload board and take the fit verdict the agent is shown. The shell
+ * comes from the real OBJ reader, so the mesh in the store is one a designer's
+ * file could have produced.
+ */
+async function observeEnclosure(h: AgentHarness, board: PcbSceneInput): Promise<EnclosureBlock> {
+  const observed = await h.call('eda.observe', { board: JSON.stringify(board) }, budget(), allow);
+  expect(observed.error).toBeUndefined();
+  const enclosure = (observed.result as ObserveResult).enclosure;
+  if (!enclosure) throw new Error('eda.observe reported no enclosure for an imported shell');
+  return enclosure;
 }
 
 describe('EDA tools wired to real engines', () => {
   beforeEach(() => {
     useProjectStore.setState({ components: [], wires: [], pcbLayout: null });
+    useEnclosureStore.getState().setEnclosure(null);
   });
 
   it('simulates a real voltage divider through the SPICE engine', async () => {
     const h = new AgentHarness();
     registerEdaTools(h);
-    expect(h.listTools()).toEqual(['eda.simulate', 'eda.route', 'eda.observe', 'eda.movePart', 'eda.addTrace', 'eda.addVia', 'eda.drc', 'eda.exportFab']);
+    expect(h.listTools()).toEqual(['eda.simulate', 'eda.route', 'eda.editSymbol', 'eda.observe', 'eda.movePart', 'eda.addTrace', 'eda.addVia', 'eda.drc', 'eda.exportFab']);
     const b = budget();
     const netlist = {
       title: 'divider', components: [
@@ -162,9 +217,11 @@ describe('EDA tools wired to real engines', () => {
     expect(pkg.project).toBe('demo');
     expect(pkg.shippable).toBe(true);
     expect(pkg.refused).toBe(false);
-    expect(pkg.files).toBe(10);
+    // The routed scene declares four copper layers, so both inner films ship.
+    expect(pkg.files).toBe(12);
     expect(pkg.manifest).toEqual(expect.arrayContaining([
-      'demo-F_Cu.gtl', 'demo-B_Cu.gbl', 'demo-F_Mask.gts', 'demo-B_Mask.gbs',
+      'demo-F_Cu.gtl', 'demo-In1_Cu.g1', 'demo-In2_Cu.g2', 'demo-B_Cu.gbl',
+      'demo-F_Mask.gts', 'demo-B_Mask.gbs',
       'demo-F_Silk.gto', 'demo-B_Silk.gbo', 'demo-Edge_Cuts.gm1', 'demo.drl',
       'demo-centroid.csv', 'demo-bom.csv',
     ]));
@@ -202,6 +259,55 @@ describe('EDA tools wired to real engines', () => {
     expect(pkg.centroid).toBe(5);
     expect(pkg.bom).toBe(5);
     expect(pkg.manifest).toContain('rectifier.drl');
+  });
+
+  it('edits a placed part\'s symbol across its instances and refuses a broken draft', async () => {
+    useProjectStore.setState({
+      components: [resistor('R1', 20, 20), resistor('R2', 80, 20)],
+      wires: [],
+      pcbLayout: null,
+    });
+    const h = new AgentHarness();
+    registerEdaTools(h);
+    const b = budget();
+
+    const edited = await h.call('eda.editSymbol', { reference: 'R1', width: 120, height: 40 }, b, allow);
+    expect(edited.error).toBeUndefined();
+    expect(edited.result).toMatchObject({ published: true, instances: 2, width: 120, height: 40 });
+
+    const widths = useProjectStore.getState().components.map((entry) => entry.component.symbol_data.width);
+    expect(widths).toEqual([120, 120]);
+    // Pin coordinates outside the new body are refused, and nothing is written.
+    const refused = await h.call('eda.editSymbol', { reference: 'R2', width: 20 }, b, allow);
+    expect(refused.error ?? '').toContain('outside the symbol body');
+    expect(useProjectStore.getState().components[0].component.symbol_data.width).toBe(120);
+  });
+
+  it('pours the inner film the live stack names, and refuses one with no connection', async () => {
+    useProjectStore.setState(sheet());
+    const h = new AgentHarness();
+    registerEdaTools(h);
+    const b = budget();
+    await h.call('eda.route', {}, b, allow);
+
+    const layout = useProjectStore.getState().pcbLayout!;
+    useProjectStore.getState().setPcbLayout({
+      ...layout,
+      layers: layout.layers.map((layer) => (layer.id === 'in1-cu' ? { ...layer, net: 'A' } : layer)),
+    });
+
+    // 0805 pads are SMD: without a drilled barrel the pour would float.
+    const floating = await h.call('eda.exportFab', { project: 'plane' }, b, allow);
+    const refused = floating.result as ExportResult & { violations: Array<{ rule?: string; message: string }> };
+    expect(refused.refused).toBe(true);
+    expect(refused.violations.some((violation) => violation.rule === 'plane-floating')).toBe(true);
+
+    const via = await h.call('eda.addVia', { net: 'A', x: layout.widthMm / 2, y: layout.heightMm / 2 }, b, allow);
+    expect(via.error).toBeUndefined();
+    const poured = await h.call('eda.exportFab', { project: 'plane' }, b, allow);
+    const pkg = poured.result as ExportResult & { planes: Array<{ film: string; netName: string; connections: number; antiPads: number }> };
+    expect(pkg.shippable).toBe(true);
+    expect(pkg.planes).toEqual([{ film: 'inner-1', netName: 'A', connections: 1, antiPads: 0 }]);
   });
 
   it('refuses routed copper whose net is split into disconnected islands', async () => {
@@ -394,6 +500,97 @@ describe('EDA tools wired to real engines', () => {
     expect(malformed.error).toMatch(/not valid JSON/);
     const incomplete = await h.call('eda.observe', { board: JSON.stringify({ widthMm: 10 }) }, b, allow);
     expect(incomplete.error).toMatch(/needs widthMm/);
+  });
+
+  it('reports no enclosure at all when none was imported', async () => {
+    const h = new AgentHarness();
+    registerEdaTools(h);
+    const observed = await h.call('eda.observe', { board: JSON.stringify(BOARD) }, budget(), allow);
+    expect(observed.error).toBeUndefined();
+    expect((observed.result as ObserveResult).enclosure).toBeNull();
+  });
+
+  it('gives the agent the cavity, the clearance on every side and a board that fits', async () => {
+    importEnclosure('housing.obj', boxMeshObj(60, 40, 10));
+    const h = new AgentHarness();
+    registerEdaTools(h);
+    const fit = await observeEnclosure(h, BOARD);
+    expect(fit.name).toBe('housing.obj');
+    expect(fit.format).toBe('obj');
+    expect(fit.assumedUnit).toBe('mm');
+    expect(fit.cavityMm).toEqual({ width: 60, depth: 40, height: 10 });
+    // The stack is the board outline widened to the part that sits on it.
+    expect(fit.stackMm.width).toBe(40);
+    expect(fit.stackMm.depth).toBe(20);
+    expect(fit.stackMm.height).toBeGreaterThan(1.6);
+    expect(fit.clearanceMm.negX).toBeCloseTo(10, 9);
+    expect(fit.clearanceMm.posX).toBeCloseTo(10, 9);
+    expect(fit.clearanceMm.negZ).toBeCloseTo(10, 9);
+    expect(fit.clearanceMm.posZ).toBeCloseTo(10, 9);
+    expect(fit.clearanceMm.negY).toBeCloseTo(4.2, 9);
+    expect(fit.fits).toBe(true);
+    expect(fit.tightestMm).toBeCloseTo(fit.clearanceMm.posY, 9);
+    // A top-side part eats lid room before it eats wall room, and the verdict says so.
+    expect(fit.clearanceMm.posY).toBeLessThan(fit.clearanceMm.negY);
+    expect(fit.tightestSide).toBe('lid');
+    expect(fit.shell).toBe('closed solid');
+    expect(fit.shellClosed).toBe(true);
+    expect(fit.openEdges).toBe(0);
+    expect(fit.alignment).toBe('bounding-box centres coincident');
+    expect(fit.role).toMatch(/excluded from the fab package/);
+    expect(fit.role).toMatch(/bounding boxes/);
+  });
+
+  it('names the wall the board breaks out of instead of calling it a fit', async () => {
+    importEnclosure('too-narrow.obj', boxMeshObj(30, 40, 10));
+    const h = new AgentHarness();
+    registerEdaTools(h);
+    const fit = await observeEnclosure(h, BOARD);
+    expect(fit.fits).toBe(false);
+    expect(fit.clearanceMm.negX).toBeCloseTo(-5, 9);
+    expect(fit.clearanceMm.posX).toBeCloseTo(-5, 9);
+    expect(fit.tightestMm).toBeCloseTo(-5, 9);
+    expect(fit.tightestSide).toBe('left wall');
+  });
+
+  it('surfaces a broken shell rather than a confident verdict on a bad mesh', async () => {
+    // A flat sheet: an envelope the board pokes through, and an open boundary.
+    importEnclosure('lid-only.obj', 'v -30 -20 -20\nv 30 -20 -20\nv 30 -20 20\nv -30 -20 20\nf 1 2 3 4');
+    const h = new AgentHarness();
+    registerEdaTools(h);
+    const fit = await observeEnclosure(h, BOARD);
+    expect(fit.shell).toBe('Not a closed solid: 4 open edges');
+    expect(fit.shellClosed).toBe(false);
+    expect(fit.openEdges).toBe(4);
+    expect(fit.fits).toBe(false);
+  });
+
+  it('withholds an enclosure imported for a different project', async () => {
+    importEnclosure('other-board.obj', boxMeshObj(60, 40, 10), 'some-other-project');
+    const h = new AgentHarness();
+    registerEdaTools(h);
+    const observed = await h.call('eda.observe', { board: JSON.stringify(BOARD) }, budget(), allow);
+    expect((observed.result as ObserveResult).enclosure).toBeNull();
+  });
+
+  it('fits the routed board in the store, not only a payload board', async () => {
+    useProjectStore.setState(sheet());
+    const h = new AgentHarness();
+    registerEdaTools(h);
+    const b = budget();
+    const routed = await h.call('eda.route', {}, b, allow);
+    expect(routed.error).toBeUndefined();
+    const board = (routed.result as RouteResult).board;
+    importEnclosure('housing.obj', boxMeshObj(board.widthMm * 2, board.heightMm * 2, 40));
+    const observed = await h.call('eda.observe', {}, b, allow);
+    expect(observed.error).toBeUndefined();
+    const enclosure = (observed.result as ObserveResult).enclosure;
+    if (!enclosure) throw new Error('eda.observe reported no enclosure for a routed board');
+    // The routed board may carry a part overhanging the outline; the stack has to
+    // be at least the board itself, and a cavity twice its size has to take it.
+    expect(enclosure.stackMm.width).toBeGreaterThanOrEqual(board.widthMm - 1e-6);
+    expect(enclosure.stackMm.depth).toBeGreaterThanOrEqual(board.heightMm - 1e-6);
+    expect(enclosure.fits).toBe(true);
   });
 
   it('moves a placed part and re-routes so copper matches the new pads', async () => {
@@ -598,5 +795,21 @@ describe('EDA tools wired to real engines', () => {
 
     const board = planEdaFlow('Inspect the routed board', context);
     expect(board?.steps.map((step) => step.tool)).not.toContain('cad.observe');
+  });
+
+  it('plans a JLCPCB fab prompt as export, not routing, with the export step gated', () => {
+    const context = { netlist: '{}', components: '[]', wires: '[]', schematic: '{}' };
+    const plan = planEdaFlow('Generate a complete Gerber + Excellon + centroid package for JLCPCB.', context);
+    expect(plan?.steps.map((step) => step.tool)).toEqual(['eda.simulate', 'eda.drc', 'eda.exportFab']);
+    expect(plan?.needsApproval).toEqual(['eda.exportFab']);
+  });
+
+  it('does not confuse DRC with a DC simulation', () => {
+    const context = { netlist: '{}', components: '[]', wires: '[]', schematic: '{}' };
+    const plan = planEdaFlow('Run DRC on the current board', context);
+    expect(plan?.steps.map((step) => step.tool)).toEqual(['eda.drc']);
+
+    const dc = planEdaFlow('Run a DC operating point simulation', context);
+    expect(dc?.steps.map((step) => step.tool)).toEqual(['eda.simulate']);
   });
 });

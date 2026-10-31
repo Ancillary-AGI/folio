@@ -54,7 +54,7 @@ export default function AutopilotWorkspace({ onSessionSaved }: AutopilotWorkspac
           )
         })}
         <span className="ml-auto pr-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-          Closed loop · local
+          Closed loop · in-process
         </span>
       </div>
 

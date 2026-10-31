@@ -6,8 +6,13 @@ import { useProjectStore } from '../stores/useProjectStore'
 import { useTheme } from '../lib/theme/useTheme'
 import { THEMES, hslTripletToRgb, rgbToHex } from '../lib/theme/tokens'
 import Konva from 'konva'
+import { useShortcutStore } from '../stores/useShortcutStore'
+import { isEditableTarget, matchesShortcut } from '../lib/keymap/shortcuts'
 import { generateId } from '../lib/utils'
+import { placePart } from '../lib/schematic/placePart'
 import { applyContextAction, CONTEXT_ACTIONS, validateSymbol, type ContextActionId } from '../lib/schematic/contextMenu'
+import SchematicSymbolEditor from './SchematicSymbolEditor'
+import SketchLayer from './sketch/SketchLayer'
 import { routePoints } from '../lib/schematic/wireRouting'
 import {
   drawingExtents,
@@ -24,6 +29,43 @@ const RULER_STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000
 /** Compact coordinate label for rulers and the HUD. */
 const fmtCoord = (value: number) =>
   Math.abs(value) >= 1000 ? String(Math.round(value)) : String(Math.round(value * 10) / 10)
+
+type Box = { minX: number; minY: number; maxX: number; maxY: number }
+
+/**
+ * Axis-aligned bounds of a placed part, including rotation. Konva turns a part
+ * about its origin, so rotating the four symbol corners and taking their
+ * envelope is the same rectangle the user sees on the sheet.
+ */
+function placedBounds(comp: {
+  x: number
+  y: number
+  rotation: number
+  component: { symbol_data: { width: number; height: number } }
+}): Box {
+  const width = comp.component.symbol_data.width
+  const height = comp.component.symbol_data.height
+  const radians = (comp.rotation * Math.PI) / 180
+  const cos = Math.cos(radians)
+  const sin = Math.sin(radians)
+  const corners = [
+    [0, 0],
+    [width, 0],
+    [width, height],
+    [0, height],
+  ].map(([x, y]) => ({ x: comp.x + x * cos - y * sin, y: comp.y + x * sin + y * cos }))
+  return {
+    minX: Math.min(...corners.map((point) => point.x)),
+    minY: Math.min(...corners.map((point) => point.y)),
+    maxX: Math.max(...corners.map((point) => point.x)),
+    maxY: Math.max(...corners.map((point) => point.y)),
+  }
+}
+
+/** Marquee semantics are "touch": a part is caught if its box overlaps. */
+function boxOverlaps(a: Box, b: Box): boolean {
+  return a.minX <= b.maxX && a.maxX >= b.minX && a.minY <= b.maxY && a.maxY >= b.minY
+}
 
 interface SchematicCanvasProps {
   components: Component[]
@@ -46,6 +88,27 @@ export default function SchematicCanvas({
   const [isDragging, setIsDragging] = useState(false)
   /** Middle-button / space-drag pan state (the ONLY way the sheet moves). */
   const [panning, setPanning] = useState<{ startX: number; startY: number; panX: number; panY: number } | null>(null)
+  /**
+   * Rubber-band selection in world coordinates. Started by a left drag on empty
+   * sheet with the select tool; a press that never moves keeps its old meaning
+   * (click empty space to clear the selection).
+   */
+  const [marquee, setMarquee] = useState<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null)
+  const marqueeRef = useRef<{
+    start: { x: number; y: number }
+    end: { x: number; y: number }
+    startClient: { clientX: number; clientY: number }
+    additive: boolean
+    moved: boolean
+  } | null>(null)
+  /** Suppresses the click that the browser fires immediately after a marquee. */
+  const marqueeJustEnded = useRef(false)
+  /** Konva groups by id, so a multi-part drag can move siblings live. */
+  const groupRefs = useRef(new Map<string, Konva.Group>())
+  const dragGroupRef = useRef<{
+    start: { x: number; y: number }
+    others: Array<{ id: string; x: number; y: number }>
+  } | null>(null)
   /** rAF-throttled crosshair position in screen pixels. */
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   const cursorFrame = useRef<number | null>(null)
@@ -281,8 +344,31 @@ export default function SchematicCanvas({
     lastWheelZoom.current = performance.now()
   }
 
-  const handleDragStart = () => {
+  const handleDragStart = (e: Konva.KonvaEventObject<DragEvent>) => {
     setIsDragging(true)
+    const id = e.target.id()
+    const start = e.target.position()
+    // Dragging any part of a multi-selection moves the whole group, the way a
+    // CAD editor treats a selection as one object.
+    dragGroupRef.current = selectedComponents.includes(id) && selectedComponents.length > 1
+      ? {
+          start,
+          others: canvasComponents
+            .filter((comp) => comp.id !== id && selectedComponents.includes(comp.id))
+            .map((comp) => ({ id: comp.id, x: comp.x, y: comp.y })),
+        }
+      : null
+  }
+
+  /** Move sibling groups with the pointer without touching the store yet. */
+  const handleDragMove = (e: Konva.KonvaEventObject<DragEvent>) => {
+    const drag = dragGroupRef.current
+    if (!drag || drag.others.length === 0) return
+    const dx = e.target.x() - drag.start.x
+    const dy = e.target.y() - drag.start.y
+    for (const other of drag.others) {
+      groupRefs.current.get(other.id)?.position({ x: other.x + dx, y: other.y + dy })
+    }
   }
 
   /*
@@ -291,35 +377,52 @@ export default function SchematicCanvas({
    * showed them frozen mid-air). Corners survive: the moved endpoint rides
    * the pin delta, the joint before it holds unless the segment collapses.
    */
+  const movePartWithWires = (
+    moved: (typeof canvasComponents)[number],
+    newPos: { x: number; y: number },
+  ) => {
+    const store = useProjectStore.getState()
+    for (const wire of store.wires) {
+      // Stretch every point attached to the dragged part; hold the rest.
+      // The old endpoint-only version left T-junction middles behind,
+      // which is why your screenshot showed segments floating off-pin.
+      const pinsById = new Map(moved.component.pins.map((p) => [p.id, p]))
+      const landed = new Map<number, { x: number; y: number }>()
+      wire.connectedPins.forEach((pinned) => {
+        if (pinned.componentId !== moved.id) return
+        const pin = pinsById.get(pinned.pinId)
+        if (!pin) return
+        const rotated = rotatePinCoord(pin, moved.rotation)
+        const at = { x: newPos.x + rotated.x, y: newPos.y + rotated.y }
+        wire.points.forEach((pt, index) => {
+          if (Math.hypot(pt.x - (moved.x + rotated.x), pt.y - (moved.y + rotated.y)) < 1.5) {
+            landed.set(index, at)
+          }
+        })
+      })
+      if (landed.size === 0) continue
+      const points = wire.points.map((pt, index) => landed.get(index) ?? pt)
+      store.updateWire(wire.id, { points })
+    }
+    updateComponent(moved.id, { x: newPos.x, y: newPos.y })
+  }
+
   const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
     const id = e.target.id()
     const newPos = e.target.position()
     const moved = canvasComponents.find(c => c.id === id)
+    const drag = dragGroupRef.current
+    dragGroupRef.current = null
     if (id && moved) {
-      const store = useProjectStore.getState()
-      for (const wire of store.wires) {
-        // Stretch every point attached to the dragged part; hold the rest.
-        // The old endpoint-only version left T-junction middles behind,
-        // which is why your screenshot showed segments floating off-pin.
-        const pinsById = new Map(moved.component.pins.map((p) => [p.id, p]))
-        const landed = new Map<number, { x: number; y: number }>()
-        wire.connectedPins.forEach((pinned) => {
-          if (pinned.componentId !== id) return
-          const pin = pinsById.get(pinned.pinId)
-          if (!pin) return
-          const rotated = rotatePinCoord(pin, moved.rotation)
-          const at = { x: newPos.x + rotated.x, y: newPos.y + rotated.y }
-          wire.points.forEach((pt, index) => {
-            if (Math.hypot(pt.x - (moved.x + rotated.x), pt.y - (moved.y + rotated.y)) < 1.5) {
-              landed.set(index, at)
-            }
-          })
-        })
-        if (landed.size === 0) continue
-        const points = wire.points.map((pt, index) => landed.get(index) ?? pt)
-        store.updateWire(wire.id, { points })
+      movePartWithWires(moved, newPos)
+      if (drag && drag.others.length > 0) {
+        const dx = newPos.x - drag.start.x
+        const dy = newPos.y - drag.start.y
+        for (const other of drag.others) {
+          const comp = canvasComponents.find(c => c.id === other.id)
+          if (comp) movePartWithWires(comp, { x: other.x + dx, y: other.y + dy })
+        }
       }
-      updateComponent(id, { x: newPos.x, y: newPos.y })
       markDirty()
     }
     setIsDragging(false)
@@ -338,19 +441,7 @@ export default function SchematicCanvas({
       pos.y = Math.round(pos.y / currentSettings.gridSize) * currentSettings.gridSize
     }
 
-    const placedCount = useProjectStore.getState().components.length
-    const canvasComponent = {
-      id: generateId('comp'),
-      componentId: libraryComponent.id!,
-      component: libraryComponent,
-      x: pos.x,
-      y: pos.y,
-      rotation: 0,
-      reference: `${libraryComponent.name.charAt(0)}${placedCount + 1}`,
-      properties: { ...libraryComponent.default_properties }
-    }
-
-    addComponent(canvasComponent)
+    addComponent(placePart(libraryComponent, useProjectStore.getState().components, pos))
     markDirty()
   }
 
@@ -371,15 +462,13 @@ export default function SchematicCanvas({
 
   const handleStageClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
     setHoveredWire(null)
+    // The browser fires click after the mouseup that ended a marquee.
+    if (marqueeJustEnded.current) {
+      marqueeJustEnded.current = false
+      return
+    }
     if (e.target !== e.target.getStage()) return
     const pointer = e.target.getStage()?.getPointerPosition()
-
-    // Left-drag on EMPTY sheet with the select tool was a pan, not a click:
-    // the viewport already moved under handleMouseMove. Swallow it.
-    if (activeTool === 'select' && !pendingComponent && panning && pointer) {
-      const moved = Math.hypot(e.evt.clientX - panning.startX, e.evt.clientY - panning.startY)
-      if (moved > 3) return
-    }
 
     // Armed library part: drop it on the empty sheet.
     if (pendingComponent && pointer) {
@@ -403,7 +492,7 @@ export default function SchematicCanvas({
     setSelectedComponents([])
   }
 
-  const handleComponentClick = (id: string, pinId?: string) => {
+  const handleComponentClick = (id: string, pinId?: string, additive = false) => {
     // A drag-end click carries no pin and must not re-select the part.
     if (isDragging && !pinId) return
     // Delete tool removes the part in place of selecting it.
@@ -420,10 +509,19 @@ export default function SchematicCanvas({
       return
     }
 
+    if (additive) {
+      setSelectedComponents(selectedComponents.includes(id)
+        ? selectedComponents.filter((selectedId) => selectedId !== id)
+        : [...selectedComponents, id])
+      return
+    }
+
     setSelectedComponents([id])
   }
 
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  /** Placed part whose library symbol the editor dialog is open on. */
+  const [symbolEditorId, setSymbolEditorId] = useState<string | null>(null)
 
   /*
    * Click-to-click wiring with the wire tool armed: first pin click starts,
@@ -514,16 +612,52 @@ export default function SchematicCanvas({
   }
 
   const screenToWorld = (screen: { x: number; y: number }): { x: number; y: number } => {
-    const { viewport: currentViewport, settings: currentSettings } = useAppStore.getState()
-    const pos = {
-      x: (screen.x - currentViewport.pan.x) / currentViewport.zoom,
-      y: (screen.y - currentViewport.pan.y) / currentViewport.zoom,
-    }
+    const { settings: currentSettings } = useAppStore.getState()
+    const pos = screenToWorldRaw(screen)
     if (currentSettings.snapToGrid) {
       pos.x = Math.round(pos.x / currentSettings.gridSize) * currentSettings.gridSize
       pos.y = Math.round(pos.y / currentSettings.gridSize) * currentSettings.gridSize
     }
     return pos
+  }
+
+  /** Pointer → sheet millimetres without grid snapping (marquee corners). */
+  const screenToWorldRaw = (screen: { x: number; y: number }): { x: number; y: number } => {
+    const { viewport: currentViewport } = useAppStore.getState()
+    return {
+      x: (screen.x - currentViewport.pan.x) / currentViewport.zoom,
+      y: (screen.y - currentViewport.pan.y) / currentViewport.zoom,
+    }
+  }
+
+  /**
+   * End a rubber band: select every part it touches. Shift keeps the existing
+   * selection and adds to it, which is why the modifier is captured at press
+   * time rather than read from the mouse-up event.
+   */
+  const finishMarquee = () => {
+    const active = marqueeRef.current
+    marqueeRef.current = null
+    setMarquee(null)
+    if (!active) return
+    if (!active.moved) {
+      // A press that never moved is still "click empty sheet".
+      if (!active.additive) setSelectedComponents([])
+      return
+    }
+    marqueeJustEnded.current = true
+    const rect: Box = {
+      minX: Math.min(active.start.x, active.end.x),
+      minY: Math.min(active.start.y, active.end.y),
+      maxX: Math.max(active.start.x, active.end.x),
+      maxY: Math.max(active.start.y, active.end.y),
+    }
+    const hits = canvasComponents
+      .filter((comp) => boxOverlaps(placedBounds(comp), rect))
+      .map((comp) => comp.id)
+    setSelectedComponents(active.additive
+      ? Array.from(new Set([...selectedComponents, ...hits]))
+      : hits)
   }
 
   const handleComponentContextMenu = (event: Konva.KonvaEventObject<PointerEvent>, id: string) => {
@@ -536,6 +670,11 @@ export default function SchematicCanvas({
 
   const handleMenuAction = (action: ContextActionId) => {
     if (!menu) return
+    if (action === 'edit-symbol') {
+      setSymbolEditorId(menu.id)
+      setMenu(null)
+      return
+    }
     const next = applyContextAction(useProjectStore.getState().components, menu.id, action, () => generateId('comp'))
     useProjectStore.setState({ components: next })
     markDirty()
@@ -601,34 +740,26 @@ export default function SchematicCanvas({
    * Re-registering the listener on every selection change is what made the
    * previous version stale-prone.
    */
+  const shortcutOverrides = useShortcutStore((s) => s.overrides)
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (matchesShortcut(event, 'schematic.cancel', shortcutOverrides)) {
         // Cancel an in-progress wire first; the sheet owns this shortcut while wiring.
         if (wireStart) {
           setWireStart(null)
           return
         }
       }
-      if (event.key !== 'Delete' && event.key !== 'Backspace') return
+      if (!matchesShortcut(event, 'schematic.deleteSelection', shortcutOverrides)) return
       // Never eat keys while the user is typing in a field.
-      const target = event.target as HTMLElement | null
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'SELECT' ||
-          target.isContentEditable)
-      ) {
-        return
-      }
+      if (isEditableTarget(event.target)) return
       if (selectedComponents.length === 0) return
       event.preventDefault()
       selectedComponents.forEach((id) => removeComponent(id))
       setSelectedComponents([])
       markDirty()
     },
-    [wireStart, selectedComponents, removeComponent, setSelectedComponents, markDirty],
+    [wireStart, selectedComponents, removeComponent, setSelectedComponents, markDirty, shortcutOverrides],
   )
 
   useEffect(() => {
@@ -910,13 +1041,18 @@ export default function SchematicCanvas({
       <Group
         key={canvasComp.id}
         id={canvasComp.id}
+        ref={(node) => {
+          if (node) groupRefs.current.set(canvasComp.id, node)
+          else groupRefs.current.delete(canvasComp.id)
+        }}
         x={canvasComp.x}
         y={canvasComp.y}
         rotation={canvasComp.rotation}
         draggable={activeTool === 'select'}
         onDragStart={handleDragStart}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
-        onClick={() => handleComponentClick(canvasComp.id)}
+        onClick={(event) => handleComponentClick(canvasComp.id, undefined, event.evt.shiftKey)}
         onContextMenu={(event) => handleComponentContextMenu(event, canvasComp.id)}
         onMouseEnter={() => {
           setHoveredWire(null)
@@ -1008,7 +1144,7 @@ export default function SchematicCanvas({
             hitStrokeWidth={14}
             onClick={(event) => {
               event.cancelBubble = true
-              handleComponentClick(canvasComp.id, pin.id)
+              handleComponentClick(canvasComp.id, pin.id, event.evt.shiftKey)
             }}
             onMouseDown={(event) => {
               if (activeTool === 'wire') {
@@ -1206,6 +1342,18 @@ export default function SchematicCanvas({
         y: Math.min(margin, Math.max(-margin, panning.panY + (e.clientY - panning.startY))),
       })
     }
+    const band = marqueeRef.current
+    if (band) {
+      // A few pixels of shake should not turn a clearing click into a band.
+      if (!band.moved
+        && Math.hypot(e.clientX - band.startClient.clientX, e.clientY - band.startClient.clientY) > 3) {
+        band.moved = true
+      }
+      if (band.moved) {
+        band.end = screenToWorldRaw({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+        setMarquee({ start: band.start, end: band.end })
+      }
+    }
     pendingCursor.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
     if (cursorFrame.current !== null) return
     cursorFrame.current = requestAnimationFrame(() => {
@@ -1285,16 +1433,19 @@ export default function SchematicCanvas({
       onMouseLeave={handleMouseLeave}
       onMouseDown={(e) => {
         // Middle button always starts a clamped pan (applied by
-        // handleMouseMove while `panning` is set). Left-drag pan on empty
-        // sheet starts from the Konva stage handler, which knows whether the
-        // press landed on empty sheet or on a part.
+        // handleMouseMove while `panning` is set). Left drags are handled by
+        // the stage: a part moves, empty sheet rubber-bands.
         if (e.button === 1) {
           e.preventDefault()
           const { pan } = useAppStore.getState().viewport
           setPanning({ startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y })
         }
       }}
-      onMouseUp={() => setPanning(null)}
+      onMouseUp={() => {
+        setPanning(null)
+        // A release outside the sheet never reaches the div.
+        finishMarquee()
+      }}
     >
       <Stage
         ref={stageRef}
@@ -1310,13 +1461,27 @@ export default function SchematicCanvas({
         onTouchEnd={handleTouchEnd}
         onClick={handleStageClick}
         onMouseDown={(e) => {
-          // Left press on EMPTY sheet with the select tool starts a pan
-          // candidate (confirmed vs click on mouse-up by distance moved).
-          // Part presses never reach here — the part Group consumes them.
-          if (e.evt.button === 0 && activeTool === 'select' && !pendingComponent && e.target === e.target.getStage()) {
-            const { pan } = useAppStore.getState().viewport
-            setPanning({ startX: e.evt.clientX, startY: e.evt.clientY, panX: pan.x, panY: pan.y })
+          // Left press on EMPTY sheet with the select tool starts a rubber
+          // band. Part presses never reach here — the part Group consumes
+          // them. A press that does not move stays a plain clearing click.
+          if (e.evt.button !== 0 || activeTool !== 'select' || pendingComponent) return
+          if (e.target !== e.target.getStage()) return
+          const pointer = e.target.getStage()?.getPointerPosition()
+          if (!pointer) return
+          const start = screenToWorldRaw(pointer)
+          marqueeRef.current = {
+            start,
+            end: start,
+            startClient: { clientX: e.evt.clientX, clientY: e.evt.clientY },
+            additive: e.evt.shiftKey,
+            moved: false,
           }
+          // A release outside the sheet never reaches the div.
+          const onUp = () => {
+            window.removeEventListener('mouseup', onUp)
+            finishMarquee()
+          }
+          window.addEventListener('mouseup', onUp)
         }}
       >
         <Layer>
@@ -1334,8 +1499,27 @@ export default function SchematicCanvas({
           
           {/* Components */}
           {canvasComponents.map(renderComponent)}
+
+          {/* Rubber-band selection, drawn above the parts it is catching. */}
+          {marquee ? (
+            <Rect
+              x={Math.min(marquee.start.x, marquee.end.x)}
+              y={Math.min(marquee.start.y, marquee.end.y)}
+              width={Math.abs(marquee.end.x - marquee.start.x)}
+              height={Math.abs(marquee.end.y - marquee.start.y)}
+              fill={palette.selectedStroke}
+              opacity={0.12}
+              stroke={palette.selectedStroke}
+              strokeWidth={1.2 / viewport.zoom}
+              dash={[4 / viewport.zoom, 3 / viewport.zoom]}
+              listening={false}
+            />
+          ) : null}
         </Layer>
       </Stage>
+
+      {/* Freehand/stylus ink sits above the sheet and commits real parts */}
+      {activeTool === 'sketch' && <SketchLayer library={components} />}
       
       {/* Coordinate rulers */}
       {settings.showRulers && (
@@ -1480,6 +1664,8 @@ export default function SchematicCanvas({
           </span>
         </div>
       )}
+
+      <SchematicSymbolEditor componentId={symbolEditorId} onClose={() => setSymbolEditorId(null)} />
 
       {/* Sheet status strip */}
       <div className="cad-hud">

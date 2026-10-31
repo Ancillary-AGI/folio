@@ -125,6 +125,112 @@ export const SOC_256: SocPackage = {
 
 export const STANDARD_SOCS: readonly SocPackage[] = [SOC_256];
 
+/*
+ * Perimeter-signal packages.
+ *
+ * `buildSoc256` above is the map a four-layer silicon wears: supplies on the
+ * outside where a plane reaches them, high-speed groups buried in the core where
+ * the inner layers fan them out. Folio's autorouter is a two-layer Manhattan
+ * router — no via-in-pad, no inner-layer escape — so on a board it finishes, a
+ * ball is only usable if the router can walk from it out into open copper. That
+ * is the outer ring. This is the same part class drawn the way a two-layer
+ * layout really works: signal on the ring, rails and return in the core, where
+ * the poured planes reach every ball through a stitch via of its own net.
+ */
+
+export interface PerimeterSignalPlan {
+  name: string
+  partNumber: string
+  manufacturer: string
+  rows: number
+  cols: number
+  pitch: number
+  padDiameter: number
+  /** Return net, carried by the ground plane under the part. */
+  returnNet: string
+  /** Supply rail carried by a poured plane; the core balls around it are return. */
+  coreRail?: string
+  /** Ring ball nets in pad-index order; ring balls past the end are return. */
+  ringSignals: string[]
+}
+
+/** Ring cells in pad order: the first row, both side columns, then the last row. */
+export function ringCells(rows: number, cols: number): Array<[number, number]> {
+  const cells: Array<[number, number]> = []
+  for (let c = 0; c < cols; c += 1) cells.push([0, c])
+  for (let r = 1; r < rows - 1; r += 1) {
+    cells.push([r, 0])
+    cells.push([r, cols - 1])
+  }
+  for (let c = 0; c < cols; c += 1) cells.push([rows - 1, c])
+  return cells
+}
+
+/** How many ring balls a grid carries — the ceiling on `ringSignals`. */
+export function ringCellCount(rows: number, cols: number): number {
+  return 2 * rows + 2 * (cols - 2)
+}
+
+export function perimeterSignalPackage(plan: PerimeterSignalPlan): SocPackage {
+  const cells = ringCells(plan.rows, plan.cols)
+  if (plan.ringSignals.length > cells.length) {
+    throw new Error(
+      `${plan.partNumber} names ${plan.ringSignals.length} ring signals but a ${plan.rows}x${plan.cols} grid has ${cells.length} ring balls.`,
+    )
+  }
+  const balls: SocBall[] = gridBalls(plan.rows, plan.cols, plan.pitch).map((g) => ({
+    ...g,
+    kind: 'ground' as SocBallKind,
+    net: plan.returnNet,
+  }))
+  const at = (row: number, col: number): SocBall => balls[row * plan.cols + col]
+
+  cells.forEach(([row, col], index) => {
+    const net = plan.ringSignals[index] ?? plan.returnNet
+    const ball = at(row, col)
+    if (!net || net === plan.returnNet) return
+    ball.net = net
+    ball.kind = net === plan.coreRail ? 'power' : 'signal'
+    ball.group = net.split('_')[0]
+    if (ball.kind === 'power') ball.rail = net
+  })
+
+  // A centred supply block under the die: it is where the plane does its work,
+  // and it keeps the return path ringing the signals rather than cutting them.
+  if (plan.coreRail) {
+    const side = Math.max(2, Math.round(Math.min(plan.rows, plan.cols) / 4))
+    const startRow = Math.floor((plan.rows - side) / 2)
+    const startCol = Math.floor((plan.cols - side) / 2)
+    for (let r = startRow; r < startRow + side; r += 1) {
+      for (let c = startCol; c < startCol + side; c += 1) {
+        const ball = at(r, c)
+        if (ball.kind === 'signal') continue
+        ball.kind = 'power'
+        ball.net = plan.coreRail
+        ball.rail = plan.coreRail
+        ball.group = plan.coreRail
+      }
+    }
+  }
+  return {
+    name: plan.name,
+    partNumber: plan.partNumber,
+    manufacturer: plan.manufacturer,
+    rows: plan.rows,
+    cols: plan.cols,
+    pitch: plan.pitch,
+    padDiameter: plan.padDiameter,
+    balls,
+  }
+}
+
+/** The package's nets in pad-index order — what a board part's `nets` list needs. */
+export function padNets(pkg: SocPackage): string[] {
+  // A ball with no net is an unconnected land: the board part carries it as an
+  // empty name, which is how every other demo names a land it leaves open.
+  return pkg.balls.map((ball) => ball.net ?? '')
+}
+
 /** Power balls grouped by rail. */
 export function powerRails(pkg: SocPackage): Map<string, SocBall[]> {
   const rails = new Map<string, SocBall[]>();

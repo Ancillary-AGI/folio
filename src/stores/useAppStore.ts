@@ -85,8 +85,8 @@ export interface AppState {
   toggleComponentLibrary: () => void
   
   // Tool State
-  activeTool: 'select' | 'wire' | 'delete' | 'measure' | 'text'
-  setActiveTool: (tool: 'select' | 'wire' | 'delete' | 'measure' | 'text') => void
+  activeTool: 'select' | 'wire' | 'delete' | 'measure' | 'text' | 'sketch'
+  setActiveTool: (tool: 'select' | 'wire' | 'delete' | 'measure' | 'text' | 'sketch') => void
   
   // Selection
   selectedComponents: string[]

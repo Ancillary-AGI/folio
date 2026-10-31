@@ -5,6 +5,8 @@ import { Input } from '../ui/input'
 import { Badge } from '../ui/badge'
 import { aiService } from '../../lib/ai/aiService'
 import { nlpService } from '../../lib/nlp/nlpService'
+import { voiceController } from '../../lib/voice/controller'
+import { useVoiceStore } from '../../stores/useVoiceStore'
 import { useProjectStore } from '../../stores/useProjectStore'
 import type { CanvasComponent, CanvasWire } from '../../stores/useProjectStore'
 import { useAppStore } from '../../stores/useAppStore'
@@ -51,13 +53,13 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
   const [messages, setMessages] = useState<AIMessage[]>([{
     id: 'welcome',
     role: 'assistant',
-    content: 'Hello! I\'m your AI design assistant. I can help you analyze circuits, suggest components, optimize designs, run compliance checks, and answer engineering questions. What would you like to work on?',
+    content: 'Hello. I\'m the design assistant. I can analyse circuits, suggest components, optimise designs, run compliance checks and answer engineering questions. Where would you like to start?',
     timestamp: Date.now(),
     metadata: { type: 'general' },
   }])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [isVoice, setIsVoice] = useState(false)
+  const isVoice = useVoiceStore((state) => state.listening)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [copyFailedId, setCopyFailedId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -164,35 +166,46 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
     }
   }
 
-  const handleVoice = async () => {
-    if (isVoice) {
-      nlpService.stopVoiceListening()
-      setIsVoice(false)
-    } else {
-      try {
-        await nlpService.startVoiceListening()
-        setIsVoice(true)
-        // Auto-stop after 10 seconds
-        setTimeout(() => setIsVoice(false), 10000)
-      } catch {
-        addMessage({ role: 'assistant', content: 'Voice recognition is not available in your browser. Please type your query instead.', metadata: { type: 'general' } })
-      }
-    }
+  const handleVoice = () => {
+    // One conversation surface, one microphone: the mic here opens and closes
+    // the shared voice conversation that also speaks its replies.
+    voiceController.toggleListening()
   }
 
   /*
    * The check mark is a claim that the text is on the clipboard, so it appears
    * only after the write resolves. Clipboard access is denied outright in some
    * browsers and non-secure contexts; saying "copied" there would be a lie.
+   *
+   * Both flags are held down by one timer, because a second copy replaces the
+   * first message's reset rather than queueing a stale one, and the unmount
+   * clears it: a timer that outlives the panel calls setState on a dead tree.
    */
+  const copyResetRef = useRef<number | null>(null)
+  useEffect(() => () => {
+    if (copyResetRef.current !== null) window.clearTimeout(copyResetRef.current)
+  }, [])
+
+  const scheduleCopyReset = useCallback((
+    setter: React.Dispatch<React.SetStateAction<string | null>>,
+    id: string,
+    afterMs: number,
+  ) => {
+    if (copyResetRef.current !== null) window.clearTimeout(copyResetRef.current)
+    copyResetRef.current = window.setTimeout(() => {
+      copyResetRef.current = null
+      setter((current) => (current === id ? null : current))
+    }, afterMs)
+  }, [])
+
   const handleCopy = async (id: string, content: string) => {
     try {
       await navigator.clipboard.writeText(content)
       setCopiedId(id)
-      setTimeout(() => setCopiedId((current) => (current === id ? null : current)), 1500)
+      scheduleCopyReset(setCopiedId, id, 1500)
     } catch {
       setCopyFailedId(id)
-      setTimeout(() => setCopyFailedId((current) => (current === id ? null : current)), 2500)
+      scheduleCopyReset(setCopyFailedId, id, 2500)
     }
   }
 
@@ -212,14 +225,14 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
       <div className="flex items-center justify-between p-3 border-b border-border">
         <div className="flex items-center gap-2">
           <Bot className="w-5 h-5 text-primary" />
-          <h2 className="text-sm font-semibold">AI Design Assistant</h2>
+          <h2 className="text-sm font-semibold">Design assistant</h2>
           <Badge variant="secondary" className="text-xs">{workspaceMode}</Badge>
         </div>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={clearChat} title="Clear chat" aria-label="Clear chat">
             <Trash2 className="w-3.5 h-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} aria-label="Close AI chat">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} aria-label="Close assistant">
             <X className="w-3.5 h-3.5" />
           </Button>
         </div>
@@ -317,7 +330,8 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
           size="icon"
           className="h-9 w-9 flex-shrink-0"
           onClick={handleVoice}
-          title={isVoice ? 'Stop voice' : 'Start voice input'} aria-label={isVoice ? 'Stop voice' : 'Start voice input'}
+          title={isVoice ? 'Stop the voice conversation' : 'Start the voice conversation'}
+          aria-label={isVoice ? 'Stop the voice conversation' : 'Start the voice conversation'}
         >
           {isVoice ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
         </Button>

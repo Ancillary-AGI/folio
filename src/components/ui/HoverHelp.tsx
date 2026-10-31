@@ -14,6 +14,8 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { getHelpTopic, type HelpTopicId } from '../../lib/help/helpTopics'
+import { useShortcutStore } from '../../stores/useShortcutStore'
+import { topicKeyLabels } from '../../lib/keymap/shortcuts'
 import { computeTooltipPlacement, type TooltipSide } from '../../lib/help/tooltipLayout'
 
 interface TriggerProps {
@@ -59,9 +61,10 @@ export default function HoverHelp({
   children,
 }: HoverHelpProps) {
   const topic = topicId ? getHelpTopic(topicId) : undefined
+  const overrides = useShortcutStore((state) => state.overrides)
   const heading = title ?? topic?.title
   const body = description ?? topic?.description
-  const keycaps = keys ?? topic?.keys
+  const keycaps = keys ?? (topic ? topicKeyLabels(topic, overrides) : undefined)
   const enabled = Boolean(heading && body)
 
   const [open, setOpen] = useState(false)

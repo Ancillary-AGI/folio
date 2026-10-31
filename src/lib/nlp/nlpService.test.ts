@@ -37,6 +37,21 @@ describe('NLPService intent matching', () => {
     expect(unknown.confidence).toBe(0)
   })
 
+  it('routes short phrases against long keyword bags above the dispatch threshold', () => {
+    const service = new NLPService()
+    const mosfet = service.processCommand('place a mosfet')
+    expect(mosfet.intent).toBe('add_component')
+    expect(mosfet.confidence).toBeGreaterThanOrEqual(0.35)
+
+    const connect = service.processCommand('connect r1 to d1')
+    expect(connect.intent).toBe('connect_components')
+    expect(connect.confidence).toBeGreaterThanOrEqual(0.35)
+
+    const quiet = service.processCommand('stop listening')
+    expect(quiet.intent).toBe('stop_voice')
+    expect(quiet.confidence).toBeGreaterThanOrEqual(0.35)
+  })
+
   it('keeps a bounded voice-command history', async () => {
     const service = new NLPService()
     for (let index = 0; index < 205; index += 1) {

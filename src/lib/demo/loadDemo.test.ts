@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { findScenario } from './demoScenarios'
-import { isBoardDemoLoad, loadDemoScenario } from './loadDemo'
+import { isBoardDemoLoad, loadBoardDemo, loadDemoScenario } from './loadDemo'
 import { useAppStore } from '../../stores/useAppStore'
 import { useProjectStore } from '../../stores/useProjectStore'
 
@@ -42,5 +42,21 @@ describe('loadDemoScenario', () => {
     expect(useAppStore.getState().workspaceMode).toBe('preview3d')
     expect(useAppStore.getState().demoRequest).toBeNull()
     expect(useProjectStore.getState().pcbLayout?.traces.length).toBeGreaterThan(0)
+  })
+
+  it('publishes the four-layer showcase board without touching the sheet', () => {
+    loadBoardDemo('Sheet I was already editing')
+    const before = useProjectStore.getState().components
+
+    loadDemoScenario(scenario('showcase-4l-3d'))
+
+    const layout = useProjectStore.getState().pcbLayout
+    expect(useAppStore.getState().demoRequest).toBeNull()
+    expect(useProjectStore.getState().components).toBe(before)
+    expect(layout?.components).toHaveLength(46)
+    // Two buried pours is what makes this a four-layer board, not a slab.
+    expect(layout?.layers.filter((layer) => layer.net)).toHaveLength(2)
+    expect(layout?.pours).toHaveLength(2)
+    expect(layout?.traces.length).toBeGreaterThan(40)
   })
 })

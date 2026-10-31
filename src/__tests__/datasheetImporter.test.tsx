@@ -25,7 +25,9 @@ describe('DatasheetImporter', () => {
     expect(screen.getByText(/16 pins/)).toBeInTheDocument()
     expect(screen.getByText(/2.7–5.5 V/)).toBeInTheDocument()
     expect(screen.getByDisplayValue('VDD')).toBeInTheDocument()
-    expect(screen.getByText(/Generated SPICE stub/)).toBeInTheDocument()
+    // A pinout is not device physics: the importer must not invent a SPICE model.
+    expect(screen.getByText(/no SPICE model/)).toBeInTheDocument()
+    expect(screen.queryByText(/Generated SPICE stub/)).not.toBeInTheDocument()
     expect(useAppStore.getState().demoRequest).toBeNull()
   })
 
@@ -49,7 +51,7 @@ describe('DatasheetImporter', () => {
 
     fireEvent.change(screen.getByLabelText('Pin 1 name'), { target: { value: 'VCCIO' } })
     fireEvent.change(screen.getByLabelText('Pin 1 kind'), { target: { value: 'input' } })
-    expect(screen.getByText(/VCCIO/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Pin 1 name')).toHaveValue('VCCIO')
 
     fireEvent.click(screen.getByRole('button', { name: /Add to Component Library and Place/ }))
 

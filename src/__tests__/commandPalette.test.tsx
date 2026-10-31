@@ -14,6 +14,7 @@ const renderPalette = (overrides: Partial<Parameters<typeof CommandPalette>[0]> 
     onOpenDemos: vi.fn(),
     onOpenLimits: vi.fn(),
     onOpenHelp: vi.fn(),
+    onOpenShortcuts: vi.fn(),
     onToggleTheme: vi.fn(),
     ...overrides,
   }
@@ -31,9 +32,9 @@ describe('CommandPalette', () => {
     renderPalette()
 
     expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument()
-    // Every workspace, every demo scenario, plus the five actions: help,
-    // gallery, capabilities and limits, save, theme.
-    expect(screen.getAllByRole('option')).toHaveLength(WORKSPACE_MODES.length + DEMO_SCENARIOS.length + 5)
+    // Every workspace, every demo scenario, plus the six actions: help,
+    // shortcuts, gallery, capabilities and limits, save, theme.
+    expect(screen.getAllByRole('option')).toHaveLength(WORKSPACE_MODES.length + DEMO_SCENARIOS.length + 6)
     expect(screen.getByRole('combobox')).toBeInTheDocument()
   })
 
@@ -108,6 +109,7 @@ describe('CommandPalette', () => {
       onOpenDemos: vi.fn(),
       onOpenLimits: vi.fn(),
       onOpenHelp: vi.fn(),
+      onOpenShortcuts: vi.fn(),
       onToggleTheme: vi.fn(),
     }
     const { rerender } = render(<CommandPalette {...props} onClose={() => {}} />)

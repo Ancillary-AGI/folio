@@ -97,7 +97,7 @@ export default function MarketplacePanel() {
               {verdict.sketchBytes} firmware bytes · round-trip {verdict.installedOk ? 'byte-identical' : 'failed'}.
             </p>
             <p className="text-xs text-muted-foreground">
-              The listing and its install state live in this browser's local marketplace; nothing was uploaded.
+              The listing and its install state are held in the workspace marketplace; nothing was uploaded.
             </p>
           </CardContent>
         </Card>

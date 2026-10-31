@@ -1302,6 +1302,9 @@ export interface AcSweepOptions {
   referenceNode?: string
 }
 
+/** Upper bound on the frequency grid, in both logarithmic and linear modes. */
+export const MAX_AC_SWEEP_POINTS = 2000
+
 /** Build the frequency grid for an AC sweep. */
 export function buildFrequencyGrid(
   options: Pick<AcSweepOptions, 'startFrequency' | 'stopFrequency' | 'pointsPerDecade' | 'linearPoints'>,
@@ -1318,29 +1321,58 @@ export function buildFrequencyGrid(
    */
   if (!Number.isFinite(stopFrequency / startFrequency)) return []
   if (linearPoints !== undefined && linearPoints > 0) {
-    const count = Math.min(Math.max(2, Math.floor(linearPoints)), 2000)
+    const count = Math.min(Math.max(2, Math.floor(linearPoints)), MAX_AC_SWEEP_POINTS)
     const step = (stopFrequency - startFrequency) / (count - 1)
     return Array.from({ length: count }, (_, index) => startFrequency + index * step)
   }
 
   const decades = Math.log10(stopFrequency / startFrequency)
-  const count = Math.min(Math.max(2, Math.round(decades * pointsPerDecade) + 1), 2000)
+  const count = Math.min(Math.max(2, Math.round(decades * pointsPerDecade) + 1), MAX_AC_SWEEP_POINTS)
   const ratio = Math.pow(stopFrequency / startFrequency, 1 / (count - 1))
   return Array.from({ length: count }, (_, index) => startFrequency * Math.pow(ratio, index))
 }
 
+/** A complex node phasor in an AC solution. */
+export interface AcPhasor {
+  re: number
+  im: number
+}
+
 /**
- * AC small-signal sweep.
- *
- * Solves the complex MNA system once per frequency point. Diodes are linearised
- * at the DC operating point, which the routine computes first — so an AC result
- * always describes the bias you actually designed, not an arbitrary one.
- *
- * Waveforms are returned as magnitude (in volts) with the frequency in hertz on
- * `x`, plus a matching phase waveform in degrees. A magnitude-only plot hides
- * the sign that tells you which way a feedback loop goes, so both are emitted.
+ * The linearisation every frequency point of one sweep shares: the DC bias,
+ * its diode conductances and the semiconductor small-signal state.
  */
-export function runAcSweep(model: CircuitModel, options: AcSweepOptions): AnalysisOutcome {
+export interface AcBias {
+  diodeConductances: Map<string, number>
+  semiconductor: SemiconductorState
+  thermalVoltage: number
+  operatingVoltages: Map<string, number>
+  operatingCurrents: Map<string, number>
+}
+
+export interface AcFrequencyPoint {
+  frequency: number
+  /** Node phasors by model node index; `null` when the system was singular. */
+  phasors: AcPhasor[] | null
+}
+
+/**
+ * Everything an AC sweep needs before any frequency is solved, or the refusal
+ * that ends it. Splitting this out is what lets a worker pool solve the points
+ * about one shared bias instead of each worker linearising its own.
+ */
+export type AcSweepPreparation =
+  | { ok: true; frequencies: number[]; bias: AcBias; notes: string[]; iterations: number }
+  | { ok: false; outcome: AnalysisOutcome }
+
+/**
+ * Validate the request, solve the operating point and build the grid.
+ *
+ * The bias solve is the physics here: a frequency response is only meaningful
+ * about a converged operating point, so a failed bias refuses the sweep with
+ * an explanation rather than plotting a smooth response of an unbiased circuit.
+ */
+export function prepareAcSweep(model: CircuitModel, options: AcSweepOptions): AcSweepPreparation {
   const {
     temperatureCelsius,
     startFrequency,
@@ -1350,73 +1382,85 @@ export function runAcSweep(model: CircuitModel, options: AcSweepOptions): Analys
 
   if (!Number.isFinite(startFrequency) || !Number.isFinite(stopFrequency)) {
     return {
-      nodes: [],
-      waveforms: [],
-      iterations: 0,
-      converged: false,
-      notes: ['AC analysis needs finite start and stop frequencies.'],
-    };
+      ok: false,
+      outcome: {
+        nodes: [],
+        waveforms: [],
+        iterations: 0,
+        converged: false,
+        notes: ['AC analysis needs finite start and stop frequencies.'],
+      },
+    }
   }
   if (!(startFrequency > 0) || !(stopFrequency > 0)) {
     return {
-      nodes: [],
-      waveforms: [],
-      iterations: 0,
-      converged: false,
-      notes: ['AC analysis needs positive start and stop frequencies.'],
+      ok: false,
+      outcome: {
+        nodes: [],
+        waveforms: [],
+        iterations: 0,
+        converged: false,
+        notes: ['AC analysis needs positive start and stop frequencies.'],
+      },
     }
   }
   if (stopFrequency < startFrequency) {
     return {
-      nodes: [],
-      waveforms: [],
-      iterations: 0,
-      converged: false,
-      notes: ['AC analysis needs a stop frequency at least as large as the start frequency.'],
+      ok: false,
+      outcome: {
+        nodes: [],
+        waveforms: [],
+        iterations: 0,
+        converged: false,
+        notes: ['AC analysis needs a stop frequency at least as large as the start frequency.'],
+      },
     }
   }
   if (options.pointsPerDecade !== undefined &&
     (!Number.isFinite(options.pointsPerDecade) || options.pointsPerDecade < 1)) {
     return {
-      nodes: [],
-      waveforms: [],
-      iterations: 0,
-      converged: false,
-      notes: ['AC analysis needs at least one frequency point per decade.'],
+      ok: false,
+      outcome: {
+        nodes: [],
+        waveforms: [],
+        iterations: 0,
+        converged: false,
+        notes: ['AC analysis needs at least one frequency point per decade.'],
+      },
     }
   }
   if (options.linearPoints !== undefined && !Number.isFinite(options.linearPoints)) {
     return {
-      nodes: [],
-      waveforms: [],
-      iterations: 0,
-      converged: false,
-      notes: ['AC analysis needs a finite linear point count.'],
+      ok: false,
+      outcome: {
+        nodes: [],
+        waveforms: [],
+        iterations: 0,
+        converged: false,
+        notes: ['AC analysis needs a finite linear point count.'],
+      },
     }
   }
 
-  // Bias-dependent linearisation: the operating point is the physics here.
-  const operatingPoint = runOperatingPoint(model, { temperatureCelsius, gmin: options.gmin, time: 0 })
+  const operatingPoint = runOperatingPoint(model, { temperatureCelsius, gmin, time: 0 })
   const notes = [...operatingPoint.outcome.notes]
   const biasSolved =
     !operatingPoint.failure &&
     operatingPoint.outcome.converged &&
     operatingPoint.solution.length > 0
   if (!biasSolved && (operatingPoint.failure !== 'singular' || !isBiasIndependent(model))) {
-    /*
-     * Linearising at a failed bias would produce a smooth, plausible-looking
-     * Bode plot of a circuit that is not actually biased there. Refuse instead:
-     * an AC result is only meaningful about a converged operating point.
-     */
     notes.push(
       'AC analysis needs a converged DC operating point; the bias solve failed, so no frequency response was computed.',
     )
     return {
-      nodes: [],
-      waveforms: [],
-      iterations: operatingPoint.outcome.iterations,
-      converged: false,
-      notes,
+      ok: false,
+      outcome: {
+        nodes: [],
+        waveforms: [],
+        iterations: operatingPoint.outcome.iterations,
+        converged: false,
+        notes,
+      },
     }
   }
   if (!biasSolved) {
@@ -1430,20 +1474,78 @@ export function runAcSweep(model: CircuitModel, options: AcSweepOptions): Analys
     : new Array<number>(model.size).fill(0)
   const thermal = thermalVoltage(temperatureCelsius)
   const operatingVoltages = readNodeVoltages(model, biasSolution)
-  const operatingCurrents = readBranchCurrents(model, biasSolution)
-  const diodeConductances = biasSolved ? operatingPoint.diodeConductances : new Map<string, number>()
-
   const frequencies = buildFrequencyGrid(options)
   if (frequencies.length === 0) {
-    notes.push('AC analysis could not build a frequency grid from the requested start, stop and point count.');
+    notes.push('AC analysis could not build a frequency grid from the requested start, stop and point count.')
     return {
-      nodes: [],
-      waveforms: [],
-      iterations: operatingPoint.outcome.iterations,
-      converged: false,
-      notes,
+      ok: false,
+      outcome: {
+        nodes: [],
+        waveforms: [],
+        iterations: operatingPoint.outcome.iterations,
+        converged: false,
+        notes,
+      },
     }
   }
+
+  return {
+    ok: true,
+    frequencies,
+    bias: {
+      diodeConductances: biasSolved ? operatingPoint.diodeConductances : new Map<string, number>(),
+      semiconductor: operatingPoint.semiconductor,
+      thermalVoltage: thermal,
+      operatingVoltages,
+      operatingCurrents: readBranchCurrents(model, biasSolution),
+    },
+    notes,
+    iterations: operatingPoint.outcome.iterations,
+  }
+}
+
+/**
+ * Solve one AC point per frequency against a prepared bias.
+ *
+ * Every point is an independent complex MNA solve, which is what makes the
+ * sweep safe to split across workers: the result for a frequency never depends
+ * on any other frequency.
+ */
+export function solveAcFrequencyPoints(
+  model: CircuitModel,
+  frequencies: readonly number[],
+  bias: AcBias,
+  gmin: number = DEFAULT_GMIN,
+): AcFrequencyPoint[] {
+  return frequencies.map((frequency) => {
+    const omega = 2 * Math.PI * frequency
+    const system = createComplexSystem(model)
+    stampAc(system, model, omega, bias.diodeConductances, gmin)
+    stampSemiconductorSmallSignal(system, model, bias.semiconductor, bias.thermalVoltage, omega, bias.operatingVoltages, {
+      currents: bias.operatingCurrents,
+      time: 0,
+    })
+
+    const solution = solveComplexSystem(system.matrix, system.rhs)
+    return {
+      frequency,
+      phasors: solution ? solution.map((value) => ({ re: value.re, im: value.im })) : null,
+    }
+  })
+}
+
+/**
+ * Turn solved points into magnitude and phase waveforms.
+ *
+ * Points are consumed in sweep order, so a singular frequency ends the plot at
+ * exactly the point the sequential sweep would have stopped at.
+ */
+export function assembleAcSweep(
+  model: CircuitModel,
+  points: readonly AcFrequencyPoint[],
+  notes: string[],
+  iterations: number,
+): AnalysisOutcome {
   const magnitude = new Map<string, Array<{ x: number; y: number }>>()
   const phase = new Map<string, Array<{ x: number; y: number }>>()
   for (const node of model.nodeNames) {
@@ -1453,28 +1555,19 @@ export function runAcSweep(model: CircuitModel, options: AcSweepOptions): Analys
   }
 
   let converged = true
-  for (const frequency of frequencies) {
-    const omega = 2 * Math.PI * frequency
-    const system = createComplexSystem(model)
-    stampAc(system, model, omega, diodeConductances, gmin)
-    stampSemiconductorSmallSignal(system, model, operatingPoint.semiconductor, thermal, omega, operatingVoltages, {
-      currents: operatingCurrents,
-      time: 0,
-    })
-
-    const solution = solveComplexSystem(system.matrix, system.rhs)
-    if (!solution) {
-      notes.push(`The AC solve is singular at ${frequency.toPrecision(4)} Hz.`)
+  for (const point of points) {
+    const phasors = point.phasors
+    if (!phasors) {
+      notes.push(`The AC solve is singular at ${point.frequency.toPrecision(4)} Hz.`)
       converged = false
       break
     }
-
     model.nodeNames.forEach((node, index) => {
       const data = magnitude.get(node)
       if (!data || !phase.has(node)) return
-      const value = solution[index]
-      data.push({ x: frequency, y: cAbs(value) })
-      phase.get(node)?.push({ x: frequency, y: (Math.atan2(value.im, value.re) * 180) / Math.PI })
+      const value = phasors[index]
+      data.push({ x: point.frequency, y: cAbs(value) })
+      phase.get(node)?.push({ x: point.frequency, y: (Math.atan2(value.im, value.re) * 180) / Math.PI })
     })
   }
 
@@ -1491,5 +1584,23 @@ export function runAcSweep(model: CircuitModel, options: AcSweepOptions): Analys
     }
   }
 
-  return { nodes: [], waveforms, iterations: operatingPoint.outcome.iterations, converged, notes }
+  return { nodes: [], waveforms, iterations, converged, notes }
+}
+
+/**
+ * AC small-signal sweep.
+ *
+ * Solves the complex MNA system once per frequency point. Diodes are linearised
+ * at the DC operating point, which the routine computes first — so an AC result
+ * always describes the bias you actually designed, not an arbitrary one.
+ *
+ * Waveforms are returned as magnitude (in volts) with the frequency in hertz on
+ * `x`, plus a matching phase waveform in degrees. A magnitude-only plot hides
+ * the sign that tells you which way a feedback loop goes, so both are emitted.
+ */
+export function runAcSweep(model: CircuitModel, options: AcSweepOptions): AnalysisOutcome {
+  const prepared = prepareAcSweep(model, options)
+  if (!prepared.ok) return prepared.outcome
+  const points = solveAcFrequencyPoints(model, prepared.frequencies, prepared.bias, options.gmin)
+  return assembleAcSweep(model, points, prepared.notes, prepared.iterations)
 }

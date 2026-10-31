@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { runMonteCarlo, sampleOutcome } from './monteCarlo'
+import { deriveMonteCarloRunSeed, runMonteCarlo, sampleOutcome } from './monteCarlo'
 import type { CircuitModel } from './circuitModel'
 import type { AnalysisOutcome } from './solver'
 
@@ -121,6 +121,20 @@ describe('runMonteCarlo sample accounting', () => {
     const mean = meanOf(result, 'A')
     expect(mean).toBeCloseTo(1e6, 9)
     expect(upper).toBeCloseTo(1e6 + 3, 9)
+  })
+})
+
+describe('run seeds', () => {
+  it('derives a stable seed per run, so a run is independent of execution order', () => {
+    expect(deriveMonteCarloRunSeed(7, 0)).toBe(deriveMonteCarloRunSeed(7, 0))
+    expect(deriveMonteCarloRunSeed(7, 0)).not.toBe(deriveMonteCarloRunSeed(7, 1))
+    expect(deriveMonteCarloRunSeed(7, 1)).not.toBe(deriveMonteCarloRunSeed(8, 1))
+    for (const runIndex of [0, 1, 17, 499]) {
+      const seed = deriveMonteCarloRunSeed(20260101, runIndex)
+      expect(Number.isInteger(seed)).toBe(true)
+      expect(seed).toBeGreaterThanOrEqual(0)
+      expect(seed).toBeLessThanOrEqual(0xffffffff)
+    }
   })
 })
 

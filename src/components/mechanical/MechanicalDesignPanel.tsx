@@ -47,6 +47,7 @@ import {
   criticalDistanceM,
   partitionTransmissionLoss,
 } from '../../lib/mechanical/acoustics';
+import { analyseZoneCoolingLoad } from '../../lib/mechanical/psychrometrics';
 import {
   searchCantileverSection,
   type CantileverSizingResult,
@@ -106,7 +107,7 @@ function emptyResult(thermal?: AnalysisResult['thermal']): AnalysisResult {
   };
 }
 
-type FieldMode = 'conduction' | 'axial' | 'truss' | 'electrostatic' | 'thermo' | 'pipe' | 'acoustics';
+type FieldMode = 'conduction' | 'axial' | 'truss' | 'electrostatic' | 'thermo' | 'pipe' | 'acoustics' | 'hvac';
 
 interface FieldInputs {
   lengthM: number;
@@ -136,6 +137,18 @@ interface FieldInputs {
   absorption: number;
   partitionMassKgM2: number;
   frequencyHz: number;
+  indoorC: number;
+  indoorRhPct: number;
+  outdoorC: number;
+  outdoorRhPct: number;
+  envelopeUa: number;
+  solarW: number;
+  internalW: number;
+  occupantSensibleW: number;
+  occupantLatentW: number;
+  ventilationLps: number;
+  supplyC: number;
+  ductVelocity: number;
 }
 
 interface FieldResult {
@@ -171,6 +184,18 @@ const DEFAULT_FIELD_INPUTS: FieldInputs = {
   absorption: 0.2,
   partitionMassKgM2: 10,
   frequencyHz: 500,
+  indoorC: 24,
+  indoorRhPct: 50,
+  outdoorC: 35,
+  outdoorRhPct: 40,
+  envelopeUa: 150,
+  solarW: 800,
+  internalW: 600,
+  occupantSensibleW: 400,
+  occupantLatentW: 300,
+  ventilationLps: 150,
+  supplyC: 13,
+  ductVelocity: 5,
 };
 
 const FIELD_MODES: ReadonlyArray<{ id: FieldMode; label: string; description: string }> = [
@@ -208,6 +233,11 @@ const FIELD_MODES: ReadonlyArray<{ id: FieldMode; label: string; description: st
     id: 'acoustics',
     label: 'Room acoustics',
     description: 'Sabine and Eyring reverberation time plus mass-law partition transmission loss.',
+  },
+  {
+    id: 'hvac',
+    label: 'Zone cooling load',
+    description: 'Psychrometric design-day balance with sensible/latent split, SHR, supply air and duct size.',
   },
 ];
 
@@ -729,7 +759,7 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
           ],
           note: `${result.regime[0].toUpperCase()}${result.regime.slice(1)} regime; water at 20 °C unless the fluid properties are changed in code.`,
         });
-      } else {
+      } else if (fieldMode === 'acoustics') {
         const room = analyseRoomAcoustics({
           volumeM3: fieldInputs.roomVolumeM3,
           surfaces: [{ id: 'equivalent surface', areaM2: fieldInputs.roomSurfaceM2, absorptionCoefficient: fieldInputs.absorption }],
@@ -748,6 +778,42 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
           summary.push(['Critical distance', `${criticalDistanceM(room.roomConstantM2).toFixed(2)} m`]);
         }
         setFieldResult({ summary, note: `${room.note} ${partition.note}` });
+      } else {
+        const load = analyseZoneCoolingLoad({
+          indoorDryBulbC: fieldInputs.indoorC,
+          indoorRelativeHumidity: fieldInputs.indoorRhPct / 100,
+          outdoorDryBulbC: fieldInputs.outdoorC,
+          outdoorRelativeHumidity: fieldInputs.outdoorRhPct / 100,
+          envelopeUaWPerK: fieldInputs.envelopeUa,
+          solarGainW: fieldInputs.solarW,
+          internalSensibleW: fieldInputs.internalW,
+          occupantSensibleW: fieldInputs.occupantSensibleW,
+          occupantLatentW: fieldInputs.occupantLatentW,
+          ventilationLps: fieldInputs.ventilationLps,
+          supplyDryBulbC: fieldInputs.supplyC,
+          ductVelocityMps: fieldInputs.ductVelocity,
+        });
+        const summary: Array<[string, string]> = [
+          ['Outdoor air', `${(load.outdoor.humidityRatio * 1000).toFixed(2)} g/kg · ${load.outdoor.enthalpyKJPerKg.toFixed(1)} kJ/kg`],
+          ['Indoor dew point', `${load.indoor.dewPointC.toFixed(1)} °C`],
+          ['Indoor wet bulb', `${load.indoor.wetBulbC.toFixed(1)} °C`],
+          ['Envelope', `${load.envelopeW.toFixed(0)} W`],
+          ['Ventilation sensible / latent', `${load.ventilationSensibleW.toFixed(0)} / ${load.ventilationLatentW.toFixed(0)} W`],
+          ['Zone sensible / latent', `${load.sensibleW.toFixed(0)} / ${load.latentW.toFixed(0)} W`],
+          ['Net space load', `${(load.netLoadW / 1000).toFixed(2)} kW`],
+          ['Sensible heat ratio', load.sensibleHeatRatio === null ? 'not a cooling load' : load.sensibleHeatRatio.toFixed(3)],
+        ];
+        if (load.supplyAirVolumeLps > 0) {
+          summary.push([
+            'Supply air',
+            `${load.supplyAirVolumeLps.toFixed(0)} L/s at ${fieldInputs.supplyC.toFixed(1)} °C`,
+          ]);
+          summary.push([
+            'Equivalent round duct',
+            `${load.equivalentDuctDiameterMm.toFixed(0)} mm at ${fieldInputs.ductVelocity.toFixed(1)} m/s`,
+          ]);
+        }
+        setFieldResult({ summary, note: load.notes.join(' ') });
       }
     } catch (error) {
       setFieldResult(null);
@@ -1313,6 +1379,22 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
                       <FieldNumber id="field-absorption" label="Absorption (0–1)" value={fieldInputs.absorption} step={0.01} onChange={(v) => updateField('absorption', v)} />
                       <FieldNumber id="field-partition-mass" label="Partition (kg/m²)" value={fieldInputs.partitionMassKgM2} onChange={(v) => updateField('partitionMassKgM2', v)} />
                       <FieldNumber id="field-frequency" label="Frequency (Hz)" value={fieldInputs.frequencyHz} onChange={(v) => updateField('frequencyHz', v)} />
+                    </>
+                  )}
+                  {fieldMode === 'hvac' && (
+                    <>
+                      <FieldNumber id="field-hvac-indoor" label="Room dry bulb (°C)" value={fieldInputs.indoorC} step={0.5} onChange={(v) => updateField('indoorC', v)} />
+                      <FieldNumber id="field-hvac-indoor-rh" label="Room RH (%)" value={fieldInputs.indoorRhPct} onChange={(v) => updateField('indoorRhPct', v)} />
+                      <FieldNumber id="field-hvac-outdoor" label="Outdoor dry bulb (°C)" value={fieldInputs.outdoorC} step={0.5} onChange={(v) => updateField('outdoorC', v)} />
+                      <FieldNumber id="field-hvac-outdoor-rh" label="Outdoor RH (%)" value={fieldInputs.outdoorRhPct} onChange={(v) => updateField('outdoorRhPct', v)} />
+                      <FieldNumber id="field-hvac-ua" label="Envelope UA (W/K)" value={fieldInputs.envelopeUa} onChange={(v) => updateField('envelopeUa', v)} />
+                      <FieldNumber id="field-hvac-solar" label="Solar gain (W)" value={fieldInputs.solarW} onChange={(v) => updateField('solarW', v)} />
+                      <FieldNumber id="field-hvac-internal" label="Internal sensible (W)" value={fieldInputs.internalW} onChange={(v) => updateField('internalW', v)} />
+                      <FieldNumber id="field-hvac-occ-sensible" label="Occupant sensible (W)" value={fieldInputs.occupantSensibleW} onChange={(v) => updateField('occupantSensibleW', v)} />
+                      <FieldNumber id="field-hvac-occ-latent" label="Occupant latent (W)" value={fieldInputs.occupantLatentW} onChange={(v) => updateField('occupantLatentW', v)} />
+                      <FieldNumber id="field-hvac-ventilation" label="Ventilation (L/s)" value={fieldInputs.ventilationLps} onChange={(v) => updateField('ventilationLps', v)} />
+                      <FieldNumber id="field-hvac-supply" label="Supply air (°C)" value={fieldInputs.supplyC} step={0.5} onChange={(v) => updateField('supplyC', v)} />
+                      <FieldNumber id="field-hvac-velocity" label="Duct velocity (m/s)" value={fieldInputs.ductVelocity} step={0.5} onChange={(v) => updateField('ductVelocity', v)} />
                     </>
                   )}
                 </div>

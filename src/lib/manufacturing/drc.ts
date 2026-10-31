@@ -1,11 +1,13 @@
 import type { PlacedComponent, Point } from '../../types'
+import { polylineDistance, polylineLength } from '../geometry/distance'
 import {
-  polylineCircleDistance,
-  polylineDistance,
-  polylineLength,
-  polylineRectDistance,
-} from '../geometry/distance'
-import type { PCBDesign, PCBPad, PCBTrace, PCBVIA } from './pcb'
+  landShapeOf,
+  polylineShapeDistanceMm,
+  shapeCircumRadiusMm,
+  shapeGapMm,
+  type LandShape,
+} from '../geometry/landShape'
+import type { PCBDesign, PCBKeepout, PCBPad, PCBTrace, PCBVIA } from './pcb'
 
 export type DRCRuleType =
   | 'clearance'
@@ -16,6 +18,8 @@ export type DRCRuleType =
   | 'unconnected_net'
   | 'acute_angle'
   | 'trace_length'
+  | 'keepout'
+  | 'outline'
 
 export interface DRCViolation {
   type: DRCRuleType
@@ -44,6 +48,12 @@ export interface DRCSettings {
   minViaDiameter: number
   minViaDrillDiameter: number
   minPadDiameter: number
+  /**
+   * Smallest copper a *surface* land may print. A plated through pad is bounded
+   * by its annular ring, so `minPadDiameter` carries that figure; a 0603 or a
+   * QFP land has no hole to ring and is limited by what the etch can hold.
+   */
+  minSurfacePadWidth: number
   minAnnularRing: number
   minCourtyardClearance: number
   maxTraceWidth: number
@@ -52,6 +62,13 @@ export interface DRCSettings {
   checkAcuteAngles: boolean
   checkTraceLength: boolean
   maxTraceLength: number
+  /**
+   * Audit routed copper against the board outline. Off by default because a
+   * caller that has not told the checker where its outline starts would export
+   * errors for a coordinate frame it never supplied; the PCB panel knows its
+   * origin and turns it on.
+   */
+  checkBoardOutline: boolean
 }
 
 export const DEFAULT_DRC_RULES: DRCSettings = {
@@ -60,6 +77,7 @@ export const DEFAULT_DRC_RULES: DRCSettings = {
   minViaDiameter: 0.4,
   minViaDrillDiameter: 0.2,
   minPadDiameter: 0.5,
+  minSurfacePadWidth: 0.15,
   minAnnularRing: 0.1,
   minCourtyardClearance: 0.25,
   maxTraceWidth: 2.0,
@@ -68,6 +86,7 @@ export const DEFAULT_DRC_RULES: DRCSettings = {
   checkAcuteAngles: true,
   checkTraceLength: false,
   maxTraceLength: 100.0,
+  checkBoardOutline: false,
 }
 
 /** Axis-aligned courtyard of a placed part, in board millimetres. */
@@ -91,67 +110,77 @@ function layersOverlap(a: readonly string[], b: readonly string[]): boolean {
   return a.length === 0 || b.length === 0 || a.some(layer => b.includes(layer))
 }
 
-/** Half-extents of a pad's copper box; an oval is bounded by its box. */
-function padExtents(pad: PCBPad): { hw: number; hh: number } {
-  return { hw: Math.abs(pad.size.width) / 2, hh: Math.abs(pad.size.height) / 2 }
+/**
+ * A piece of copper the checker measures: the outline a pad or via prints, at
+ * the position it was placed. Precomputing it keeps the rotated arithmetic out
+ * of the inner loops, where every pair of pads on a dense board would otherwise
+ * rebuild the same shape twice.
+ */
+interface CopperOutline {
+  shape: LandShape
+  x: number
+  y: number
+  /** Radius of the disc that contains the outline, for a cheap near-miss test. */
+  reachMm: number
 }
 
-/** Radius of a circular pad (the smaller axis, matching the trace rule). */
-function padRadius(pad: PCBPad): number {
-  return Math.min(Math.abs(pad.size.width), Math.abs(pad.size.height)) / 2
+function outlineOf(pad: PCBPad): CopperOutline {
+  const shape = landShapeOf({
+    widthMm: pad.size.width,
+    depthMm: pad.size.height,
+    shape: pad.shape,
+    rotationDeg: pad.rotationDeg,
+  })
+  return { shape, x: pad.position.x, y: pad.position.y, reachMm: shapeCircumRadiusMm(shape) }
 }
 
-function padRect(pad: PCBPad): { center: Point; width: number; height: number } {
-  return { center: pad.position, width: pad.size.width, height: pad.size.height }
+function outlineOfVia(via: PCBVIA): CopperOutline {
+  const radiusMm = via.diameter / 2
+  return { shape: { kind: 'circle', radiusMm }, x: via.position.x, y: via.position.y, reachMm: radiusMm }
+}
+
+/** Axis-aligned bounds of a polyline, for ruling a far-away pad out of its test. */
+function polylineBounds(points: readonly Point[]): { minX: number, minY: number, maxX: number, maxY: number } {
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const point of points) {
+    if (point.x < minX) minX = point.x
+    if (point.y < minY) minY = point.y
+    if (point.x > maxX) maxX = point.x
+    if (point.y > maxY) maxY = point.y
+  }
+  return { minX, minY, maxX, maxY }
+}
+
+/** Distance from a point to an axis-aligned box; zero on or inside it. */
+function pointBoxDistance(x: number, y: number, box: { minX: number, minY: number, maxX: number, maxY: number }): number {
+  const dx = Math.max(box.minX - x, 0, x - box.maxX)
+  const dy = Math.max(box.minY - y, 0, y - box.maxY)
+  return Math.hypot(dx, dy)
 }
 
 /**
  * Copper-to-copper gap between two pads in millimetres; negative means overlap.
- * Circles use centre distance minus radii (exact), boxes use the exact
- * axis-aligned separation, and a mixed pair reduces to point-to-box distance.
+ * Both outlines are the shapes their footprints really print, so a land rotated
+ * 90° with its part is measured end-on rather than as its unrotated box.
  */
-function padPadCopperGap(a: PCBPad, b: PCBPad): number {
-  const aCircular = a.shape === 'circle'
-  const bCircular = b.shape === 'circle'
-  if (aCircular && bCircular) {
-    return (
-      Math.hypot(a.position.x - b.position.x, a.position.y - b.position.y) -
-      padRadius(a) -
-      padRadius(b)
-    )
-  }
-  if (aCircular || bCircular) {
-    const circle = aCircular ? a : b
-    const box = aCircular ? b : a
-    return polylineRectDistance([circle.position], padRect(box)) - padRadius(circle)
-  }
-  const { hw: ahw, hh: ahh } = padExtents(a)
-  const { hw: bhw, hh: bhh } = padExtents(b)
-  const ex = Math.abs(a.position.x - b.position.x) - (ahw + bhw)
-  const ey = Math.abs(a.position.y - b.position.y) - (ahh + bhh)
-  // Separated on both axes: the nearest copper is at a box corner.
-  return ex >= 0 && ey >= 0 ? Math.hypot(ex, ey) : Math.max(ex, ey)
+function padPadCopperGap(a: CopperOutline, b: CopperOutline): number {
+  return shapeGapMm(a.shape, b.shape, b.x - a.x, b.y - a.y)
 }
 
 /** Copper gap between a pad and a via barrel in millimetres. */
-function padViaCopperGap(pad: PCBPad, via: PCBVIA): number {
-  const radius = via.diameter / 2
-  if (pad.shape === 'circle') {
-    return (
-      Math.hypot(pad.position.x - via.position.x, pad.position.y - via.position.y) -
-      padRadius(pad) -
-      radius
-    )
-  }
-  return polylineRectDistance([via.position], padRect(pad)) - radius
+function padViaCopperGap(pad: CopperOutline, via: CopperOutline): number {
+  return shapeGapMm(pad.shape, via.shape, via.x - pad.x, via.y - pad.y)
 }
 
-/** Copper gap between a pad and a trace centreline's edge, millimetres. */
-function padTraceCopperGap(pad: PCBPad, trace: PCBTrace): number {
-  const gap = pad.shape === 'circle'
-    ? polylineCircleDistance(trace.points, pad.position, padRadius(pad))
-    : polylineRectDistance(trace.points, padRect(pad))
-  return gap - trace.width / 2
+/** Copper gap between a pad and a trace edge, millimetres. */
+function padTraceCopperGap(pad: CopperOutline, trace: PCBTrace): number {
+  return (
+    polylineShapeDistanceMm(trace.points, { x: pad.x, y: pad.y }, pad.shape) -
+    trace.width / 2
+  )
 }
 
 /** Copper gap between a via barrel and a trace edge, millimetres. */
@@ -172,13 +201,71 @@ function courtyardGap(a: PlacedComponent, b: PlacedComponent): number {
   return Math.max(dx, dy)
 }
 
+/** Axis-aligned bounds of a keep-out in board millimetres. */
+function keepoutBounds(keepout: PCBKeepout): { minX: number, minY: number, maxX: number, maxY: number } {
+  return {
+    minX: keepout.x,
+    minY: keepout.y,
+    maxX: keepout.x + keepout.width,
+    maxY: keepout.y + keepout.height,
+  }
+}
+
+/** A keep-out as the outline the shared geometry measures. */
+function keepoutShape(keepout: PCBKeepout): LandShape {
+  return {
+    kind: 'rectangle',
+    halfWidthMm: keepout.width / 2,
+    halfHeightMm: keepout.height / 2,
+    rotationRad: 0,
+  }
+}
+
+function keepoutCentre(keepout: PCBKeepout): Point {
+  return { x: keepout.x + keepout.width / 2, y: keepout.y + keepout.height / 2 }
+}
+
+/**
+ * Gap between a piece of copper and a keep-out's boundary; zero or negative means
+ * the copper reaches into the reserved region. A keep-out is a prohibition on
+ * copper, not a clearance rule, so touching the boundary already fails.
+ */
+function copperKeepoutGap(
+  keepout: PCBKeepout,
+  centre: Point,
+  offsetX: number,
+  offsetY: number,
+): number {
+  return pointBoxDistance(centre.x + offsetX, centre.y + offsetY, keepoutBounds(keepout))
+}
+
+/**
+ * Copper-to-copper gap between a land outline and a keep-out, measured in the
+ * keep-out's own axis-aligned frame. Negative means the land is inside.
+ */
+function padKeepoutGap(pad: CopperOutline, keepout: PCBKeepout): number {
+  const centre = keepoutCentre(keepout)
+  return shapeGapMm(pad.shape, keepoutShape(keepout), centre.x - pad.x, centre.y - pad.y)
+}
+
 export class DesignRuleChecker {
   private design: PCBDesign
   private rules: DRCSettings
+  /**
+   * Land outlines for this design, measured once. Rotating a pad's rectangle is
+   * trigonometry, not a comparison, and a dense board runs the pad tests over
+   * millions of pairs.
+   */
+  private cachedOutlines: CopperOutline[] | null = null
 
   constructor(design: PCBDesign, rules?: Partial<DRCSettings>) {
     this.design = design
     this.rules = { ...DEFAULT_DRC_RULES, ...rules }
+  }
+
+  private padOutlines(): CopperOutline[] {
+    if (!this.cachedOutlines) this.cachedOutlines = this.design.pads.map(outlineOf)
+    return this.cachedOutlines
   }
 
   runDRC(): DRCResult {
@@ -192,6 +279,8 @@ export class DesignRuleChecker {
       ...this.checkPadPadClearances(),
       ...this.checkPadViaClearances(),
       ...this.checkCourtyardOverlaps(),
+      ...this.checkKeepouts(),
+      ...this.checkBoardOutline(),
     ]
 
     if (this.rules.checkUnconnectedNets) violations.push(...this.checkUnconnectedNets())
@@ -370,18 +459,22 @@ export class DesignRuleChecker {
     const violations: DRCViolation[] = []
     for (const pad of this.design.pads) {
       const padSize = Math.min(pad.size.width, pad.size.height)
-      if (padSize < this.rules.minPadDiameter) {
+      const drilled = (pad.drillDiameter ?? 0) > 0
+      // A surface land has no hole to ring, so it answers to the etch limit; only
+      // plated copper answers to the annular figure.
+      const minimum = drilled ? this.rules.minPadDiameter : this.rules.minSurfacePadWidth
+      if (padSize < minimum) {
         violations.push({
           type: 'width',
           severity: 'error',
-          message: `Pad "${pad.id}" size ${padSize}mm is below minimum ${this.rules.minPadDiameter}mm`,
+          message: `Pad "${pad.id}" size ${padSize}mm is below minimum ${minimum}mm`,
           location: pad.position,
           elementId: pad.id,
           value: padSize,
-          required: this.rules.minPadDiameter,
+          required: minimum,
         })
       }
-      if (pad.drillDiameter) {
+      if (drilled && pad.drillDiameter) {
         if (pad.drillDiameter < this.rules.minHoleDiameter) {
           violations.push({
             type: 'drill',
@@ -412,14 +505,23 @@ export class DesignRuleChecker {
 
   private checkPadClearances(): DRCViolation[] {
     const violations: DRCViolation[] = []
-    for (const pad of this.design.pads) {
-      if (!pad.netId) continue
-      for (const trace of this.design.traces) {
-        if (trace.netId === pad.netId) continue
-        if (pad.layers.length > 0 && !pad.layers.includes(trace.layerId)) continue
-        // Round pads reduce to centre distance; rectangular pads use the exact
-        // polyline-to-box distance so corners are not over- or under-reported.
-        const copperGap = padTraceCopperGap(pad, trace)
+    const outlines = this.padOutlines()
+    // A trace's bounding box rules out every pad whose containing disc cannot
+    // reach it; on a board with thousands of lands that pruning is the whole
+    // difference between a check that answers and one that runs for a minute.
+    const bounds = this.design.traces.map(trace => polylineBounds(trace.points))
+
+    this.design.pads.forEach((pad, padIndex) => {
+      if (!pad.netId) return
+      const outline = outlines[padIndex]
+      this.design.traces.forEach((trace, traceIndex) => {
+        if (trace.netId === pad.netId) return
+        if (pad.layers.length > 0 && !pad.layers.includes(trace.layerId)) return
+        const box = bounds[traceIndex]
+        const near = outline.reachMm + trace.width / 2 + this.rules.minTraceClearance
+        if (pointBoxDistance(outline.x, outline.y, box) > near) return
+
+        const copperGap = padTraceCopperGap(outline, trace)
         if (copperGap < this.rules.minTraceClearance) {
           violations.push({
             type: 'clearance',
@@ -432,14 +534,15 @@ export class DesignRuleChecker {
             required: this.rules.minTraceClearance,
           })
         }
-      }
-    }
+      })
+    })
     return violations
   }
 
   private checkPadPadClearances(): DRCViolation[] {
     const violations: DRCViolation[] = []
     const pads = this.design.pads
+    const outlines = this.padOutlines()
 
     for (let i = 0; i < pads.length; i += 1) {
       for (let j = i + 1; j < pads.length; j += 1) {
@@ -450,8 +553,12 @@ export class DesignRuleChecker {
         if (a.componentId === b.componentId) continue
         if (a.netId && a.netId === b.netId) continue
         if (!layersOverlap(a.layers, b.layers)) continue
+        if (
+          Math.hypot(b.position.x - a.position.x, b.position.y - a.position.y)
+          >= outlines[i].reachMm + outlines[j].reachMm + this.rules.minTraceClearance
+        ) continue
 
-        const gap = padPadCopperGap(a, b)
+        const gap = padPadCopperGap(outlines[i], outlines[j])
         if (gap < this.rules.minTraceClearance) {
           violations.push({
             type: 'clearance',
@@ -473,12 +580,18 @@ export class DesignRuleChecker {
 
   private checkPadViaClearances(): DRCViolation[] {
     const violations: DRCViolation[] = []
-    for (const pad of this.design.pads) {
-      for (const via of this.design.vias) {
-        if (pad.netId && via.netId && pad.netId === via.netId) continue
-        if (!layersOverlap(pad.layers, via.layers)) continue
+    const outlines = this.padOutlines()
+    const vias = this.design.vias.map(outlineOfVia)
 
-        const gap = padViaCopperGap(pad, via)
+    this.design.pads.forEach((pad, padIndex) => {
+      const outline = outlines[padIndex]
+      this.design.vias.forEach((via, viaIndex) => {
+        if (pad.netId && via.netId && pad.netId === via.netId) return
+        if (!layersOverlap(pad.layers, via.layers)) return
+        const other = vias[viaIndex]
+        if (Math.hypot(other.x - outline.x, other.y - outline.y) >= outline.reachMm + other.reachMm + this.rules.minTraceClearance) return
+
+        const gap = padViaCopperGap(outline, other)
         if (gap < this.rules.minTraceClearance) {
           violations.push({
             type: 'clearance',
@@ -490,8 +603,8 @@ export class DesignRuleChecker {
             required: this.rules.minTraceClearance,
           })
         }
-      }
-    }
+      })
+    })
     return violations
   }
 
@@ -522,6 +635,111 @@ export class DesignRuleChecker {
   }
 
   /**
+   * Copper inside a region the designer reserved.
+   *
+   * Every element is tested on the layers it actually owns: a keep-out scoped to
+   * the top film leaves a bottom-only route legal, while an unscoped keep-out
+   * bars a via wherever its barrel would land. The check reads the same
+   * rectangles the router reserved, so a keep-out that blocked routing cannot
+   * then be reported clean because someone drew copper over it by hand.
+   */
+  private checkKeepouts(): DRCViolation[] {
+    const violations: DRCViolation[] = []
+    const keepouts = this.design.keepouts ?? []
+    if (keepouts.length === 0) return violations
+
+    for (const keepout of keepouts) {
+      const centre = keepoutCentre(keepout)
+      const layers = keepout.layers.length === 0 ? null : new Set(keepout.layers)
+      const onKeepoutLayer = (elementLayers: readonly string[]): boolean =>
+        layers === null || elementLayers.some(layer => layers.has(layer))
+      const report = (elementId: string, kind: string, layer?: string): void => {
+        violations.push({
+          type: 'keepout',
+          severity: 'error',
+          message: `Keep-out "${keepout.id}" contains copper of ${kind} "${elementId}"`,
+          location: centre,
+          elementId,
+          layer,
+        })
+      }
+
+      for (const trace of this.design.traces) {
+        if (!onKeepoutLayer([trace.layerId])) continue
+        const gap = polylineShapeDistanceMm(trace.points, centre, keepoutShape(keepout))
+          - trace.width / 2
+        if (gap <= TOUCH_EPSILON) report(trace.id, 'trace', trace.layerId)
+      }
+
+      for (const via of this.design.vias) {
+        // A barrel spans the stackup, so it crosses every layer the keep-out
+        // names, whichever face the landing is tested on.
+        if (!onKeepoutLayer(via.layers)) continue
+        const gap = copperKeepoutGap(keepout, via.position, 0, 0) - via.diameter / 2
+        if (gap <= TOUCH_EPSILON) report(via.id, 'via')
+      }
+
+      this.design.pads.forEach((pad, index) => {
+        if (!onKeepoutLayer(pad.layers)) return
+        if (padKeepoutGap(this.padOutlines()[index], keepout) <= TOUCH_EPSILON) {
+          report(pad.id, 'land')
+        }
+      })
+    }
+
+    return violations
+  }
+
+  /**
+   * Routed copper outside the board outline.
+   *
+   * Lands are exempt: an edge connector is supposed to overhang its outline, and
+   * flagging one would teach the designer to ignore this rule. A track or a via
+   * whose copper crosses zero or the far edge cannot be fabricated, so it is the
+   * case this reports. Off unless the caller has supplied a coordinate frame.
+   */
+  private checkBoardOutline(): DRCViolation[] {
+    if (!this.rules.checkBoardOutline) return []
+    const violations: DRCViolation[] = []
+    const width = this.design.dimensions.width
+    const height = this.design.dimensions.height
+    // A copper extent is outside when either of its edges leaves [low, high].
+    const overhangs = (min: number, max: number, low: number, high: number): boolean =>
+      min < low - TOUCH_EPSILON || max > high + TOUCH_EPSILON
+    const crosses = (x: number, y: number, half: number): boolean =>
+      overhangs(x - half, x + half, 0, width) || overhangs(y - half, y + half, 0, height)
+
+    for (const trace of this.design.traces) {
+      const half = trace.width / 2
+      const crossing = trace.points.find(point => crosses(point.x, point.y, half))
+      if (crossing) {
+        violations.push({
+          type: 'outline',
+          severity: 'error',
+          message: `Trace "${trace.id}" crosses the board outline`,
+          location: crossing,
+          elementId: trace.id,
+          layer: trace.layerId,
+        })
+      }
+    }
+
+    for (const via of this.design.vias) {
+      if (crosses(via.position.x, via.position.y, via.diameter / 2)) {
+        violations.push({
+          type: 'outline',
+          severity: 'error',
+          message: `Via "${via.id}" crosses the board outline`,
+          location: via.position,
+          elementId: via.id,
+        })
+      }
+    }
+
+    return violations
+  }
+
+  /**
    * Reports both an entirely unrouted net and one whose copper forms separate
    * islands. The second case is what a "has any copper" rule misses: two pads
    * joined by nothing look routed to a per-net presence test but are open on
@@ -531,8 +749,10 @@ export class DesignRuleChecker {
    */
   private checkUnconnectedNets(): DRCViolation[] {
     const violations: DRCViolation[] = []
+    const outlines = this.padOutlines()
+    const copper = this.design.pads.map((pad, index) => ({ pad, outline: outlines[index] }))
     for (const net of this.design.nets) {
-      const pads = this.design.pads.filter(pad => pad.netId === net.id)
+      const pads = copper.filter(entry => entry.pad.netId === net.id)
       const traces = this.design.traces.filter(trace => trace.netId === net.id)
       const vias = this.design.vias.filter(via => via.netId === net.id)
 
@@ -543,7 +763,7 @@ export class DesignRuleChecker {
           message: pads.length > 0
             ? `Net "${net.name}" has ${pads.length} pad(s) but no routed copper`
             : `Net "${net.name}" is not connected to any pads, traces, or vias`,
-          location: pads[0]?.position ?? { x: 0, y: 0 },
+          location: pads[0]?.pad.position ?? { x: 0, y: 0 },
           elementId: net.id,
         })
         continue
@@ -572,21 +792,25 @@ export class DesignRuleChecker {
       }
       const touching = (gap: number): boolean => gap <= TOUCH_EPSILON
 
+      const viaOutlines = vias.map(outlineOfVia)
       for (let i = 0; i < pads.length; i += 1) {
-        const pad = pads[i]
+        const { pad, outline } = pads[i]
         for (let j = i + 1; j < pads.length; j += 1) {
-          if (layersOverlap(pad.layers, pads[j].layers) && touching(padPadCopperGap(pad, pads[j]))) {
+          if (
+            layersOverlap(pad.layers, pads[j].pad.layers)
+            && touching(padPadCopperGap(outline, pads[j].outline))
+          ) {
             union(padOffset + i, padOffset + j)
           }
         }
         for (let j = 0; j < traces.length; j += 1) {
           const trace = traces[j]
-          if (layersOverlap(pad.layers, [trace.layerId]) && touching(padTraceCopperGap(pad, trace))) {
+          if (layersOverlap(pad.layers, [trace.layerId]) && touching(padTraceCopperGap(outline, trace))) {
             union(padOffset + i, traceOffset + j)
           }
         }
         for (let j = 0; j < vias.length; j += 1) {
-          if (layersOverlap(pad.layers, vias[j].layers) && touching(padViaCopperGap(pad, vias[j]))) {
+          if (layersOverlap(pad.layers, vias[j].layers) && touching(padViaCopperGap(outline, viaOutlines[j]))) {
             union(padOffset + i, viaOffset + j)
           }
         }
@@ -634,7 +858,7 @@ export class DesignRuleChecker {
         message:
           `Net "${net.name}" is split across ${islands.size} disconnected copper groups ` +
           `(${stranded.length} pad(s) stranded)`,
-        location: pads[stranded[0]].position,
+        location: pads[stranded[0]].pad.position,
         elementId: net.id,
       })
     }

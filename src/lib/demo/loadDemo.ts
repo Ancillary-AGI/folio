@@ -2,22 +2,39 @@
  * Bootstraps a demo scenario into the live stores.
  *
  * Board-based demos replace the schematic with the tested rectifier and clear
- * transient canvas state. Panel-local demos leave the sheet alone and hand the
- * open panel a one-shot request it consumes on mount. Navigation always happens
- * last, so a panel reads the already-prepared state.
+ * transient canvas state. Layout-only demos publish a routed board and leave the
+ * sheet alone. Panel-local demos leave both and hand the open panel a one-shot
+ * request it consumes on mount. Navigation always happens last, so a panel reads
+ * the already-prepared state.
  */
 import { useAppStore } from '../../stores/useAppStore'
 import { useProjectStore } from '../../stores/useProjectStore'
 import { buildDemoBoard } from './demoBoard'
 import { buildDemoPcb } from './demoPcb'
+import { buildShowcasePcb } from './demoShowcase'
+import { buildLaptopPcb } from './demoLaptopBoard'
 import type { DemoScenario } from './demoScenarios'
+import type { PcbSceneInput } from '../pcb/pcbScene'
 
 const BOARD_LOADS = new Set<DemoScenario['load']>(['demo-board', 'pcb-autoroute', 'demo-pcb', 'rectifier-transient'])
 /** Board scenarios that also hand their panel a one-shot run request. */
 const BOARD_REQUESTS = new Set<DemoScenario['load']>(['pcb-autoroute', 'rectifier-transient'])
+/**
+ * Loads that publish a finished routed layout into the store. `showcase-pcb` is
+ * layout-only: its 46-part netlist lives in the board, not on the sheet, so it
+ * must not overwrite the schematic the user was editing. `laptop-pcb` is the same
+ * kind of board — 56 parts whose netlist is the mainboard itself.
+ */
+const LAYOUT_LOADS = new Set<DemoScenario['load']>(['demo-pcb', 'showcase-pcb', 'laptop-pcb'])
 
 export function isBoardDemoLoad(load: DemoScenario['load']): boolean {
   return Boolean(load && BOARD_LOADS.has(load))
+}
+
+function buildLayout(load: DemoScenario['load']): PcbSceneInput {
+  if (load === 'showcase-pcb') return buildShowcasePcb().scene
+  if (load === 'laptop-pcb') return buildLaptopPcb().scene
+  return buildDemoPcb().scene
 }
 
 export function loadBoardDemo(title = 'Untitled schematic'): void {
@@ -49,9 +66,8 @@ export function loadDemoScenario(scenario: DemoScenario): void {
     loadBoardDemo(scenario.title)
   }
 
-  if (scenario.load === 'demo-pcb') {
-    const pcb = buildDemoPcb()
-    useProjectStore.setState({ pcbLayout: pcb.scene })
+  if (scenario.load && LAYOUT_LOADS.has(scenario.load)) {
+    useProjectStore.setState({ pcbLayout: buildLayout(scenario.load) })
   } else if (scenario.load && BOARD_LOADS.has(scenario.load)) {
     // A previous 3-D demo must not linger behind a different board.
     useProjectStore.setState({ pcbLayout: null })
@@ -63,11 +79,14 @@ export function loadDemoScenario(scenario: DemoScenario): void {
   // `pcb-autoroute` and `rectifier-transient` are board loads *and* panel
   // requests: the board arrives wired, then the panel runs its demo once it
   // mounts. A scenario may also name a request explicitly when its load is
-  // only the board.
+  // only the board. A layout load is fully handled here, so it must not also be
+  // forwarded to the panel as a request nothing consumes.
   const request =
     scenario.request ??
     (scenario.load && BOARD_REQUESTS.has(scenario.load) ? scenario.load : null) ??
-    (scenario.load && !BOARD_LOADS.has(scenario.load) ? scenario.load : null)
+    (scenario.load && !BOARD_LOADS.has(scenario.load) && !LAYOUT_LOADS.has(scenario.load)
+      ? scenario.load
+      : null)
   if (request) app.requestDemo(request)
 
   if (scenario.load && BOARD_LOADS.has(scenario.load)) {

@@ -332,6 +332,69 @@ describe('DesignRuleChecker connectivity', () => {
   })
 })
 
+describe('DesignRuleChecker keep-outs and outline', () => {
+  const keepout = (layers: string[] = []) => ({
+    id: 'KO1', x: 10, y: 10, width: 10, height: 10, layers,
+  })
+
+  it('flags copper drawn through a keep-out and accepts copper outside it', () => {
+    const through = makeDesign({
+      keepouts: [keepout()],
+      traces: [trace('t1', 'A', [{ x: 5, y: 15 }, { x: 25, y: 15 }], 'top', 0.5)],
+    })
+    const clear = makeDesign({
+      keepouts: [keepout()],
+      traces: [trace('t1', 'A', [{ x: 5, y: 25 }, { x: 25, y: 25 }], 'top', 0.5)],
+    })
+
+    const violation = new DesignRuleChecker(through, quiet).runDRC().violations
+      .find(v => v.type === 'keepout')
+    expect(violation?.elementId).toBe('t1')
+    expect(violation?.message).toContain('Keep-out "KO1"')
+    expect(new DesignRuleChecker(clear, quiet).runDRC().violations).toEqual([])
+  })
+
+  it('honours the layers a keep-out names, but bars a barrel that spans them', () => {
+    const design = makeDesign({
+      keepouts: [keepout(['top'])],
+      traces: [trace('t1', 'A', [{ x: 5, y: 15 }, { x: 25, y: 15 }], 'bottom', 0.5)],
+      vias: [via('v1', 'B', { x: 15, y: 15 })],
+    })
+    const violations = new DesignRuleChecker(design, quiet).runDRC().violations
+      .filter(v => v.type === 'keepout')
+
+    // The bottom trace is legal; the plated barrel is not, because it crosses
+    // the top film the region reserved.
+    expect(violations.map(v => v.elementId)).toEqual(['v1'])
+  })
+
+  it('flags a land that a moved footprint pushed into a keep-out', () => {
+    const design = makeDesign({
+      keepouts: [keepout()],
+      pads: [pad('p1', 'A', { x: 15, y: 15 }, { width: 1, height: 1 })],
+    })
+    const violation = new DesignRuleChecker(design, quiet).runDRC().violations
+      .find(v => v.type === 'keepout')
+
+    expect(violation?.elementId).toBe('p1')
+    expect(violation?.message).toContain('land')
+  })
+
+  it('checks routed copper against the outline only when asked to', () => {
+    const crossing = makeDesign({
+      traces: [trace('t1', 'A', [{ x: 99.9, y: 10 }, { x: 101, y: 10 }], 'top', 0.5)],
+      vias: [via('v1', 'B', { x: 0.1, y: 10 })],
+    })
+
+    expect(new DesignRuleChecker(crossing, quiet).runDRC().violations).toEqual([])
+
+    const outline = new DesignRuleChecker(crossing, { ...quiet, checkBoardOutline: true })
+      .runDRC().violations.filter(v => v.type === 'outline')
+    expect(outline.map(v => v.elementId)).toEqual(['t1', 'v1'])
+    expect(outline[0].message).toContain('crosses the board outline')
+  })
+})
+
 describe('DesignRuleChecker placement and routing rules', () => {
   it('reports overlapping courtyards as warnings', () => {
     const design = makeDesign({

@@ -22,6 +22,7 @@ import {
   type MechanicalPartKind,
 } from '../mechanical/partModel'
 import { useProjectStore } from '../../stores/useProjectStore'
+import { useReferenceModelStore } from '../../stores/useReferenceModelStore'
 import { captureMechanicalSnapshot, mechanicalToSvg } from './mechanicalSnapshot'
 import {
   runMechanicalAutopilot,
@@ -116,14 +117,54 @@ function partSummary(part: MechanicalPart): Record<string, unknown> {
   }
 }
 
+/**
+ * What an agent needs to know about an uploaded STL or OBJ: the envelope it has
+ * to design around and whether the shell is sound. The vertex buffers stay out
+ * of the reply — an agent cannot inspect a million triangles through a tool call.
+ *
+ * Volume is only stated for a closed shell. An open mesh has no defined
+ * interior, so reporting the divergence-theorem sum as its volume would be a
+ * number the geometry does not support.
+ */
+function referenceBlock() {
+  const reference = useReferenceModelStore.getState().reference
+  if (!reference) return null
+  const currentProjectId = useProjectStore.getState().currentProject?.id ?? null
+  if (reference.projectId !== currentProjectId) return null
+  const { mesh } = reference
+  const closed = mesh.topology.watertight === true
+  const mm = (value: number) => Number(value.toFixed(6))
+  return {
+    name: reference.name,
+    format: mesh.format,
+    assumedUnit: mesh.assumedUnit,
+    triangleCount: mesh.triangleCount,
+    degenerateTriangles: mesh.degenerateTriangles,
+    sizeMm: { x: mm(mesh.bounds.size[0]), y: mm(mesh.bounds.size[1]), z: mm(mesh.bounds.size[2]) },
+    minMm: mesh.bounds.min.map(mm) as [number, number, number],
+    maxMm: mesh.bounds.max.map(mm) as [number, number, number],
+    surfaceAreaMm2: mm(mesh.surfaceAreaMm2),
+    volumeMm3: closed ? mm(mesh.volumeMm3) : null,
+    closedShell: mesh.topology.watertight,
+    shellCheck: mesh.topology.analysed
+      ? {
+          openEdges: mesh.topology.openEdges,
+          nonManifoldEdges: mesh.topology.nonManifoldEdges,
+          inconsistentEdges: mesh.topology.inconsistentEdges,
+        }
+      : null,
+    role: 'Imported reference shown beside the assembly. Not a part: it is excluded from exports, from mech.analyze and from the design snapshot.',
+  }
+}
+
 async function realObserve(args: Args): Promise<unknown> {
   const parts = liveParts()
-  const requested = args['part']
-  if (requested !== undefined) {
-    const part = requirePart(parts, String(requested))
-    return { source: 'store', ...snapshotFor([part]) }
+  const reference = referenceBlock()
+  if (args['part'] !== undefined) {
+    const part = requirePart(parts, String(args['part']))
+    return { source: 'store', ...snapshotFor([part]), reference }
   }
-  return { source: 'store', ...snapshotFor(parts) }
+  return { source: 'store', ...snapshotFor(parts), reference }
 }
 
 async function realAddPart(args: Args): Promise<unknown> {
@@ -416,7 +457,9 @@ export function mechanicalTools(): AgentTool[] {
   return [
     {
       name: 'mech.observe',
-      description: 'Observe the live mechanical assembly as canonical JSON plus a millimeter front-elevation SVG',
+      description:
+        'Observe the live mechanical assembly as canonical JSON plus a millimeter front-elevation SVG, and any ' +
+        'uploaded STL or OBJ reference beside it (envelope in millimetres, triangle count and shell integrity)',
       parameters: { part: 'string' },
       optionalParameters: ['part'],
       handler: realObserve,

@@ -87,6 +87,15 @@ export class BackupService {
     return this.backups.filter((b) => b.projectId === projectId).sort((a, b) => b.createdAt - a.createdAt);
   }
 
+  /** Timestamp of the newest checkpoint across every project, or null when none exists. */
+  latestBackupAt(): number | null {
+    let latest: number | null = null;
+    for (const backup of this.backups) {
+      if (latest === null || backup.createdAt > latest) latest = backup.createdAt;
+    }
+    return latest;
+  }
+
   /** Drop every saved backup for a deleted project; returns how many were removed. */
   deleteProjectBackups(projectId: string): number {
     const before = this.backups.length;

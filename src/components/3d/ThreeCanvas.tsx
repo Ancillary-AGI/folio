@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
-import { Download, Focus } from 'lucide-react'
+import { Download, Focus, Upload, X } from 'lucide-react'
 import type { MechanicalComponent } from '../../types/toolbox'
 import { ThreeManager } from '../../lib/3d/threeManager'
 import {
@@ -13,6 +13,11 @@ import {
   updateClipPlanes,
   type ThreeView,
 } from '../../lib/3d/framing'
+import { MeshImportError, readMeshFile, shellProblem, type MeshReport } from '../../lib/3d/meshMeasure'
+import { parseObj } from '../../lib/3d/objImporter'
+import { parseStl } from '../../lib/3d/stlImporter'
+import { useProjectStore } from '../../stores/useProjectStore'
+import { useReferenceModelStore } from '../../stores/useReferenceModelStore'
 import { Button } from '../ui/button'
 
 export type { ThreeView }
@@ -64,11 +69,44 @@ function finishFor(materialName: string): { metalness: number; roughness: number
   return { metalness: 0.4, roughness: 0.45 }
 }
 
-/** Bounds of the actual models, excluding grid, arrows and support markers. */
+/** Bounds of the actual models plus any imported reference flagged for framing. */
 function modelBounds(scene: NonNullable<ReturnType<ThreeManager['getScene']>>): THREE.Box3 {
   const bounds = new THREE.Box3()
   for (const model of scene.models) bounds.expandByObject(model.mesh)
+  scene.scene.traverse(object => {
+    if (object.userData.includeInFraming) bounds.expandByObject(object)
+  })
   return bounds
+}
+
+function formatMillimetres(value: number): string {
+  if (!Number.isFinite(value)) return '—'
+  if (value >= 100) return value.toFixed(0)
+  if (value >= 10) return value.toFixed(1)
+  return value.toFixed(2)
+}
+
+function formatVolume(mm3: number): string {
+  if (mm3 >= 1_000_000) return `${(mm3 / 1_000_000).toFixed(2)} L`
+  if (mm3 >= 1_000) return `${(mm3 / 1_000).toFixed(2)} cm³`
+  return `${mm3.toFixed(1)} mm³`
+}
+
+/** Says what the shell walk found, rather than claiming every import is a solid. */
+function shellSummary(mesh: MeshReport): string {
+  const problem = shellProblem(mesh)
+  if (problem === null) return `Closed shell · ${formatVolume(mesh.volumeMm3)}`
+  return `${problem}; volume ${mesh.topology.analysed ? 'undefined' : 'unchecked'}`
+}
+
+/** The extension picks the reader; the bytes decide whether the file was named honestly. */
+async function readReferenceMesh(file: File): Promise<MeshReport> {
+  const buffer = await readMeshFile(file)
+  return /\.obj$/i.test(file.name) ? parseObj(buffer) : parseStl(buffer)
+}
+
+function meshKind(format: MeshReport['format']): string {
+  return format === 'obj' ? 'OBJ' : 'STL'
 }
 
 function disposeObject(object: THREE.Object3D): void {
@@ -96,8 +134,23 @@ export default function ThreeCanvas({
   const sceneIdRef = useRef<string | null>(null)
   const controlsRef = useRef<OrbitControls | null>(null)
   const frameRef = useRef<(mode: ThreeView) => void>(() => {})
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const reference = useReferenceModelStore((state) => state.reference)
+  const setReference = useReferenceModelStore((state) => state.setReference)
+  const projectId = useProjectStore((state) => state.currentProject?.id ?? null)
   const [unavailable, setUnavailable] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
+
+  /*
+   * A reference belongs to the project it was imported for. Carrying another
+   * design's housing beside this assembly would mislead the viewport and every
+   * agent that reads it, so switching projects drops it.
+   */
+  useEffect(() => {
+    if (reference && reference.projectId !== projectId) setReference(null)
+  }, [reference, projectId, setReference])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -401,6 +454,66 @@ export default function ThreeCanvas({
     }
   }, [supports, showSupports, components])
 
+  /*
+   * Imported STL reference. It lives directly on the scene rather than in
+   * scene.models, so the STL/OBJ/GLTF exporters keep exporting the assembly
+   * the user is designing — not the reference they brought in to compare.
+   */
+  useEffect(() => {
+    const manager = managerRef.current
+    const sceneId = sceneIdRef.current
+    const scene = sceneId ? manager?.getScene(sceneId) : undefined
+    if (!manager || !scene || !sceneId || !reference) return
+
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.BufferAttribute(reference.mesh.positions, 3))
+    geometry.setAttribute('normal', new THREE.BufferAttribute(reference.mesh.normals, 3))
+    geometry.computeBoundingSphere()
+
+    const material = new THREE.MeshStandardMaterial({
+      color: 0x9fb3c8,
+      metalness: 0.35,
+      roughness: 0.45,
+      side: THREE.DoubleSide,
+      flatShading: true,
+    })
+    const mesh = new THREE.Mesh(geometry, material)
+    mesh.name = 'reference-model-mesh'
+    // STL carries no unit; read as millimetres and convert to scene metres.
+    mesh.scale.setScalar(0.001)
+
+    // Centre the model in its own footprint and put its base at y = 0, so the
+    // group can be placed beside the assembly without re-measuring.
+    const { bounds } = reference.mesh
+    mesh.position.set(
+      -((bounds.min[0] + bounds.max[0]) / 2) * 0.001,
+      -bounds.min[1] * 0.001,
+      -((bounds.min[2] + bounds.max[2]) / 2) * 0.001,
+    )
+
+    const group = new THREE.Group()
+    group.name = 'reference-model'
+    group.userData.includeInFraming = true
+    group.add(mesh)
+
+    const assembly = modelBounds(scene)
+    if (!assembly.isEmpty()) {
+      const size = assembly.getSize(new THREE.Vector3())
+      const centre = assembly.getCenter(new THREE.Vector3())
+      const gap = Math.max(0.02, Math.max(size.x, size.z) * 0.15)
+      group.position.set(assembly.max.x + gap + (bounds.size[0] * 0.001) / 2, assembly.min.y, centre.z)
+    }
+
+    scene.scene.add(group)
+    manager.renderScene(sceneId)
+
+    return () => {
+      scene.scene.remove(group)
+      geometry.dispose()
+      material.dispose()
+    }
+  }, [reference])
+
   useEffect(() => {
     if (!unavailable) frameRef.current(view)
   }, [view, unavailable])
@@ -427,6 +540,22 @@ export default function ThreeCanvas({
     controls.update()
     manager.renderScene(scene.id)
   }, [])
+
+  /*
+   * A newly imported model must be visible without hunting for it, and removing
+   * it should bring the assembly back into frame while keeping the camera
+   * direction the user chose.
+   */
+  const hadReferenceRef = useRef(false)
+  useEffect(() => {
+    if (reference) {
+      hadReferenceRef.current = true
+      frameRef.current('iso')
+    } else if (hadReferenceRef.current) {
+      hadReferenceRef.current = false
+      fitToView()
+    }
+  }, [reference, fitToView])
 
   const download = (content: string, filename: string, type: string) => {
     const url = URL.createObjectURL(new Blob([content], { type }))
@@ -460,8 +589,10 @@ export default function ThreeCanvas({
     const scene = sceneId ? manager?.getScene(sceneId) : undefined
     if (!scene) return
 
+    // The assembly models, not the workbench: the grid, load arrows, support
+    // markers and any imported reference stay out of the file.
     new GLTFExporter().parse(
-      scene.scene,
+      scene.models.map(model => model.mesh),
       result => {
         download(JSON.stringify(result), 'mechanical-assembly.gltf', 'model/gltf+json')
         setExportError(null)
@@ -470,6 +601,32 @@ export default function ThreeCanvas({
       { binary: false },
     )
   }, [])
+
+  const importReference = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    // Reset first so choosing the same file again still fires a change event.
+    event.target.value = ''
+    if (!file) return
+    setImporting(true)
+    setImportError(null)
+    try {
+      const mesh = await readReferenceMesh(file)
+      setReference({ name: file.name, mesh, projectId })
+    } catch (error) {
+      setImportError(
+        error instanceof MeshImportError
+          ? error.message
+          : `Could not read "${file.name}": ${error instanceof Error ? error.message : String(error)}`,
+      )
+    } finally {
+      setImporting(false)
+    }
+  }, [setReference, projectId])
+
+  const removeReference = useCallback(() => {
+    setReference(null)
+    setImportError(null)
+  }, [setReference])
 
   if (unavailable) {
     return (
@@ -488,28 +645,104 @@ export default function ThreeCanvas({
   return (
     <div className={`relative h-full min-h-64 w-full overflow-hidden bg-canvas ${className}`}>
       <canvas ref={canvasRef} className="block h-full w-full" aria-label="Mechanical 3D viewport" />
-      <div className="absolute right-3 top-3 flex items-center gap-1 border border-border bg-card/95 p-1 shadow-md">
-        <Button variant="ghost" size="icon" onClick={fitToView} title="Fit model to view" aria-label="Fit model to view">
-          <Focus className="h-4 w-4" />
-        </Button>
-        <Button variant="ghost" size="icon" onClick={() => exportModel('stl')} title="Export STL" aria-label="Export STL">
-          <Download className="h-4 w-4" />
-        </Button>
-        <Button variant="ghost" size="icon" onClick={() => exportModel('obj')} title="Export OBJ" aria-label="Export OBJ">
-          OBJ
-        </Button>
-        <Button variant="ghost" size="sm" onClick={exportGLTF} title="Export GLTF" aria-label="Export GLTF">
-          GLTF
-        </Button>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".stl,.obj,model/stl,application/sla,text/plain"
+        className="hidden"
+        onChange={event => {
+          void importReference(event)
+        }}
+        aria-label="Choose an STL or OBJ file to import"
+      />
+      {/*
+       * One right-aligned column, starting clear of the camera presets the
+       * mechanical panel anchors top-left. On a narrow viewport the toolbar
+       * wraps instead of sliding under those buttons, and the card stays below
+       * the controls it describes.
+       */}
+      <div className="absolute left-64 right-3 top-3 flex flex-col items-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-1 border border-border bg-card/95 p-1 shadow-md">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => fileInputRef.current?.click()}
+            title="Import an STL or OBJ model (millimetres)"
+            aria-label="Import STL or OBJ model"
+            disabled={importing}
+          >
+            <Upload className="h-4 w-4" />
+          </Button>
+          {reference && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={removeReference}
+              title="Remove imported model"
+              aria-label="Remove imported model"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+          <Button variant="ghost" size="icon" onClick={fitToView} title="Fit model to view" aria-label="Fit model to view">
+            <Focus className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => exportModel('stl')} title="Export STL" aria-label="Export STL">
+            <Download className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => exportModel('obj')} title="Export OBJ" aria-label="Export OBJ">
+            OBJ
+          </Button>
+          <Button variant="ghost" size="sm" onClick={exportGLTF} title="Export GLTF" aria-label="Export GLTF">
+            GLTF
+          </Button>
+        </div>
+        {reference && (
+          <div
+            className="w-60 max-w-full border border-border bg-card/95 p-2 text-xs shadow-md"
+            data-testid="reference-model-card"
+          >
+            <p className="truncate font-medium text-foreground" title={reference.name}>
+              {reference.name}
+            </p>
+            <p className="text-muted-foreground">
+              {meshKind(reference.mesh.format)} · {reference.mesh.triangleCount.toLocaleString()} triangles
+            </p>
+            <p className="text-muted-foreground">
+              {formatMillimetres(reference.mesh.bounds.size[0])} × {formatMillimetres(reference.mesh.bounds.size[1])} ×{' '}
+              {formatMillimetres(reference.mesh.bounds.size[2])} mm
+            </p>
+            <p
+              className={
+                reference.mesh.topology.watertight === true
+                  ? 'text-success'
+                  : reference.mesh.topology.watertight === null
+                    ? 'text-muted-foreground'
+                    : 'text-warning'
+              }
+            >
+              {shellSummary(reference.mesh)}
+            </p>
+            {reference.mesh.degenerateTriangles > 0 && (
+              <p className="text-warning">
+                {reference.mesh.degenerateTriangles} degenerate facet
+                {reference.mesh.degenerateTriangles === 1 ? '' : 's'} ignored
+              </p>
+            )}
+            <p className="mt-1 text-muted-foreground">
+              {meshKind(reference.mesh.format)} is unitless; coordinates read as millimetres.
+            </p>
+          </div>
+        )}
+        {(exportError || importError) && (
+          <p
+            role="alert"
+            className="w-60 max-w-full border border-destructive/40 bg-card/95 px-3 py-2 text-xs text-destructive shadow-md"
+          >
+            {exportError ?? importError}
+          </p>
+        )}
       </div>
-      {exportError && (
-        <p
-          role="alert"
-          className="absolute bottom-3 left-3 right-3 border border-destructive/40 bg-card/95 px-3 py-2 text-xs text-destructive shadow-md"
-        >
-          {exportError}
-        </p>
-      )}
     </div>
   )
 }

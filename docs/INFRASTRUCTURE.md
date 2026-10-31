@@ -206,7 +206,7 @@ remote desktop.
 - [ ] Configure backups and retention for Postgres and design artifacts.
 - [ ] Keep `npm run verify` green before publishing a build.
 
-## 5. Local-only guarantees
+## 5. Standalone guarantees
 
 Without any environment variables, the following work with no network:
 
@@ -217,6 +217,6 @@ Without any environment variables, the following work with no network:
 - In-app VCS, backups, imports/exports and the demo gallery.
 - The local autopilot loop, while the tab remains open.
 
-The status bar shows **LOCAL ONLY** in this mode. Cloud-labelled actions either
-become available when configured or report that the deployment is missing; they
-do not silently pretend to succeed.
+The administration console labels this deployment **Standalone**. Cloud-labelled
+actions either become available when configured or report that the deployment is
+missing; they do not silently pretend to succeed.

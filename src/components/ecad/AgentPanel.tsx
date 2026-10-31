@@ -36,14 +36,16 @@ import { cloudAgentConfigFromEnv } from '../../lib/agents/cloudAgentTransport'
 import AutopilotWorkspace from './agent/AutopilotWorkspace'
 import AgentAssistant from './agent/AgentAssistant'
 import AgentToolCatalog from './agent/AgentToolCatalog'
+import JobRunnerPanel from './agent/JobRunnerPanel'
 import { useDemoRequest } from '../workspace/useDemoRequest'
 
-type AgentTab = 'autopilot' | 'assistant' | 'tools' | 'audit'
+type AgentTab = 'autopilot' | 'assistant' | 'tools' | 'jobs' | 'audit'
 
 const TABS: ReadonlyArray<{ id: AgentTab; label: string }> = [
   { id: 'autopilot', label: 'Autopilot' },
   { id: 'assistant', label: 'Assistant' },
   { id: 'tools', label: 'Tools' },
+  { id: 'jobs', label: 'Always-on' },
   { id: 'audit', label: 'Audit' },
 ]
 
@@ -108,10 +110,10 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
             className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-xs text-muted-foreground"
             title={cloud.configured
               ? `Cloud runner: ${cloud.baseUrl}`
-              : 'Local runner only — always-on jobs need the server-side runner documented in docs/AGENT_CLOUD.md'}
+              : 'In-process runner only — always-on jobs need the server-side runner documented in docs/AGENT_CLOUD.md'}
           >
             {cloud.configured ? <Cloud size={10} /> : <CloudOff size={10} />}
-            {cloud.configured ? 'Cloud runner' : 'Local runner'}
+            {cloud.configured ? 'Cloud runner' : 'In-process runner'}
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -237,6 +239,16 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
         className={tab === 'tools' ? 'flex min-h-0 flex-1 flex-col' : undefined}
       >
         <AgentToolCatalog />
+      </div>
+
+      <div
+        role="tabpanel"
+        id="agent-panel-jobs"
+        aria-labelledby="agent-tab-jobs"
+        hidden={tab !== 'jobs'}
+        className={tab === 'jobs' ? 'flex min-h-0 flex-1 flex-col' : undefined}
+      >
+        <JobRunnerPanel />
       </div>
 
       <div

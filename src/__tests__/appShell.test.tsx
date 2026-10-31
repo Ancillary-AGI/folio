@@ -6,7 +6,7 @@
  * credentials) and assert the landmarks a first-run user sees: the schematic
  * workspace, the component library, the status bar, and the theme toggle.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 
@@ -38,6 +38,19 @@ import { ONBOARDING_STEP_COUNT } from '../lib/onboarding/onboardingSteps'
 
 const ONBOARDING_COMPLETED_KEY = 'folio.onboarding.completed.v2'
 const themeToggleName = /^switch to (dark|light) theme$/i
+
+/*
+ * These overlays are code-split in the app and the shell prefetches them while
+ * it is idle. This suite asserts the open path, not chunk latency under a
+ * parallel test run, so warm the same modules up front.
+ */
+beforeAll(async () => {
+  await Promise.all([
+    import('../components/help/HelpCenter'),
+    import('../components/help/TutorialRunner'),
+    import('../components/workspace/CommandPalette'),
+  ])
+})
 
 beforeEach(() => {
   localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
@@ -74,6 +87,21 @@ describe('App shell', () => {
 
     // Header chrome: the theme control is present in the IDE too.
     expect(screen.getAllByRole('button', { name: themeToggleName }).length).toBeGreaterThan(0)
+  })
+
+  it('puts a skip link first in the tab order so keyboard users reach the workspace', async () => {
+    render(<App />)
+    fireEvent.click((await screen.findAllByRole('button', { name: /create project/i }))[0])
+    await screen.findByTestId('schematic-canvas')
+
+    // WCAG 2.4.1: the header renders dozens of controls before the design sheet,
+    // so the very first focusable thing must jump past them.
+    const skip = screen.getByRole('link', { name: /skip to the workspace/i })
+    const focusables = Array.from(document.querySelectorAll<HTMLElement>('body a[href], body button'))
+    expect(focusables[0]).toBe(skip)
+
+    expect(skip.getAttribute('href')).toBe('#workspace')
+    expect(document.getElementById('workspace')?.tagName).toBe('MAIN')
   })
 
   it('opens the help centre from the header and from F1', async () => {
@@ -244,7 +272,7 @@ describe('App shell', () => {
     const menu = screen.getByRole('menu', { name: 'More tools' })
     expect(within(menu).getByRole('menuitem', { name: 'Settings' })).toBeInTheDocument()
 
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'AI Assistant' }))
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Design assistant' }))
     expect(useAppStore.getState().aiChatOpen).toBe(true)
   })
 
@@ -268,7 +296,10 @@ describe('App shell', () => {
 
     expect(await screen.findByRole('button', { name: 'BOM' })).toHaveAttribute('aria-current', 'page')
     expect(window.location.pathname.endsWith('/bom')).toBe(true)
-  })
+    // Mounting the shell on a deep link also mounts the workspace the link
+    // names, which is the heaviest single render in this file; under a full
+    // parallel suite run its mount alone has taken over 10 s.
+  }, 20000)
 
   it('moves between a project and the project list with clean history routes', async () => {
     render(<App />)
@@ -283,7 +314,11 @@ describe('App shell', () => {
     expect(await screen.findByRole('heading', { name: 'Your Projects' })).toBeInTheDocument()
     expect(window.location.pathname).toBe('/projects')
     expect(window.location.hash).toBe('')
-  })
+    // Same budget as the deep-link case above: creating a project mounts the
+    // schematic workspace chunk and the project list unmounts it. Measured on a
+    // full parallel suite run this flow exceeded the 10 s default, while the same
+    // file run alone finishes all its cases in 16 s.
+  }, 20000)
 
   it('opens the guide on first run and can be dismissed', async () => {
     localStorage.removeItem(ONBOARDING_COMPLETED_KEY)

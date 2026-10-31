@@ -7,13 +7,25 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { AgentHarness, type AgentBudget } from './agentHarness'
 import { mechanicalTools, registerMechanicalTools } from './mechanicalTools'
 import { captureMechanicalSnapshot, mechanicalToSvg } from './mechanicalSnapshot'
+import { parseStl } from '../3d/stlImporter'
 import { useProjectStore } from '../../stores/useProjectStore'
+import { useReferenceModelStore } from '../../stores/useReferenceModelStore'
 import { createDefaultMechanicalParts, type MechanicalPart } from '../mechanical/partModel'
 
 interface ObservationResult {
   source: 'store'
   snapshot: ReturnType<typeof captureMechanicalSnapshot>
   svg: string
+  reference: {
+    name: string
+    triangleCount: number
+    sizeMm: { x: number; y: number; z: number }
+    surfaceAreaMm2: number
+    volumeMm3: number | null
+    closedShell: boolean | null
+    shellCheck: { openEdges: number; nonManifoldEdges: number; inconsistentEdges: number } | null
+    role: string
+  } | null
 }
 
 interface AnalyzeEntry {
@@ -44,8 +56,41 @@ const call = async (
 const liveParts = (): MechanicalPart[] => useProjectStore.getState().mechanicalParts
 
 beforeEach(() => {
-  useProjectStore.setState({ mechanicalParts: createDefaultMechanicalParts() })
+  useProjectStore.setState({ mechanicalParts: createDefaultMechanicalParts(), currentProject: null })
+  useReferenceModelStore.setState({ reference: null })
 })
+
+/** 2 × 3 × 4 mm closed box: 24 mm³ inside, 52 mm² of surface. */
+const BOX: Array<[[number, number, number], [number, number, number], [number, number, number]]> = [
+  [[0, 0, 0], [0, 3, 0], [2, 3, 0]],
+  [[0, 0, 0], [2, 3, 0], [2, 0, 0]],
+  [[0, 0, 4], [2, 0, 4], [2, 3, 4]],
+  [[0, 0, 4], [2, 3, 4], [0, 3, 4]],
+  [[0, 0, 0], [2, 0, 0], [2, 0, 4]],
+  [[0, 0, 0], [2, 0, 4], [0, 0, 4]],
+  [[0, 3, 0], [2, 3, 4], [2, 3, 0]],
+  [[0, 3, 0], [0, 3, 4], [2, 3, 4]],
+  [[0, 0, 0], [0, 3, 4], [0, 3, 0]],
+  [[0, 0, 0], [0, 0, 4], [0, 3, 4]],
+  [[2, 0, 0], [2, 3, 0], [2, 3, 4]],
+  [[2, 0, 0], [2, 3, 4], [2, 0, 4]],
+]
+
+/** An ASCII STL from triangles given in millimetres. */
+const asciiStl = (  name: string,
+  triangles: Array<[[number, number, number], [number, number, number], [number, number, number]]>,
+): string =>
+  [
+    `solid ${name}`,
+    ...triangles.flatMap(([a, b, c]) => [
+      '  facet normal 0 0 0',
+      '    outer loop',
+      ...[a, b, c].map((v) => `      vertex ${v.join(' ')}`),
+      '    endloop',
+      '  endfacet',
+    ]),
+    `endsolid ${name}`,
+  ].join('\n')
 
 describe('mechanical observation', () => {
   it('reports the default assembly in millimetres with closed-form analysis', async () => {
@@ -114,6 +159,83 @@ describe('mechanical observation', () => {
     expect(observed.snapshot.warnings).toEqual([
       expect.objectContaining({ code: 'unsupported-part', partId: 'plate-1' }),
     ])
+  })
+
+  it('states no reference when none was imported', async () => {
+    const h = new AgentHarness()
+    registerMechanicalTools(h)
+    const observed = (await call(h, 'mech.observe')) as ObservationResult
+    expect(observed.reference).toBeNull()
+  })
+
+  it('reports an uploaded model as an envelope and a shell verdict, not as triangles', async () => {
+    const h = new AgentHarness()
+    registerMechanicalTools(h)
+    useReferenceModelStore.setState({
+      reference: { name: 'housing.stl', mesh: parseStl(asciiStl('housing', BOX)), projectId: null },
+    })
+
+    const observed = (await call(h, 'mech.observe')) as ObservationResult
+    const reference = observed.reference
+    expect(reference).not.toBeNull()
+    expect(reference!.name).toBe('housing.stl')
+    expect(reference!.triangleCount).toBe(12)
+    expect(reference!.sizeMm).toEqual({ x: 2, y: 3, z: 4 })
+    expect(reference!.surfaceAreaMm2).toBeCloseTo(52, 6)
+    expect(reference!.closedShell).toBe(true)
+    expect(reference!.volumeMm3).toBeCloseTo(24, 6)
+    expect(reference!.shellCheck).toEqual({ openEdges: 0, nonManifoldEdges: 0, inconsistentEdges: 0 })
+    // The agent must not read the reference as a part it can analyse.
+    expect(reference!.role).toContain('Not a part')
+    expect(observed.snapshot.parts.map((part) => part.id)).toEqual(['beam-1', 'plate-1'])
+
+    // A single-part observation carries the same reference: the envelope matters
+    // whichever part the agent is about to size.
+    const single = (await call(h, 'mech.observe', { part: 'beam-1' })) as ObservationResult
+    expect(single.reference!.volumeMm3).toBeCloseTo(24, 6)
+  })
+
+  it('withholds volume from an open mesh instead of reporting the raw integral', async () => {
+    const h = new AgentHarness()
+    registerMechanicalTools(h)
+    useReferenceModelStore.setState({
+      reference: {
+        name: 'sheet.stl',
+        mesh: parseStl(
+          asciiStl('sheet', [
+            [[0, 0, 0], [0, 3, 0], [2, 3, 0]],
+            [[0, 0, 0], [2, 3, 0], [2, 0, 0]],
+          ]),
+        ),
+        projectId: null,
+      },
+    })
+
+    const observed = (await call(h, 'mech.observe')) as ObservationResult
+    expect(observed.reference!.closedShell).toBe(false)
+    expect(observed.reference!.volumeMm3).toBeNull()
+    expect(observed.reference!.shellCheck!.openEdges).toBeGreaterThan(0)
+    expect(observed.reference!.surfaceAreaMm2).toBeCloseTo(6, 6)
+  })
+
+  it('drops a reference that belongs to another project', async () => {
+    const h = new AgentHarness()
+    registerMechanicalTools(h)
+    useProjectStore.setState({ currentProject: { id: 'project-b' } as never })
+    useReferenceModelStore.setState({
+      reference: { name: 'housing.stl', mesh: parseStl(asciiStl('housing', BOX)), projectId: 'project-a' },
+    })
+
+    const observed = (await call(h, 'mech.observe')) as ObservationResult
+    expect(observed.reference).toBeNull()
+
+    // The same model tagged to this project is reported again: the gate is the
+    // project, not a one-way clear.
+    useReferenceModelStore.setState({
+      reference: { name: 'housing.stl', mesh: parseStl(asciiStl('housing', BOX)), projectId: 'project-b' },
+    })
+    const ours = (await call(h, 'mech.observe')) as ObservationResult
+    expect(ours.reference!.name).toBe('housing.stl')
   })
 
   it('produces a deterministic drawing and an explicit empty state', () => {

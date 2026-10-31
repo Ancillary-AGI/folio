@@ -9,11 +9,15 @@
  */
 import { AgentHarness, type AgentTool } from './agentHarness'
 import { spiceEngine, type CircuitNetlist } from '../simulation/spiceEngine'
-import { buildFabPackage, fabTracesFromWires, JLCPCB_1OZ, type FabOptions, type FabProfile } from '../manufacturing/fabExport'
+import { buildFabPackage, fabLayerFromId, fabTracesFromWires, JLCPCB_1OZ, type FabOptions, type FabPlane, type FabProfile } from '../manufacturing/fabExport'
 import { DesignRuleChecker, type DRCSettings, type DRCViolation } from '../manufacturing/drc'
 import { polylineDistance } from '../geometry/distance'
 import type { PCBDesign } from '../manufacturing/pcb'
 import type { PcbSceneInput } from '../pcb/pcbScene'
+import { buildPcbScene } from '../pcb/pcbScene'
+import { assessEnclosureFit, stackEnvelope, tightestSide } from '../pcb/enclosureFit'
+import { shellProblem } from '../3d/meshMeasure'
+import { useEnclosureStore } from '../../stores/useEnclosureStore'
 import {
   fabCopperFromRoutedTraces,
   netsFromWires,
@@ -24,6 +28,12 @@ import {
   type BoardSize,
 } from '../pcb/boardLayout'
 import { useProjectStore, type CanvasComponent, type CanvasWire } from '../../stores/useProjectStore'
+import {
+  applyDraftToInstances,
+  draftFromComponent,
+  symbolDraftFaults,
+  SYMBOL_PIN_TYPES,
+} from '../schematic/symbolEditor'
 import type { FabWireInput } from '../manufacturing/fabExport'
 import { capturePcbSnapshot, pcbToSvg } from './pcbSnapshot'
 
@@ -284,6 +294,76 @@ async function realAddVia(args: Record<string, string | number | boolean>): Prom
 }
 
 /**
+ * Edit the schematic symbol of one placed part. The agent names the reference
+ * and the fields it wants changed; everything else keeps its library value.
+ * A draft the canvas contract rejects is refused with the reasons, never
+ * half-written to the sheet.
+ */
+async function realEditSymbol(args: Record<string, string | number | boolean>): Promise<unknown> {
+  const reference = String(args['reference'] ?? '').trim()
+  if (!reference) throw new Error('eda.editSymbol needs the reference of a placed part.')
+  const state = useProjectStore.getState()
+  const placed = state.components.find((component) => component.reference === reference)
+  if (!placed) throw new Error(`eda.editSymbol: no placed part "${reference}" on the sheet.`)
+
+  const draft = draftFromComponent(placed)
+  if (args['width'] !== undefined) draft.width = Number(args['width'])
+  if (args['height'] !== undefined) draft.height = Number(args['height'])
+  if (typeof args['paths'] === 'string' && args['paths'].trim()) {
+    let paths: unknown
+    try {
+      paths = JSON.parse(args['paths'])
+    } catch {
+      throw new Error('eda.editSymbol: paths must be a JSON array of SVG path strings.')
+    }
+    if (!Array.isArray(paths) || paths.some((path) => typeof path !== 'string')) {
+      throw new Error('eda.editSymbol: paths must be a JSON array of SVG path strings.')
+    }
+    draft.paths = paths as string[]
+  }
+  if (typeof args['pins'] === 'string' && args['pins'].trim()) {
+    let pins: unknown
+    try {
+      pins = JSON.parse(args['pins'])
+    } catch {
+      throw new Error('eda.editSymbol: pins must be a JSON array of { id, name, x, y, type }.')
+    }
+    if (!Array.isArray(pins)) throw new Error('eda.editSymbol: pins must be a JSON array.')
+    draft.pins = pins.map((pin, index) => {
+      const record = (pin ?? {}) as Record<string, unknown>
+      const type = String(record['type'] ?? 'passive')
+      if (!(SYMBOL_PIN_TYPES as string[]).includes(type)) {
+        throw new Error(`eda.editSymbol: pins[${index}] has unknown type "${type}".`)
+      }
+      return {
+        id: String(record['id'] ?? ''),
+        name: String(record['name'] ?? ''),
+        x: Number(record['x']),
+        y: Number(record['y']),
+        type: type as (typeof SYMBOL_PIN_TYPES)[number],
+      }
+    })
+  }
+
+  const faults = symbolDraftFaults(draft)
+  if (faults.length > 0) throw new Error(`eda.editSymbol refused: ${faults.join('; ')}`)
+
+  useProjectStore.setState({
+    components: applyDraftToInstances(state.components, placed.componentId, draft),
+    isDirty: true,
+  })
+  return {
+    published: true,
+    reference,
+    instances: state.components.filter((component) => component.componentId === placed.componentId).length,
+    width: draft.width,
+    height: draft.height,
+    paths: draft.paths.length,
+    pins: draft.pins.map((pin) => pin.id),
+  }
+}
+
+/**
  * Observe the routed board. The live layout wins because it is what the 2-D
  * canvas and 3-D preview draw; a board payload keeps headless callers working.
  */
@@ -323,6 +403,62 @@ async function realObserve(args: Record<string, string | number | boolean>): Pro
     source,
     snapshot: capturePcbSnapshot(layout),
     svg: pcbToSvg(layout),
+    enclosure: enclosureBlock(layout),
+  }
+}
+
+/**
+ * What an agent needs to know about an uploaded enclosure: the cavity it has to
+ * stay inside and which wall, floor or lid the board breaks out of. The shell's
+ * triangles stay out of the reply — the verdict is what fits in a tool result.
+ *
+ * The check is a bounding-box comparison, and the block says so: a model with
+ * ribs, bosses or a cut-out is measured by its envelope, not its interior.
+ */
+function enclosureBlock(layout: PcbSceneInput) {
+  const enclosure = useEnclosureStore.getState().enclosure
+  if (!enclosure) return null
+  const currentProjectId = useProjectStore.getState().currentProject?.id ?? null
+  if (enclosure.projectId !== currentProjectId) return null
+
+  const fit = assessEnclosureFit(stackEnvelope(buildPcbScene(layout)), enclosure.mesh)
+  const mm = (value: number) => Number(value.toFixed(6))
+  return {
+    name: enclosure.name,
+    format: enclosure.mesh.format,
+    assumedUnit: enclosure.mesh.assumedUnit,
+    cavityMm: {
+      width: mm(fit.cavityMm.width),
+      depth: mm(fit.cavityMm.depth),
+      height: mm(fit.cavityMm.height),
+    },
+    stackMm: {
+      width: mm(fit.stackMm.width),
+      depth: mm(fit.stackMm.depth),
+      height: mm(fit.stackMm.height),
+    },
+    clearanceMm: {
+      negX: mm(fit.clearanceMm.negX),
+      posX: mm(fit.clearanceMm.posX),
+      negZ: mm(fit.clearanceMm.negZ),
+      posZ: mm(fit.clearanceMm.posZ),
+      negY: mm(fit.clearanceMm.negY),
+      posY: mm(fit.clearanceMm.posY),
+    },
+    tightestMm: mm(fit.tightestMm),
+    tightestSide: tightestSide(fit).side,
+    fits: fit.fits,
+    // The same sentence the panel shows, so an agent acts on the shell's defects
+    // rather than reading four bare edge counts as a pass.
+    shell: shellProblem(enclosure.mesh) ?? 'closed solid',
+    shellClosed: fit.shellClosed,
+    openEdges: fit.openEdges,
+    nonManifoldEdges: fit.nonManifoldEdges,
+    inconsistentEdges: fit.inconsistentEdges,
+    alignment: fit.alignment,
+    role: 'Imported enclosure shown around the board. Not copper: excluded from the fab package, '
+      + 'DRC, the router and every export. Fit compares bounding boxes, so ribs, bosses and '
+      + 'cut-outs inside the shell are not measured.',
   }
 }
 
@@ -544,13 +680,67 @@ async function realDrc(args: Record<string, string | number | boolean>): Promise
     throw new Error('eda.drc: components/wires are not valid JSON.')
   }
   if (!Array.isArray(components) || !Array.isArray(wires)) throw new Error('eda.drc needs components + wires arrays.')
-  const pack = buildFabPackage(components, fabTracesFromWires(wires), { profile })
+  const pack = buildFabPackage(components, fabTracesFromWires(wires), {
+    profile,
+    innerLayerCount: innerLayersFromArg(args['innerLayers']),
+    nets: netsFromWires(wires),
+    planes: planesFromArg(args['planes']),
+  })
   return {
     source: 'schematic',
     shippable: pack.shippable,
     summary: { errors: pack.violations.length, warnings: 0, totalViolations: pack.violations.length },
     violations: pack.violations,
   }
+}
+
+/** Inner film count declared by the routed layout's own copper stack. */
+function innerFilmsOf(layout: PcbSceneInput): number {
+  return Math.max(0, layout.layers.filter((layer) => layer.kind === 'copper').length - 2)
+}
+
+/** Agent-facing inner-layer argument for the headless (JSON) fab path. */
+function innerLayersFromArg(raw: unknown): number {
+  if (raw === undefined || raw === '') return 0
+  const count = Number(raw)
+  if (!Number.isInteger(count) || count < 0 || count > 30) throw new Error('innerLayers must be an integer 0–30.')
+  return count
+}
+
+/** Headless equivalent of the panel's inner-layer pour selector. */
+function planesFromArg(raw: unknown): FabPlane[] {
+  if (raw === undefined || raw === '') return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(String(raw))
+  } catch {
+    throw new Error('planes must be a JSON array of { film, netName, clearance? }.')
+  }
+  if (!Array.isArray(parsed)) throw new Error('planes must be a JSON array.')
+  return parsed.map((entry, index) => {
+    if (!entry || typeof entry !== 'object') throw new Error(`planes[${index}] must be an object.`)
+    const record = entry as Record<string, unknown>
+    const film = String(record['film'] ?? '').trim()
+    const netName = String(record['netName'] ?? '').trim()
+    if (!film) throw new Error(`planes[${index}] names no film (expected e.g. "inner-1").`)
+    const clearance = record['clearance']
+    return {
+      film: film as FabPlane['film'],
+      netName,
+      ...(clearance === undefined ? {} : { clearance: Number(clearance) }),
+    }
+  })
+}
+
+/** Inner films the live stack declares as planes, the same rule the panel uses. */
+function planeLayersOf(layout: PcbSceneInput): FabPlane[] {
+  const planes: FabPlane[] = []
+  for (const layer of layout.layers) {
+    const film = fabLayerFromId(layer.id)
+    if (film.layer !== 'inner' || film.innerIndex === undefined || !layer.net) continue
+    planes.push({ film: `inner-${film.innerIndex}`, netName: layer.net })
+  }
+  return planes
 }
 
 function fabPackageForLiveBoard(profile: FabProfile, projectName: string): { layout: PcbSceneInput; pkg: ReturnType<typeof buildFabPackage> } | null {
@@ -569,6 +759,9 @@ function fabPackageForLiveBoard(profile: FabProfile, projectName: string): { lay
     projectName,
     boardWidth: layout.widthMm,
     boardHeight: layout.heightMm,
+    innerLayerCount: innerFilmsOf(layout),
+    nets: netsFromWires(store.wires),
+    planes: planeLayersOf(layout),
     vias: layout.vias.map((via) => ({
       x: via.x,
       y: via.y,
@@ -607,6 +800,7 @@ async function realExportFab(args: Record<string, string | number | boolean>): P
       manifest: Array.from(live.pkg.files.keys()),
       centroid: live.pkg.centroid.length,
       bom: live.pkg.bom.length,
+      planes: live.pkg.planes,
       unroutedNets: report.unroutedNets,
       splitNets: report.splitNets,
       violations: [...live.pkg.violations, ...report.violations],
@@ -626,7 +820,13 @@ async function realExportFab(args: Record<string, string | number | boolean>): P
   } catch {
     throw new Error('eda.exportFab: components/wires are not valid JSON.')
   }
-  const options: FabOptions = { profile, projectName }
+  const options: FabOptions = {
+    profile,
+    projectName,
+    innerLayerCount: innerLayersFromArg(args['innerLayers']),
+    nets: netsFromWires(wires),
+    planes: planesFromArg(args['planes']),
+  }
   const pack = buildFabPackage(components, fabTracesFromWires(wires), options)
   return {
     source: 'schematic',
@@ -637,6 +837,7 @@ async function realExportFab(args: Record<string, string | number | boolean>): P
     manifest: Array.from(pack.files.keys()),
     centroid: pack.centroid.length,
     bom: pack.bom.length,
+    planes: pack.planes,
     violations: pack.violations,
   }
 }
@@ -653,8 +854,17 @@ export function edaTools(): AgentTool[] {
       needsApproval: false,
     },
     {
+      name: 'eda.editSymbol',
+      description: 'Edit the schematic symbol (body size, SVG outline paths, pin table) of a placed part and apply it to every instance of that library part',
+      parameters: { reference: 'string', width: 'number', height: 'number', paths: 'string', pins: 'string' },
+      optionalParameters: ['width', 'height', 'paths', 'pins'],
+      handler: realEditSymbol,
+      needsApproval: false,
+    },
+    {
       name: 'eda.observe',
-      description: 'Observe the routed board as canonical JSON plus an SVG top view (live board or a board JSON payload)',
+      description: 'Observe the routed board as canonical JSON plus an SVG top view (live board or a board JSON payload), '
+        + 'and any uploaded STL/OBJ enclosure as a millimetre fit verdict against the board stack',
       parameters: { board: 'string' },
       optionalParameters: ['board'],
       handler: realObserve,
@@ -687,16 +897,16 @@ export function edaTools(): AgentTool[] {
     {
       name: 'eda.drc',
       description: 'DRC the routed copper; falls back to a fab-gated sheet when no board is routed',
-      parameters: { profile: 'string', components: 'string', wires: 'string' },
-      optionalParameters: ['profile', 'components', 'wires'],
+      parameters: { profile: 'string', components: 'string', wires: 'string', innerLayers: 'number', planes: 'string' },
+      optionalParameters: ['profile', 'components', 'wires', 'innerLayers', 'planes'],
       handler: realDrc,
       needsApproval: false,
     },
     {
       name: 'eda.exportFab',
       description: 'Emit the routed board as a Gerber/Excellon package (returns the manifest; never claims a package that DRC refuses)',
-      parameters: { project: 'string', profile: 'string', components: 'string', wires: 'string' },
-      optionalParameters: ['project', 'profile', 'components', 'wires'],
+      parameters: { project: 'string', profile: 'string', components: 'string', wires: 'string', innerLayers: 'number', planes: 'string' },
+      optionalParameters: ['project', 'profile', 'components', 'wires', 'innerLayers', 'planes'],
       handler: realExportFab,
       needsApproval: true,
     },
@@ -742,7 +952,7 @@ export function planEdaFlow(
     }
   }
 
-  if (g.includes('simulat') || g.includes('spice') || g.includes('operating') || g.includes('dc') || g.includes('transient') || g.includes('ac sweep')) {
+  if (/simulat|spice|operating|\bdc\b|transient|ac sweep/i.test(g)) {
     return {
       goal,
       steps: [{ tool: 'eda.simulate', args: { netlist: context.netlist }, rationale: 'Run SPICE simulation on current schematic.' }],
@@ -758,6 +968,20 @@ export function planEdaFlow(
     }
   }
 
+  // Before the route branch: "JLCPCB" contains the substring "pcb", so a fab
+  // prompt would otherwise be planned as a routing job.
+  if (g.includes('export') || g.includes('gerber') || g.includes('fab') || g.includes('manufactur')) {
+    return {
+      goal,
+      steps: [
+        { tool: 'eda.simulate', args: { netlist: context.netlist }, rationale: 'Verify before fab.' },
+        { tool: 'eda.drc', args: { profile: 'JLCPCB_1oz' }, rationale: 'Check DRC.' },
+        { tool: 'eda.exportFab', args: { project: 'current' }, rationale: 'Emit fab package.' },
+      ],
+      needsApproval: ['eda.exportFab'],
+    }
+  }
+
   if (g.includes('route') || g.includes('layout') || g.includes('pcb')) {
     return {
       goal,
@@ -768,18 +992,6 @@ export function planEdaFlow(
         { tool: 'eda.drc', args: { profile: 'JLCPCB_1oz' }, rationale: 'Gate on DRC.' },
       ],
       needsApproval: [],
-    }
-  }
-
-  if (g.includes('export') || g.includes('gerber') || g.includes('fab') || g.includes('manufactur')) {
-    return {
-      goal,
-      steps: [
-        { tool: 'eda.simulate', args: { netlist: context.netlist }, rationale: 'Verify before fab.' },
-        { tool: 'eda.drc', args: { profile: 'JLCPCB_1oz' }, rationale: 'Check DRC.' },
-        { tool: 'eda.exportFab', args: { project: 'current' }, rationale: 'Emit fab package.' },
-      ],
-      needsApproval: ['eda.exportFab'],
     }
   }
 

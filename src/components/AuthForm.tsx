@@ -2,7 +2,8 @@ import React, { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Button } from './ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
-import { Mail, Lock, User, Eye, EyeOff, Cpu } from 'lucide-react'
+import { Mail, Lock, User, Eye, EyeOff } from 'lucide-react'
+import FolioLogo from './brand/FolioLogo'
 
 interface AuthFormProps {
   onAuthSuccess: () => void
@@ -89,12 +90,15 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
     <main className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="flex items-center justify-center mb-4">
-            <Cpu className="w-12 h-12 text-primary" />
+          <div className="mb-4 flex items-center justify-center">
+            <FolioLogo
+              className="justify-center"
+              markClassName="h-11 w-11 flex-shrink-0 text-primary"
+              wordmarkClassName="h-5 w-auto text-foreground"
+              showTagline
+            />
           </div>
-          <CardTitle className="text-2xl font-bold text-foreground">
-            Folio
-          </CardTitle>
+          <CardTitle className="sr-only">Folio</CardTitle>
           <p className="text-muted-foreground">
             {isLogin ? 'Sign in to your account' : 'Create your account'}
           </p>

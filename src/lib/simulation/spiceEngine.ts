@@ -18,11 +18,14 @@
  * never a synthesised curve.
  */
 
-import { buildCircuitModel, type CircuitModel } from './circuitModel'
+import { buildCircuitModel } from './circuitModel'
 import { deviceNodes, isInternalNode, parseMillimetres, parseSpiceValue } from './devices'
-import { resolveOutputNode, runNoiseAnalysis } from './noise'
-import { runMonteCarlo } from './monteCarlo'
-import { runAcSweep, runDcSweep, runOperatingPoint, runTransient, type AnalysisOutcome } from './solver'
+import { resolveOutputNode } from './noise'
+import { runMonteCarloAsync } from '../acceleration/monteCarloDispatch'
+import { runAcSweepAsync } from '../acceleration/acSweepDispatch'
+import { runNoiseSweepAsync } from '../acceleration/noiseSweepDispatch'
+import { DEFAULT_TEMPERATURE_CELSIUS, resolveTemperatureCelsius, runCircuitAnalysis } from './analysisRunner'
+import { type AnalysisOutcome } from './solver'
 import { microstripEffectiveEr, tdFromGeometry, z0FromGeometry } from './transmissionLine'
 import { normalizeModelCards, resolveModelCard, type SpiceModelCard } from './modelLibrary'
 
@@ -129,7 +132,6 @@ export interface CircuitNetlist {
   models?: Record<string, SpiceModelCard>
 }
 
-const DEFAULT_TEMPERATURE_CELSIUS = 27
 
 /**
  * Render one netlist component as a SPICE element line.
@@ -299,75 +301,7 @@ function renderSpiceElement(component: Component, modelCards = new Map<string, S
   return `${component.name} ${nodes}${value !== undefined ? ` ${value}` : ''}`.trim()
 }
 
-/** Run the analysis requested by `parameters` against `model`. */
-function dispatch(model: CircuitModel, parameters: SimulationParameters): AnalysisOutcome {
-  const temperatureCelsius = parameters.temperature ?? DEFAULT_TEMPERATURE_CELSIUS
-  if (!Number.isFinite(temperatureCelsius) || temperatureCelsius <= -273.15) {
-    throw new Error('Temperature must be a finite value above absolute zero (-273.15 °C).')
-  }
-
-  switch (parameters.type) {
-    case 'dc':
-      return runOperatingPoint(model, { temperatureCelsius }).outcome
-
-    case 'dc-sweep': {
-      /*
-       * `sweepSource` doubles as the selector between the two things SPICE's
-       * `.dc` can step: a component, or the temperature when it is `TEMP`.
-       */
-      const sweepsTemperature = (parameters.sweepSource ?? '').trim().toUpperCase() === 'TEMP'
-      return runDcSweep(model, {
-        temperatureCelsius,
-        deviceName: sweepsTemperature ? undefined : parameters.sweepSource,
-        sweepTemperature: sweepsTemperature,
-        startValue: parameters.sweepStart ?? 0,
-        stopValue: parameters.sweepStop ?? 5,
-        stepValue: parameters.sweepStep ?? 0.1,
-      }).outcome
-    }
-
-    case 'transient':
-      return runTransient(model, {
-        temperatureCelsius,
-        stopTime: parameters.stopTime ?? 1e-3,
-        stepTime: parameters.stepTime ?? 1e-6,
-        useInitialConditions: parameters.useInitialConditions ?? false,
-        integrationMethod: parameters.integrationMethod ?? 'backward-euler',
-      })
-
-    case 'ac':
-      return runAcSweep(model, {
-        temperatureCelsius,
-        startFrequency: parameters.startFreq ?? 10,
-        stopFrequency: parameters.stopFreq ?? 1e6,
-        pointsPerDecade: parameters.pointsPerDecade ?? 20,
-      })
-
-    case 'noise':
-      return runNoiseAnalysis(model, {
-        temperatureCelsius,
-        startFrequency: parameters.startFreq ?? 10,
-        stopFrequency: parameters.stopFreq ?? 1e6,
-        pointsPerDecade: parameters.pointsPerDecade ?? 10,
-        outputNode: parameters.outputNode,
-      })
-
-    case 'montecarlo': {
-      /*
-       * The tolerance sweep measures the DC operating point: "how far does my
-       * bias move over tolerance?". Every run is a full bias solve; the panel
-       * exposes no waveform parent for this analysis, so claiming to repeat one
-       * would misdescribe the result.
-       */
-      const parent: SimulationParameters = { ...parameters, type: 'dc' }
-      return runMonteCarlo(model, (perturbed) => dispatch(perturbed, parent), {
-        iterations: parameters.iterations ?? 100,
-        tolerance: parameters.tolerance ?? 0.05,
-        seed: parameters.seed,
-      })
-    }
-  }
-}
+export { runCircuitAnalysis, DEFAULT_TEMPERATURE_CELSIUS } from './analysisRunner'
 
 class SPICEEngine {
   private isInitialized = false
@@ -407,7 +341,48 @@ class SPICEEngine {
     }
 
     try {
-      const outcome = dispatch(model, parameters)
+      /*
+       * Three analyses are made of independent units and can use a worker pool:
+       * a tolerance sweep (one run per sample), an AC sweep (one complex solve
+       * per frequency) and a noise sweep (one adjoint solve per frequency). Each
+       * pool reproduces the in-thread result exactly — the same seeds, bias and
+       * assembly order — so the acceleration changes how long the answer takes
+       * to arrive, not what the answer is.
+       */
+      let outcome: AnalysisOutcome
+      if (parameters.type === 'montecarlo') {
+        const parent: SimulationParameters = { ...parameters, type: 'dc' }
+        const swept = await runMonteCarloAsync(
+          model,
+          parent,
+          (perturbed) => runCircuitAnalysis(perturbed, parent),
+          {
+            iterations: parameters.iterations ?? 100,
+            tolerance: parameters.tolerance ?? 0.05,
+            seed: parameters.seed,
+          },
+        )
+        outcome = swept.result
+      } else if (parameters.type === 'ac') {
+        const swept = await runAcSweepAsync(model, {
+          temperatureCelsius: resolveTemperatureCelsius(parameters),
+          startFrequency: parameters.startFreq ?? 10,
+          stopFrequency: parameters.stopFreq ?? 1e6,
+          pointsPerDecade: parameters.pointsPerDecade ?? 20,
+        })
+        outcome = swept.result
+      } else if (parameters.type === 'noise') {
+        const swept = await runNoiseSweepAsync(model, {
+          temperatureCelsius: resolveTemperatureCelsius(parameters),
+          startFrequency: parameters.startFreq ?? 10,
+          stopFrequency: parameters.stopFreq ?? 1e6,
+          pointsPerDecade: parameters.pointsPerDecade ?? 10,
+          outputNode: parameters.outputNode,
+        })
+        outcome = swept.result
+      } else {
+        outcome = runCircuitAnalysis(model, parameters)
+      }
       const { measureProbes } = await import('./probes')
       const voltages = new Map(Object.entries(outcome.operatingPoint ?? {}))
       const branchCurrents = new Map(Object.entries(outcome.branchCurrents ?? {}))

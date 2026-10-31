@@ -14,7 +14,7 @@
   and digital twin from the same component and wire data. PCB traces come from
   the A* router (all four nets), not a fixed slab.
 - **Grouped workspace navigation**: 25 modes organised into Design, Electrical,
-  Mechanical and Ops & AI families, each with an icon and description, replacing
+  Mechanical and Operations families, each with an icon and description, replacing
   a single 25-tab ribbon.
 - **Command palette**: **Ctrl/⌘+K** searches every workspace, every demo and
   document actions (save, theme, gallery, limits register) with arrow-key
@@ -38,8 +38,23 @@
 - **Selection & editing**: properties inspector, reference designators, pin table,
   position/rotation, arbitrary SPICE attributes added or removed per part,
   undo/redo, autosave
+- **Symbol editor**: right-click a part to edit its body size, SVG outline paths
+  and pin table with a live preview; the shared symbol contract gates the save,
+  and an edit applies to every instance of that library part
 - **Multi-sheet**: global-label stitching, duplicate-reference rejection
 - **Interchange**: KiCad netlist import/export with round-trip tests
+- **Sketch mode** (press `S`): draw with a pen, finger or mouse. Strokes are
+  captured in sheet coordinates, matched offline against templates generated
+  from the shipped library symbols (resistor, capacitor, inductor, diode,
+  ground, source, junction) at four quarter turns, previewed with confidence,
+  then placed as ordinary parts and wires (`Ctrl+Enter`). Parts land at library
+  size — the sketch sets position and rotation, not scale — and wire ends snap
+  to real pins. Undo steps through ink before it touches the design. Unread ink
+  is reported, never guessed; four quarter turns only
+- **Image import**: a PNG/JPEG/WebP/SVG of clean line art is thresholded
+  (Otsu), thinned and skeleton-walked into strokes, then recognised by the same
+  engine. Perspective, shading and pencil texture are not corrected, so a
+  photographed sketch may trace poorly — the panel says so
 
 ## ⚡ Simulation Engine ✅
 
@@ -53,7 +68,13 @@
 - **Digital logic**: four-state event simulation (gates, flip-flops, clocks,
   X propagation, loop detection) runnable from the panel
 - **Mixed-signal**: lockstep bridge between digital events and analog PWL sources
-- **Netlists**: SPICE deck export and import
+- **Netlists and decks**: SPICE deck export; import of SPICE decks (`.cir`, `.sp`,
+  `.ckt`) covering R/C/L/V/I/D/Q/M/J/E/G/B/S/W/T/K elements, PULSE/SIN/EXP/SFFM/PWL
+  sources, `.model` cards and `.op`/`.dc`/`.tran`/`.ac`/`.noise` cards, solved on the
+  same engine as the drawn sheet. Subcircuits, `.include`/`.lib`, `.param`
+  expressions and F/H sources are refused by name, with the offending line
+  reported; a deck with several analysis cards solves the first and says which
+  cards it did not run.
 - **Waveforms**: charts with probes, measurements, and playback
 - **Chart interaction**: drag to zoom a window, shift-drag to pan, wheel to zoom
   under the pointer, click to pin a cursor, `+`/`-`/arrows/`R` from the keyboard.
@@ -86,14 +107,41 @@
 
 ## 🖥 PCB Design & Manufacturing ✅
 
-- **Layout**: editable board outline (width/height), multi-layer stack, traces,
-  vias, pads, layer toggles, interactive canvas
+- **Layout**: editable rectangular board outline (width/height inputs and drag
+  handles), multi-layer stack, traces, vias, pads, layer toggles, interactive
+  canvas
 - **3-D preview**: the viewer renders the routed layout itself — actual outline,
   per-layer copper, via barrels, footprint pads and component bodies — and the
   same geometry feeds STL/OBJ export. Off-board traces, vias and parts are
   reported as warnings rather than silently clamped
 - **Conversion & routing**: schematic-to-PCB placement and constrained autorouting
-- **Checks**: DRC (clearance, width, drill, annular ring) and ERC
+- **Cross-selection**: picking a part on the sheet highlights it on the board and
+  picking a part on the board selects it on the sheet — both views read and write
+  the same selection, so the highlight also survives a workspace switch. On the
+  board, the selected part's nets stay lit while other copper and vias recede;
+  if those nets have no routed copper yet, nothing dims
+- **Board selection and group moves**: Shift-click adds or removes a part and a
+  rubber band on empty board selects every footprint it touches (Shift extends);
+  dragging any selected member moves the whole group with the grabbed part on
+  the snap grid, and one drag is one board undo step. The middle button pans
+  without touching the selection, and the rubber band is drawn clipped to the
+  board outline
+- **Tool rail**: board tools are labelled and grouped by intent — Inspect, Route
+  and Layout — with part edits and history in their own groups; the active tool
+  is tinted and the rail states what its next gesture does and which modifier it
+  reads, so a tool is chosen by name rather than a memorised icon
+- **Outline, keep-outs and measuring**: the outline tool drags the right, bottom
+  or corner handle (origin fixed, 10–500 mm, rectangle only); the keep-out tool
+  draws a copper-free window on all copper layers or, with Alt, the active layer,
+  and DRC and the router both read that same rectangle — DRC measures each
+  named layer, while the router bars its two routed films and any via, because a
+  barrel crosses the stack; the measure tool reads the straight-line distance and
+  Δx/Δy between two land- or grid-snapped points. Measurements are session-only
+  and are not stored in the design
+- **Checks**: DRC (clearance, width, drill, annular ring, copper inside a drawn
+  keep-out, and copper crossing the rectangular outline) and ERC (unconnected
+  pins by pin type, multi-driver nets, power/ground shorts, and a warning when a
+  net joins only inputs with no driver)
 - **Thermal**: 2-D finite-volume steady-state solver with convection on both
   faces; shared CPU/Worker/WebGPU physics, hotspot and converged status
 - **Signal integrity**: single-line microstrip/stripline Z₀, reflection lattice,
@@ -111,17 +159,39 @@
   checks a microvia layer span and routes on a single-layer grid without layer
   changes; IBIS uploads parse pins, models, C_comp and clamp I-V tables (no V-T
   ramp, no transient buffer), and the eye remains a closed-form lattice
-- **Fabrication**: Gerber RS-274X, Excellon drill, centroid/PnP, BOM, JLCPCB DRC
-  gate, and enclosure STEP export
+- **Fabrication**: Gerber RS-274X copper film per declared layer (inner films
+  included), masks and silk, Excellon drill with separate blind/buried span
+  files, centroid/PnP, BOM, JLCPCB DRC gate, and enclosure STEP export. An
+  inner film can be poured as a named net's plane: foreign drilled barrels get
+  anti-pads, same-net barrels are flashed directly, and a plane with nothing to
+  connect is refused
 - **Encrypted export**: AES-GCM-256 project snapshots with PBKDF2 key derivation
 
-## 🧮 Compute Acceleration ✅ (thermal only)
+## 🧮 Compute Acceleration ✅ (thermal, Monte Carlo, AC and noise)
 
 - **Capability probe**: reports WebGPU adapter, Worker support, shared memory,
-  and the recommended thermal path in the System Dashboard
+  the recommended thermal path, and the Monte Carlo, AC and noise sweep worker
+  counts in the System Dashboard
 - **Three real thermal paths**: WebGPU WGSL Jacobi, Web Worker, main-thread SOR
-- **Scope**: the accelerated path solves the PCB steady-temperature grid. No
-  circuit, EM, HDL or trajectory workload is GPU- or FPGA-executed
+- **Parallel Monte Carlo**: up to four Workers for sweeps of 32 runs or more.
+  Each run seeds itself from the sweep seed and its run index, and the main
+  thread accumulates samples in run order, so the pooled statistics are
+  identical to the in-thread sweep. A worker fault falls back to the CPU
+- **Parallel AC sweeps**: above 64 frequency points the sweep is split across up
+  to four Workers. The bias, diode conductances and frequency grid are prepared
+  once, each worker solves independent frequency points, and the main thread
+  assembles them in sweep order, so the response is identical to the in-thread
+  sweep. A worker fault falls back to the CPU
+- **Parallel noise sweeps**: above 32 frequency points the adjoint (transposed
+  MNA) solve for each frequency runs across up to four Workers. The bias,
+  output node and thermal/shot source densities are prepared once, every worker
+  uses the same bias, and the main thread assembles the spectrum in sweep
+  order, so the result is identical to the in-thread sweep. A worker fault falls
+  back to the CPU
+- **Scope**: the accelerated paths cover the PCB steady-temperature grid, Monte
+  Carlo tolerance sweeps, AC frequency sweeps and noise sweeps. No circuit solve,
+  EM, HDL or trajectory workload is GPU- or FPGA-executed, and transient
+  integration, DC sweeps and a single Newton solve are not parallelised
 - **Correctness gate**: GPU output is accepted only when the shared residual
   converges; otherwise dispatch falls back and reports the path that succeeded
 - **Browser-verified**: GPU and CPU peaks/averages agree within 0.01 °C on tested
@@ -137,16 +207,54 @@
   re-verification. Reduced-order multiphysics alongside the beam: steady
   1-D conduction, axial bar and pin-jointed truss, 2-D electrostatic fields,
   air-standard and ideal Rankine cycles, Darcy–Weisbach pipe flow and tree pipe
-  networks, plus Sabine/Eyring room acoustics and mass-law partition TL.
+  networks, Sabine/Eyring room acoustics and mass-law partition TL, and
+  psychrometric zone cooling loads (Buck saturation curve, ASHRAE humidity
+  ratio/enthalpy/specific volume, bisection dew point and wet bulb) with a
+  sensible/latent balance, SHR, supply airflow and equivalent round-duct size.
   Air-standard cycles assume constant specific heats and no pressure loss; the
-  Rankine table is nominal saturated water at 0.05–100 bar. Not a 3D FEM/CFD
-  solver, and plates are analysed as beams (🟡)
+  Rankine table is nominal saturated water at 0.05–100 bar. Psychrometric loads
+  are steady sizing estimates, not a certified Manual J or ASHRAE calculation.
+  Not a 3D FEM/CFD solver, and plates are analysed as beams (🟡)
 - **3D**: Three.js circuit/PCB viewer, mesh printability metrics, STL export, and
   real FDM slicing to G-code (contours with hole orientation, clipped infill,
   solid shells, raft/brim/skirt, relative volumetric extrusion). Limits: single
   perimeter path, no support generation, FDM only — unsupported requests fail
   loudly instead of emitting wrong toolpaths. XR preview entry point
   (🟡 browser/device dependent)
+- **STL and OBJ import** in the mechanical viewport: ASCII and binary STL are told
+  apart by exact binary layout (84 + 50 bytes per triangle), so a binary file
+  whose header begins with "solid" still reads correctly, and OBJ faces resolve
+  against the vertices defined so far (negative indices included) with polygons
+  fan-triangulated from the first corner. The upload is rendered beside
+  the assembly, framed with it, and measured by one shared pass: triangles, size
+  in millimetres, surface area, divergence-theorem volume and a closed-shell
+  check that distinguishes open, non-manifold and reversed edges. Neither format
+  has a unit system, so coordinates are read as millimetres; OBJ texture
+  coordinates, vertex normals and materials are parsed past, not applied;
+  nothing is repaired, the reference is session state (never saved into the
+  project, dropped when the project changes)
+  and is excluded from STL/OBJ/GLTF export and from the solvers, while
+  `mech.observe` gives an agent its millimetre envelope and shell verdict — not
+  its triangles. The shell walk is
+  skipped — and says so — above 400,000 triangles (🟡 import and inspect, not
+  STEP/IGES)
+- **Enclosure fit in the PCB 3D preview**: an STL or OBJ shell is drawn
+  translucent around the routed board, its seams traced so it reads as a case and
+  not as fog, and the camera refits so the whole shell stays on screen with the
+  board. Measured against it by the same reader
+  and the same fit code the panel shows. The board stack is the outline widened
+  to every body, pad and via, so lid clearance means the gap above the tallest
+  component; the verdict names the offending side ("6 mm past the left wall")
+  and reports cavity size, stack size and clearance on all six faces. Bounding
+  boxes centred on each other, stated in the UI and in the agent payload: ribs,
+  bosses and cut-outs inside the shell are not measured, and the model's own
+  origin is not trusted. Open, non-manifold and reversed edges travel with the
+  numbers instead of being smoothed over — an open shell turns the headline into
+  a qualified number, in the same words the mechanical viewport prints and the
+  agent payload carries; with no routed layout the shell is
+  drawn and the fit is refused, not guessed. `eda.observe` returns the verdict
+  without the triangles, and the shell never enters the fab package, DRC, the
+  router or any export (session state, per project)
 - **Robotics**: forward/inverse kinematics with damped least-squares IK
   (current-pose seed, deterministic multi-start retry, joint-limit clamping),
   analytic velocity/acceleration trajectory records, task simulation that
@@ -197,12 +305,29 @@
 - **Agents**: EDA tool harness with per-call budgets, approvals and an audit
   trail, plus a deterministic autopilot. The Assistant plans from keyword rules,
   not a hosted model, and the cloud runner is a transport contract only
-- **Datasheet importer** (text, Markdown and CSV — PDF is refused) and **plugin
-  marketplace** panels. The marketplace is a local registry of permission-gated
+- **Datasheet importer** (text, Markdown and CSV — PDF is refused): extracts
+  pins, ratings and package, then synthesizes a symbol and a generated dual-row
+  land pattern. It deliberately synthesizes no SPICE model — a pinout is not
+  device physics — and marks an unstated package as assumed. Plus the **plugin
+  marketplace** panel. The marketplace is a local registry of permission-gated
   manifests; plugin-declared tool bodies have no runtime, and nothing is fetched
   from a hosted store
 - **Optimisation**: evolutionary/multi-objective helpers and seeded particle-swarm
   section sizing (unit-tested, deterministic per seed)
+- **Voice conversation**: a spoken command surface (microphone toggle, `Ctrl+Shift+M`)
+  that places library parts, wires named references, undoes, opens workspaces and
+  describes the sheet, with spoken replies that state what actually happened.
+  Recognition and synthesis run in the browser speech service — no audio is
+  recorded — intents are deterministic keyword matching, not a model, and a
+  refusal always says the sheet is unchanged
+- **Always-on job queue** (Always-on tab): a persisted FIFO queue of engineering
+  jobs that plan against the live sheet (plan → act → verify → report) and run in
+  the background while the human keeps designing, with pause, resume, cancel,
+  per-step progress and approval gates that pause instead of bypass. Each job
+  records its token-budgeted context pack (goal, parts, nets, issues, transcript —
+  a chars/4 estimate). Honest scope: jobs run while Folio is open; a closed tab
+  recovers the active job as paused, and 24/7 execution needs the server-side
+  runner documented in `docs/AGENT_CLOUD.md`
 
 ## 🗂 Projects, Collaboration, Plugins & Security ✅ / 🟡
 
@@ -221,6 +346,13 @@
   marketplace install/uninstall (unit-tested); not a security sandbox
 - **Asset security**: RBAC grants, AES-GCM-256 encryption/decryption, in-session
   audit trail (unit-tested)
+- **Backup evidence in SIEM**: the health check reads the real checkpoint store.
+  A saved project with no checkpoint newer than 24 h opens one "Backup overdue"
+  alert; its "Back up now" action takes a checkpoint and retires the notice, and
+  the notice also clears on its own when a newer checkpoint already exists. A
+  workspace with no saved project reports the backup control as not applicable
+  rather than failing it. Alerts not derived from a live condition can be
+  resolved from the panel
 - **Encrypted export** wired into the app export menu
 
 ## 🛡 Administration & Governance ✅ / 🟡
@@ -312,7 +444,7 @@
   "always correct". Cloud-gated records carry a **cloud** marker.
 - **CI**: lint (zero warnings), typecheck (app + build config), button-label
   audit, full test suite, production build
-- **Tests**: 2,283 tests across 225 files, including engine truth tests and React
+- **Tests**: 2,581 tests across 251 files, including engine truth tests and React
   render/integration tests
 - **Build**: heavily code-split; feature panels and vendor chunks load on demand
 
@@ -330,9 +462,10 @@
 - 3-D FEA, CFD, or contact solvers for mechanical and thermal work
 - Quantum-electronic device/transmon physics, photonic waveguide/laser design,
   detailed room/structural acoustics (only the diffuse-field Sabine/Eyring
-  estimate is present), HVAC psychrometric load design, avionics flight
-  dynamics, and process-plant flowsheet simulation — these are not domains in
-  the workbench today and are not represented by placeholder panels
+  estimate is present), avionics flight dynamics, and process-plant flowsheet
+  simulation — these are not domains in the workbench today and are not
+  represented by placeholder panels. HVAC is present only as the steady
+  psychrometric zone estimate described above, not a full load or duct design.
 - Nano/micro-scale TCAD, atomistic or molecular dynamics, and multi-scale
   coupling between them and the board-level tools
 - A general cross-domain optimiser that jointly sizes electrical, mechanical,

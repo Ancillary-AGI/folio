@@ -85,7 +85,7 @@ describe('administration access', () => {
     expect(missing.reason).toContain('No governance profile')
   })
 
-  it('lists the local owner honestly', async () => {
+  it('lists the standalone administrator honestly', async () => {
     const result = await listMembers(actor, true)
     expect(result.members).toEqual([{
       id: 'actor-1',
@@ -127,10 +127,10 @@ describe('administration access', () => {
     expect(fromMock).not.toHaveBeenCalled()
   })
 
-  it('labels cloud-only capabilities without faking invitations', () => {
+  it('labels management-only capabilities without faking invitations', () => {
     expect(capabilities(true).inviteMembers).toBe(false)
     expect(capabilities(false).inviteMembers).toBe(false)
-    expect(capabilities(true).note).toContain('cloud deployment')
+    expect(capabilities(true).note).toContain('managed deployment')
     expect(capabilities(false).note).toContain('server-side admin function')
   })
 })

@@ -55,13 +55,14 @@ const dip8 = (reference: string, x: number): PlacedComponent => ({
 
 const trace = (
   points: Array<{ x: number; y: number }>,
-  opts: { width?: number; netName?: string; layer?: FabTrace['layer']; layerName?: string } = {},
+  opts: { width?: number; netName?: string; layer?: FabTrace['layer']; layerName?: string; innerIndex?: number } = {},
 ): FabTrace => ({
   points,
   width: opts.width ?? DEFAULT_TRACE_WIDTH,
   netName: opts.netName,
   layer: opts.layer ?? 'top',
   layerName: opts.layerName,
+  innerIndex: opts.innerIndex,
 })
 
 /** Minimal RS-274X well-formedness: header, format, units, balanced %, M02 close. */
@@ -221,7 +222,203 @@ describe('fab package — copper is emitted on the layer it was routed on', () =
     expect(fabLayerFromId('F.Cu')).toEqual({ layer: 'top', name: 'F.Cu' })
     expect(fabLayerFromId('bot-cu')).toEqual({ layer: 'bottom', name: 'bot-cu' })
     expect(fabLayerFromId('B.Cu')).toEqual({ layer: 'bottom', name: 'B.Cu' })
-    expect(fabLayerFromId('in2-cu')).toEqual({ layer: 'inner', name: 'in2-cu' })
+    expect(fabLayerFromId('in2-cu')).toEqual({ layer: 'inner', name: 'in2-cu', innerIndex: 2 })
+    expect(fabLayerFromId('In1.Cu')).toEqual({ layer: 'inner', name: 'In1.Cu', innerIndex: 1 })
+    expect(fabLayerFromId('inner3').innerIndex).toBe(3)
+    expect(fabLayerFromId('copper-7')).toEqual({ layer: 'inner', name: 'copper-7' })
+  })
+})
+
+describe('fab package — multilayer copper films', () => {
+  const inner = (
+    points: Array<{ x: number; y: number }>,
+    film: number,
+    opts: { netName?: string; innerIndex?: number; layerName?: string } = {},
+  ): FabTrace => ({
+    points,
+    width: DEFAULT_TRACE_WIDTH,
+    netName: opts.netName,
+    layer: 'inner',
+    innerIndex: opts.innerIndex ?? film,
+    layerName: opts.layerName ?? `in${film}-cu`,
+  })
+
+  it('films inner traces on their own Gerber layer when the stackup declares them', () => {
+    const pkg = buildFabPackage([resistor('R1', 10)], [
+      trace([{ x: 1, y: 2 }, { x: 3, y: 2 }], { layer: 'top' }),
+      inner([{ x: 4, y: 5 }, { x: 6, y: 5 }], 1),
+      inner([{ x: 7, y: 8 }, { x: 9, y: 8 }], 2),
+    ], { innerLayerCount: 2 })
+    const top = pkg.files.get('folio-pcb-F_Cu.gtl') ?? ''
+    const in1 = pkg.files.get('folio-pcb-In1_Cu.g1') ?? ''
+    const in2 = pkg.files.get('folio-pcb-In2_Cu.g2') ?? ''
+    expect(pkg.shippable).toBe(true)
+    expect(top).not.toContain('X4000000Y5000000')
+    expect(in1).toContain('X4000000Y5000000')
+    expect(in1).not.toContain('X7000000Y8000000')
+    expect(in2).toContain('X7000000Y8000000')
+    expect(pkg.files.has('folio-pcb-B_Cu.gbl')).toBe(true)
+  })
+
+  it('refuses an inner film the package was not told about', () => {
+    const pkg = buildFabPackage([resistor('R1', 10)], [inner([{ x: 4, y: 5 }, { x: 6, y: 5 }], 3)], { innerLayerCount: 2 })
+    expect(pkg.shippable).toBe(false)
+    expect(pkg.violations.some((v) => v.rule === 'copper-layer' && v.message.includes('2 inner film(s)'))).toBe(true)
+    expect(pkg.files.has('folio-pcb-In3_Cu.g3')).toBe(false)
+  })
+
+  it('charges clearance on the same inner film and not across the laminate', () => {
+    const crammed = buildFabPackage([], [
+      inner([{ x: 0, y: 0 }, { x: 10, y: 0 }], 1, { netName: 'A' }),
+      inner([{ x: 0, y: 0.1 }, { x: 10, y: 0.1 }], 1, { netName: 'B' }),
+    ], { innerLayerCount: 2 })
+    expect(crammed.shippable).toBe(false)
+    expect(crammed.violations.some((v) => v.rule === 'trace-spacing')).toBe(true)
+    const stacked = buildFabPackage([], [
+      inner([{ x: 0, y: 0 }, { x: 10, y: 0 }], 1, { netName: 'A' }),
+      inner([{ x: 0, y: 0.1 }, { x: 10, y: 0.1 }], 2, { netName: 'B' }),
+    ], { innerLayerCount: 2 })
+    expect(stacked.shippable).toBe(true)
+  })
+
+  it('flashes through-hole pads and through vias on every copper film', () => {
+    const pkg = buildFabPackage([dip8('U1', 50)], [], {
+      innerLayerCount: 2,
+      vias: [{ x: 20, y: 20, drillDiameter: 0.4, padDiameter: 0.8 }],
+    })
+    for (const file of ['F_Cu.gtl', 'In1_Cu.g1', 'In2_Cu.g2', 'B_Cu.gbl']) {
+      const content = pkg.files.get(`folio-pcb-${file}`) ?? ''
+      expect(content.split('\n').filter((line) => line.includes('D03*')).length, file).toBe(9)
+    }
+    expect(pkg.files.get('folio-pcb.drl')).toContain('X20.000Y20.000')
+  })
+
+  it('drills a blind microvia only across its span and checks it against laser rules', () => {
+    const laser = { ...JLCPCB_1OZ, minLaserDrill: 0.075, minMicroviaRing: 0.075 }
+    const pkg = buildFabPackage([resistor('R1', 10)], [], {
+      profile: laser,
+      innerLayerCount: 2,
+      vias: [{ x: 50, y: 50, drillDiameter: 0.1, padDiameter: 0.25, span: { fromFilm: 0, toFilm: 1 } }],
+    })
+    expect(pkg.shippable).toBe(true)
+    const through = pkg.files.get('folio-pcb.drl') ?? ''
+    const span = pkg.files.get('folio-pcb-F-In1.drl') ?? ''
+    expect(through).not.toContain('X50.000Y50.000')
+    expect(span).toContain('X50.000Y50.000')
+    expect(span).toContain('C0.100')
+    const counts = ['F_Cu.gtl', 'In1_Cu.g1', 'In2_Cu.g2', 'B_Cu.gbl'].map(
+      (file) => (pkg.files.get(`folio-pcb-${file}`) ?? '').split('\n').filter((line) => line.includes('D03*')).length,
+    )
+    // Resistor pads (top only) + the via, which reaches top and inner 1.
+    expect(counts).toEqual([3, 1, 0, 0])
+  })
+
+  it('refuses a mechanical drill on a laser span and an impossible span', () => {
+    const pkg = buildFabPackage([], [], {
+      innerLayerCount: 2,
+      vias: [
+        { x: 10, y: 10, drillDiameter: 0.1, padDiameter: 0.25, span: { fromFilm: 0, toFilm: 1 } },
+        { x: 20, y: 20, drillDiameter: 0.4, padDiameter: 0.8, span: { fromFilm: 3, toFilm: 1 } },
+      ],
+    })
+    expect(pkg.shippable).toBe(false)
+    expect(pkg.violations.some((v) => v.rule === 'drill' && v.message.includes('laser'))).toBe(true)
+    expect(pkg.violations.some((v) => v.rule === 'via-span')).toBe(true)
+  })
+})
+
+describe('fab package — net-aware plane pours', () => {
+  const dip8Wired = (reference: string, x: number): PlacedComponent => {
+    const component = dip8(reference, x)
+    return {
+      ...component,
+      component: {
+        ...component.component,
+        pins: Array.from({ length: 8 }, (_, index) => ({
+          id: `p${index + 1}`,
+          name: `${index + 1}`,
+          x: 0,
+          y: 0,
+          type: 'passive' as const,
+        })),
+      },
+    }
+  }
+  const nets = [
+    { id: 'GND', name: 'GND', connectedPins: [{ componentId: 'id-U1', pinId: 'p4' }], wires: [] },
+    { id: 'VCC', name: 'VCC', connectedPins: [{ componentId: 'id-U1', pinId: 'p8' }], wires: [] },
+  ]
+  const flashes = (content: string): number => content.split('\n').filter((line) => line.includes('D03*')).length
+
+  it('pours each plane, clears foreign barrels and connects its own', () => {
+    const pkg = buildFabPackage([dip8Wired('U1', 50)], [], {
+      innerLayerCount: 2,
+      nets,
+      planes: [
+        { film: 'inner-1', netName: 'GND' },
+        { film: 'inner-2', netName: 'VCC' },
+      ],
+    })
+    expect(pkg.shippable).toBe(true)
+    expect(pkg.planes).toEqual([
+      { film: 'inner-1', netName: 'GND', connections: 1, antiPads: 7 },
+      { film: 'inner-2', netName: 'VCC', connections: 1, antiPads: 7 },
+    ])
+    const gnd = pkg.files.get('folio-pcb-In1_Cu.g1') ?? ''
+    expect(gnd).toContain('G36*')
+    expect(gnd).toContain('G37*')
+    expect(gnd).toContain('G04 In1 plane (GND)*')
+    expect((gnd.match(/%LPC\*%/g) ?? []).length).toBe(7)
+    expect(flashes(gnd)).toBe(8)
+    // Pin 4 carries GND: flashed dark after the anti-pad block, pin 8 is cleared.
+    // The coordinates are the package's own: DIP-8 lands sit 3.81 mm either side of
+    // the centre on a 2.54 mm pitch, so at (50, 30) pin 4 is (46.19, 26.19) and the
+    // diagonally opposite pin 8 is (53.81, 33.81).
+    const lastDark = gnd.lastIndexOf('%LPD*%')
+    expect(gnd.indexOf('X46190000Y26190000', lastDark)).toBeGreaterThan(lastDark)
+    const pin8 = gnd.indexOf('X53810000Y33810000')
+    expect(pin8).toBeGreaterThan(-1)
+    expect(pin8).toBeLessThan(lastDark)
+  })
+
+  it('refuses a plane that would float', () => {
+    const pkg = buildFabPackage([dip8Wired('U1', 50)], [], {
+      innerLayerCount: 1,
+      nets,
+      planes: [{ film: 'inner-1', netName: 'VDD' }],
+    })
+    expect(pkg.shippable).toBe(false)
+    expect(pkg.violations.some((v) => v.rule === 'plane-floating' && v.message.includes('VDD'))).toBe(true)
+  })
+
+  it('refuses copper whose net is not the plane net', () => {
+    const pkg = buildFabPackage([dip8Wired('U1', 50)], [
+      trace([{ x: 1, y: 2 }, { x: 3, y: 2 }], { layer: 'inner', innerIndex: 1, layerName: 'in1-cu', netName: 'VCC' }),
+      trace([{ x: 5, y: 6 }, { x: 7, y: 6 }], { layer: 'inner', innerIndex: 1, layerName: 'in1-cu', netName: 'GND' }),
+    ], {
+      innerLayerCount: 2,
+      nets,
+      planes: [{ film: 'inner-1', netName: 'GND' }],
+    })
+    expect(pkg.shippable).toBe(false)
+    expect(pkg.violations.filter((v) => v.rule === 'plane-conflict')).toHaveLength(1)
+    const gnd = pkg.files.get('folio-pcb-In1_Cu.g1') ?? ''
+    // The pour absorbs same-net copper; neither trace is drawn as a routed line.
+    expect(gnd).not.toContain('X5000000Y6000000')
+  })
+
+  it('refuses outer, undeclared and duplicate plane films', () => {
+    const pkg = buildFabPackage([], [], {
+      innerLayerCount: 2,
+      planes: [
+        { film: 'top', netName: 'GND' },
+        { film: 'inner-3', netName: 'VCC' },
+        { film: 'inner-1', netName: 'GND' },
+        { film: 'inner-1', netName: 'VCC' },
+      ],
+    })
+    expect(pkg.violations.filter((v) => v.rule === 'copper-layer')).toHaveLength(2)
+    expect(pkg.violations.some((v) => v.rule === 'plane-conflict' && v.message.includes('Two planes'))).toBe(true)
   })
 })
 

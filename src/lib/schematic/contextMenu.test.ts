@@ -25,8 +25,13 @@ const part = (id: string): CanvasComponent => ({
 })
 
 describe('context menu', () => {
-  it('offers the five actions', () => {
-    expect(CONTEXT_ACTIONS.map((action) => action.id)).toEqual(['rotate', 'duplicate', 'front', 'back', 'delete'])
+  it('offers the six actions, symbol editing first', () => {
+    expect(CONTEXT_ACTIONS.map((action) => action.id)).toEqual(['edit-symbol', 'rotate', 'duplicate', 'front', 'back', 'delete'])
+  })
+
+  it('leaves the sheet alone for the dialog-owned symbol edit', () => {
+    const list = [part('a'), part('b')]
+    expect(applyContextAction(list, 'a', 'edit-symbol')).toEqual(list)
   })
 
   it('rotates, duplicates, reorders and deletes', () => {

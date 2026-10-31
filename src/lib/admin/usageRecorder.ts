@@ -1,11 +1,11 @@
 /**
  * Single entry point for platform usage.
  *
- * Every event is recorded in the device ledger (always available, even offline).
+ * Every event is recorded in the workspace ledger first (always available).
  * In a configured cloud deployment the same event is mirrored into
  * `usage_events`, where the governance schema enforces quota policies. The
  * insert is best-effort: a failed mirror must never break the design action the
- * user just performed, and the local ledger remains the source for this device.
+ * user just performed, and the workspace ledger remains the source of record.
  */
 import { isSupabaseConfigured, supabase } from '../supabase'
 import type { User } from '../../types'

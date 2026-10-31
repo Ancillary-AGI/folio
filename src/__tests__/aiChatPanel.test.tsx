@@ -39,8 +39,8 @@ describe('AIChatPanel', () => {
 
   it('renders welcome message, quick actions and input', () => {
     render(<AIChatPanel onClose={() => {}} />)
-    expect(screen.getByText('AI Design Assistant')).toBeInTheDocument()
-    expect(screen.getByText(/your AI design assistant/)).toBeInTheDocument()
+    expect(screen.getByText('Design assistant')).toBeInTheDocument()
+    expect(screen.getByText(/I'm the design assistant/)).toBeInTheDocument()
     for (const action of ['Analyze circuit', 'Suggest components', 'Optimize power', 'Check safety']) {
       expect(screen.getByRole('button', { name: new RegExp(action) })).toBeInTheDocument()
     }
@@ -68,7 +68,7 @@ describe('AIChatPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
     await waitFor(() => expect(screen.getAllByText('U').length).toBeGreaterThan(0))
     fireEvent.click(screen.getByRole('button', { name: 'Clear chat' }))
-    expect(screen.getByText('AI Design Assistant')).toBeInTheDocument()
+    expect(screen.getByText('Design assistant')).toBeInTheDocument()
     expect(screen.queryByText(/Circuit Analysis Report/)).not.toBeInTheDocument()
   })
 

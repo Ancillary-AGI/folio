@@ -1,5 +1,5 @@
 /**
- * Camera-framing regressions for the mechanical viewport.
+ * Camera-framing regressions for the 3D viewports.
  *
  * The old distance floored the model extent at 250 mm, so a 70 mm enclosure
  * was framed as if it were a quarter metre wide and read as a speck on a
@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { VIEW_DIRECTIONS, VIEW_UPS, framingDistance, updateClipPlanes } from './framing';
+import { VIEW_DIRECTIONS, VIEW_UPS, fitFrameDistance, framingDistance, unionFrames, updateClipPlanes, type Framing } from './framing';
 
 function camera(aspect = 16 / 9): THREE.PerspectiveCamera {
   const result = new THREE.PerspectiveCamera(45, aspect, 0.05, 500);
@@ -82,5 +82,89 @@ describe('updateClipPlanes', () => {
     updateClipPlanes(view, 3.14);
     expect(view.near).toBeLessThan(0.05);
     expect(view.far).toBeGreaterThan(300);
+  });
+});
+
+/**
+ * Fitting a framed box to a viewport with an orbiting camera — the PCB preview's
+ * framing. The distance used to come from a bounding sphere and a quarter of
+ * slack each way, which showed a 245 mm mainboard as a postage stamp in a 16:9
+ * viewport: the sphere fits the board to its diagonal, and the chrome the HUD
+ * covers was charged against the width as well as the height.
+ */
+describe('fitFrameDistance', () => {
+  const FOV_DEG = 42
+  const WIDE = { width: 1600, height: 900 }
+  const lookingDown = new THREE.Vector3(0, 1, 0)
+  const tanHalfFov = Math.tan((FOV_DEG / 2) * (Math.PI / 180))
+
+  it('fits a wide, shallow board to its width rather than its diagonal', () => {
+    const frame: Framing = { center: [0, 0, 0], half: [122.5, 0.8, 1] }
+    const distance = fitFrameDistance(frame, lookingDown, WIDE, FOV_DEG)
+    // Top view puts the board's X along the screen's width, so the width term
+    // governs and the chrome costs nothing on a 1 mm-tall strip.
+    expect(distance).toBeCloseTo((122.5 / (tanHalfFov * (1600 / 900))) * 1.08 + 1, 6)
+    const boundingSphere = Math.hypot(122.5, 1) / tanHalfFov
+    expect(distance).toBeLessThan(boundingSphere)
+  })
+
+  it('backs the camera off for a narrow viewport', () => {
+    const frame: Framing = { center: [0, 0, 0], half: [122.5, 0.8, 1] }
+    const wide = fitFrameDistance(frame, lookingDown, WIDE, FOV_DEG)
+    const narrow = fitFrameDistance(frame, lookingDown, { width: 400, height: 900 }, FOV_DEG)
+    expect(narrow).toBeGreaterThan(wide * 2)
+  })
+
+  it('charges the chrome the height term only, so a deep frame pays for it', () => {
+    const frame: Framing = { center: [0, 0, 0], half: [1, 0.8, 122.5] }
+    const distance = fitFrameDistance(frame, lookingDown, WIDE, FOV_DEG)
+    // The 0.3 HUD fraction leaves 70% of the height for the scene.
+    expect(distance).toBeCloseTo((122.5 / (tanHalfFov * 0.7)) * 1.08 + 1, 6)
+    expect(distance).toBeGreaterThan(122.5 / tanHalfFov)
+  })
+
+  it('keeps a degenerate frame in front of the camera', () => {
+    const frame: Framing = { center: [0, 0, 0], half: [0, 0, 0] }
+    expect(fitFrameDistance(frame, lookingDown, WIDE, FOV_DEG)).toBe(5)
+  })
+
+  it('falls back to a usable aspect when the viewport has no height', () => {
+    const frame: Framing = { center: [0, 0, 0], half: [122.5, 0.8, 1] }
+    const distance = fitFrameDistance(frame, lookingDown, { width: 800, height: 0 }, FOV_DEG)
+    expect(Number.isFinite(distance)).toBe(true)
+    expect(distance).toBeCloseTo((122.5 / (tanHalfFov * 1.6)) * 1.08 + 1, 6)
+  })
+})
+
+/**
+ * The PCB preview unions the board frame with an imported enclosure, so a case
+ * bigger than the board stays on screen instead of overflowing the viewport.
+ */
+describe('unionFrames', () => {
+  it('grows the frame to an enclosure bigger than the board it surrounds', () => {
+    const frame = unionFrames(
+      { center: [0, 0, 0], half: [20, 1, 10] },
+      { center: [0, 0, 0], half: [60, 10, 45] },
+    );
+    expect(frame.center).toEqual([0, 0, 0]);
+    expect(frame.half).toEqual([60, 10, 45]);
+  });
+
+  it('never shrinks the frame below the circuit it was already showing', () => {
+    const frame = unionFrames(
+      { center: [10, 0, 0], half: [30, 2, 20] },
+      { center: [0, 0, 0], half: [5, 5, 5] },
+    );
+    expect(frame.center).toEqual([10, 0, 0]);
+    expect(frame.half).toEqual([30, 5, 20]);
+  });
+
+  it('keeps the offset of a frame that sits beside another', () => {
+    const frame = unionFrames(
+      { center: [0, 0, 0], half: [10, 10, 10] },
+      { center: [50, 0, 0], half: [10, 10, 10] },
+    );
+    expect(frame.center).toEqual([25, 0, 0]);
+    expect(frame.half).toEqual([35, 10, 10]);
   });
 });

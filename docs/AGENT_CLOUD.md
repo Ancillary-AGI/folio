@@ -22,17 +22,21 @@ deployment must add, and defines the wire contract so the browser side is ready.
 | Deterministic bounded knob search with restore-best | `runAutopilot` |
 | Durable session timeline (localStorage) | `src/lib/agents/agentSession.ts` |
 | Autopilot UI with live schematic/waveform feedback | `src/components/ecad/AgentPanel.tsx`, `src/components/ecad/agent/AutopilotWorkbench.tsx` |
+| Persistent background job queue: plan → act → verify → report, pause/resume/cancel, approval gates, per-step persistence, crash recovery, token-budgeted context pack | `src/lib/agents/jobRunner.ts`, `src/lib/agents/jobExecutor.ts`, `src/lib/agents/contextPack.ts`, `src/components/ecad/agent/JobRunnerPanel.tsx` |
 
-Limits of the local runner: the tab must stay open, work stops when the tab is
-closed or the device sleeps, simulations compete with rendering for one thread,
-and there is no multi-user scheduling or server-side audit retention.
+Limits of the local runner: the tab must stay open — closing it pauses the
+active job, which the queue recovers as paused on the next start and resumes
+from its last completed step; nothing executes while the app is closed;
+simulations compete with rendering for one thread; and there is no multi-user
+scheduling or server-side audit retention.
 
 ## What requires cloud infrastructure
 
 These are **not implemented in this repository** and need a deployed backend:
 
-1. **Always-on execution.** A job queue plus worker that keeps running after the
-   browser disconnects.
+1. **24/7 execution.** A job queue plus worker that keeps running after the
+   browser disconnects — the in-app queue stops with the tab and nothing runs
+   while the app is closed.
 2. **Headless CAD runtime per job.** A worker process running this project's
    solver and `createMemoryCadRuntime`/`registerCadTools` without a DOM.
 3. **Durable design storage and audit retention.** Blob/object storage for

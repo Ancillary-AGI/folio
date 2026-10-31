@@ -18,7 +18,10 @@ export interface BoardDefinition {
     uart: { tx: number; rx: number };
   };
   bootloader: string;
+  /** The ICSP programmer, not the board id; a FQBN is never built from this. */
   programmer: string;
+  /** Fully-qualified board name for `arduino-cli --fqbn`, e.g. `arduino:avr:uno`. */
+  fqbn: string;
   uploadProtocol: string;
   uploadSpeed: number;
 }
@@ -82,6 +85,7 @@ export const BOARD_DEFINITIONS: Record<string, BoardDefinition> = {
     },
     bootloader: 'optiboot',
     programmer: 'arduino',
+    fqbn: 'arduino:avr:uno',
     uploadProtocol: 'arduino',
     uploadSpeed: 115200
   },
@@ -106,6 +110,7 @@ export const BOARD_DEFINITIONS: Record<string, BoardDefinition> = {
     },
     bootloader: 'optiboot',
     programmer: 'arduino',
+    fqbn: 'arduino:avr:nano',
     uploadProtocol: 'arduino',
     uploadSpeed: 57600
   },
@@ -130,6 +135,7 @@ export const BOARD_DEFINITIONS: Record<string, BoardDefinition> = {
     },
     bootloader: 'esp32',
     programmer: 'esptool',
+    fqbn: 'esp32:esp32:esp32',
     uploadProtocol: 'esptool',
     uploadSpeed: 921600
   },
@@ -154,6 +160,7 @@ export const BOARD_DEFINITIONS: Record<string, BoardDefinition> = {
     },
     bootloader: 'esp8266',
     programmer: 'esptool',
+    fqbn: 'esp8266:esp8266:nodemcuv2',
     uploadProtocol: 'esptool',
     uploadSpeed: 115200
   }
@@ -258,14 +265,23 @@ class BoardProgrammer {
     // STK500v1 session (Giant 3) — without one, keep refusing honestly.
     if (!isNodeRuntime()) {
       if (this.browserTransport && this.selectedBoard) {
-        const { uploadHexImage } = await import('./uploadSession');
-        const { bytesToIntelHex, textToBytes } = await import('../compilation/intelHex');
-        const image = compiledBinary
-          ? bytesToIntelHex(new Uint8Array(compiledBinary), { baseAddress: 0 })
-          : bytesToIntelHex(textToBytes('// empty sketch'), { baseAddress: 0 });
+        if (!compiledBinary) {
+          // Static analysis never produces machine code. Flashing anything here
+          // would write a made-up image to the board and could still report OK.
+          return {
+            success: false,
+            output:
+              'No compiled image is available: this build only ran static analysis. Compile with arduino-cli or the Arduino IDE, then flash the resulting image.',
+            error: 'No compiled binary to flash',
+            uploadTime: Date.now() - startTime,
+          }
+        }
+        const { uploadHexImage } = await import('./uploadSession')
+        const { bytesToIntelHex } = await import('../compilation/intelHex')
+        const image = bytesToIntelHex(new Uint8Array(compiledBinary), { baseAddress: 0 })
         const session = await uploadHexImage(this.browserTransport, image, {
           flashSize: this.selectedBoard.flash,
-        });
+        })
         return {
           success: session.success,
           output: session.message,
@@ -326,18 +342,30 @@ class BoardProgrammer {
     }
   }
 
-  async installLibrary(libraryName: string, version?: string): Promise<boolean> {
-    void libraryName;
-    void version;
-    // No package registry client is bundled: report honestly instead of
-    // sleeping two seconds and claiming success.
-    return false;
-  }
-
   async getInstalledLibraries(): Promise<Array<{ name: string; version: string; description: string }>> {
-    // No library index is bundled; the toolchain panel renders the empty
-    // state instead of a fabricated catalog.
-    return [];
+    // The browser has no package index; only a host with arduino-cli can list
+    // what is actually installed. An empty list is a real answer, not a fake.
+    if (!isNodeRuntime()) return []
+    const listed = await nodeExecFile('arduino-cli', ['lib', 'list', '--format', 'json'])
+    if (!listed || listed.error) return []
+    try {
+      const parsed = JSON.parse(listed.stdout) as {
+        installed_libraries?: Array<{
+          library?: { name?: string; version?: string; paragraph?: string }
+        }>
+      }
+      return (parsed.installed_libraries ?? []).flatMap((entry) => {
+        const name = entry.library?.name
+        if (!name) return []
+        return [{
+          name,
+          version: entry.library?.version ?? 'unknown',
+          description: entry.library?.paragraph ?? '',
+        }]
+      })
+    } catch {
+      return []
+    }
   }
 
   private validateSyntax(code: string): string[] {
@@ -505,8 +533,11 @@ class BoardProgrammer {
     const sketchFile = path.join(sketchDir, 'sketch.ino');
 
     // Held in one place because the compile and the upload both need the
-    // identical `vendor:architecture:board` string.
-    const fqbn = `${this.selectedBoard?.architecture}:${this.selectedBoard?.programmer}:${this.selectedBoard?.id}`;
+    // identical `vendor:architecture:board` string. A FQBN is the board's own
+    // name in the core (`arduino:avr:uno`), not a re-assembly of the fields
+    // above: the ICSP programmer and the board id are different namespaces.
+    const fqbn = this.selectedBoard?.fqbn;
+    if (!fqbn) throw new Error('No board is selected, so there is no FQBN to compile for.');
 
     try {
       // Create directories
@@ -576,9 +607,17 @@ class BoardProgrammer {
             };
           }
         }
-    } catch {
-      // Fallback to simulation on any error
-      return this.simulateCompilation(sketchCode, libraries, startTime);
+    } catch (error) {
+      // Keep the static analysis, but carry the reason the toolchain failed:
+      // a permissions or FQBN error is not the same as "not installed".
+      const analysis = await this.simulateCompilation(sketchCode, libraries, startTime);
+      return {
+        ...analysis,
+        warnings: [
+          ...analysis.warnings,
+          `arduino-cli did not complete: ${error instanceof Error ? error.message : String(error)}`,
+        ],
+      };
     } finally {
       // Cleanup temporary directory
       try {
@@ -609,6 +648,26 @@ class BoardProgrammer {
       };
     }
 
+    const board = this.selectedBoard;
+    if (!board) {
+      return {
+        success: false,
+        output: 'No board is selected, so there is no FQBN to upload for.',
+        error: 'No board selected',
+        uploadTime: Date.now() - startTime,
+      };
+    }
+    if (compiledBinary && board.architecture !== 'avr') {
+      // The only image this build can produce is Intel HEX for the AVR
+      // bootloader; an ESP needs the .bin that `arduino-cli compile` emits.
+      return {
+        success: false,
+        output: `${board.name} does not boot from an Intel HEX image. Compile with arduino-cli so its own binary is produced, then upload that.`,
+        error: 'Image format not valid for this board',
+        uploadTime: Date.now() - startTime,
+      };
+    }
+
     // Create temporary directory for binary if provided
     let binaryPath: string | undefined;
     if (compiledBinary) {
@@ -625,8 +684,7 @@ class BoardProgrammer {
 
     // Argument array: the serial port, the board and the temp file path all
     // come from outside, and a shell would reinterpret the last two.
-    const fqbn = `${this.selectedBoard?.architecture}:${this.selectedBoard?.programmer}:${this.selectedBoard?.id}`;
-    const uploadArgs = ['upload', '-p', port, '--fqbn', fqbn];
+    const uploadArgs = ['upload', '-p', port, '--fqbn', board.fqbn];
     if (binaryPath) uploadArgs.push('--input-file', binaryPath);
 
     const uploaded = await nodeExecFile('arduino-cli', uploadArgs)

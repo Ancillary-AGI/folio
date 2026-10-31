@@ -27,7 +27,7 @@ export const WORKSPACE_GROUPS: readonly WorkspaceGroup[] = [
   { id: 'design', label: 'Design', description: 'Schematic capture, simulation, PCB and fabrication' },
   { id: 'electrical', label: 'Electrical', description: 'Control, machines, power grids, RF, HDL, FPGA and silicon' },
   { id: 'mechanical', label: 'Mechanical', description: 'CAD, robotics, firmware and hardware test' },
-  { id: 'ops', label: 'Ops & AI', description: 'Digital twins, agents, plugins and monitoring' },
+  { id: 'ops', label: 'Operations', description: 'Digital twins, agents, plugins and monitoring' },
 ]
 
 const MODES: readonly WorkspaceModeMeta[] = [

@@ -6,7 +6,7 @@ import {
   type DRCSettings,
 } from '../manufacturing/drc';
 import type { PCBDesign, PCBPad as DesignPad } from '../manufacturing/pcb';
-import { autoroute, type RouterPad } from '../manufacturing/autorouter';
+import { autoroute, routerGridMm, type RouterPad } from '../manufacturing/autorouter';
 import { footprintLibrary } from '../manufacturing/footprintLibrary';
 import { polylineLength } from '../geometry/distance';
 
@@ -549,7 +549,7 @@ export class SchematicToPcbConverter {
       boardWidthMm: layout.width,
       boardHeightMm: layout.height,
       layers: copperLayers,
-      gridMm: 0.5,
+      gridMm: routerGridMm(rules.minTraceClearance, rules.minTraceWidth),
       minTraceWidthMm: rules.minTraceWidth,
       minSpacingMm: rules.minTraceClearance,
       viaDrillMm: rules.minDrillSize,
@@ -807,6 +807,9 @@ export class SchematicToPcbConverter {
           position: this.padWorldPosition(component, pad),
           shape: pad.shape,
           size: pad.size,
+          // `position` is rotated into board space but `size` is the footprint's
+          // own frame, so the outline has to turn with the part it belongs to.
+          rotationDeg: component.rotation,
           drillDiameter: pad.drill,
           layers: copperLayerIds,
           netId: pad.net,

@@ -170,7 +170,9 @@ export const useProjectStore = create<ProjectState>()(
     wires: [],
 
     pcbLayout: null,
-    setPcbLayout: (layout) => set({ pcbLayout: layout }),
+    // A routed or edited board is project data like any other: without the
+    // dirty flag the designer's copper never reaches the autosave.
+    setPcbLayout: (layout) => set({ pcbLayout: layout, isDirty: true }),
 
     mechanicalParts: createDefaultMechanicalParts(),
     setMechanicalParts: (next) =>

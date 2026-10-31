@@ -65,6 +65,39 @@
     @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
   }
 
+  /*
+   * Fifty-odd dropdowns sit across the CAD panels, each with its own ad-hoc
+   * border. One base rule makes them read as the same field in theme colours.
+   * Utilities still win over this layer, so a panel that wants h-6 or text-[11px]
+   * keeps it; the native arrow stays because that is the one thing a custom
+   * select reliably gets wrong on touch and assistive tech.
+   */
+  select {
+    @apply rounded-md border border-input bg-background text-foreground;
+    min-height: 2rem;
+    padding: 0.375rem 1.5rem 0.375rem 0.5rem;
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+    cursor: pointer;
+    transition:
+      border-color 120ms ease,
+      box-shadow 120ms ease;
+  }
+
+  select:hover:not(:disabled) {
+    @apply border-primary/60;
+  }
+
+  select:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+
+  /* Native checkboxes and radios otherwise render in the OS blue or black. */
+  input[type='checkbox'],
+  input[type='radio'] {
+    accent-color: hsl(var(--primary));
+  }
+
   ::selection {
     background-color: hsl(var(--selection) / 0.24);
     color: hsl(var(--foreground));
@@ -96,6 +129,22 @@
    */
   .app-shell {
     @apply flex h-full min-h-0 flex-col bg-background text-foreground;
+  }
+
+  /*
+   * WCAG 2.4.1 (bypass blocks). The shell puts a header and a thirteen-button
+   * workspace rail in front of the sheet, so keyboard users need one jump past
+   * both. It is parked off-screen rather than `display: none`, which some
+   * browsers leave out of the tab order entirely.
+   */
+  .skip-link {
+    @apply fixed left-3 top-3 z-[100] rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground shadow-lg;
+    transform: translateY(calc(-100% - 1rem));
+    transition: transform 150ms ease;
+  }
+
+  .skip-link:focus-visible {
+    transform: translateY(0);
   }
 
   .app-chrome {
@@ -227,7 +276,22 @@
    * numeric readouts. Token-backed only — no colour values here.
    */
   .cad-tab {
-    @apply inline-flex h-7 flex-shrink-0 items-center whitespace-nowrap border-r border-border px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground;
+    @apply inline-flex h-7 flex-shrink-0 items-center whitespace-nowrap border-b-2 border-r border-border border-b-transparent px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground;
+  }
+
+  /* The family hue runs through its tabs: the icon carries it quietly all the
+   * time, and the selected tab draws it as its underline. `--family-accent` is
+   * set by the workspace nav from the same four chart tokens as the family row,
+   * so a mode opened from the palette or a deep link still lands on its hue. */
+  .cad-tab > svg {
+    color: hsl(var(--family-accent, var(--primary)));
+    opacity: 0.65;
+    transition: opacity 120ms ease;
+  }
+
+  .cad-tab:hover > svg,
+  .cad-tab-active > svg {
+    opacity: 1;
   }
 
   /* Refused export: names every failed manufacturability check. */
@@ -236,7 +300,39 @@
   }
 
   .cad-tab-active {
-    @apply border-b-2 border-b-primary bg-background text-foreground;
+    @apply bg-background text-foreground;
+    border-bottom-color: hsl(var(--family-accent, var(--primary)));
+  }
+
+  /* Brand rule: a two-pixel spectrum along the top edge of the shell. It names
+   * no status, so it is removed where colour cannot be relied on (forced colours
+   * and the high-contrast theme). */
+  .app-shell::before {
+    content: '';
+    position: fixed;
+    inset-inline: 0;
+    top: 0;
+    z-index: 60;
+    height: 2px;
+    pointer-events: none;
+    background: linear-gradient(
+      90deg,
+      hsl(var(--chart-1)) 0%,
+      hsl(var(--chart-2)) 30%,
+      hsl(var(--chart-3)) 55%,
+      hsl(var(--chart-4)) 80%,
+      hsl(var(--chart-5)) 100%
+    );
+  }
+
+  [data-theme='high-contrast'] .app-shell::before {
+    display: none;
+  }
+
+  @media (forced-colors: active) {
+    .app-shell::before {
+      display: none;
+    }
   }
 
   .cad-rail {
@@ -355,6 +451,126 @@
 
   .cad-field:disabled {
     @apply border-transparent bg-muted/40 text-muted-foreground;
+  }
+
+  /* ── Range control (slider) ─────────────────────────────────────────────
+   * One skin for every numeric drag control in the app. The element stays a
+   * native `<input type="range">` so arrow keys, Page Up/Down, Home/End, touch
+   * dragging and the accessible name come free — only the paint is ours.
+   * Geometry is written in px because the thumb has to line up with the track
+   * across two different pseudo-element APIs (WebKit offsets the thumb from the
+   * track with a negative margin; Gecko centres it).
+   *
+   * `--cad-slider-pos` is the filled fraction (0..1) that `RangeControl` writes
+   * from the current value; WebKit has no progress pseudo-element, so the fill
+   * is a hard-edged gradient stop on the track itself.
+   */
+  .cad-slider {
+    --cad-slider-pos: 0;
+    -webkit-appearance: none;
+    appearance: none;
+    @apply h-9 w-full min-w-0 cursor-pointer touch-none rounded-md bg-transparent outline-none;
+  }
+
+  .cad-slider::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 9999px;
+    box-shadow: inset 0 0 0 1px hsl(var(--border));
+    background-image: linear-gradient(
+      90deg,
+      hsl(var(--info)) 0%,
+      hsl(var(--primary)) calc(var(--cad-slider-pos) * 100%),
+      hsl(var(--muted)) calc(var(--cad-slider-pos) * 100%)
+    );
+  }
+
+  .cad-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 18px;
+    width: 18px;
+    margin-top: -6px;
+    border-radius: 9999px;
+    border: 2px solid hsl(var(--primary));
+    background: hsl(var(--background));
+    box-shadow: 0 1px 3px hsl(var(--shadow-color) / 0.4);
+    transition:
+      transform 120ms ease,
+      box-shadow 120ms ease;
+  }
+
+  .cad-slider:hover::-webkit-slider-thumb {
+    transform: scale(1.1);
+  }
+
+  .cad-slider:active::-webkit-slider-thumb {
+    transform: scale(1.18);
+    box-shadow:
+      0 1px 3px hsl(var(--shadow-color) / 0.4),
+      0 0 0 5px hsl(var(--primary) / 0.2);
+  }
+
+  /* The thumb carries the focus ring, so the input's own box stays clean. */
+  .cad-slider:focus-visible {
+    @apply ring-0 ring-offset-0;
+  }
+
+  .cad-slider:focus-visible::-webkit-slider-thumb {
+    box-shadow:
+      0 0 0 3px hsl(var(--background)),
+      0 0 0 6px hsl(var(--ring));
+  }
+
+  .cad-slider:disabled {
+    @apply cursor-not-allowed opacity-45;
+  }
+
+  .cad-slider:disabled::-webkit-slider-thumb {
+    border-color: hsl(var(--muted-foreground));
+  }
+
+  .cad-slider::-moz-range-track {
+    height: 6px;
+    border-radius: 9999px;
+    box-shadow: inset 0 0 0 1px hsl(var(--border));
+    background: hsl(var(--muted));
+  }
+
+  .cad-slider::-moz-range-progress {
+    height: 6px;
+    border-radius: 9999px;
+    background-image: linear-gradient(90deg, hsl(var(--info)), hsl(var(--primary)));
+  }
+
+  .cad-slider::-moz-range-thumb {
+    height: 18px;
+    width: 18px;
+    border-radius: 9999px;
+    border: 2px solid hsl(var(--primary));
+    background: hsl(var(--background));
+    box-shadow: 0 1px 3px hsl(var(--shadow-color) / 0.4);
+    transition:
+      transform 120ms ease,
+      box-shadow 120ms ease;
+  }
+
+  .cad-slider:hover::-moz-range-thumb {
+    transform: scale(1.1);
+  }
+
+  .cad-slider:focus-visible::-moz-range-thumb {
+    box-shadow:
+      0 0 0 3px hsl(var(--background)),
+      0 0 0 6px hsl(var(--ring));
+  }
+
+  .cad-slider:disabled::-moz-range-thumb {
+    border-color: hsl(var(--muted-foreground));
+  }
+
+  /* Live numeric readout pinned to the right of a control's label row. */
+  .cad-slider-value {
+    @apply rounded-full border border-primary/30 bg-primary/10 px-1.5 py-px font-mono text-[11px] tabular-nums text-primary;
   }
 
   /* ── Parts browser rows ─────────────────────────────────────────────────── */
@@ -673,4 +889,39 @@
 
 .react-flow .react-flow__attribution a {
   color: inherit;
+}
+
+/* ── Forced colours (Windows High Contrast, "always use high contrast") ─────
+ * The OS reassigns colour, background, border and SVG fill/stroke, which
+ * silently deletes two things this shell leans on: a box-shadow focus ring,
+ * and a filled background as the only mark of the selected tab or a switched-on
+ * control. Unlayered, so it outranks the Tailwind layers it corrects. The
+ * opt-outs are limited to elements whose colour *is* the information — a
+ * swatch, a custom-painted slider, the wires in a diagram — where forcing would
+ * leave them readable but no longer meaningful.
+ */
+@media (forced-colors: active) {
+  [aria-current='page'],
+  [aria-pressed='true'],
+  [role='switch'][aria-checked='true'] {
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
+  }
+
+  :focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+    box-shadow: none;
+  }
+
+  .cad-slider,
+  .cad-swatch,
+  .react-flow {
+    forced-color-adjust: none;
+  }
+
+  .scrollbar-thin,
+  .scrollbar-overlay {
+    scrollbar-color: ButtonText ButtonFace;
+  }
 }

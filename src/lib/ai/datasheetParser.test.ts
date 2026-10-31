@@ -42,14 +42,17 @@ describe('AI Datasheet-to-Component Ingestion', () => {
     expect(parsed.packaging.bodyHeightMm).toBeGreaterThan(4.9);
     expect(parsed.pins.find((p) => p.name === 'VDD')?.kind).toBe('power');
     expect(parsed.pins.find((p) => p.name === 'DGND')?.kind).toBe('ground');
+    // A two-word description ("Analog Input") must still classify the pin.
+    expect(parsed.pins.find((p) => p.name === 'CH0')?.kind).toBe('input');
   });
 
-  it('synthesizes schematic symbol, IPC-7351 footprint, and SPICE macromodel', () => {
+  it('synthesizes a schematic symbol and a wide-body land pattern, without inventing a SPICE model', () => {
     const raw = `
       MPN: NE555D
       Manufacturer: Texas Instruments
       Description: Precision Timer
       Supply Voltage: 4.5V to 16.0V
+      Package: SOIC-8
       | 1 | GND | Ground |
       | 2 | TRIG | Input |
       | 3 | OUT | Output |
@@ -72,9 +75,36 @@ describe('AI Datasheet-to-Component Ingestion', () => {
     expect(synthesized.footprint.pads.length).toBe(8);
     expect(synthesized.footprint.courtyard.width).toBeGreaterThan(0);
 
-    // SPICE subcircuit check
-    expect(synthesized.spiceSubcircuit).toContain('.SUBCKT NE555D');
-    expect(synthesized.spiceSubcircuit).toContain('.ENDS NE555D');
+    // No fabricated electrical model travels with the part.
+    expect(synthesized).not.toHaveProperty('spiceSubcircuit');
+
+    // Only stated ratings become declared properties.
+    expect(synthesized.component.default_properties.minSupplyV).toBe('4.5');
+    expect(synthesized.component.default_properties.maxSupplyV).toBe('16');
+  });
+
+  it('states no supply rating when the datasheet states none', () => {
+    const parsed = parseDatasheetText('MPN: TEST8\n| 1 | A | Input |\n| 2 | B | Output |');
+    const synthesized = synthesizeComponentFromDatasheet(parsed);
+    expect(synthesized.component.default_properties).not.toHaveProperty('minSupplyV');
+    expect(synthesized.component.default_properties).not.toHaveProperty('maxSupplyV');
+  });
+
+  it('marks an unstated package as assumed and honours narrow vs wide bodies', () => {
+    const assumed = parseDatasheetText('MPN: TEST8\n| 1 | A | Input |\n| 2 | B | Output |');
+    expect(assumed.packaging.packageStated).toBe(false);
+    expect(assumed.packaging.bodyWidthMm).toBe(3.9);
+
+    const pins = Array.from({ length: 16 }, (_, i) => `| ${i + 1} | P${i + 1} | Input |`).join('\n');
+    const narrow = parseDatasheetText(`MPN: TEST16\nPackage: SOIC-16\n${pins}`);
+    expect(narrow.packaging.packageStated).toBe(true);
+    expect(narrow.packaging.bodyWidthMm).toBe(3.9);
+
+    const wide = parseDatasheetText(`MPN: TEST16W\nPackage: SOIC-16W\n${pins}`);
+    expect(wide.packaging.bodyWidthMm).toBe(7.5);
+    const footprint = synthesizeComponentFromDatasheet(wide).footprint;
+    const outerEdge = Math.abs(footprint.pads[0].position.x) + footprint.pads[0].size.width / 2;
+    expect(outerEdge).toBeGreaterThan(5);
   });
 
   it('honours an explicit SOIC package line when no pin table is present', () => {

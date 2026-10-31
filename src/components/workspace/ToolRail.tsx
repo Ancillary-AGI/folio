@@ -1,5 +1,6 @@
 ﻿import {
   MousePointer,
+  Pencil,
   Trash2,
   Grid3X3,
   Magnet,
@@ -18,6 +19,8 @@ import type { ReactNode } from 'react'
 import HoverHelp from '../ui/HoverHelp'
 import { useAppStore } from '../../stores/useAppStore'
 import { useProjectStore } from '../../stores/useProjectStore'
+import { useShortcutStore } from '../../stores/useShortcutStore'
+import { describeShortcut } from '../../lib/keymap/shortcuts'
 import type { HelpTopicId } from '../../lib/help/helpTopics'
 import { buildDemoBoard } from '../../lib/demo/demoBoard'
 
@@ -27,14 +30,15 @@ interface ToolRailProps {
 }
 
 const POINTER_TOOLS = [
-  { id: 'select', topicId: 'rail.select', label: 'Select', key: 'V', icon: MousePointer },
-  { id: 'wire', topicId: 'rail.wire', label: 'Wire', key: 'W', icon: Zap },
-  { id: 'delete', topicId: 'rail.delete', label: 'Delete', key: 'D', icon: Trash2 },
+  { id: 'select', topicId: 'rail.select', label: 'Select', shortcut: 'schematic.selectTool', icon: MousePointer },
+  { id: 'wire', topicId: 'rail.wire', label: 'Wire', shortcut: 'schematic.wireTool', icon: Zap },
+  { id: 'delete', topicId: 'rail.delete', label: 'Delete', shortcut: 'schematic.deleteTool', icon: Trash2 },
+  { id: 'sketch', topicId: 'rail.sketch', label: 'Sketch', shortcut: 'schematic.sketchTool', icon: Pencil },
 ] as const satisfies ReadonlyArray<{
-  id: 'select' | 'wire' | 'delete'
+  id: 'select' | 'wire' | 'delete' | 'sketch'
   topicId: HelpTopicId
   label: string
-  key: string
+  shortcut: string
   icon: typeof MousePointer
 }>
 
@@ -107,6 +111,7 @@ function UndoRedoRailButtons() {
  */
 export default function ToolRail({ onSave }: ToolRailProps) {
   const { activeTool, setActiveTool, settings, updateSettings, viewport, setZoom } = useAppStore()
+  const shortcutOverrides = useShortcutStore((state) => state.overrides)
 
   return (
     <div className="cad-rail" role="toolbar" aria-orientation="vertical" aria-label="Editor tools" data-tour="tool-rail">
@@ -116,7 +121,7 @@ export default function ToolRail({ onSave }: ToolRailProps) {
           key={tool.id}
           topicId={tool.topicId}
           ariaLabel={`${tool.label} tool`}
-          keyHint={tool.key}
+          keyHint={describeShortcut(tool.shortcut, shortcutOverrides)}
           active={activeTool === tool.id}
           ariaPressed={activeTool === tool.id}
           onClick={() => setActiveTool(tool.id)}
@@ -133,7 +138,7 @@ export default function ToolRail({ onSave }: ToolRailProps) {
         ariaLabel={`Toggle grid (${settings.showGrid ? 'on' : 'off'})`}
         active={settings.showGrid}
         ariaPressed={settings.showGrid}
-        keyHint="G"
+        keyHint={describeShortcut('schematic.grid', shortcutOverrides)}
         onClick={() => updateSettings({ showGrid: !settings.showGrid })}
       >
         <Grid3X3 className="h-4 w-4" />
@@ -169,7 +174,7 @@ export default function ToolRail({ onSave }: ToolRailProps) {
       <RailButton
         topicId="rail.fit"
         ariaLabel="Fit design to view"
-        keyHint="F"
+        keyHint={describeShortcut('schematic.fit', shortcutOverrides)}
         onClick={() => window.dispatchEvent(new CustomEvent('folio:fit-view'))}
       >
         <Maximize2 className="h-4 w-4" />

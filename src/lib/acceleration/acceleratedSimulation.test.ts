@@ -22,6 +22,12 @@ describe('acceleration capabilities', () => {
     expect(capabilities.webgpu).toBe(false)
     expect(capabilities.workerThreads).toBe(typeof Worker !== 'undefined')
     expect(['webgpu', 'worker', 'main-thread']).toContain(capabilities.recommendedThermalPath)
+    // A browser without Workers must not advertise a pooled analysis path.
+    if (!capabilities.workerThreads) {
+      expect(capabilities.monteCarloWorkers).toBe(0)
+      expect(capabilities.acSweepWorkers).toBe(0)
+      expect(capabilities.noiseSweepWorkers).toBe(0)
+    }
   })
 
   it('main-thread dispatch matches the direct CPU solve exactly', async () => {

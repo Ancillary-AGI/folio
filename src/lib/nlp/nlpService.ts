@@ -1,12 +1,15 @@
 /**
- * NLP Service — Natural language processing, voice control, and intent dispatch.
+ * NLP Service — intent matching and dispatch for typed and spoken commands.
  *
  * Architecture:
- *   • Real browser SpeechRecognition API for voice input
  *   • Multi-strategy intent matching (keyword bags, pattern templates, token overlap)
  *   • Intent handlers dispatch directly to Zustand stores (no stale-closure issues)
+ *   • Handlers report `applied` so the assistant can say what really changed
  *   • ML model registry (typed records awaiting a real inference backend)
  *   • Predictive analytics from design context
+ *
+ * Speech recognition and synthesis live in `src/lib/voice`; this service only
+ * decides what a phrase means and runs the matching action.
  */
 
 import { getCategoryName, type Component, type Wire, type Net } from '../../types'
@@ -14,23 +17,13 @@ import type { WorkspaceMode } from '../../stores/useAppStore'
 // Use a lazy getter so we don't create a circular import at module load time
 const getAppStore = () => import('../../stores/useAppStore').then(m => m.useAppStore)
 
-interface SpeechRecognitionResultEventLike {
-  results: ArrayLike<ArrayLike<{ transcript: string }>>
+/** UI actions the menu owns; voice asks the shell to run them. */
+export interface VoiceActionHooks {
+  saveDesign?: () => Promise<{ applied: boolean; detail: string }> | { applied: boolean; detail: string }
+  exportDesign?: (format: string) =>
+    | Promise<{ applied: boolean; detail: string }>
+    | { applied: boolean; detail: string }
 }
-interface SpeechRecognitionErrorEventLike { error: string }
-interface SpeechRecognitionLike {
-  continuous: boolean
-  interimResults: boolean
-  lang: string
-  maxAlternatives: number
-  onstart: (() => void) | null
-  onend: (() => void) | null
-  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null
-  onresult: ((event: SpeechRecognitionResultEventLike) => void) | null
-  start(): void
-  stop(): void
-}
-type SpeechRecognitionConstructor = new () => SpeechRecognitionLike
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -45,7 +38,7 @@ export interface VoiceCommand {
 
 export interface NLPIntent {
   name: string
-  /** Keyword bags — ANY token from a bag touching the query boosts confidence */
+  /** Keyword bags — the query must touch every bag; hit strength weights the score */
   keywords?: string[][]
   /** Old-style pattern strings kept for backwards compatibility */
   patterns?: string[]
@@ -110,14 +103,6 @@ function bagOverlap(queryTokens: string[], bagTokens: string[]): number {
   return matches / bagTokens.length
 }
 
-/** Naive entity extractor — finds the token immediately after trigger words */
-function extractEntity(tokens: string[], triggers: string[]): string | undefined {
-  for (let i = 0; i < tokens.length - 1; i++) {
-    if (triggers.includes(tokens[i])) return tokens[i + 1]
-  }
-  return undefined
-}
-
 // ─── Workspace mode map ───────────────────────────────────────────────────────
 
 const WORKSPACE_ALIASES: Record<string, WorkspaceMode> = {
@@ -146,8 +131,7 @@ export class NLPService {
   private intents: Map<string, NLPIntent> = new Map()
   private voiceCommands: VoiceCommand[] = []
   private mlModels: Map<string, MLModel> = new Map()
-  private isListening = false
-  private recognition: SpeechRecognitionLike | null = null
+  private actionHooks: VoiceActionHooks = {}
 
   constructor() {
     this.initializeIntents()
@@ -156,41 +140,9 @@ export class NLPService {
 
   // ─── Voice control ──────────────────────────────────────────────────────────
 
-  async startVoiceListening(): Promise<void> {
-    const speechWindow = window as Window & { SpeechRecognition?: SpeechRecognitionConstructor; webkitSpeechRecognition?: SpeechRecognitionConstructor }
-    const SR = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition
-    if (!SR) throw new Error('SpeechRecognition not supported in this browser')
-
-    if (this.recognition) {
-      try { this.recognition.stop() } catch { /* ignore */ }
-    }
-
-    this.recognition = new SR()
-    this.recognition.continuous = false
-    this.recognition.interimResults = false
-    this.recognition.lang = 'en-US'
-    this.recognition.maxAlternatives = 1
-
-    this.recognition.onstart = () => { this.isListening = true }
-    this.recognition.onend = () => { this.isListening = false }
-    this.recognition.onerror = (e) => {
-      this.isListening = false
-      console.warn('SpeechRecognition error:', e.error)
-    }
-    this.recognition.onresult = (event) => {
-      const transcript: string = event.results[event.results.length - 1][0].transcript
-      this.processVoiceCommand(transcript).catch(console.error)
-    }
-
-    this.recognition.start()
-  }
-
-  stopVoiceListening(): void {
-    if (this.recognition) {
-      try { this.recognition.stop() } catch { /* ignore */ }
-      this.recognition = null
-    }
-    this.isListening = false
+  /** The shell registers the actions that only it can perform (save, export). */
+  registerActionHooks(hooks: VoiceActionHooks): void {
+    this.actionHooks = { ...this.actionHooks, ...hooks }
   }
 
   async processVoiceCommand(command: string): Promise<NLPProcessResult> {
@@ -256,13 +208,15 @@ export class NLPService {
     let confidence = 0
     const entities: Record<string, unknown> = {}
 
-    // Strategy 1: keyword-bag scoring (primary)
-    if (intent.keywords) {
-      let totalScore = 0
-      for (const bag of intent.keywords) {
-        totalScore = Math.max(totalScore, bagOverlap(tokens, bag))
-      }
-      confidence = Math.max(confidence, totalScore)
+    // Strategy 1: keyword-bag scoring (primary). A phrase must touch every
+    // bag the intent declares; hit strength weights the result, so a short
+    // phrase against a long bag ("place a mosfet") still dispatches while a
+    // phrase that misses a whole bag stays below the dispatch threshold.
+    if (intent.keywords && intent.keywords.length > 0) {
+      const hits = intent.keywords.map((bag) => bagOverlap(tokens, bag))
+      const coverage = hits.filter((hit) => hit > 0).length / intent.keywords.length
+      const strength = Math.max(...hits)
+      confidence = Math.max(confidence, coverage * (0.4 + 0.6 * strength))
     }
 
     // Strategy 2: pattern-template matching (legacy support)
@@ -319,9 +273,9 @@ export class NLPService {
         if (mode) {
           const useAppStore = await getAppStore()
           useAppStore.getState().setWorkspaceMode(mode)
-          return { navigatedTo: mode }
+          return { applied: true, navigatedTo: mode, detail: `Opened the ${mode} workspace.` }
         }
-        return null
+        return { applied: false, detail: 'No workspace name in that phrase, so the view was left alone.' }
       },
     })
 
@@ -337,10 +291,8 @@ export class NLPService {
         'put an opamp', 'create a transistor', 'drop a voltage regulator',
       ],
       handler: async (_entities, raw) => {
-        const tokens = tokenize(raw)
-        const componentTypes = ['resistor', 'capacitor', 'inductor', 'led', 'diode', 'transistor', 'mosfet', 'opamp', 'ic', 'sensor']
-        const componentType = tokens.find(t => componentTypes.includes(t)) || extractEntity(tokens, ['add', 'place', 'insert', 'create'])
-        return { action: 'add_component', type: componentType }
+        const { placeComponentFromText } = await import('../voice/designActions')
+        return placeComponentFromText(raw)
       },
     })
 
@@ -356,13 +308,8 @@ export class NLPService {
         'join VCC net to power pin', 'route the signal to output',
       ],
       handler: async (_entities, raw) => {
-        const tokens = tokenize(raw)
-        const toIdx = tokens.indexOf('to')
-        const andIdx = tokens.indexOf('and')
-        const splitIdx = toIdx >= 0 ? toIdx : andIdx
-        const from = splitIdx > 0 ? tokens.slice(1, splitIdx).join(' ') : undefined
-        const to = splitIdx >= 0 ? tokens.slice(splitIdx + 1).join(' ') : undefined
-        return { action: 'connect', from, to }
+        const { connectPartsFromText } = await import('../voice/designActions')
+        return connectPartsFromText(raw)
       },
     })
 
@@ -381,8 +328,9 @@ export class NLPService {
         const tokens = tokenize(raw)
         const type = tokens.find(t => ['transient', 'ac', 'dc', 'noise', 'montecarlo'].includes(t)) || 'transient'
         const useAppStore = await getAppStore()
-        useAppStore.getState().toggleSimulationPanel()
-        return { action: 'simulate', type }
+        const state = useAppStore.getState()
+        if (!state.simulationPanelOpen) state.toggleSimulationPanel()
+        return { applied: true, action: 'simulate', type, detail: `Opened the simulation panel for a ${type} study.` }
       },
     })
 
@@ -397,11 +345,12 @@ export class NLPService {
         'optimize for power', 'reduce power consumption', 'improve efficiency',
         'minimize cost', 'optimize thermal performance', 'reduce noise',
       ],
-      handler: async (_entities, raw) => {
-        const tokens = tokenize(raw)
-        const targets = ['power', 'cost', 'performance', 'size', 'noise', 'thermal']
-        const target = tokens.find(t => targets.includes(t)) || 'general'
-        return { action: 'optimize', target }
+      handler: async () => {
+        // No optimiser runs from a spoken command; say so instead of faking it.
+        return {
+          applied: false,
+          detail: 'Voice cannot run the optimiser yet, so nothing changed. Ask the design assistant or use the optimisation tools in the workspace.',
+        }
       },
     })
 
@@ -420,7 +369,15 @@ export class NLPService {
         const tokens = tokenize(raw)
         const formats = ['gerber', 'netlist', 'pdf', 'png', 'json', 'bom', 'stl', 'obj', 'gcode', 'svg']
         const format = tokens.find(t => formats.includes(t)) || 'json'
-        return { action: 'export', format }
+        const hook = this.actionHooks.exportDesign
+        if (!hook) {
+          return { applied: false, detail: 'Voice cannot start an export in this view. Use the Export menu instead.' }
+        }
+        try {
+          return await hook(format)
+        } catch (error) {
+          return { applied: false, detail: `The export did not start (${error instanceof Error ? error.message : 'unknown error'}).` }
+        }
       },
     })
 
@@ -437,8 +394,9 @@ export class NLPService {
       ],
       handler: async () => {
         const useAppStore = await getAppStore()
-        useAppStore.getState().toggleAiChat()
-        return { action: 'ai_analyze' }
+        const state = useAppStore.getState()
+        if (!state.aiChatOpen) state.toggleAiChat()
+        return { applied: true, action: 'ai_analyze', detail: 'Opened the design assistant.' }
       },
     })
 
@@ -452,8 +410,10 @@ export class NLPService {
       examples: ['undo', 'undo last action', 'revert change', 'go back'],
       handler: async () => {
         const { useProjectStore } = await import('../../stores/useProjectStore')
-        useProjectStore.getState().undo()
-        return { action: 'undo' }
+        const project = useProjectStore.getState()
+        if (!project.canUndo()) return { applied: false, detail: 'There is nothing to undo.' }
+        project.undo()
+        return { applied: true, action: 'undo', detail: 'Undid the last canvas change.' }
       },
     })
 
@@ -465,8 +425,10 @@ export class NLPService {
       examples: ['redo', 'redo last action', 'reapply change'],
       handler: async () => {
         const { useProjectStore } = await import('../../stores/useProjectStore')
-        useProjectStore.getState().redo()
-        return { action: 'redo' }
+        const project = useProjectStore.getState()
+        if (!project.canRedo()) return { applied: false, detail: 'There is nothing to redo.' }
+        project.redo()
+        return { applied: true, action: 'redo', detail: 'Reapplied the undone change.' }
       },
     })
 
@@ -479,7 +441,13 @@ export class NLPService {
       ],
       examples: ['save the project', 'save my design', 'store changes', 'commit work'],
       handler: async () => {
-        return { action: 'save' }
+        const hook = this.actionHooks.saveDesign
+        if (!hook) return { applied: false, detail: 'No project is open, so there was nothing to save.' }
+        try {
+          return await hook()
+        } catch (error) {
+          return { applied: false, detail: `The save failed (${error instanceof Error ? error.message : 'unknown error'}).` }
+        }
       },
     })
 
@@ -494,7 +462,53 @@ export class NLPService {
       handler: async () => {
         const useAppStore = await getAppStore()
         useAppStore.getState().setWorkspaceMode('siem')
-        return { action: 'open_siem' }
+        return { applied: true, action: 'open_siem', detail: 'Opened the security workspace.' }
+      },
+    })
+
+    // ── Describe the sheet ────────────────────────────────────────────────────
+    this.registerIntent({
+      name: 'describe_design',
+      keywords: [
+        ['what', 'describe', 'list', 'summarise', 'summarize', 'tell'],
+        ['design', 'sheet', 'circuit', 'components', 'parts', 'wires', 'board'],
+      ],
+      examples: [
+        'what is on the sheet', 'describe the design', 'list the components',
+        'how many parts are there', 'what components are placed', 'tell me about the board',
+      ],
+      handler: async () => {
+        const { useProjectStore } = await import('../../stores/useProjectStore')
+        const useAppStore = await getAppStore()
+        const project = useProjectStore.getState()
+        const references = project.components.map(
+          (component) => `${component.reference} ${component.component.name}`,
+        )
+        const head = `${project.components.length} part${project.components.length === 1 ? '' : 's'} and ${project.wires.length} wire${project.wires.length === 1 ? '' : 's'}`
+        return {
+          applied: false,
+          detail:
+            `The ${useAppStore.getState().workspaceMode} workspace has ${head}` +
+            (references.length > 0 ? `: ${references.slice(0, 10).join(', ')}${references.length > 10 ? ', and more' : ''}.` : '. Nothing is placed yet.'),
+        }
+      },
+    })
+
+    // ── Turn the assistant's voice off ────────────────────────────────────────
+    this.registerIntent({
+      name: 'stop_voice',
+      keywords: [
+        ['stop', 'mute', 'silence', 'quiet', 'end'],
+        ['listening', 'talking', 'speaking', 'voice', 'microphone', 'mic'],
+      ],
+      examples: [
+        'stop listening', 'stop talking', 'be quiet', 'mute the microphone',
+        'stop voice control', 'silence the assistant', 'turn the mic off',
+      ],
+      handler: async () => {
+        // The conversation controller watches this intent and closes the
+        // session; the handler itself only confirms.
+        return { applied: true, detail: 'Voice off.' }
       },
     })
   }
@@ -716,7 +730,6 @@ export class NLPService {
 
   getVoiceCommands(): VoiceCommand[] { return [...this.voiceCommands] }
   getMLModels(): MLModel[] { return Array.from(this.mlModels.values()) }
-  isVoiceListening(): boolean { return this.isListening }
 }
 
 export const nlpService = new NLPService()

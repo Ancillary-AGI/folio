@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SIEMService } from './siemService'
+import { offlineProjectStore } from '../offlineProjectStore'
 
 describe('SIEMService events and alerts', () => {
   it('logs events newest-first with filters and limits', () => {
@@ -89,11 +90,17 @@ describe('SIEMService threat detection', () => {
 })
 
 describe('SIEMService compliance', () => {
+  beforeEach(() => { localStorage.clear() })
+
   it('evaluates ISO 27001 rules deterministically from the audit trail', async () => {
     const service = new SIEMService()
     const before = await service.runComplianceCheck('ISO27001')
     expect(before.length).toBeGreaterThan(0)
-    expect(before.every(check => check.status === 'non_compliant')).toBe(true)
+    // No saved design exists, so there is nothing for the backup control to protect.
+    expect(before.find(check => check.id === 'iso_backup')?.status).toBe('not_applicable')
+    expect(
+      before.filter(check => check.id !== 'iso_backup').every(check => check.status === 'non_compliant'),
+    ).toBe(true)
     expect(before.every(check => check.lastChecked > 0)).toBe(true)
 
     service.logAuditEvent({ user: 'admin', action: 'auth:mfa_verified', resource: 'session', details: {} })
@@ -103,7 +110,7 @@ describe('SIEMService compliance', () => {
     const logging = after.find(check => check.id === 'iso_audit_logging')
     expect(access?.status).toBe('compliant')
     expect(logging?.status).toBe('compliant')
-    // Encryption and backup cannot be inferred from the audit trail alone.
+    // Encryption cannot be inferred from the audit trail alone.
     expect(after.find(check => check.id === 'iso_crypto')?.status).toBe('non_compliant')
   })
 
@@ -117,11 +124,16 @@ describe('SIEMService compliance', () => {
 })
 
 describe('SIEMService health monitoring', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.useRealTimers()
+  })
   afterEach(() => { vi.useRealTimers() })
 
   it('raises one open notice per recurring health condition', () => {
     vi.useFakeTimers()
-    const service = new SIEMService()
+    offlineProjectStore.create('user-1', 'Saved board')
+    const service = new SIEMService({ latestBackupAt: () => null })
     service.startMonitoring()
     try {
       vi.advanceTimersByTime(30_000)
@@ -138,7 +150,8 @@ describe('SIEMService health monitoring', () => {
 
   it('does not let its own unresolved-alert notice inflate the count', () => {
     vi.useFakeTimers()
-    const service = new SIEMService()
+    offlineProjectStore.create('user-1', 'Saved board')
+    const service = new SIEMService({ latestBackupAt: () => null })
     for (let i = 0; i < 6; i += 1) {
       service.logEvent({ type: 'security', severity: 'high', source: 'auth', message: `intrusion ${i}`, metadata: {} })
     }
@@ -153,6 +166,54 @@ describe('SIEMService health monitoring', () => {
     } finally {
       service.stopMonitoring()
     }
+  })
+})
+
+describe('SIEMService backup evidence', () => {
+  beforeEach(() => { localStorage.clear() })
+
+  it('stays quiet when no saved design needs a recovery point', () => {
+    const service = new SIEMService({ latestBackupAt: () => null })
+    service.checkHealth()
+    expect(service.getAlerts({ status: 'active' })).toHaveLength(0)
+  })
+
+  it('opens a backup notice for saved work and resolves it once a checkpoint exists', () => {
+    offlineProjectStore.create('user-1', 'Saved board')
+    let latest: number | null = null
+    const service = new SIEMService({ latestBackupAt: () => latest })
+
+    service.checkHealth()
+    const [alert] = service.getAlerts({ status: 'active' })
+    expect(alert.ruleId).toBe('backup_overdue')
+    expect(alert.title).toBe('Backup overdue')
+
+    latest = Date.now()
+    service.checkHealth()
+    expect(service.getAlerts({ status: 'active' })).toHaveLength(0)
+    expect(service.getEvents({ source: 'health_monitor' })[0].resolved).toBe(true)
+  })
+
+  it('treats a checkpoint older than a day as overdue', () => {
+    offlineProjectStore.create('user-1', 'Saved board')
+    const service = new SIEMService({ latestBackupAt: () => Date.now() - 2 * 86_400_000 })
+    service.checkHealth()
+    expect(service.getAlerts({ status: 'active' })).toHaveLength(1)
+  })
+
+  it('clears the alert backlog notice when the count returns below the threshold', () => {
+    const service = new SIEMService({ latestBackupAt: () => Date.now() })
+    for (let i = 0; i < 6; i += 1) {
+      service.logEvent({ type: 'security', severity: 'high', source: 'auth', message: `intrusion ${i}`, metadata: {} })
+    }
+    service.checkHealth()
+    expect(service.getAlerts({ status: 'active' }).some(alert => alert.ruleId === 'high_alert_backlog')).toBe(true)
+
+    for (const alert of service.getAlerts({ status: 'active' })) {
+      if (alert.ruleId === 'high_security') service.updateAlertStatus(alert.id, 'resolved')
+    }
+    service.checkHealth()
+    expect(service.getAlerts({ status: 'active' })).toHaveLength(0)
   })
 })
 

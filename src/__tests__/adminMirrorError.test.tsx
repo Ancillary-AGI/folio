@@ -21,7 +21,7 @@ vi.mock('../lib/admin/adminService', async (importOriginal) => {
   }
 })
 
-const owner: User = { id: 'owner-1', name: 'Local User', email: 'local@offline', role: 'owner' }
+const owner: User = { id: 'owner-1', name: 'Workspace Owner', email: 'owner@folio.app', role: 'owner' }
 
 beforeEach(() => {
   localStorage.clear()

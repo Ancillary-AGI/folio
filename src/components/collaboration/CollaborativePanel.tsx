@@ -19,9 +19,9 @@ const ROLES: CollaboratorRole[] = ['admin', 'editor', 'reviewer', 'viewer']
 function currentSharingUser(): CollaborationUser {
   const editorUser = collaborativeEditor.getCurrentUser()
   return {
-    id: editorUser?.id ?? 'local-user',
-    name: editorUser?.name ?? 'Local user',
-    email: editorUser?.email ?? 'local@folio',
+    id: editorUser?.id ?? 'workspace-owner',
+    name: editorUser?.name ?? 'Workspace owner',
+    email: editorUser?.email ?? 'owner@folio.app',
     role: 'owner',
     lastActive: Date.now(),
   }
@@ -76,7 +76,7 @@ export default function CollaborativePanel({ onClose }: CollaborativePanelProps)
   const statusLabel = realtime
     ? 'Realtime channel subscribed'
     : connected
-      ? 'Local collaboration session — operations stay in this browser'
+      ? 'Solo session — operations apply in order; live presence requires a realtime deployment'
       : 'No active session'
 
   const createProject = () => {
@@ -256,7 +256,7 @@ export default function CollaborativePanel({ onClose }: CollaborativePanelProps)
         </section>
       )}
 
-      <section><h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Participants ({users.length})</h3><div className="space-y-2">{users.length ? users.map(user => <div key={user.id} className="flex items-center gap-2 rounded-md border border-border p-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: user.color }} /><span className="min-w-0 flex-1 truncate text-sm">{user.name}</span><span className="text-xs text-muted-foreground">{user.isActive ? 'Active' : 'Away'}</span></div>) : <p className="text-sm text-muted-foreground">Open a project to start a collaboration session.</p>}</div></section>
+      <section><h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Participants ({users.length})</h3><div className="space-y-2">{users.length ? users.map(user => <div key={user.id} className="flex items-center gap-2 rounded-md border border-border p-2"><span className="cad-swatch h-2.5 w-2.5 rounded-full" style={{ backgroundColor: user.color }} /><span className="min-w-0 flex-1 truncate text-sm">{user.name}</span><span className="text-xs text-muted-foreground">{user.isActive ? 'Active' : 'Away'}</span></div>) : <p className="text-sm text-muted-foreground">Open a project to start a collaboration session.</p>}</div></section>
       <section><h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Recent design operations</h3><div className="space-y-2">{operations.length ? operations.map(operation => <div key={operation.id} className="rounded-md border border-border p-2"><p className="text-xs font-medium">{operation.type.replace(/_/g, ' ')}</p><p className="mt-1 text-xs text-muted-foreground">{new Date(operation.timestamp).toLocaleTimeString()}</p></div>) : <p className="text-sm text-muted-foreground">Operations will appear here as collaborators edit the design.</p>}</div></section>
     </CardContent>
   </Card>

@@ -1,7 +1,14 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import type { PcbScene, PcbSceneComponent, PcbScenePad, PcbSceneTraceSegment } from './pcbScene'
+import {
+  SolidBuilder,
+  buildRibbonGeometry,
+  circleSection,
+  rectSection,
+  roundedRectSection,
+  type RibbonPath,
+} from '../3d/prismGeometry'
+import { BOARD_CORNER_MM, type PcbScene, type PcbSceneComponent, type PcbScenePad, type PcbScenePour, type PcbSceneTraceSegment } from './pcbScene'
 
 export interface PcbBoardGroupOptions {
   showPCB: boolean
@@ -9,7 +16,12 @@ export interface PcbBoardGroupOptions {
   showComponents: boolean
   hiddenLayerIds: ReadonlySet<string>
   hiddenComponentIds: ReadonlySet<string>
-  componentScale: number
+  /**
+   * Body exaggeration applied to each part about its own centre. Geometry does
+   * not depend on it — see `applyComponentScale`, which moves the transform
+   * instead of rebuilding the board.
+   */
+  componentScale?: number
   /** Soldermask lacquer chosen for the preview; defaults to the classic green. */
   maskColor?: PcbMaskColor
   /** Surface finish that sets the exposed-copper metal; defaults to ENIG. */
@@ -37,7 +49,7 @@ export interface PcbMaskSpec {
  * clearcoat — the finish most assembly houses use to hide weave texture.
  */
 export const SOLDERMASK_SPECS: Record<PcbMaskColor, PcbMaskSpec> = {
-  green: { label: 'Green', baseColor: '#0b5c35', overlayColor: '#0d6b3e', roughness: 0.5, clearcoat: 0.3, clearcoatRoughness: 0.45 },
+  green: { label: 'Green', baseColor: '#084a2a', overlayColor: '#0a5732', roughness: 0.5, clearcoat: 0.3, clearcoatRoughness: 0.45 },
   blue: { label: 'Blue', baseColor: '#123a5c', overlayColor: '#14486e', roughness: 0.5, clearcoat: 0.3, clearcoatRoughness: 0.45 },
   red: { label: 'Red', baseColor: '#5c1414', overlayColor: '#6e1717', roughness: 0.5, clearcoat: 0.3, clearcoatRoughness: 0.45 },
   black: { label: 'Matte black', baseColor: '#101214', overlayColor: '#121518', roughness: 0.68, clearcoat: 0.12, clearcoatRoughness: 0.6 },
@@ -82,12 +94,174 @@ export const PAD_FINISH_SPECS: Record<PcbPadFinish, PcbPadFinishSpec> = {
   },
 }
 
-const BOARD_CORNER_MM = 2.2
 const PAD_THICKNESS_MM = 0.045
 const PAD_BOTTOM_EMBED_MM = 0.005
 const MASK_OVERLAY_OPACITY = 0.46
 /** Soldermask film thickness. Copper sits below this, pads break through it. */
 const SOLDERMASK_MM = 0.025
+/** A keepaway is drawn as the dielectric that replaces the copper, not a void. */
+const KEEPOUT_DIELECTRIC = '#07351f'
+/** How far a keepaway plug has to stand proud of the plane to cover it cleanly. */
+const KEEPOUT_PROUD_MM = 0.004
+
+/**
+ * Shapes shared by every part of the same size.
+ *
+ * A board is made of repeats: the laptop mainboard has 615 copper lands, and
+ * before this cache existed each one got its own geometry — 3 375 constructor
+ * calls, 3 M vertices and an 88 s build that froze the tab. Shapes are keyed by
+ * their exact millimetres, so a shared shape is indistinguishable from a private
+ * one, and the cache stops taking entries once it holds a few thousand so an
+ * unusual board cannot grow it without bound.
+ */
+const sharedShapes = new Map<string, THREE.BufferGeometry>()
+const SHAPE_CACHE_LIMIT = 4096
+
+/**
+ * A millimetre value as a cache key: 0.1 um resolution, which is far finer than
+ * any footprint declares and coarse enough that float noise cannot make two
+ * identical lands ask for two geometries.
+ */
+function mm(value: number): string {
+  return value.toFixed(4)
+}
+
+function cachedShape(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeometry {
+  const existing = sharedShapes.get(key)
+  if (existing) return existing
+  const shape = make()
+  if (sharedShapes.size < SHAPE_CACHE_LIMIT) {
+    sharedShapes.set(key, shape)
+    // A cached shape outlives the group that first asked for it, so the group
+    // must not dispose it.
+    shape.userData.shared = true
+  }
+  return shape
+}
+
+/** A unit cube, scaled per mesh: every straight lead and pin shares this one. */
+function unitBox(): THREE.BufferGeometry {
+  return cachedShape('unit-box', () => new THREE.BoxGeometry(1, 1, 1))
+}
+
+function prismShape(key: string, section: ReturnType<typeof circleSection>, heightMm: number): THREE.BufferGeometry {
+  return cachedShape(key, () => {
+    const builder = new SolidBuilder()
+    builder.prism(section, -heightMm / 2, heightMm / 2)
+    const geometry = builder.geometry()
+    return geometry ?? new THREE.BufferGeometry()
+  })
+}
+
+/** A straight-sided cylinder, centred on the origin, at the resolution asked for. */
+function circleShape(radius: number, heightMm: number, sides: number): THREE.BufferGeometry {
+  return prismShape(`circle|${mm(radius)}|${mm(heightMm)}|${sides}`, circleSection(radius, sides), heightMm)
+}
+
+/** A dome (top half of a sphere) or a whole sphere, shared per radius. */
+function sphereShape(radius: number, dome: boolean): THREE.BufferGeometry {
+  return cachedShape(`sphere|${mm(radius)}|${dome ? 'dome' : 'full'}`, () => new THREE.SphereGeometry(
+    radius,
+    20,
+    dome ? 14 : 8,
+    0,
+    Math.PI * 2,
+    0,
+    dome ? Math.PI / 2 : Math.PI,
+  ))
+}
+
+/**
+ * A rectangular slab from the shared unit cube.
+ *
+ * Scale lives on the transform, so a board's hundreds of bands, pins and castellated
+ * pads cost one geometry between them. Exporters read `matrixWorld`, which includes
+ * the scale, so the solid that leaves the app is the size it looks.
+ */
+function boxMesh(width: number, height: number, depth: number, material: THREE.Material, name: string): THREE.Mesh {
+  const mesh = new THREE.Mesh(unitBox(), material)
+  mesh.name = name
+  mesh.scale.set(width, height, depth)
+  return mesh
+}
+
+/**
+ * Finishes shared by every part of the same kind and hue.
+ *
+ * Materials repeat the way shapes do: 56 packages on the mainboard use eight
+ * distinct finishes, and each private material is another shader program the
+ * renderer has to bind. What varies between rebuilds (mask, copper, artwork)
+ * stays private to the group, because those are derived from the options.
+ */
+const sharedMaterials = new Map<string, THREE.Material>()
+
+function cachedMaterial(key: string, make: () => THREE.Material): THREE.Material {
+  const existing = sharedMaterials.get(key)
+  if (existing) return existing
+  const material = make()
+  if (sharedMaterials.size < SHAPE_CACHE_LIMIT) {
+    material.userData.shared = true
+    sharedMaterials.set(key, material)
+  }
+  return material
+}
+
+/** The satin colour of a moulded band, dome or plating tab — one per colour. */
+function decoMaterial(color: string, roughness: number, metalness = 0): THREE.Material {
+  return cachedMaterial(
+    `deco|${color}|${roughness}|${metalness}`,
+    () => new THREE.MeshStandardMaterial({ color, roughness, metalness }),
+  )
+}
+
+/**
+ * Add a finished buffer to the board, or nothing at all when the pass that
+ * built it had nothing to draw.
+ */
+function addBuiltMesh(
+  group: THREE.Group,
+  geometry: THREE.BufferGeometry | null,
+  name: string,
+  material: THREE.Material,
+  flags: { receiveShadow?: boolean; excludeFromExport?: boolean } = {},
+): void {
+  if (!geometry) return
+  const mesh = new THREE.Mesh(geometry, material)
+  mesh.name = name
+  if (flags.receiveShadow) mesh.receiveShadow = true
+  if (flags.excludeFromExport) mesh.userData.excludeFromExport = true
+  group.add(mesh)
+}
+
+/**
+ * Release what a rebuilt group owns.
+ *
+ * The preview rebuilds whenever a layer is hidden, the mask changes or a slider
+ * moves, and the old geometry stayed on the GPU because three.js does not dispose
+ * what it did not create. Shared shapes and their materials are the cache's, so
+ * only the group's private shapes, materials and textures are released.
+ */
+export function disposePcbGroup(group: THREE.Group): void {
+  const released = new Set<THREE.BufferGeometry | THREE.Material>()
+  group.traverse((object) => {
+    const mesh = object as THREE.Mesh
+    if (!mesh.isMesh) return
+    if (!mesh.geometry.userData.shared && !released.has(mesh.geometry)) {
+      released.add(mesh.geometry)
+      mesh.geometry.dispose()
+    }
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+    for (const material of materials) {
+      if (material.userData.shared || released.has(material)) continue
+      released.add(material)
+      for (const slot of ['map', 'bumpMap', 'alphaMap'] as const) {
+        const texture = (material as THREE.MeshStandardMaterial)[slot]
+        if (texture) texture.dispose()
+      }
+      material.dispose()
+    }
+  })
+}
 
 /** Shapes are built in the XY plane and extruded along +Z. */
 function roundedRectShape(width: number, height: number, radius: number): THREE.Shape {
@@ -129,9 +303,62 @@ function flatRoundedGeometry(width: number, height: number): THREE.ShapeGeometry
   return new THREE.ShapeGeometry(roundedRectShape(width, height, BOARD_CORNER_MM), 18)
 }
 
-function roundedBox(width: number, height: number, depth: number, radius = 0.1): RoundedBoxGeometry {
+/**
+ * The copper of a poured plane: its outline, no holes.
+ *
+ * A plane is a rounded rectangle — the board's own corner radius, reduced
+ * concentrically by the margin the scene declares — so it is the same kind of
+ * solid as the land it keeps its distance from: a prism, shared by every plane of
+ * those millimetres. It used to be an extrusion of a shape with hundreds of holes
+ * in its outline, and triangulating that boundary is what held the tab for 83
+ * seconds on a board with six planes.
+ */
+function pourPlaneShape(pour: PcbScenePour, thickness: number): THREE.BufferGeometry {
+  return cachedShape(
+    `pour|${mm(pour.widthMm)}|${mm(pour.depthMm)}|${mm(pour.cornerRadiusMm)}|${mm(thickness)}`,
+    () => {
+      const builder = new SolidBuilder()
+      builder.prism(
+        roundedRectSection(pour.widthMm, pour.depthMm, pour.cornerRadiusMm, 4),
+        -thickness / 2,
+        thickness / 2,
+      )
+      return builder.geometry() ?? new THREE.BufferGeometry()
+    },
+  )
+}
+
+/**
+ * The clearance around every keepaway, as the dielectric that takes the copper's
+ * place there.
+ *
+ * This used to be holes cut out of the plane's own outline. Cutting them is an
+ * ear-clipping triangulation of the whole boundary at once, and a plane whose
+ * keepaways run to several hundred took tens of seconds. One small prism per
+ * clearance costs arithmetic and reads the same: the hole is the colour of the
+ * laminate, not of the copper.
+ */
+function pourKeepoutGeometry(pour: PcbScenePour, thickness: number): THREE.BufferGeometry | null {
+  if (pour.holes.length === 0) return null
+  const builder = new SolidBuilder()
+  const bottom = pour.yMm - thickness / 2 - KEEPOUT_PROUD_MM
+  const top = pour.yMm + thickness / 2 + KEEPOUT_PROUD_MM
+  for (const hole of pour.holes) {
+    const section = hole.shape === 'circle'
+      ? circleSection(Math.max(0.05, Math.min(hole.widthMm, hole.depthMm) / 2), 12)
+      : rectSection(hole.widthMm, hole.depthMm)
+    builder.prism(section, bottom, top, { x: hole.x, z: hole.z })
+  }
+  return builder.geometry()
+}
+
+function roundedBox(width: number, height: number, depth: number, radius = 0.1): THREE.BufferGeometry {
   const safeRadius = Math.max(0.001, Math.min(radius, width / 2, height / 2, depth / 2))
-  return new RoundedBoxGeometry(Math.max(0.01, width), Math.max(0.01, height), Math.max(0.01, depth), 2, safeRadius)
+  const size = [width, height, depth].map((value) => Math.max(0.01, value))
+  return cachedShape(
+    `rbox|${size.map(mm).join(',')}|${mm(safeRadius)}`,
+    () => new RoundedBoxGeometry(size[0], size[1], size[2], 2, safeRadius),
+  )
 }
 
 function copperColor(layerColor: string): THREE.Color {
@@ -213,11 +440,13 @@ function addLead(
   const dz = to.z - from.z
   const length = Math.hypot(dx, dz)
   if (length < 0.01) return
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(length, height, width), material)
+  // One unit cube, scaled and turned: a board's leads are the same shape dozens
+  // of times over, and a geometry each would be the expensive part.
+  const mesh = new THREE.Mesh(unitBox(), material)
   mesh.name = name
+  mesh.scale.set(length, height, width)
   mesh.position.set((from.x + to.x) / 2, (from.y + to.y) / 2, (from.z + to.z) / 2)
   mesh.rotation.y = -Math.atan2(dz, dx)
-  mesh.castShadow = true
   parent.add(mesh)
 }
 
@@ -261,7 +490,8 @@ function clipSilkscreenAtPads(
 }
 
 /** Silkscreen artwork painted onto a transparent canvas and mapped to the board. */
-function createSilkscreenTexture(scene: PcbScene, side: 'top' | 'bottom'): THREE.CanvasTexture | null {  if (typeof document === 'undefined') return null
+function createSilkscreenTexture(scene: PcbScene, side: 'top' | 'bottom'): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null
   const { board } = scene
   const scale = Math.min(30, 2048 / Math.max(board.widthMm, board.heightMm))
   let canvas: HTMLCanvasElement
@@ -395,34 +625,61 @@ function createSilkscreenTexture(scene: PcbScene, side: 'top' | 'bottom'): THREE
   return texture
 }
 
+/**
+ * The footprint category chooses the *finish* — matte epoxy, satin metal,
+ * brushed can — and the part's own colour chooses the *hue* within it.
+ * Hard-coding both made every IC, diode and connector the same near-black lump,
+ * so a 46-part board read as one grey mass instead of a populated design.
+ */
 function componentMaterial(component: PcbSceneComponent): THREE.Material {
-  const base = new THREE.Color(component.color)
+  const hue = new THREE.Color(component.color)
+  const key = `body|${component.category}|${hue.getHexString()}`
   switch (component.category) {
     case 'ic':
-      return new THREE.MeshPhysicalMaterial({
-        color: '#141414',
+      return cachedMaterial(key, () => new THREE.MeshPhysicalMaterial({
+        color: hue,
         roughness: 0.46,
         metalness: 0.06,
         clearcoat: 0.25,
         clearcoatRoughness: 0.5,
-      })
+      }))
     case 'semiconductor':
-      return new THREE.MeshStandardMaterial({ color: '#161616', roughness: 0.5, metalness: 0.04 })
+      return cachedMaterial(key, () => new THREE.MeshStandardMaterial({ color: hue, roughness: 0.5, metalness: 0.04 }))
     case 'crystal':
-      return new THREE.MeshStandardMaterial({ color: '#b9bdc4', roughness: 0.24, metalness: 0.88 })
+      return cachedMaterial(key, () => new THREE.MeshStandardMaterial({ color: hue, roughness: 0.24, metalness: 0.88 }))
     case 'connector':
-      return new THREE.MeshStandardMaterial({ color: '#171717', roughness: 0.62, metalness: 0.02 })
+      return cachedMaterial(key, () => new THREE.MeshStandardMaterial({ color: hue, roughness: 0.62, metalness: 0.02 }))
     case 'capacitor':
-      return new THREE.MeshStandardMaterial({ color: '#a9793f', roughness: 0.58, metalness: 0.04 })
+      return cachedMaterial(key, () => new THREE.MeshStandardMaterial({ color: hue, roughness: 0.58, metalness: 0.04 }))
     case 'inductor':
-      return new THREE.MeshStandardMaterial({ color: '#2f3134', roughness: 0.5, metalness: 0.18 })
+      return cachedMaterial(key, () => new THREE.MeshStandardMaterial({ color: hue, roughness: 0.5, metalness: 0.18 }))
+    case 'switch':
+      // Tact switches are metal-dome parts, not plastic chips.
+      return cachedMaterial(key, () => new THREE.MeshStandardMaterial({ color: hue, roughness: 0.42, metalness: 0.45 }))
     default:
-      return new THREE.MeshStandardMaterial({
-        color: base,
+      return cachedMaterial(key, () => new THREE.MeshStandardMaterial({
+        color: hue,
         roughness: 0.52,
         metalness: 0.05,
-      })
+      }))
   }
+}
+
+/**
+ * Two-land SMD chip: one moulded body with a metal terminal wrapped around each
+ * end, sitting on its lands. Diodes and LEDs belong here too — their packages
+ * *are* two-terminal chips, and giving them the same end metal is what
+ * separates a 1N5817 from an anonymous black block.
+ */
+const CHIP_LIKE_CATEGORIES = new Set(['resistor', 'capacitor', 'inductor', 'semiconductor', 'led'])
+
+interface ChipShape {
+  /** Body extent in the part's local frame, and which local axis the lands lie on. */
+  spanXMm: number
+  spanZMm: number
+  padAxis: 'x' | 'z'
+  /** Length of each end terminal along the pad axis — decorations sit just inside it. */
+  capMm: number
 }
 
 function addTwoTerminalChip(
@@ -430,45 +687,60 @@ function addTwoTerminalChip(
   component: PcbSceneComponent,
   bodyMaterial: THREE.Material,
   terminalMaterial: THREE.Material,
-): boolean {
-  if (component.pads.length !== 2) return false
+): ChipShape | null {
+  if (component.pads.length !== 2) return null
   const local = component.pads.map((pad) => toLocal(component, pad.position))
   const span = Math.hypot(local[1].x - local[0].x, local[1].z - local[0].z)
-  if (span < 0.2) return false
+  if (span < 0.2) return null
   const padSize = component.pads[0]
   const alongX = Math.abs(local[1].x - local[0].x) >= Math.abs(local[1].z - local[0].z)
-  const terminalLength = alongX ? padSize.widthMm : padSize.depthMm
-  const terminalWidth = alongX ? padSize.depthMm : padSize.widthMm
-  const bodyLength = Math.max(0.2, span - terminalLength * 0.85)
+  const landAlongMm = alongX ? padSize.widthMm : padSize.depthMm
+  const landAcrossMm = alongX ? padSize.depthMm : padSize.widthMm
+  // The moulding is the package's declared body length, which on a real chip
+  // overhangs the inner edge of each land. Falling back to the land span keeps a
+  // part whose footprint declares no body from shrinking to nothing.
+  const declared = alongX ? component.bodyWidthMm : component.bodyDepthMm
+  const bodyLength = Math.max(0.2, span, declared)
   const bodyWidth = Math.max(0.15, Math.min(
     alongX ? component.bodyDepthMm : component.bodyWidthMm,
-    terminalWidth * 1.12,
+    landAcrossMm * 1.12,
   ))
   const height = component.bodyHeightMm
-  const body = new THREE.Mesh(
+  const box = (lengthMm: number, widthMm: number, radiusMm: number) =>
     alongX
-      ? roundedBox(bodyLength, height * 0.92, bodyWidth, Math.min(0.09, height * 0.25))
-      : roundedBox(bodyWidth, height * 0.92, bodyLength, Math.min(0.09, height * 0.25)),
-    bodyMaterial,
-  )
+      ? roundedBox(lengthMm, height, widthMm, radiusMm)
+      : roundedBox(widthMm, height, lengthMm, radiusMm)
+
+  const body = new THREE.Mesh(box(bodyLength, bodyWidth, Math.min(0.09, height * 0.25)), bodyMaterial)
   body.name = `body-${component.id}`
-  body.position.y = 0
   body.castShadow = true
   model.add(body)
 
-  for (const pad of local) {
+  // End metal: a cap on each end, proud of the moulding by a hair so the two
+  // materials never share a face and z-fight at grazing angles.
+  const capLength = Math.min(landAlongMm * 0.8, bodyLength * 0.26)
+  for (const sign of [1, -1]) {
     const terminal = new THREE.Mesh(
       alongX
-        ? roundedBox(terminalLength, height * 0.98, bodyWidth, 0.05)
-        : roundedBox(bodyWidth, height * 0.98, terminalLength, 0.05),
+        ? roundedBox(capLength, height * 1.02, bodyWidth * 1.02, Math.min(0.06, height * 0.2))
+        : roundedBox(bodyWidth * 1.02, height * 1.02, capLength, Math.min(0.06, height * 0.2)),
       terminalMaterial,
     )
     terminal.name = `terminal-${component.id}`
-    terminal.position.set(pad.x, 0, pad.z)
+    terminal.position.set(
+      alongX ? sign * (bodyLength - capLength) / 2 : 0,
+      0,
+      alongX ? 0 : sign * (bodyLength - capLength) / 2,
+    )
     terminal.castShadow = true
     model.add(terminal)
   }
-  return true
+  return {
+    spanXMm: alongX ? bodyLength : bodyWidth,
+    spanZMm: alongX ? bodyWidth : bodyLength,
+    padAxis: alongX ? 'x' : 'z',
+    capMm: capLength,
+  }
 }
 
 function addComponentBody(
@@ -477,7 +749,6 @@ function addComponentBody(
   material: THREE.Material,
   padMaterial: THREE.Material,
   leadMaterial: THREE.Material,
-  scale: number,
 ): void {
   const model = new THREE.Group()
   model.name = `component-${component.id}`
@@ -485,28 +756,29 @@ function addComponentBody(
   // Layout rotation is clockwise in board coordinates; a Y rotation in three.js
   // is counter-clockwise seen from above, so it takes the negative angle.
   model.rotation.y = -degToRad(component.rotationYDeg)
-  model.scale.setScalar(scale)
 
   const width = component.bodyWidthMm
   const depth = component.bodyDepthMm
   const height = component.bodyHeightMm
 
+  // A mounting hole declares no moulding: its 6 mm land and 3.2 mm drill are the
+  // whole part. Building a box of height 0 here produced a zero-volume shell that
+  // z-fought with the mask under it.
+  if (height <= 0.001) {
+    group.add(model)
+    return
+  }
+
   if (component.bodyShape === 'cylinder') {
     const radius = Math.min(width, depth) / 2
-    const can = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height, 28), material)
+    const can = new THREE.Mesh(circleShape(radius, height, 28), material)
     can.name = `body-${component.id}`
     can.castShadow = true
     model.add(can)
-    const cap = new THREE.Mesh(
-      new THREE.CylinderGeometry(radius * 0.9, radius * 0.9, 0.05, 28),
-      leadMaterial,
-    )
+    const cap = new THREE.Mesh(circleShape(radius * 0.9, 0.05, 28), leadMaterial)
     cap.position.y = height / 2 + 0.01
     model.add(cap)
-    const stripe = new THREE.Mesh(
-      new THREE.BoxGeometry(radius * 0.22, height * 0.72, radius * 0.72),
-      new THREE.MeshStandardMaterial({ color: '#dbe2e8', roughness: 0.5 }),
-    )
+    const stripe = boxMesh(radius * 0.22, height * 0.72, radius * 0.72, decoMaterial('#dbe2e8', 0.5), 'stripe')
     stripe.position.set(radius * 0.82, 0, 0)
     model.add(stripe)
     for (const pad of component.pads) {
@@ -525,54 +797,74 @@ function addComponentBody(
     return
   }
 
-  const chipLike =
-    (component.category === 'resistor' || component.category === 'capacitor' || component.category === 'inductor') &&
-    component.pads.length === 2
-  if (chipLike) {
-    const built = addTwoTerminalChip(model, component, material, leadMaterial)
-    if (built) {
-      group.add(model)
-      return
+  // Body footprint in the part's local frame, and which axis its lands sit on.
+  // The decorations below (cathode band, lens, actuator) hang off these, so a
+  // rotated part gets them on the right face instead of the nominal one.
+  let footXMm = width
+  let footZMm = depth
+  let padAxis: 'x' | 'z' = width >= depth ? 'x' : 'z'
+  let capMm = 0
+  let chipBuilt = false
+
+  if (CHIP_LIKE_CATEGORIES.has(component.category) && component.pads.length === 2) {
+    const chip = addTwoTerminalChip(model, component, material, leadMaterial)
+    if (chip) {
+      footXMm = chip.spanXMm
+      footZMm = chip.spanZMm
+      padAxis = chip.padAxis
+      capMm = chip.capMm
+      chipBuilt = true
     }
   }
 
-  const bodyWidth = component.category === 'ic' ? width * 0.94 : width
-  const bodyDepth = component.category === 'ic' ? depth * 0.94 : depth
-  const radius = component.category === 'ic' ? 0.1 : 0.14
-  const body = new THREE.Mesh(roundedBox(bodyWidth, height, bodyDepth, radius), material)
-  body.name = `body-${component.id}`
-  body.castShadow = true
-  model.add(body)
+  if (!chipBuilt) {
+    const boxWidth = component.category === 'ic' ? width * 0.94 : width
+    const boxDepth = component.category === 'ic' ? depth * 0.94 : depth
+    const radius = component.category === 'ic' ? 0.1 : 0.14
+    const body = new THREE.Mesh(roundedBox(boxWidth, height, boxDepth, radius), material)
+    body.name = `body-${component.id}`
+    body.castShadow = true
+    model.add(body)
+  }
 
   if (component.category === 'ic') {
     const dimple = new THREE.Mesh(
-      new THREE.SphereGeometry(Math.min(0.22, Math.min(width, depth) * 0.06), 12, 8),
-      new THREE.MeshStandardMaterial({ color: '#050505', roughness: 0.35 }),
+      sphereShape(Math.min(0.22, Math.min(width, depth) * 0.06), false),
+      decoMaterial('#050505', 0.35),
     )
     dimple.position.set(-width / 2 + width * 0.13, height / 2 - 0.02, -depth / 2 + depth * 0.13)
     model.add(dimple)
   }
 
   if (component.category === 'semiconductor' && component.pads.length === 2) {
-    const band = new THREE.Mesh(
-      new THREE.BoxGeometry(Math.max(0.12, width * 0.09), height * 1.01, depth * 1.01),
-      new THREE.MeshStandardMaterial({ color: '#c8cdd3', roughness: 0.35, metalness: 0.6 }),
-    )
-    band.position.x = width * 0.3
+    // Cathode band: a painted ring just inside the cathode-end terminal, proud of
+    // the body on both other axes so it never shares a face with the moulding.
+    const bandThick = Math.max(0.1, Math.min(footXMm, footZMm) * 0.18)
+    const band = padAxis === 'x'
+      ? boxMesh(bandThick, height * 1.03, footZMm * 1.03, decoMaterial('#dde3e9', 0.32, 0.55), 'band')
+      : boxMesh(footXMm * 1.03, height * 1.03, bandThick, decoMaterial('#dde3e9', 0.32, 0.55), 'band')
+    const half = (padAxis === 'x' ? footXMm : footZMm) / 2
+    const centre = half - capMm - bandThick / 2
+    if (padAxis === 'x') band.position.x = centre
+    else band.position.z = centre
     model.add(band)
   }
 
   if (component.category === 'led') {
+    // The die colour *is* the part colour: a red, green, amber and blue LED on
+    // one board have to read as four parts, and a lens that self-illuminates is
+    // what makes a populated board look switched-on rather than moulded.
+    const hue = new THREE.Color(component.color)
     const lens = new THREE.Mesh(
-      new THREE.SphereGeometry(Math.min(width, depth) * 0.42, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2),
-      new THREE.MeshPhysicalMaterial({
-        color: '#e11d48',
-        emissive: '#e11d48',
-        emissiveIntensity: 0.55,
+      sphereShape(Math.min(footXMm, footZMm) * 0.42, true),
+      cachedMaterial(`lens|${hue.getHexString()}`, () => new THREE.MeshPhysicalMaterial({
+        color: hue,
+        emissive: hue,
+        emissiveIntensity: 0.75,
         transmission: 0.35,
         thickness: 0.6,
         roughness: 0.18,
-      }),
+      })),
     )
     lens.position.y = height / 2
     model.add(lens)
@@ -580,8 +872,8 @@ function addComponentBody(
 
   if (component.category === 'switch') {
     const actuator = new THREE.Mesh(
-      new THREE.CylinderGeometry(Math.min(width, depth) * 0.18, Math.min(width, depth) * 0.18, 0.5, 16),
-      new THREE.MeshStandardMaterial({ color: '#c8cdd3', roughness: 0.4, metalness: 0.5 }),
+      circleShape(Math.min(width, depth) * 0.18, 0.5, 16),
+      decoMaterial('#c8cdd3', 0.4, 0.5),
     )
     actuator.position.y = height / 2 + 0.25
     model.add(actuator)
@@ -590,10 +882,7 @@ function addComponentBody(
   for (const pad of component.pads) {
     const local = toLocal(component, pad.position)
     if (component.category === 'connector') {
-      const pin = new THREE.Mesh(
-        new THREE.BoxGeometry(0.55, Math.max(0.8, height * 0.7), 0.55),
-        padMaterial,
-      )
+      const pin = boxMesh(0.55, Math.max(0.8, height * 0.7), 0.55, padMaterial, 'pin')
       pin.position.set(local.x, height * 0.35, local.z)
       pin.castShadow = true
       model.add(pin)
@@ -631,52 +920,77 @@ function addComponentBody(
 }
 
 /**
- * One continuous flat ribbon per routed trace.
+ * One continuous mitred ribbon for a whole copper layer.
  *
  * Rendering each polyline segment as a capsule turns every vertex into a pinch
- * that reads as a chain of beads. A real trace is a flat-topped ribbon with the
- * same width through its corners, so the segments become overlapping boxes and
- * a copper disc fills each vertex.
+ * that reads as a chain of beads, and asking three.js to build 9 107 boxes plus
+ * twice that many joint cylinders cost 7.5 s and 1.6 M vertices on the laptop
+ * mainboard. A layer of copper is one buffer written in one pass instead: the
+ * flat-topped ribbon a trace really is, at the width the rule declares.
  */
-function buildTraceGeometry(
-  segments: PcbSceneTraceSegment[],
+function layerCopperGeometry(
+  paths: RibbonPath[],
   yMm: number,
   copperThicknessMm: number,
 ): THREE.BufferGeometry | null {
-  if (segments.length === 0) return null
-  const parts: THREE.BufferGeometry[] = []
-  const y = yMm + copperThicknessMm / 2
-  const boxed = new Set<string>()
+  // The copper sits on its layer plane and rises to the height the stackup
+  // declares, the same placement the segment boxes had.
+  return buildRibbonGeometry(paths, yMm, yMm + copperThicknessMm)
+}
 
+/**
+ * Chain the scene's segments back into the centre lines the router laid.
+ *
+ * `buildPcbScene` emits a trace as one segment per pair of consecutive points, in
+ * order, so a trace's polyline is recovered by joining a segment whose start is
+ * where the last one ended. A break — a lifted and re-laid net, a trace rebuilt
+ * after a move — starts a new ribbon rather than stretching one across the gap.
+ */
+function ribbonPathsByLayer(
+  segments: PcbSceneTraceSegment[],
+  hiddenLayerIds: ReadonlySet<string>,
+): Map<string, RibbonPath[]> {
+  const byLayer = new Map<string, RibbonPath[]>()
+  const open = new Map<string, { end: { x: number; z: number }; path: RibbonPath }>()
   for (const segment of segments) {
-    if (segment.lengthMm <= 0.01) continue
-    const width = Math.max(0.08, segment.widthMm)
-    const key = `${segment.start.x.toFixed(3)}:${segment.start.z.toFixed(3)}:${segment.end.x.toFixed(3)}:${segment.end.z.toFixed(3)}:${width}`
-    if (boxed.has(key)) continue
-    boxed.add(key)
-
-    const box = new THREE.BoxGeometry(segment.lengthMm + width, copperThicknessMm, width)
-    box.rotateY(degToRad(segment.rotationYDeg))
-    box.translate(
-      (segment.start.x + segment.end.x) / 2,
-      y,
-      (segment.start.z + segment.end.z) / 2,
-    )
-    parts.push(box)
-
-    for (const point of [segment.start, segment.end]) {
-      const joint = new THREE.CylinderGeometry(width / 2, width / 2, copperThicknessMm, 12)
-      joint.translate(point.x, y, point.z)
-      parts.push(joint)
+    if (hiddenLayerIds.has(segment.layerId)) continue
+    const key = `${segment.layerId}::${segment.traceId}`
+    const started = open.get(key)
+    const continuous =
+      started !== undefined &&
+      Math.abs(started.end.x - segment.start.x) < 1e-6 &&
+      Math.abs(started.end.z - segment.start.z) < 1e-6
+    if (!continuous) {
+      const path: RibbonPath = {
+        points: [{ x: segment.start.x, z: segment.start.z }, { x: segment.end.x, z: segment.end.z }],
+        widthMm: Math.max(0.08, segment.widthMm),
+      }
+      open.set(key, { end: { x: segment.end.x, z: segment.end.z }, path })
+      const paths = byLayer.get(segment.layerId)
+      if (paths) paths.push(path)
+      else byLayer.set(segment.layerId, [path])
+      continue
     }
+    started!.path.points.push({ x: segment.end.x, z: segment.end.z })
+    started!.end = { x: segment.end.x, z: segment.end.z }
   }
+  return byLayer
+}
 
-  if (parts.length === 0) return null
-  const merged = mergeGeometries(parts, false)
-  for (const part of parts) part.dispose()
-  if (!merged) return null
-  merged.computeVertexNormals()
-  return merged
+/**
+ * Grow or shrink every part about its own centre without rebuilding the board.
+ *
+ * The size slider exists because a schematic-scale circuit is a few millimetres
+ * tall, so the parts need exaggerating to be seen. Scaling the whole group would
+ * slide them off the lands they sit on, so it is applied to each part's own
+ * transform instead — which is a loop over the children, not the 3 375 geometry
+ * allocations a rebuild would cost on every frame of a drag.
+ */
+export function applyComponentScale(group: THREE.Group, scale: number): void {
+  for (const child of group.children) {
+    if (child.name.startsWith('component-')) child.scale.setScalar(scale)
+  }
+  group.updateMatrixWorld(true)
 }
 
 /** Build the complete routed board: substrate, copper, parts and artwork. */
@@ -729,6 +1043,13 @@ export function buildPcbGroup(scene: PcbScene, options: PcbBoardGroupOptions): T
   // cannot resolve at preview zoom.
   const padCenterY = maskTopY - PAD_BOTTOM_EMBED_MM + PAD_THICKNESS_MM / 2
 
+  const bottomCopper = scene.layers.find((layer) => layer.kind === 'copper' && layer.side === 'bottom')
+  const bottomMask = scene.layers.find((layer) => layer.kind === 'mask' && layer.side === 'bottom')
+  const maskBottomY = board.bottomSurfaceYMm
+    - (bottomCopper?.thicknessMm ?? 0.035)
+    - (bottomMask?.thicknessMm ?? SOLDERMASK_MM)
+  const padCenterYBottom = maskBottomY + PAD_BOTTOM_EMBED_MM - PAD_THICKNESS_MM / 2
+
   if (options.showPCB) {
     const relief = createMaskReliefTexture()
     const fr4 = new THREE.MeshStandardMaterial({ color: '#b3a06c', roughness: 0.86, metalness: 0.02 })
@@ -738,8 +1059,13 @@ export function buildPcbGroup(scene: PcbScene, options: PcbBoardGroupOptions): T
       metalness: 0.03,
       clearcoat: mask.clearcoat,
       clearcoatRoughness: mask.clearcoatRoughness,
-      bumpMap: relief ?? undefined,
-      bumpScale: 0.35,
+      // The studio environment is what lights the copper and the mouldings, but a
+      // full-strength reflection turns a large board into a mirror-green wash. Mask
+      // is a pigmented lacquer: it should catch a broad, dim sheen, not a highlight.
+      envMapIntensity: 0.45,
+      // Only a browser that gave us a canvas has relief to lay down; three warns
+      // on an explicitly undefined texture.
+      ...(relief ? { bumpMap: relief, bumpScale: 0.35 } : {}),
     })
     const substrate = new THREE.Mesh(boardSlabGeometry(board.widthMm, board.heightMm, board.thicknessMm), [maskMaterial, fr4])
     substrate.name = 'pcb-substrate'
@@ -752,15 +1078,19 @@ export function buildPcbGroup(scene: PcbScene, options: PcbBoardGroupOptions): T
         flatRoundedGeometry(board.widthMm - 0.2, board.heightMm - 0.2),
         new THREE.MeshPhysicalMaterial({
           color: mask.overlayColor,
-          roughness: mask.roughness * 0.92,
+          roughness: Math.min(0.72, mask.roughness * 1.1),
           metalness: 0.05,
           transparent: true,
           opacity: MASK_OVERLAY_OPACITY,
           depthWrite: false,
-          clearcoat: mask.clearcoat + 0.15,
-          clearcoatRoughness: mask.clearcoatRoughness * 0.9,
-          bumpMap: relief ?? undefined,
-          bumpScale: 0.3,
+          // This film covers the whole board, so its clearcoat is the one the eye
+          // reads. Stacking it *on top of* the substrate's own coat doubles the
+          // highlight into a bright blob; matching the base keeps the finish even
+          // where copper breaks through.
+          clearcoat: mask.clearcoat * 0.6,
+          clearcoatRoughness: Math.min(0.7, mask.clearcoatRoughness * 1.25),
+          envMapIntensity: 0.4,
+          ...(relief ? { bumpMap: relief, bumpScale: 0.3 } : {}),
         }),
       )
       overlay.name = 'soldermask-overlay'
@@ -797,63 +1127,79 @@ export function buildPcbGroup(scene: PcbScene, options: PcbBoardGroupOptions): T
   }
 
   if (options.showTraces) {
-    const traceGroups = new Map<string, { layerId: string; segments: PcbSceneTraceSegment[] }>()
-    for (const segment of scene.traces) {
-      if (options.hiddenLayerIds.has(segment.layerId)) continue
-      const key = `${segment.layerId}::${segment.traceId}`
-      const entry = traceGroups.get(key) ?? { layerId: segment.layerId, segments: [] }
-      entry.segments.push(segment)
-      traceGroups.set(key, entry)
-    }
-
-    for (const [, entry] of traceGroups) {
-      const layer = scene.layers.find((candidate) => candidate.id === entry.layerId)
+    // Poured planes first: their copper sits at the layer plane and the routed
+    // segments and vias land on top of it, exactly as they do on the board.
+    const dielectricMaterial = new THREE.MeshStandardMaterial({
+      color: KEEPOUT_DIELECTRIC,
+      roughness: 0.5,
+    })
+    for (const pour of scene.pours) {
+      if (options.hiddenLayerIds.has(pour.layerId)) continue
+      const layer = scene.layers.find((candidate) => candidate.id === pour.layerId)
       const thickness = layer?.thicknessMm ?? 0.035
-      const geometry = buildTraceGeometry(
-        entry.segments,
-        layer?.yMm ?? entry.segments[0].start.y,
-        thickness,
+      const plane = new THREE.Mesh(pourPlaneShape(pour, thickness), traceMaterialFor(pour.layerId))
+      plane.name = `pour-${pour.id}`
+      plane.position.y = pour.yMm
+      plane.receiveShadow = true
+      group.add(plane)
+      addBuiltMesh(
+        group,
+        pourKeepoutGeometry(pour, thickness),
+        `pour-keepouts-${pour.id}`,
+        dielectricMaterial,
+        { excludeFromExport: true },
       )
-      if (!geometry) continue
-      const mesh = new THREE.Mesh(geometry, traceMaterialFor(entry.layerId))
-      mesh.name = `trace-${entry.segments[0].traceId}`
-      mesh.castShadow = true
-      group.add(mesh)
     }
 
-    for (const via of scene.vias) {
-      const barrel = new THREE.Mesh(
-        new THREE.CylinderGeometry(via.padDiameterMm / 2, via.padDiameterMm / 2, via.heightMm, 20),
-        padMaterial,
+    for (const [layerId, paths] of ribbonPathsByLayer(scene.traces, options.hiddenLayerIds)) {
+      const layer = scene.layers.find((candidate) => candidate.id === layerId)
+      addBuiltMesh(
+        group,
+        layerCopperGeometry(paths, layer?.yMm ?? 0, layer?.thicknessMm ?? 0.035),
+        `trace-copper-${layerId}`,
+        traceMaterialFor(layerId),
+        { receiveShadow: true },
       )
-      barrel.name = `via-${via.id}`
-      barrel.position.set(via.position.x, 0, via.position.z)
-      barrel.castShadow = true
-      group.add(barrel)
+    }
 
-      const drill = new THREE.Mesh(
-        new THREE.CylinderGeometry(via.drillDiameterMm / 2, via.drillDiameterMm / 2, via.heightMm + 0.08, 16),
-        drillMaterial,
-      )
-      drill.name = `via-drill-${via.id}`
-      drill.position.copy(barrel.position)
-      group.add(drill)
-
-      for (const side of [1, -1]) {
-        const ring = new THREE.Mesh(
-          new THREE.RingGeometry(via.drillDiameterMm / 2, via.drillDiameterMm / 2 + 0.12, 24),
-          new THREE.MeshStandardMaterial({ color: '#07351f', roughness: 0.5, side: THREE.DoubleSide }),
+    // One buffer each for every barrel, drill and mask opening on the board. The
+    // mainboard stitches 485 vias: as individual meshes that was 1 940 draw calls
+    // and 970 copies of one material for three shapes.
+    if (scene.vias.length > 0) {
+      const barrels = new SolidBuilder()
+      const drills = new SolidBuilder()
+      const openingsTop = new SolidBuilder()
+      const openingsBottom = new SolidBuilder()
+      for (const via of scene.vias) {
+        const center = { x: via.position.x, z: via.position.z }
+        barrels.prism(
+          circleSection(via.padDiameterMm / 2, 20),
+          -via.heightMm / 2,
+          via.heightMm / 2,
+          center,
         )
-        ring.name = `via-mask-${via.id}`
-        ring.rotation.x = -Math.PI / 2
-        ring.position.set(
-          via.position.x,
-          side * maskTopY,
-          via.position.z,
+        drills.prism(
+          circleSection(via.drillDiameterMm / 2, 16),
+          -(via.heightMm + 0.08) / 2,
+          (via.heightMm + 0.08) / 2,
+          center,
         )
-        ring.userData.excludeFromExport = true
-        group.add(ring)
+        // The mask opening the drill leaves in the film, on each face's own mask
+        // height. Mirroring the top film onto the bottom put it in the wrong place
+        // on a stackup whose outer layers are not symmetric.
+        const openingRadius = via.drillDiameterMm / 2 + 0.12
+        const section = circleSection(openingRadius, 12)
+        openingsTop.prism(section, maskTopY - 0.004, maskTopY + 0.004, center)
+        openingsBottom.prism(section, maskBottomY - 0.004, maskBottomY + 0.004, center)
       }
+      addBuiltMesh(group, barrels.geometry(), 'via-barrels', padMaterial, { receiveShadow: true })
+      addBuiltMesh(group, drills.geometry(), 'via-drills', drillMaterial)
+      addBuiltMesh(group, openingsTop.geometry(), 'via-mask-openings-top', dielectricMaterial, {
+        excludeFromExport: true,
+      })
+      addBuiltMesh(group, openingsBottom.geometry(), 'via-mask-openings-bottom', dielectricMaterial, {
+        excludeFromExport: true,
+      })
     }
   }
 
@@ -861,9 +1207,17 @@ export function buildPcbGroup(scene: PcbScene, options: PcbBoardGroupOptions): T
   if (options.showTraces || options.showComponents) {
     for (const component of scene.components) {
       if (options.hiddenComponentIds.has(component.id)) continue
-      if (component.side !== 'top') continue
+      const onTop = component.side !== 'bottom'
       for (const pad of component.pads) {
-        addPad(group, pad, component.rotationYDeg, padMaterial, drillMaterial, padCenterY)
+        addPad(
+          group,
+          pad,
+          component.rotationYDeg,
+          padMaterial,
+          drillMaterial,
+          onTop ? padCenterY : padCenterYBottom,
+          onTop ? 1 : -1,
+        )
       }
     }
   }
@@ -877,12 +1231,11 @@ export function buildPcbGroup(scene: PcbScene, options: PcbBoardGroupOptions): T
         componentMaterial(component),
         padMaterial,
         leadMaterial,
-        options.componentScale,
       )
     }
   }
 
-  group.updateMatrixWorld(true)
+  applyComponentScale(group, options.componentScale ?? 1)
   return group
 }
 
@@ -893,10 +1246,15 @@ function addPad(
   padMaterial: THREE.Material,
   drillMaterial: THREE.Material,
   centerY: number,
+  /** +1 for a top-side land (barrel opening faces up), -1 for a bottom-side one. */
+  face = 1,
 ): void {
+  // A land's shape is a shared shape: the mainboard's 615 copper lands come from
+  // a few dozen distinct footprints, and each of them used to carry its own
+  // geometry and its own entry in the shadow map for 45 um of thickness.
   let geometry: THREE.BufferGeometry
   if (pad.shape === 'circle') {
-    geometry = new THREE.CylinderGeometry(pad.widthMm / 2, pad.widthMm / 2, PAD_THICKNESS_MM, 20)
+    geometry = circleShape(pad.widthMm / 2, PAD_THICKNESS_MM, 20)
   } else {
     const radius = Math.min(0.1, pad.widthMm * 0.25, pad.depthMm * 0.25, PAD_THICKNESS_MM * 0.45)
     geometry = roundedBox(pad.widthMm, PAD_THICKNESS_MM, pad.depthMm, radius)
@@ -905,20 +1263,19 @@ function addPad(
   mesh.name = `pad-${pad.id}`
   mesh.position.set(pad.position.x, centerY, pad.position.z)
   mesh.rotation.y = degToRad(rotationDeg)
-  mesh.castShadow = true
   group.add(mesh)
 
   if (pad.drillMm && pad.drillMm > 0) {
     // Open barrel seen from above: a dark disc flush with the copper land, not
     // a black peg poking out of the board.
     const drill = new THREE.Mesh(
-      new THREE.CylinderGeometry(pad.drillMm / 2, pad.drillMm / 2, 0.008, 16),
+      circleShape(pad.drillMm / 2, 0.008, 16),
       drillMaterial,
     )
     drill.name = `pad-drill-${pad.id}`
     drill.position.set(
       pad.position.x,
-      centerY + PAD_THICKNESS_MM / 2 + 0.008,
+      centerY + face * (PAD_THICKNESS_MM / 2 + 0.008),
       pad.position.z,
     )
     group.add(drill)

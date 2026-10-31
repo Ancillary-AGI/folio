@@ -15,7 +15,8 @@ import {
 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { DEMO_SCENARIOS } from '../../lib/demo/demoScenarios'
-import { HELP_TOPICS_BY_GROUP, SHORTCUTS } from '../../lib/help/helpTopics'
+import { HELP_TOPICS_BY_GROUP } from '../../lib/help/helpTopics'
+import ShortcutEditor from './ShortcutEditor'
 import { TUTORIALS, describeTutorialProgress, readTutorialProgress, type Tutorial } from '../../lib/tutorials/tutorials'
 import { WORKSPACE_GROUPS, WORKSPACE_MODES, WORKSPACE_MODE_META } from '../../lib/workspace/modes'
 import { CAPABILITY_RECORDS } from '../../lib/workspace/limitsRegistry'
@@ -69,6 +70,28 @@ function Keycaps({ keys }: { keys: readonly string[] }) {
     </span>
   )
 }
+
+/**
+ * What the shell actually does for engineers who navigate without a mouse or
+ * without seeing the sheet, and what it does not. Deliberately one line per
+ * claim, in the same register as the capability records: a row is only here if
+ * the markup that provides it is in the build.
+ */
+const ACCESS_NOTES: ReadonlyArray<{ covered: boolean; text: string }> = [
+  { covered: true, text: 'Tab reaches the sheet first: the very first control is the "Skip to the workspace" link, ahead of the header and the thirteen-mode rail.' },
+  { covered: true, text: 'Every command has a keyboard binding, the Shortcuts tab lists each one it implements, and any of them can be rebound there.' },
+  { covered: true, text: 'Focus is never suppressed. One ring covers the whole shell, and under Windows high-contrast it is replaced with an OS-drawn outline plus a border on the selected tab and every switched-on control.' },
+  { covered: true, text: 'Sliders stay native range inputs, so arrow keys, Page Up/Down, Home/End and touch drag all move them. Where a panel supplies a formatter the input also carries aria-valuetext, so the announced value is the written one, not a bare percentage.' },
+  { covered: true, text: 'Results are posted to labelled status and alert regions, so a screen reader hears the verdict of a run instead of inferring it from a colour that changed.' },
+  { covered: true, text: 'Colour never carries meaning alone: toggles are role=switch with aria-checked, visibility rows name the layer beside its colour, and pass and fail read as words.' },
+  { covered: true, text: 'Motion and contrast follow the OS: prefers-reduced-motion flattens every transition, the app has its own animation switch on top, and prefers-contrast: more selects the high-contrast theme.' },
+  { covered: true, text: 'The layout reaches small screens: four breakpoints, the right dock becomes a drawer under 1280 px, and the 3-D HUD controls are 28 px or taller.' },
+  { covered: false, text: 'Not covered: no screen reader has actually read this build. The markup is written for one, but there is no NVDA, JAWS or VoiceOver pass behind these rows.' },
+  { covered: false, text: 'Not covered: neither sheet is a set of objects a reader can step through. The schematic is a Konva canvas; the board is an SVG image with one label that states its size, trace count, pad count and active tool. Parts, nets and DRC findings live in text tables beside them.' },
+  { covered: false, text: 'Not covered: a part still lands on the board with a pointer. Arming it from the library is keyboard-reachable, but there is no keyboard cursor that walks the grid and drops it.' },
+  { covered: false, text: 'Not covered: selecting several board parts is a pointer gesture — Shift-click or a rubber band. The selection and the group move are real, but no keyboard equivalent steps through footprints.' },
+  { covered: false, text: 'Not covered: the 3-D view has no keyboard orbit presets or spoken description, the high-contrast sheet has not been seen in a live Windows session, and the interface is English only.' },
+]
 
 /**
  * Help, tutorials and the control reference in one searchable surface.
@@ -150,10 +173,8 @@ export default function HelpCenter({
     [terms],
   )
 
-  const shortcuts = useMemo(
-    () => SHORTCUTS.filter((row) => matches(terms, `${row.action} ${row.where} ${row.keys.join(' ')}`)),
-    [terms],
-  )
+  const accessNotes = useMemo(() => ACCESS_NOTES.filter((note) => matches(terms, note.text)), [terms])
+
 
   if (!open) return null
 
@@ -386,35 +407,38 @@ export default function HelpCenter({
                   </ul>
                 </section>
               ))}
+              {accessNotes.length > 0 && (
+                <section aria-label="Access and reach">
+                  <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    Access and reach
+                  </h3>
+                  <ul className="divide-y divide-border rounded-md border border-border bg-card">
+                    {accessNotes.map((note) => (
+                      <li key={note.text} className="flex items-start gap-2.5 px-3 py-2">
+                        <span
+                          aria-hidden="true"
+                          className={`mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full ${
+                            note.covered ? 'bg-success/15 text-success' : 'bg-destructive/15 text-destructive'
+                          }`}
+                        >
+                          {note.covered ? <CheckCircle2 className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                        </span>
+                        <p className="text-[11px] leading-relaxed text-muted-foreground">{note.text}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
             </div>
           )}
 
           {tab === 'shortcuts' && (
             <div className="space-y-3">
               <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                Only bindings the shell implements are listed. A shortcut that is not here does not exist.
+                Every binding the workbench implements is listed, and every binding here is live.
+                Click one to rebind it; a key that is not here does not exist.
               </p>
-              <table className="w-full border-collapse text-[11px]">
-                <thead>
-                  <tr className="border-b border-border text-left text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
-                    <th scope="col" className="py-1.5 pr-3 font-semibold">Keys</th>
-                    <th scope="col" className="py-1.5 pr-3 font-semibold">Action</th>
-                    <th scope="col" className="py-1.5 font-semibold">Where</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {shortcuts.map((row) => (
-                    <tr key={`${row.keys.join('+')}-${row.action}`} className="border-b border-border last:border-0">
-                      <td className="py-1.5 pr-3"><Keycaps keys={row.keys} /></td>
-                      <td className="py-1.5 pr-3 text-foreground">{row.action}</td>
-                      <td className="py-1.5 text-muted-foreground">{row.where}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {shortcuts.length === 0 && (
-                <p className="py-8 text-center text-sm text-muted-foreground">No shortcut matches “{query}”.</p>
-              )}
+              <ShortcutEditor query={query} />
             </div>
           )}
         </div>

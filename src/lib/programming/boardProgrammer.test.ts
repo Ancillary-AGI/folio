@@ -1,11 +1,25 @@
 import { describe, expect, it } from 'vitest'
 import {
   ArduinoIDEIntegration,
+  BOARD_DEFINITIONS,
   arduinoIdeCandidates,
   boardProgrammer,
   launchDetached,
   openWithDefaultApplication,
 } from './boardProgrammer'
+
+describe('board definitions', () => {
+  it('carries a real three-part FQBN, not a reassembly of the programmer and id', () => {
+    expect(BOARD_DEFINITIONS.arduino_uno.fqbn).toBe('arduino:avr:uno')
+    expect(BOARD_DEFINITIONS.esp32_dev.fqbn).toBe('esp32:esp32:esp32')
+    for (const board of Object.values(BOARD_DEFINITIONS)) {
+      expect(board.fqbn.split(':')).toHaveLength(3)
+      // The internal id is not a board name in the core; reusing it would make
+      // every Node compile fail with "board not found".
+      expect(board.fqbn.split(':')[2]).not.toContain('_')
+    }
+  })
+})
 
 /*
  * The suite runs under jsdom — the same `window`-defined world as a browser
@@ -49,6 +63,22 @@ describe('browser fail-closed guards', () => {
     const upload = await boardProgrammer.uploadSketch('COM3')
     expect(upload.success).toBe(false)
     expect(upload.error).toBe('No upload transport in the browser')
+  })
+
+  it('refuses to flash without a compiled image instead of sending placeholder bytes', async () => {
+    boardProgrammer.setBoard('arduino_uno')
+    let writes = 0
+    boardProgrammer.setBrowserTransport({
+      write: async (): Promise<void> => {
+        writes += 1
+      },
+      onData: (): void => {},
+    })
+    const upload = await boardProgrammer.uploadSketch('webserial')
+    expect(upload.success).toBe(false)
+    expect(upload.error).toBe('No compiled binary to flash')
+    expect(writes).toBe(0)
+    boardProgrammer.setBrowserTransport(null)
   })
 
   it('uploads in the browser when a transport is registered', async () => {

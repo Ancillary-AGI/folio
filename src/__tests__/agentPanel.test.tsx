@@ -198,8 +198,9 @@ describe('AgentPanel surfaces', () => {
     expect(agentSessionStore.save(session).ok).toBe(true)
 
     render(<AgentPanel />)
-    expect(screen.getByText('Local runner')).toBeInTheDocument()
-    expect(screen.getByText(/docs\/AGENT_CLOUD\.md/)).toBeInTheDocument()
+    expect(screen.getByText('In-process runner')).toBeInTheDocument()
+    // The cloud contract is named in the assistant and always-on surfaces.
+    expect(screen.getAllByText(/docs\/AGENT_CLOUD\.md/).length).toBeGreaterThan(0)
 
     fireEvent.click(screen.getByRole('tab', { name: 'Audit' }))
     const panel = screen.getByRole('tabpanel', { name: 'Audit' })

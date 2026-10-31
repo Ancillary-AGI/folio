@@ -106,8 +106,11 @@ export const SystemDashboard: React.FC = () => {
       const criticalAlerts = siemService.getAlerts({ status: 'active', severity: 'critical' })
       const recentEvents = siemService.getEvents({ startTime: Date.now() - 3600 * 1000, limit: 100 })
       const allChecks = siemService.getComplianceChecks()
-      const passRate = allChecks.length
-        ? allChecks.filter(c => c.status === 'compliant').length / allChecks.length
+      // A control that does not apply (nothing to protect yet) must not count
+      // as either a pass or a failure in the rate.
+      const auditedChecks = allChecks.filter(c => c.status !== 'not_applicable')
+      const passRate = auditedChecks.length
+        ? auditedChecks.filter(c => c.status === 'compliant').length / auditedChecks.length
         : 0
 
       // ── Fleet ─────────────────────────────────────────────────────────────
@@ -193,6 +196,7 @@ export const SystemDashboard: React.FC = () => {
   // Live SIEM metrics from store (no poll needed for these)
   const recentSIEMEvents = siemService.getEvents({ limit: 10 })
   const complianceChecks = siemService.getComplianceChecks()
+  const auditedChecks = complianceChecks.filter(c => c.status !== 'not_applicable')
   const activeAlertsList = siemService.getAlerts({ status: 'active' }).slice(0, 5)
 
   // ── Status colour helper ────────────────────────────────────────────────────
@@ -335,10 +339,13 @@ export const SystemDashboard: React.FC = () => {
                     <div className="flex justify-between"><span className="text-muted-foreground">Worker threads</span><span>{capabilities.workerThreads ? 'Supported' : 'Unavailable'}</span></div>
                     <div className="flex justify-between"><span className="text-muted-foreground">Shared memory</span><span>{capabilities.sharedMemory ? 'Supported' : 'Unavailable'}</span></div>
                     <div className="flex justify-between"><span className="text-muted-foreground">Thermal solver path</span><Badge variant="outline">{capabilities.recommendedThermalPath}</Badge></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Monte Carlo path</span><Badge variant="outline">{capabilities.monteCarloWorkers > 0 ? `worker × ${capabilities.monteCarloWorkers}` : 'main-thread'}</Badge></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">AC sweep path</span><Badge variant="outline">{capabilities.acSweepWorkers > 0 ? `worker × ${capabilities.acSweepWorkers}` : 'main-thread'}</Badge></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Noise sweep path</span><Badge variant="outline">{capabilities.noiseSweepWorkers > 0 ? `worker × ${capabilities.noiseSweepWorkers}` : 'main-thread'}</Badge></div>
                   </>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    Detect which compute paths this browser can run. Thermal analysis uses WebGPU when available, then a Worker, then the main thread.
+                    Detect which compute paths this browser can run. Thermal analysis uses WebGPU when available, then a Worker, then the main thread. Monte Carlo sweeps and large AC and noise sweeps run off the main thread when Workers are available.
                   </p>
                 )}
               </CardContent>
@@ -377,19 +384,26 @@ export const SystemDashboard: React.FC = () => {
           <div className="text-sm text-muted-foreground mb-2">
             {complianceChecks.length === 0
               ? 'No compliance checks run yet. Switch to the SIEM workspace and run a compliance check.'
-              : `${complianceChecks.filter(c => c.status === 'compliant').length}/${complianceChecks.length} requirements compliant`}
+              : `${auditedChecks.filter(c => c.status === 'compliant').length}/${auditedChecks.length} applicable requirements compliant${
+                complianceChecks.length > auditedChecks.length
+                  ? ` · ${complianceChecks.length - auditedChecks.length} not applicable`
+                  : ''
+              }`}
           </div>
           {['ISO27001', 'IEC62443', 'NIST', 'GDPR'].map(std => {
             const stdChecks = complianceChecks.filter(c => c.standard === std)
             if (stdChecks.length === 0) return null
-            const passing = stdChecks.filter(c => c.status === 'compliant').length
+            const applicableChecks = stdChecks.filter(c => c.status !== 'not_applicable')
+            const passing = applicableChecks.filter(c => c.status === 'compliant').length
             return (
               <Card key={std}>
                 <CardHeader className="pb-2 pt-3 px-4">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm">{std}</CardTitle>
-                    <Badge className={passing === stdChecks.length ? 'bg-success text-success-foreground' : 'bg-warning text-warning-foreground'}>
-                      {passing}/{stdChecks.length}
+                    <Badge className={applicableChecks.length === 0 ? 'bg-muted text-muted-foreground' : passing === applicableChecks.length ? 'bg-success text-success-foreground' : 'bg-warning text-warning-foreground'}>
+                      {applicableChecks.length === 0
+                        ? 'N/A'
+                        : `${passing}/${applicableChecks.length}${stdChecks.length > applicableChecks.length ? ' + N/A' : ''}`}
                     </Badge>
                   </div>
                 </CardHeader>
@@ -397,9 +411,13 @@ export const SystemDashboard: React.FC = () => {
                   {stdChecks.slice(0, 4).map(c => (
                     <div key={c.id} className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground truncate max-w-[70%]">{c.requirement}</span>
-                      <span className={c.status === 'compliant' ? 'text-success' : 'text-destructive'}>
-                        {c.status === 'compliant' ? '✓' : '✗'}
-                      </span>
+                      {c.status === 'not_applicable' ? (
+                        <span className="text-muted-foreground" title="Not applicable">—</span>
+                      ) : (
+                        <span className={c.status === 'compliant' ? 'text-success' : 'text-destructive'}>
+                          {c.status === 'compliant' ? '✓' : '✗'}
+                        </span>
+                      )}
                     </div>
                   ))}
                 </CardContent>

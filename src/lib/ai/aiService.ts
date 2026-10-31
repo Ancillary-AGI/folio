@@ -998,7 +998,7 @@ Design Complexity:
     }
 
     if (workspaceMode === 'robotics' && (lower.includes('kinematic') || lower.includes('robot') || lower.includes('joint'))) {
-      return `The **Robotics workspace** supports:\n• 6-DOF arm forward & inverse kinematics\n• Joint angle control with drag sliders\n• Trajectory planning and collision checking\n• Digital twin synchronisation with physical devices\n• Agentic AI-driven motion optimisation\n\nUse the joint sliders to set a target pose or enter Cartesian coordinates for IK solving.`
+      return `The **Robotics workspace** supports:\n• 6-DOF arm forward & inverse kinematics\n• Joint angle control with drag sliders\n• Trajectory planning and collision checking\n• Digital twin synchronisation with physical devices\n• Policy-driven motion optimisation\n\nUse the joint sliders to set a target pose or enter Cartesian coordinates for IK solving.`
     }
 
     // ── Generic context-aware fallback ────────────────────────────────────────

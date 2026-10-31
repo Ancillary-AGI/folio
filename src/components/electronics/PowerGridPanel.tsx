@@ -13,6 +13,7 @@ import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { Input } from '../ui/input'
+import { RangeControl } from '../ui/range-control'
 import { useDemoRequest } from '../workspace/useDemoRequest'
 import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign'
 import { describeError } from '../../lib/utils'
@@ -528,25 +529,20 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
                       {TRANSMISSION_CASES.find((entry) => entry.id === txCaseId)?.note}
                     </span>
                   </label>
-                  <label className="block space-y-1 text-sm">
-                    <span className="flex items-center justify-between">
-                      <span>Demand scale</span>
-                      <span className="cad-readout">{txScale.toFixed(2)}×</span>
-                    </span>
-                    <input
-                      type="range"
-                      min="0.5"
-                      max="2"
-                      step="0.05"
+                  <div className="space-y-1">
+                    <RangeControl
+                      label="Demand scale"
+                      min={0.5}
+                      max={2}
+                      step={0.05}
                       value={txScale}
-                      onChange={(event) => setTxScale(Number(event.target.value))}
-                      aria-label="Demand scale"
-                      className="w-full"
+                      onValueChange={setTxScale}
+                      format={(value) => `${value.toFixed(2)}×`}
                     />
-                    <span className="text-xs text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       Scales every bus load; generation setpoints stay fixed. Push the stressed tie past its transfer limit to see the solver refuse.
-                    </span>
-                  </label>
+                    </p>
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     Base 100 MVA. Branch impedances are edited in ohms on each study's voltage base; the solver converts
                     them per unit as Z&#8202;/&#8202;(kV²/MVA). A branch between two voltage levels needs per-unit data and is

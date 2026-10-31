@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { AlertTriangle, CheckCircle2, RefreshCw, ShieldAlert, XCircle } from 'lucide-react'
 import { siemService, type SIEMAlert, type SIEMEvent } from '../../lib/siem/siemService'
+import { backupService } from '../../lib/backup/backupService'
+import { buildCheckpointPayload } from '../../lib/backup/checkpoint'
+import { useProjectStore } from '../../stores/useProjectStore'
 import { describeError } from '../../lib/utils'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
@@ -54,19 +57,48 @@ function relativeTime(timestamp: number, now: number): string {
 export default function SIEMDashboard() {
   const [checking, setChecking] = useState(false)
   const [checkError, setCheckError] = useState<string | null>(null)
+  const [backupStatus, setBackupStatus] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
+  const currentProject = useProjectStore((state) => state.currentProject)
 
   const runCompliance = useCallback(async () => {
     setChecking(true)
     setCheckError(null)
     try {
       await siemService.runAllComplianceChecks()
+      // Health conditions depend on data outside the compliance rules (the
+      // checkpoint store), so refresh them from the same action.
+      siemService.checkHealth()
     } catch (error) {
       setCheckError(`Compliance check failed: ${describeError(error)}`)
     } finally {
       setChecking(false)
     }
   }, [])
+
+  const createCheckpoint = () => {
+    if (!currentProject) return
+    const checkpoint = backupService.createBackup(
+      currentProject.id,
+      buildCheckpointPayload(),
+      'SIEM backup',
+    )
+    siemService.logAuditEvent({
+      user: 'operator',
+      action: 'project:checkpoint:create',
+      resource: currentProject.id,
+      details: { checkpointId: checkpoint.id, label: checkpoint.label },
+    })
+    siemService.checkHealth()
+    const storageError = backupService.getStorageError()
+    setBackupStatus(storageError
+      ? `Checkpoint kept for this session only — ${storageError}.`
+      : `Checkpoint saved as “${checkpoint.label}”.`)
+  }
+
+  const resolveAlert = (alert: SIEMAlert) => {
+    siemService.updateAlertStatus(alert.id, 'resolved')
+  }
 
   // Compliance evidence has to be produced, not assumed.
   useEffect(() => {
@@ -217,6 +249,34 @@ export default function SIEMDashboard() {
                   <p className="text-xs text-muted-foreground">
                     {alert.description} · {relativeTime(alert.timestamp, now)}
                   </p>
+                  {alert.recommendedActions[0] && (
+                    <p className="mt-0.5 text-xs text-muted-foreground/80">
+                      {alert.recommendedActions[0]}
+                    </p>
+                  )}
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {alert.ruleId === 'backup_overdue' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={createCheckpoint}
+                        disabled={!currentProject}
+                      >
+                        {currentProject ? 'Back up now' : 'Open a project to back up'}
+                      </Button>
+                    )}
+                    {alert.ruleId !== 'backup_overdue' && alert.ruleId !== 'high_alert_backlog' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={() => resolveAlert(alert)}
+                      >
+                        Resolve
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <SeverityBadge severity={alert.severity} />
               </div>
@@ -225,6 +285,11 @@ export default function SIEMDashboard() {
               <p className="flex items-center gap-2 text-sm text-success">
                 <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
                 No active alerts
+              </p>
+            )}
+            {backupStatus && (
+              <p role="status" className="text-xs text-muted-foreground">
+                {backupStatus}
               </p>
             )}
           </CardContent>
@@ -249,6 +314,10 @@ export default function SIEMDashboard() {
                     <Badge variant="outline" className="gap-1 border-success/40 bg-success/15 text-success">
                       <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
                       compliant
+                    </Badge>
+                  ) : check.status === 'not_applicable' ? (
+                    <Badge variant="outline" className="gap-1 text-muted-foreground">
+                      not applicable
                     </Badge>
                   ) : (
                     <Badge

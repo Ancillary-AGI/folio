@@ -98,9 +98,9 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   {
     id: 'families',
     title: 'Four families hold twenty-five workspaces',
-    summary: 'Design, Electrical, Mechanical and Ops & AI each open their own tools; hover a tab to hear what it does.',
+    summary: 'Design, Electrical, Mechanical and Operations each open their own tools; hover a tab to hear what it does.',
     detail:
-      'The family strip groups the workbench by discipline and the row beneath it holds that family’s workspaces — schematic, simulation, PCB and fabrication under Design; control, machines, RF, HDL and silicon under Electrical; CAD, robotics, firmware, imaging, blocks and HIL under Mechanical; agents, parts, plugins, system, security and marketplace under Ops & AI. Each tab has a one-sentence description on hover, the Guide button opens the full workspace guide, and the demo gallery has a tested scenario for every mode.',
+      'The family strip groups the workbench by discipline and the row beneath it holds that family’s workspaces — schematic, simulation, PCB and fabrication under Design; control, machines, RF, HDL and silicon under Electrical; CAD, robotics, firmware, imaging, blocks and HIL under Mechanical; agents, parts, plugins, system, security and marketplace under Operations. Each tab has a one-sentence description on hover, the Guide button opens the full workspace guide, and the demo gallery has a tested scenario for every mode.',
     checklist: [
       'Open a family you have not used and read its tabs',
       'Hover a tab before opening it: the tooltip says what the workspace computes',
@@ -202,7 +202,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     checklist: [
       'Commit a named milestone before a risky edit',
       'Keep one branch per alternative, review the diff before merging',
-      'Treat local history as working storage, not a backup you have verified',
+      'Treat workspace history as working storage, not a backup you have verified',
     ],
     mode: 'schematic',
     icon: History,
@@ -214,7 +214,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     title: 'Drive the CAD with an agent, visually',
     summary: 'The assistant reads the sheet and board back as images after every edit.',
     detail:
-      'The assistant is a closed loop over the same CAD tools you use: it observes the schematic or board image, proposes a change, applies it, then re-reads the result. Autopilot and multi-step runs stay on this device; any cloud model needs credentials you provide and is labelled as such.',
+      'The assistant is a closed loop over the same CAD tools you use: it observes the schematic or board image, proposes a change, applies it, then re-reads the result. Autopilot and multi-step runs stay in the workspace; any cloud model needs credentials you provide and is labelled as such.',
     checklist: [
       'Describe the goal and the constraints in engineering terms',
       'Require visual feedback after every structural change',

@@ -94,6 +94,21 @@ describe('MechanicalDesignPanel', () => {
     expect(screen.getByText(/Partition TL/)).toBeInTheDocument()
   })
 
+  it('sizes a zone cooling load, supply air and duct from the psychrometric balance', () => {
+    render(<MechanicalDesignPanel onClose={() => {}} />)
+
+    fireEvent.change(screen.getByLabelText('Multiphysics solver'), { target: { value: 'hvac' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Solve$/ }))
+
+    expect(screen.getByText('Net space load')).toBeInTheDocument()
+    expect(screen.getByText('7.72 kW')).toBeInTheDocument()
+    expect(screen.getByText('Sensible heat ratio')).toBeInTheDocument()
+    expect(screen.getByText(/^0\.68\d$/)).toBeInTheDocument()
+    expect(screen.getByText('Equivalent round duct')).toBeInTheDocument()
+    expect(screen.getByText(/mm at 5\.0 m\/s/)).toBeInTheDocument()
+    expect(screen.getByText(/not a certified Manual J/)).toBeInTheDocument()
+  })
+
   it('reports invalid multiphysics inputs instead of a number', () => {
     render(<MechanicalDesignPanel onClose={() => {}} />)
     fireEvent.change(screen.getByLabelText('Length (m)'), { target: { value: '0' } })

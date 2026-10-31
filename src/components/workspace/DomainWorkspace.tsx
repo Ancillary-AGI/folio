@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   Activity, ArrowRightLeft, Box, Bot, Cable, Camera, ChevronLeft, ChevronRight, CircuitBoard, Code2, Cpu, FlaskConical,
   Gauge, GitBranch, Grid3X3, HelpCircle, Layers, List, Package, PenTool, Plug, Radio, RadioTower, RotateCw,
@@ -12,12 +12,16 @@ import ToolRail from './ToolRail'
 import HoverHelp from '../ui/HoverHelp'
 import { useAppStore, type WorkspaceMode } from '../../stores/useAppStore'
 import { useProjectStore } from '../../stores/useProjectStore'
+import { useSketchStore } from '../../stores/useSketchStore'
+import { useShortcutStore } from '../../stores/useShortcutStore'
+import { isEditableTarget, matchesShortcut } from '../../lib/keymap/shortcuts'
 import {
   WORKSPACE_GROUPS,
   WORKSPACE_MODES,
   groupForMode,
   type WorkspaceGroupId,
 } from '../../lib/workspace/modes'
+import { groupAccent } from '../../lib/workspace/accents'
 import type { Component } from '../../lib/supabase'
 import type { Schematic } from '../../types'
 
@@ -235,78 +239,64 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
 
   /*
    * CAD shortcuts. Registered only while the sheet is the active workspace and
-   * never while the user is typing in a field.
+   * never while the user is typing in a field. Keys come from the shared
+   * registry so a rebind in the guide changes what this handler does.
    */
+  const shortcutOverrides = useShortcutStore((s) => s.overrides)
   useEffect(() => {
     if (workspaceMode !== 'schematic') return
     const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'SELECT' ||
-          target.isContentEditable)
-      ) {
-        return
-      }
-      if (event.metaKey || event.ctrlKey) {
-        if (event.key.toLowerCase() === 's') {
-          event.preventDefault()
-          saveSnapshot()
-        } else if (event.key.toLowerCase() === 'z' && !event.shiftKey) {
-          // Undo lives in the project store (canvas snapshots).
-          event.preventDefault()
-          useProjectStore.getState().undo()
-        } else if (event.key.toLowerCase() === 'z' || event.key.toLowerCase() === 'y') {
-          event.preventDefault()
-          useProjectStore.getState().redo()
+      if (isEditableTarget(event.target)) return
+      const matches = (id: string) => matchesShortcut(event, id, shortcutOverrides)
+      if (matches('schematic.save')) {
+        event.preventDefault()
+        saveSnapshot()
+      } else if (matches('schematic.undo')) {
+        // While sketching, undo steps back through ink before it touches the
+        // design; otherwise it walks the project's canvas snapshots.
+        event.preventDefault()
+        const sketch = useSketchStore.getState()
+        if (useAppStore.getState().activeTool === 'sketch' && sketch.strokes.length > 0) sketch.undoStroke()
+        else useProjectStore.getState().undo()
+      } else if (matches('schematic.redo')) {
+        event.preventDefault()
+        useProjectStore.getState().redo()
+      } else if (matches('schematic.selectTool')) {
+        setActiveTool('select')
+      } else if (matches('schematic.wireTool')) {
+        setActiveTool('wire')
+      } else if (matches('schematic.deleteTool')) {
+        setActiveTool('delete')
+      } else if (matches('schematic.sketchTool')) {
+        setActiveTool(useAppStore.getState().activeTool === 'sketch' ? 'select' : 'sketch')
+      } else if (matches('schematic.rotate')) {
+        // Rotate every selected part 90° clockwise, like KiCad.
+        const project = useProjectStore.getState()
+        const selectedIds = useAppStore.getState().selectedComponents
+        let touched = false
+        for (const comp of project.components) {
+          if (!selectedIds.includes(comp.id)) continue
+          project.updateComponent(comp.id, { rotation: (comp.rotation + 90) % 360 })
+          touched = true
         }
-        return
-      }
-      if (event.altKey) return
-      switch (event.key.toLowerCase()) {
-        case 'escape':
-          setPendingComponent(null)
-          clearSelection()
-          break
-        case 'v':
-          setActiveTool('select')
-          break
-        case 'w':
-          setActiveTool('wire')
-          break
-        case 'd':
-          setActiveTool('delete')
-          break
-        case 'r': {
-          // Rotate every selected part 90° clockwise, like KiCad.
-          const project = useProjectStore.getState()
-          const selectedIds = useAppStore.getState().selectedComponents
-          let touched = false
-          for (const comp of project.components) {
-            if (!selectedIds.includes(comp.id)) continue
-            project.updateComponent(comp.id, { rotation: (comp.rotation + 90) % 360 })
-            touched = true
-          }
-          if (touched) project.markDirty()
-          break
-        }
-        case 'g':
-          updateSettings({ showGrid: !settings.showGrid })
-          break
-        case 'f':
-          window.dispatchEvent(new CustomEvent('folio:fit-view'))
-          break
-        default:
-          break
+        if (touched) project.markDirty()
+      } else if (matches('schematic.grid')) {
+        updateSettings({ showGrid: !settings.showGrid })
+      } else if (matches('schematic.fit')) {
+        window.dispatchEvent(new CustomEvent('folio:fit-view'))
+      } else if (matches('schematic.cancel')) {
+        setPendingComponent(null)
+        clearSelection()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [workspaceMode, saveSnapshot, clearSelection, setActiveTool, updateSettings, settings.showGrid])
+  }, [workspaceMode, shortcutOverrides, saveSnapshot, clearSelection, setActiveTool, updateSettings, settings.showGrid])
 
   const isSchematic = workspaceMode === 'schematic'
+  // The board takes parts from the same palette: dragging one onto the board,
+  // or arming it and clicking a spot, adds it to the sheet and places it here.
+  const showsLibrary = isSchematic || workspaceMode === 'pcb'
 
   /* Inspector payload: exactly one selected part shows the properties dock. */
   const selectedPart =
@@ -334,25 +324,45 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       {/* Workspace families + the modes inside the selected family */}
-      <nav className="app-chrome flex w-full min-w-0 flex-shrink-0 flex-col overflow-hidden border-b border-border" aria-label="Workspace" data-tour="workspace-nav">
+      <nav
+        className="app-chrome flex w-full min-w-0 flex-shrink-0 flex-col overflow-hidden border-b border-border"
+        aria-label="Workspace"
+        data-tour="workspace-nav"
+        style={{ '--family-accent': groupAccent(activeGroup) } as CSSProperties}
+      >
         <div className="flex min-w-0 items-stretch gap-1 px-2 pt-1">
           <div className="scrollbar-none flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto" role="group" aria-label="Workspace families">
             {WORKSPACE_GROUPS.map((group) => {
               const Icon = GROUP_ICONS[group.id]
               const active = group.id === activeGroup
+              const accent = groupAccent(group.id)
               return (
                 <HoverHelp key={group.id} title={group.label} description={group.description} placement="bottom">
                   <button
                     type="button"
                     aria-pressed={active}
                     onClick={() => setActiveGroup(group.id)}
+                    style={
+                      active
+                        ? {
+                            borderBottomColor: `hsl(${accent})`,
+                            backgroundColor: `hsl(${accent} / 0.10)`,
+                          }
+                        : undefined
+                    }
                     className={`flex h-7 flex-shrink-0 items-center gap-1.5 rounded-t-sm border-b-2 px-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors ${
                       active
-                        ? 'border-b-primary bg-background text-foreground'
+                        ? 'border-b-primary text-foreground'
                         : 'border-b-transparent text-muted-foreground hover:bg-accent hover:text-foreground'
                     }`}
                   >
-                    <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                    {/* The hue is repeated by every family, so it stays a
+                        decorative wayfinding cue: the label is always written. */}
+                    <Icon
+                      className={`h-3.5 w-3.5 ${active ? '' : 'opacity-70'}`}
+                      style={{ color: `hsl(${accent})` }}
+                      aria-hidden="true"
+                    />
                     {group.label}
                     {active && <span className="cad-readout text-[9px] text-muted-foreground">{visibleModes.length}</span>}
                   </button>
@@ -435,7 +445,7 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
       <div className="relative flex min-h-0 min-w-0 flex-1">
         {isSchematic && <ToolRail onSave={saveSnapshot} />}
 
-        {isSchematic && sidebarOpen && (
+        {showsLibrary && sidebarOpen && (
           <div
             className="fixed inset-0 z-20 bg-overlay/40 xl:hidden"
             onClick={toggleSidebar}
@@ -443,7 +453,7 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
           />
         )}
 
-        {isSchematic && sidebarOpen && (
+        {showsLibrary && sidebarOpen && (
           <aside className="cad-dock" aria-label="Component library" data-tour="component-library">
             <ComponentLibrary
               components={libraryComponents}
@@ -459,8 +469,15 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
         <div className="relative min-h-0 min-w-0 flex-1" data-tour="workspace-canvas">
           <Suspense
             fallback={
-              <div className="flex h-full items-center justify-center text-sm text-muted-foreground" role="status">
-                Loading workspace…
+              <div className="flex h-full flex-col items-center justify-center gap-3" role="status">
+                {/* A bare sentence on a black sheet reads as a broken canvas, so
+                   the wait shows the shape of what is arriving. */}
+                <div className="w-44 space-y-2" aria-hidden="true">
+                  <div className="cad-skeleton h-2 w-full" />
+                  <div className="cad-skeleton h-2 w-3/4" />
+                  <div className="cad-skeleton h-2 w-1/2" />
+                </div>
+                <p className="text-sm text-muted-foreground">Loading workspace…</p>
               </div>
             }
           >
@@ -476,7 +493,15 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
           {workspaceMode === 'machines' && <MachineSimulatorPanel onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'grid' && <PowerGridPanel onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'mechanical' && <MechanicalDesignPanel onClose={() => setWorkspaceMode('schematic')} />}
-          {workspaceMode === 'pcb' && <PCBDesignPanel onClose={() => setWorkspaceMode('schematic')} onPreview3D={() => setWorkspaceMode('preview3d')} />}
+          {workspaceMode === 'pcb' && (
+            <PCBDesignPanel
+              onClose={() => setWorkspaceMode('schematic')}
+              onPreview3D={() => setWorkspaceMode('preview3d')}
+              library={libraryComponents}
+              pendingComponent={pendingComponent}
+              onPendingPlaced={() => setPendingComponent(null)}
+            />
+          )}
           {workspaceMode === 'rf' && <RFDesignPanel onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'simulation' && (
             <div className="h-full overflow-auto p-4">

@@ -5,7 +5,8 @@
  *  1. User pastes raw datasheet text, drops a text-file, or enters a Digi-Key /
  *     LCSC part number (fetched through a public CORS proxy — see the URL tab).
  *  2. parseDatasheetText() or a URL-based extractor produces IngestedDatasheet.
- *  3. synthesizeComponentFromDatasheet() builds a component + footprint + SPICE stub.
+ *  3. synthesizeComponentFromDatasheet() builds a component + footprint from the
+ *     extracted facts. It synthesizes no SPICE model: a pinout is not device physics.
  *  4. User can edit pin assignments in a table; the preview follows the edits.
  *  5. On confirm, the component joins this session's library and one instance is
  *     placed on the schematic at the next free grid slot.
@@ -43,7 +44,7 @@ interface PinRow {
 const PIN_KINDS: readonly ExtractedPin['kind'][] = ['power', 'ground', 'input', 'output', 'bidirectional', 'passive']
 
 interface DatasheetImporterProps {
-  onPartAdded?: (part: { name: string; spiceText: string }) => void
+  onPartAdded?: (part: { name: string }) => void
   onClose?: () => void
 }
 
@@ -107,7 +108,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
   const handleParse = () => parseDatasheet(rawText)
 
   // Seed the Parts demo with a real datasheet and run the importer immediately
-  // so the card lands on extracted pins, a synthesized symbol and a SPICE stub.
+  // so the card lands on extracted pins and a synthesized symbol.
   useDemoRequest('datasheet-demo', () => {
     setTab('paste')
     setRawText(DEMO_DATASHEET_TEXT)
@@ -121,7 +122,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
     setPlacedNote(null)
     try {
       // The request is relayed through a public CORS proxy, so the datasheet URL
-      // leaves this browser and is visible to that third service. Not for NDA parts.
+      // leaves this deployment and is visible to that third service. Not for NDA parts.
       const resp = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(urlInput)}`)
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const text = await resp.text()
@@ -172,7 +173,6 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
       return
     }
     setVendorPick({ name: entry.name, text: entry.spiceText, cards: Array.from(parsed.models.keys()) })
-    onPartAdded?.({ name: entry.name, spiceText: entry.spiceText })
   }
 
   const handleConfirm = () => {
@@ -203,7 +203,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
     store.addComponent(instance)
 
     setPlacedNote(`Added ${component.name} to this session's library and placed ${instance.reference} at ${instance.x}, ${instance.y} on the sheet.`)
-    onPartAdded?.({ name: component.name, spiceText: synthesized.spiceSubcircuit })
+    onPartAdded?.({ name: component.name })
   }
 
   const updatePinRow = (index: number, field: keyof PinRow, value: string) => {
@@ -383,12 +383,20 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="bg-card rounded p-2">
                 <p className="text-muted-foreground mb-1">Package</p>
-                <p className="text-foreground">{ingestedData.packaging.packageName} ({ingestedData.packaging.pinCount} pins)</p>
+                <p className="text-foreground">
+                  {ingestedData.packaging.packageName} ({ingestedData.packaging.pinCount} pins)
+                  {!ingestedData.packaging.packageStated && (
+                    <span className="text-warning"> · assumed, not stated in the text</span>
+                  )}
+                </p>
               </div>
               <div className="bg-card rounded p-2">
                 <p className="text-muted-foreground mb-1">Supply</p>
                 <p className="text-foreground">
-                  {ingestedData.electrical.minSupplyVoltageV ?? '?'}–{ingestedData.electrical.maxSupplyVoltageV ?? '?'} V
+                  {ingestedData.electrical.minSupplyVoltageV !== undefined &&
+                  ingestedData.electrical.maxSupplyVoltageV !== undefined
+                    ? `${ingestedData.electrical.minSupplyVoltageV}–${ingestedData.electrical.maxSupplyVoltageV} V`
+                    : 'Not stated — no rating is declared'}
                 </p>
               </div>
             </div>
@@ -445,15 +453,20 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
               </div>
             </div>
 
-            {/* SPICE stub preview */}
-            {synthesized && (
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Generated SPICE stub</p>
-                <pre className="bg-card rounded p-2 text-xs text-success overflow-x-auto max-h-24">
-                  {synthesized.spiceSubcircuit.slice(0, 400)}
-                </pre>
-              </div>
-            )}
+            {/* No model is invented: a pinout and ratings page is not device physics. */}
+            <div className="rounded border border-border bg-card p-2.5 text-xs text-muted-foreground">
+              <p className="mb-1 font-medium text-foreground">Symbol and footprint only — no SPICE model</p>
+              <p>
+                This part gets a symbol, a footprint and the pin map you see above. It gets no
+                simulated electrical behaviour, because a datasheet pinout does not define the
+                device physics. To simulate it, search the built-in library for a vendor{' '}
+                <code>.model</code> card, or paste one into the Simulation panel&apos;s model deck.
+              </p>
+              <p className="mt-1">
+                The footprint is a generated dual-row land pattern sized from the stated
+                dimensions — check its pads against the datasheet before fabrication.
+              </p>
+            </div>
 
             <Button onClick={handleConfirm} className="w-full bg-success hover:bg-success/90 text-sm">
               <Zap size={14} className="mr-1" />

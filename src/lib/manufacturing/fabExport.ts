@@ -13,13 +13,15 @@
  * to footprint pads around the placement origin.
  *
  * Layer truth: every segment declares the copper face it is etched on and
- * every pad carries the faces it exists on, so a two-layer board's Gerbers
- * match the board on screen. Copper on an inner layer is a violation — this
- * package has no inner-layer film to put it on.
+ * every pad carries the faces it exists on, so a multilayer board's Gerbers
+ * match the board on screen. Inner copper is exported only when the package
+ * is told how many inner films the stackup has; otherwise it is a violation
+ * rather than being folded into an outer face.
  */
-import type { PlacedComponent, Point, Wire } from '../../types'
+import type { Net, PlacedComponent, Point, Wire } from '../../types'
 import { polylineDistance } from '../geometry/distance'
 import { footprintLibrary, type Footprint, type FootprintPad } from './footprintLibrary'
+import { footprintPadForPin } from './padMapping'
 
 /** Capability profile of the fab house the board is ordered from. */
 export interface FabProfile {
@@ -29,6 +31,11 @@ export interface FabProfile {
   minDrill: number
   minAnnularRing: number
   maskClearance: number
+  /** Laser-drilled microvia floor for blind/buried spans. Absent means the
+   *  vendor does not offer laser vias and the mechanical minimum applies. */
+  minLaserDrill?: number
+  /** Annular ring floor for laser microvias, smaller than a mechanical ring. */
+  minMicroviaRing?: number
 }
 
 /** JLCPCB 1 oz copper defaults — the profile the tests gate against. */
@@ -42,14 +49,17 @@ export const JLCPCB_1OZ: FabProfile = {
 }
 
 export interface FabViolation {
-  rule: 'trace-width' | 'trace-spacing' | 'drill' | 'annular-ring' | 'footprint' | 'copper-layer'
+  rule: 'trace-width' | 'trace-spacing' | 'drill' | 'annular-ring' | 'footprint' | 'copper-layer' | 'via-span' | 'plane-conflict' | 'plane-floating'
   severity: 'error'
   message: string
   elementId: string
 }
 
-/** Outer copper faces a two-layer Gerber package can film. */
+/** Outer copper faces. */
 export type FabSide = 'top' | 'bottom'
+
+/** One copper film in the shipped stackup: an outer face or inner film n (1 = nearest top). */
+export type FabFilm = FabSide | `inner-${number}`
 
 /** Trace width used when the incoming geometry does not carry one. */
 export const DEFAULT_TRACE_WIDTH = 0.2
@@ -66,17 +76,27 @@ export interface FabTrace {
   layer: FabSide | 'inner'
   /** Original layer id for inner copper, so the violation can name it. */
   layerName?: string
+  /** Inner film number parsed from the layer id (1 = nearest the top). */
+  innerIndex?: number
+}
+
+export interface ResolvedFabLayer {
+  layer: FabTrace['layer']
+  name: string
+  innerIndex?: number
 }
 
 /**
- * Which outer face a board layer id exports to. Anything that is not one of
- * the two outer copper layers comes back as `inner` and is refused rather
- * than quietly folded into F_Cu.
+ * Which copper film a board layer id exports to. Known inner ids carry their
+ * film number; anything unrecognised comes back as `inner` without an index
+ * and is refused rather than quietly folded into an outer film.
  */
-export function fabLayerFromId(layerId: string): { layer: FabTrace['layer']; name: string } {
+export function fabLayerFromId(layerId: string): ResolvedFabLayer {
   const id = layerId.trim().toLowerCase()
   if (id === 'top-cu' || id === 'f.cu' || id === 'top') return { layer: 'top', name: layerId }
   if (id === 'bot-cu' || id === 'b.cu' || id === 'bottom') return { layer: 'bottom', name: layerId }
+  const inner = /^in(?:ner)?[-_. ]?(\d+)(?:[-_. ]?cu)?$/.exec(id)
+  if (inner) return { layer: 'inner', name: layerId, innerIndex: Number(inner[1]) }
   return { layer: 'inner', name: layerId }
 }
 
@@ -111,12 +131,24 @@ export interface BomRow {
   partNumber: string
 }
 
+/** What a poured plane actually connected to, so the caller can report it. */
+export interface FabPlanePour {
+  film: FabFilm
+  netName: string
+  /** Drilled pads and vias connected directly to the pour. */
+  connections: number
+  /** Foreign barrels given an anti-pad clearance. */
+  antiPads: number
+}
+
 export interface FabPackage {
   /** filename → file content, ready to zip and upload. */
   files: Map<string, string>
   centroid: CentroidRow[]
   bom: BomRow[]
   violations: FabViolation[]
+  /** One entry per plane film actually poured. */
+  planes: FabPlanePour[]
   /** True when a fab house may be sent the package. */
   shippable: boolean
 }
@@ -131,6 +163,18 @@ export interface FabVia {
   drillDiameter: number
   padDiameter: number
   netName?: string
+  /** Copper films the barrel connects as 0-based film indices (0 = top,
+   *  1…N = inner, N+1 = bottom). Omitted means a plated through via. */
+  span?: { fromFilm: number; toFilm: number }
+}
+
+/** A plane film to pour solid copper on, tied to one net. */
+export interface FabPlane {
+  film: FabFilm
+  netName: string
+  /** Anti-pad clearance around foreign copper; defaults to the profile's
+   *  minimum trace spacing. */
+  clearance?: number
 }
 
 export interface FabOptions {
@@ -140,6 +184,34 @@ export interface FabOptions {
   projectName?: string
   /** Vias from the routed board; omitting them would export open layers. */
   vias?: FabVia[]
+  /** Inner copper films in the stackup, outermost first. Default 0 (two-layer
+   *  board). Inner traces are refused unless their film is declared here. */
+  innerLayerCount?: number
+  /** Schematic nets, so pads and vias can be connected to or cleared from a
+   *  plane by net rather than by guess. */
+  nets?: readonly Net[]
+  /** Inner films to pour solid copper on. */
+  planes?: readonly FabPlane[]
+}
+
+/** Copper-to-board-edge clearance for a poured plane, in millimetres. */
+export const PLANE_EDGE_CLEARANCE = 0.3
+
+export const MAX_INNER_LAYERS = 30
+
+/** Copper films in board order, top and bottom included. */
+export function fabFilms(innerLayerCount: number): FabFilm[] {
+  if (!Number.isInteger(innerLayerCount) || innerLayerCount < 0 || innerLayerCount > MAX_INNER_LAYERS) {
+    throw new RangeError(`innerLayerCount must be an integer 0–${MAX_INNER_LAYERS}`)
+  }
+  return ['top', ...Array.from({ length: innerLayerCount }, (_, index) => `inner-${index + 1}` as FabFilm), 'bottom']
+}
+
+/** Short film label used in drill filenames and messages. */
+export function filmLabel(film: FabFilm): string {
+  if (film === 'top') return 'F'
+  if (film === 'bottom') return 'B'
+  return `In${film.slice('inner-'.length)}`
 }
 
 export interface PlacedPad {
@@ -149,9 +221,12 @@ export interface PlacedPad {
   h: number
   round: boolean
   drill?: number
-  /** Copper faces this pad exists on. A drilled pad is plated through, so it
-   *  is flashed on both; an SMD pad only on the face its part was placed on. */
-  layers: FabSide[]
+  /** Copper films this pad exists on. A drilled pad is plated through, so it
+   *  is flashed on every film; an SMD pad only on the outer face its part was
+   *  placed on. */
+  layers: FabFilm[]
+  /** Net the pin lands on, resolved from the schematic when nets are supplied. */
+  netName?: string
 }
 
 export const onSide = (pad: PlacedPad, side: FabSide): boolean => pad.layers.includes(side)
@@ -186,8 +261,9 @@ export function resolveFootprint(component: PlacedComponent): Footprint | undefi
 /** Footprint pads placed at the component origin, rotation applied. The pad's
  *  copper faces follow the placement: plated through-hole pads are annular
  *  rings on both sides, surface pads live on the face the part sits on. */
-export function placedPads(component: PlacedComponent, footprint: Footprint): PlacedPad[] {
+export function placedPads(component: PlacedComponent, footprint: Footprint, nets?: readonly Net[]): PlacedPad[] {
   const side = componentSide(component)
+  const padNets = padNetByPadId(component, footprint, nets)
   return footprint.pads.map((pad) => {
     const offset = rotate(pad.position.x, pad.position.y, component.rotation)
     return {
@@ -198,8 +274,31 @@ export function placedPads(component: PlacedComponent, footprint: Footprint): Pl
       round: pad.shape === 'circle',
       drill: pad.drillDiameter,
       layers: padCopperSides(pad, side),
+      netName: padNets?.get(pad.id),
     }
   })
+}
+
+/** Physical pad id → net id, using the same pin-to-pad mapping as the router.
+ *  Pads whose pin has no net stay absent and are treated as foreign to planes. */
+function padNetByPadId(
+  component: PlacedComponent,
+  footprint: Footprint,
+  nets: readonly Net[] | undefined,
+): Map<string, string> | undefined {
+  if (!nets) return undefined
+  const pinToNet = new Map<string, string>()
+  for (const net of nets) {
+    for (const pin of net.connectedPins) pinToNet.set(`${pin.componentId}:${pin.pinId}`, net.id)
+  }
+  const lookup = new Map<string, string>()
+  component.component.pins.forEach((pin, index) => {
+    const netId = pinToNet.get(`${component.id}:${pin.id}`)
+    if (!netId) return
+    const pad = footprintPadForPin(footprint, pin.id, index, component.component.pins.length)
+    if (pad) lookup.set(pad.id, netId)
+  })
+  return lookup
 }
 
 function padCopperSides(pad: FootprintPad, placementSide: FabSide): FabSide[] {
@@ -221,13 +320,17 @@ export interface FabWireInput extends Wire {
 export function fabTracesFromWires(wires: readonly FabWireInput[], fallbackLayer: FabSide = 'top'): FabTrace[] {
   return wires
     .filter((wire) => wire.points.length >= 2)
-    .map((wire) => ({
-      points: wire.points,
-      width: Number(wire.style?.width ?? DEFAULT_TRACE_WIDTH),
-      netName: wire.netName,
-      layer: wire.layerId ? fabLayerFromId(wire.layerId).layer : fallbackLayer,
-      layerName: wire.layerId,
-    }))
+    .map((wire) => {
+      const resolved = wire.layerId ? fabLayerFromId(wire.layerId) : undefined
+      return {
+        points: wire.points,
+        width: Number(wire.style?.width ?? DEFAULT_TRACE_WIDTH),
+        netName: wire.netName,
+        layer: resolved?.layer ?? fallbackLayer,
+        layerName: wire.layerId,
+        innerIndex: resolved?.innerIndex,
+      }
+    })
 }
 
 function gerberHeader(): string[] {
@@ -265,6 +368,53 @@ function gerberCopper(
     lines.push(`D${aperture}*`, `X${coord(pad.x)}Y${coord(pad.y)}D03*`)
     aperture += 1
   }
+  lines.push('M02*')
+  return lines.join('\n')
+}
+
+/**
+ * Solid plane pour on an inner film. Dark polarity fills the board rectangle
+ * inset by the edge clearance; clear polarity removes an anti-pad around every
+ * foreign barrel; same-net barrels are flashed dark so the connection is
+ * explicit rather than implied by overlap.
+ */
+function gerberPlane(
+  title: string,
+  boardWidth: number,
+  boardHeight: number,
+  clearance: number,
+  connects: PlacedPad[],
+  antiPads: PlacedPad[],
+): string {
+  const lines = [...gerberHeader(), `G04 ${title}*`, '%ADD10C,0.0500*%', 'D10*', 'G01*', '%LPD*%', 'G36*']
+  const x0 = PLANE_EDGE_CLEARANCE
+  const y0 = PLANE_EDGE_CLEARANCE
+  const x1 = boardWidth - PLANE_EDGE_CLEARANCE
+  const y1 = boardHeight - PLANE_EDGE_CLEARANCE
+  lines.push(
+    `X${coord(x0)}Y${coord(y0)}D02*`,
+    `X${coord(x1)}Y${coord(y0)}D01*`,
+    `X${coord(x1)}Y${coord(y1)}D01*`,
+    `X${coord(x0)}Y${coord(y1)}D01*`,
+    `X${coord(x0)}Y${coord(y0)}D01*`,
+    'G37*',
+  )
+  let aperture = 11
+  const flash = (pad: PlacedPad, polarity: 'LPC' | 'LPD', grow: number): void => {
+    const w = pad.w + grow * 2
+    const h = pad.h + grow * 2
+    const round = pad.round || pad.drill !== undefined
+    lines.push(
+      round
+        ? `%ADD${aperture}C,${Math.max(w, h).toFixed(4)}*%`
+        : `%ADD${aperture}R,${w.toFixed(4)}X${h.toFixed(4)}*%`,
+    )
+    lines.push(`%${polarity}*%`, `D${aperture}*`, `X${coord(pad.x)}Y${coord(pad.y)}D03*`)
+    aperture += 1
+  }
+  for (const pad of antiPads) flash(pad, 'LPC', clearance)
+  lines.push('%LPD*%')
+  for (const pad of connects) flash(pad, 'LPD', 0)
   lines.push('M02*')
   return lines.join('\n')
 }
@@ -340,48 +490,82 @@ export function bomCsv(rows: BomRow[]): string {
 }
 
 /** Build the complete fab package. Pads come from IPC footprints, never glyphs,
- *  and copper lands on the film for the face it was routed on. */
+ *  and copper lands on the film for the layer it was routed on. */
 export function buildFabPackage(
   components: PlacedComponent[],
   routedTraces: FabTrace[],
   options: FabOptions = {},
 ): FabPackage {
-  const { boardWidth = 100, boardHeight = 80, profile = JLCPCB_1OZ, projectName = 'folio-pcb', vias = [] } = options
+  const { boardWidth = 100, boardHeight = 80, profile = JLCPCB_1OZ, projectName = 'folio-pcb', vias = [], innerLayerCount = 0, nets, planes = [] } = options
+  const films = fabFilms(innerLayerCount)
+  const lastFilm = films.length - 1
   const violations: FabViolation[] = []
-  const copper: FabTrace[] = []
+  const planeByFilm = new Map<FabFilm, FabPlane>()
+  for (const plane of planes) {
+    if (plane.film === 'top' || plane.film === 'bottom' || !films.includes(plane.film)) {
+      violations.push({ rule: 'copper-layer', severity: 'error', message: `Plane "${plane.netName}" targets "${plane.film}", which is not an inner film of this ${films.length}-film package.`, elementId: `plane-${plane.film}` })
+      continue
+    }
+    if (!plane.netName.trim()) {
+      violations.push({ rule: 'plane-conflict', severity: 'error', message: `Plane on ${filmLabel(plane.film)} declares no net — refusing to pour unassigned copper.`, elementId: `plane-${plane.film}` })
+      continue
+    }
+    if (planeByFilm.has(plane.film)) {
+      violations.push({ rule: 'plane-conflict', severity: 'error', message: `Two planes target ${filmLabel(plane.film)}; one film can carry one pour.`, elementId: `plane-${plane.film}` })
+      continue
+    }
+    planeByFilm.set(plane.film, plane)
+  }
+  const copper: Array<{ trace: FabTrace; film: FabFilm }> = []
   routedTraces.forEach((trace, index) => {
     if (trace.points.length < 2) return
-    // Inner copper has no film in a two-layer package. Folding it into F_Cu
-    // would ship a board with the wrong nets routed, so refuse it instead.
+    // Folding inner copper into an outer film would ship a board with the
+    // wrong nets routed, so refuse it unless its film was declared.
+    let film: FabFilm
     if (trace.layer === 'inner') {
-      violations.push({ rule: 'copper-layer', severity: 'error', message: `Trace ${index} is on "${trace.layerName ?? 'an inner layer'}"; this package films only F_Cu and B_Cu.`, elementId: `trace-${index}` })
+      const innerIndex = trace.innerIndex
+      if (innerIndex === undefined || innerIndex < 1 || innerIndex > innerLayerCount) {
+        const capacity = innerLayerCount === 0 ? 'this package declares no inner films' : `this package has ${innerLayerCount} inner film(s)`
+        violations.push({ rule: 'copper-layer', severity: 'error', message: `Trace ${index} is on "${trace.layerName ?? 'an inner layer'}"; ${capacity}. Pass innerLayerCount to export the stackup.`, elementId: `trace-${index}` })
+        return
+      }
+      film = `inner-${innerIndex}`
+    } else {
+      film = trace.layer
+    }
+    const plane = planeByFilm.get(film)
+    if (plane) {
+      // A pour absorbs same-net copper; a foreign trace would be shorted to it.
+      if (trace.netName !== plane.netName) {
+        violations.push({ rule: 'plane-conflict', severity: 'error', message: `Trace ${index} (net "${trace.netName ?? 'unnamed'}") is routed on ${filmLabel(film)}, which is the "${plane.netName}" plane.`, elementId: `trace-${index}` })
+      }
       return
     }
+    copper.push({ trace, film })
     if (trace.width < profile.minTraceWidth) {
       violations.push({ rule: 'trace-width', severity: 'error', message: `Trace ${index} width ${trace.width} mm below ${profile.name} minimum.`, elementId: `trace-${index}` })
     }
-    copper.push(trace)
   })
   for (let a = 0; a < copper.length; a += 1) {
     for (let b = a + 1; b < copper.length; b += 1) {
-      // Clearance is a same-face rule: top crossing bottom is separated by the
-      // laminate, so charging it would refuse legal two-layer boards.
-      if (copper[a].layer !== copper[b].layer) continue
+      // Clearance is a same-film rule: crossing on separate films is separated
+      // by the laminate, so charging it would refuse legal multilayer boards.
+      if (copper[a].film !== copper[b].film) continue
       // Copper on the same net is allowed to touch; different nets must clear.
-      const netA = copper[a].netName
-      const netB = copper[b].netName
+      const netA = copper[a].trace.netName
+      const netB = copper[b].trace.netName
       if (netA && netB && netA === netB) continue
       // Centre-line distance between the polylines, not just vertex distance:
       // two long crossing traces have distant vertices but zero clearance.
-      const edge = polylineDistance(copper[a].points, copper[b].points)
-        - (copper[a].width + copper[b].width) / 2
+      const edge = polylineDistance(copper[a].trace.points, copper[b].trace.points)
+        - (copper[a].trace.width + copper[b].trace.width) / 2
       if (edge < profile.minTraceSpacing) {
         violations.push({ rule: 'trace-spacing', severity: 'error', message: `Traces ${a}/${b} clear ${edge.toFixed(3)} mm, below minimum.`, elementId: `trace-${a}/trace-${b}` })
       }
     }
   }
   const pads: PlacedPad[] = []
-  const drills: Array<{ x: number; y: number; diameter: number }> = []
+  const throughDrills: Array<{ x: number; y: number; diameter: number }> = []
   const centroid: CentroidRow[] = []
   const bom: BomRow[] = []
   const silk: Record<FabSide, Array<{ x: number; y: number; text: string }>> = { top: [], bottom: [] }
@@ -391,7 +575,7 @@ export function buildFabPackage(
       violations.push({ rule: 'footprint', severity: 'error', message: `${component.reference} resolves to no IPC footprint — refusing to invent pads.`, elementId: component.id })
       continue
     }
-    const placed = placedPads(component, footprint)
+    const placed = placedPads(component, footprint, nets)
     pads.push(...placed)
     for (const pad of placed) {
       if (!pad.drill) continue
@@ -402,7 +586,7 @@ export function buildFabPackage(
       if (ring < profile.minAnnularRing) {
         violations.push({ rule: 'annular-ring', severity: 'error', message: `${component.reference} ring ${ring.toFixed(3)} mm below minimum.`, elementId: component.id })
       }
-      drills.push({ x: pad.x, y: pad.y, diameter: pad.drill })
+      throughDrills.push({ x: pad.x, y: pad.y, diameter: pad.drill })
     }
     const side = componentSide(component)
     const value = String(component.properties.value ?? component.properties.resistance ?? component.properties.capacitance ?? '')
@@ -410,16 +594,26 @@ export function buildFabPackage(
     bom.push({ reference: component.reference, value, footprint: footprint.name, manufacturer: String(component.properties.manufacturer ?? component.component.manufacturer ?? ''), partNumber: String(component.properties.partNumber ?? component.component.partNumber ?? '') })
     silk[side].push({ x: component.position.x, y: component.position.y + 2, text: component.reference })
   }
-  const topPads = pads.filter((pad) => onSide(pad, 'top'))
-  const bottomPads = pads.filter((pad) => onSide(pad, 'bottom'))
   const viaPads: PlacedPad[] = []
+  const spanDrills = new Map<string, Array<{ x: number; y: number; diameter: number }>>()
+  const spanLabels = new Map<string, string>()
   for (const via of vias) {
-    if (via.drillDiameter < profile.minDrill) {
-      violations.push({ rule: 'drill', severity: 'error', message: `Via at ${via.x.toFixed(2)}, ${via.y.toFixed(2)} drill ${via.drillDiameter} mm below minimum.`, elementId: `${via.x}-${via.y}` })
+    const from = via.span?.fromFilm ?? 0
+    const to = via.span?.toFilm ?? lastFilm
+    const position = `${via.x.toFixed(2)}, ${via.y.toFixed(2)}`
+    if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to > lastFilm || from >= to) {
+      violations.push({ rule: 'via-span', severity: 'error', message: `Via at ${position} spans films ${from}→${to}, not a valid range on a ${films.length}-film board.`, elementId: `${via.x}-${via.y}` })
+      continue
+    }
+    const through = from === 0 && to === lastFilm
+    const minDrill = through ? profile.minDrill : profile.minLaserDrill ?? profile.minDrill
+    const minRing = through ? profile.minAnnularRing : profile.minMicroviaRing ?? profile.minAnnularRing
+    if (via.drillDiameter < minDrill) {
+      violations.push({ rule: 'drill', severity: 'error', message: `Via at ${position} drill ${via.drillDiameter} mm below the ${through ? 'mechanical' : 'laser'} minimum ${minDrill} mm.`, elementId: `${via.x}-${via.y}` })
     }
     const ring = (via.padDiameter - via.drillDiameter) / 2
-    if (ring < profile.minAnnularRing) {
-      violations.push({ rule: 'annular-ring', severity: 'error', message: `Via at ${via.x.toFixed(2)}, ${via.y.toFixed(2)} ring ${ring.toFixed(3)} mm below minimum.`, elementId: `${via.x}-${via.y}` })
+    if (ring < minRing) {
+      violations.push({ rule: 'annular-ring', severity: 'error', message: `Via at ${position} ring ${ring.toFixed(3)} mm below the ${through ? 'mechanical' : 'microvia'} minimum ${minRing} mm.`, elementId: `${via.x}-${via.y}` })
     }
     viaPads.push({
       x: via.x,
@@ -428,22 +622,79 @@ export function buildFabPackage(
       h: via.padDiameter,
       round: true,
       drill: via.drillDiameter,
-      layers: ['top', 'bottom'],
+      layers: films.slice(from, to + 1),
+      netName: via.netName,
     })
-    drills.push({ x: via.x, y: via.y, diameter: via.drillDiameter })
+    if (through) {
+      throughDrills.push({ x: via.x, y: via.y, diameter: via.drillDiameter })
+    } else {
+      const key = `${from}-${to}`
+      const hits = spanDrills.get(key) ?? []
+      hits.push({ x: via.x, y: via.y, diameter: via.drillDiameter })
+      spanDrills.set(key, hits)
+      spanLabels.set(key, `${filmLabel(films[from])}-${filmLabel(films[to])}`)
+    }
   }
-  const tracesOn = (side: FabSide): FabTrace[] => copper.filter((trace) => trace.layer === side)
+  /** Outer films flash the pads placed on them; inner films carry the barrels
+   *  of every drilled pad, since a plated hole passes through the whole board. */
+  const padsOnFilm = (film: FabFilm): PlacedPad[] => film === 'top' || film === 'bottom'
+    ? pads.filter((pad) => onSide(pad, film))
+    : pads.filter((pad) => pad.drill !== undefined)
+  const topPads = padsOnFilm('top')
+  const bottomPads = padsOnFilm('bottom')
+  /** Net-aware pour geometry: barrels on the plane's net connect, every other
+   *  barrel gets an anti-pad so the plane cannot short it. */
+  const planeGeometry = new Map<FabFilm, { netName: string; clearance: number; connects: PlacedPad[]; antiPads: PlacedPad[] }>()
+  const pours: FabPlanePour[] = []
+  for (const film of films) {
+    const plane = planeByFilm.get(film)
+    if (!plane) continue
+    const clearance = plane.clearance ?? profile.minTraceSpacing
+    if (!(Number.isFinite(clearance) && clearance >= 0)) {
+      violations.push({ rule: 'plane-conflict', severity: 'error', message: `Plane "${plane.netName}" on ${filmLabel(film)} declares clearance ${String(plane.clearance)}, which is not a non-negative number.`, elementId: `plane-${film}` })
+      continue
+    }
+    const barrels = [...pads.filter((pad) => pad.drill !== undefined), ...viaPads.filter((pad) => pad.layers.includes(film))]
+    const connects = barrels.filter((pad) => pad.netName !== undefined && pad.netName === plane.netName)
+    const connected = new Set(connects)
+    const antiPads = barrels.filter((pad) => !connected.has(pad))
+    if (connects.length === 0) {
+      violations.push({
+        rule: 'plane-floating',
+        severity: 'error',
+        message: `Plane "${plane.netName}" on ${filmLabel(film)} connects to no pad or via on that net — it would be floating copper.`,
+        elementId: `plane-${film}`,
+      })
+    }
+    planeGeometry.set(film, { netName: plane.netName, clearance, connects, antiPads })
+    pours.push({ film, netName: plane.netName, connections: connects.length, antiPads: antiPads.length })
+  }
   const files = new Map<string, string>()
-  files.set(`${projectName}-F_Cu.gtl`, gerberCopper('Top copper', tracesOn('top'), [...topPads, ...viaPads]))
-  files.set(`${projectName}-B_Cu.gbl`, gerberCopper('Bottom copper', tracesOn('bottom'), [...bottomPads, ...viaPads]))
+  for (const film of films) {
+    const name = film === 'top'
+      ? `${projectName}-F_Cu.gtl`
+      : film === 'bottom'
+        ? `${projectName}-B_Cu.gbl`
+        : `${projectName}-${filmLabel(film)}_Cu.g${film.slice('inner-'.length)}`
+    const pour = planeGeometry.get(film)
+    if (pour) {
+      files.set(name, gerberPlane(`${filmLabel(film)} plane (${pour.netName})`, boardWidth, boardHeight, pour.clearance, pour.connects, pour.antiPads))
+      continue
+    }
+    const traces = copper.filter((entry) => entry.film === film).map((entry) => entry.trace)
+    files.set(name, gerberCopper(`${filmLabel(film)} copper`, traces, [...padsOnFilm(film), ...viaPads.filter((pad) => pad.layers.includes(film))]))
+  }
   files.set(`${projectName}-F_Mask.gts`, gerberMask('Top mask', topPads, profile.maskClearance))
   files.set(`${projectName}-B_Mask.gbs`, gerberMask('Bottom mask', bottomPads, profile.maskClearance))
   files.set(`${projectName}-F_Silk.gto`, gerberSilk('Top silk', silk.top))
   files.set(`${projectName}-B_Silk.gbo`, gerberSilk('Bottom silk', silk.bottom))
   files.set(`${projectName}-Edge_Cuts.gm1`, gerberOutline(boardWidth, boardHeight))
-  files.set(`${projectName}.drl`, excellonDrill(drills))
+  files.set(`${projectName}.drl`, excellonDrill(throughDrills))
+  for (const [key, hits] of spanDrills) {
+    files.set(`${projectName}-${spanLabels.get(key)}.drl`, excellonDrill(hits))
+  }
   files.set(`${projectName}-centroid.csv`, centroidCsv(centroid))
   files.set(`${projectName}-bom.csv`, bomCsv(bom))
-  return { files, centroid, bom, violations, shippable: violations.length === 0 }
+  return { files, centroid, bom, violations, planes: pours, shippable: violations.length === 0 }
 }
 

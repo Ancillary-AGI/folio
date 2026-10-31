@@ -71,7 +71,7 @@ export const CAPABILITY_FAMILIES: readonly CapabilityFamily[] = [
   { id: 'control', label: 'Control & ML toolbox', description: 'LTI analysis, PID design and tuning routes, and the heuristics the designer drives.' },
   { id: 'machine', label: 'Machines & parts', description: 'Electric-machine operating points plus part ratings, margins, catalogues and power sources.' },
   { id: 'firmware', label: 'Firmware, embedded & HIL', description: 'Code generation, static analysis, flashing, imaging and hardware interface simulation.' },
-  { id: 'agents', label: 'Agents & AI', description: 'The tool surface an agent may call, the symbolic verifier and the assistant integrations.' },
+  { id: 'agents', label: 'Agents & assistant', description: 'The tool surface an agent may call, the symbolic verifier and the assistant integrations.' },
   { id: 'platform', label: 'Data & operations', description: 'Version control, projects, collaboration, security telemetry, plugins, twins and compute.' },
 ]
 
@@ -97,6 +97,49 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
       'src/lib/simulation/dcSweep.test.ts',
       'src/lib/simulation/modelLibrary.test.ts',
       'src/lib/simulation/netlistBuilder.test.ts',
+    ],
+  },
+  {
+    id: 'circuit-deck-import',
+    family: 'circuit',
+    title: 'SPICE deck import',
+    modes: ['simulation'],
+    computes:
+      'A circuit netlist and analysis plan read from a SPICE deck (.cir/.sp/.ckt), previewed with its title, device count and analysis card, then solved by the same engine as the drawn sheet.',
+    method:
+      'A fail-loud line parser: the first line is the title; `*` comments and `;`/`$` inline comments are stripped; `+` continuations are joined; element cards are classified by designator (R/C/L/V/I/D/Q/M/J/E/G/B/S/W/T/K). Source waveforms come from PULSE/SIN/EXP/SFFM/PWL syntax, .model cards are resolved by name regardless of card order, and .op/.dc/.tran/.ac/.noise/.options/.temp cards map onto the engine\'s analysis parameters. A construct the engine cannot represent is an import error naming its line, never a dropped card.',
+    notCovered: [
+      'Subcircuits (X), .include/.lib files, .param/.func expressions, .step, and F/H (CCCS/CCVS) sources are refused by name: there is no hierarchy, file resolution or expression evaluator, and none is approximated by a fixed value.',
+      'Deck AC import accepts a decade sweep only; a LIN or OCT sweep is refused rather than converted.',
+      '.model cards are limited to the parameters the model library defines; unknown parameters are reported, not silently ignored.',
+      'One analysis runs per deck. When a deck carries several analysis cards, the first is solved and the import warning names the cards that are not run.',
+      'An imported deck is solved, not certified: convergence and a plausible operating point do not prove the physical build.',
+    ],
+    validatedBy: [
+      'src/lib/simulation/spiceImport.test.ts',
+      'src/lib/simulation/modelLibrary.test.ts',
+    ],
+  },
+  {
+    id: 'circuit-sketch',
+    family: 'circuit',
+    title: 'Freehand sketch and image-to-schematic',
+    modes: ['schematic'],
+    computes:
+      'Parts, wires and junctions read from pen, finger or mouse strokes — or from a raster drawing — previewed in place and committed as ordinary schematic objects that ERC, netlists, simulation and PCB conversion already understand.',
+    method:
+      'Strokes are resampled by arc length, simplified with Ramer–Douglas–Peucker, clustered by stroke distance and merged across small gaps, then scored by dilated intersection-over-union against procedural templates generated from the shipped library symbol geometry at 0/90/180/270°. Leftover ink is chained into wires and small dense ink into junction dots. Images run through an Otsu luminance cut, Zhang–Suen thinning and a skeleton graph walk before the same recogniser. Placement never rescales: parts land at library size, ink sets position and rotation, and wire ends snap to real pins within a radius derived from library size.',
+    notCovered: [
+      'Templates exist for resistor, capacitor, inductor, diode, ground, source and junction only. Any other part is reported as rejected ink, never guessed — a weak template match is not a placed component.',
+      'Rotation support is the four quarter turns; a symbol drawn at an arbitrary angle is read as the nearest one.',
+      'Image trace assumes dark line art on a light page. Perspective, shading, pencil texture and overlapping annotation are not corrected, and a photograph may trace poorly or not at all.',
+      'Recognised connectivity is geometric — snapped endpoints, inserted junctions, shared pins — and is not an electrical proof. ERC and simulation still decide whether the circuit works.',
+      'Sketch ink is transient: it is not part of the design snapshot, undo stack or save until it is placed. The stylus pressure only varies ink width on screen; it does not change recognition.',
+    ],
+    validatedBy: [
+      'src/lib/sketch/sketch.test.ts',
+      'src/lib/sketch/commit.test.ts',
+      'src/__tests__/sketchLayer.test.tsx',
     ],
   },
   {
@@ -226,6 +269,27 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     ],
   },
   {
+    id: 'structure-psychrometrics',
+    family: 'structure',
+    title: 'Psychrometrics and zone cooling loads',
+    modes: ['mechanical'],
+    computes:
+      'Saturation pressure, humidity ratio, enthalpy, specific volume, dew point and wet bulb for moist air, plus a steady design-day sensible/latent zone balance, SHR, supply airflow and one equivalent round duct.',
+    method:
+      'Buck saturation-pressure correlation with the ASHRAE humidity-ratio, enthalpy and specific-volume relations; dew point and wet bulb solved on the same curve by bisection; ventilation load from dry-air mass flow and enthalpy difference with the sensible split at cp = 1.006 kJ/kg·K; supply air from the sensible load and duct diameter from the velocity–area relation.',
+    notCovered: [
+      'A steady-state sizing estimate, not a certified Manual J or ASHRAE load calculation.',
+      'No thermal mass, solar path or shading, duct gain, fan heat, coil bypass, part-load bins or control schedule.',
+      'Psychrometric properties span −20…80 °C over liquid water; ice, supercooled states and altitude-specific psychrometrics are refused outside the correlation.',
+      'The duct result is one equivalent round diameter at the target velocity, not a rectangular route or a friction/pressure-loss design.',
+      'No coil model: condensation is reported when supply air falls below the room dew point, but coil ADP, bypass factor and condensate rate are not predicted.',
+    ],
+    validatedBy: [
+      'src/lib/mechanical/psychrometrics.test.ts',
+      'src/__tests__/mechanicalDesignPanel.test.tsx',
+    ],
+  },
+  {
     id: 'circuit-verification',
     family: 'circuit',
     title: 'Solver verification anchors',
@@ -260,13 +324,56 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
       'No binary .kicad_pcb and no EAGLE board layout; malformed s-expressions, pin-less components, part-less pinrefs and empty sheets are errors.',
       'A part with no resolvable footprint is reported as unknown geometry; it is not dropped or drawn as a generic box.',
       'Conversion places parts; it does not choose the mechanical envelope or connector positions.',
+      'Footprint patterns are audited as geometry, not as vendor drawings: `footprintLibrary.test.ts` measures every land pair in the library against the shared outline arithmetic and requires every land inside its courtyard, which catches a pitch narrower than its own copper (four packages did when first measured). It does not verify the courtyard against a vendor drawing, and a package whose real body is a different silhouette than declared still passes.',
     ],
     validatedBy: [
       'src/lib/schematicToPcb/schematicToPcbConverter.test.ts',
       'src/lib/manufacturing/kicadNetlist.test.ts',
       'src/lib/manufacturing/eagleSchematic.test.ts',
       'src/lib/simulation/netlistInterchange.test.ts',
+      'src/lib/manufacturing/footprintLibrary.test.ts',
       'src/__tests__/schematicToPcbPanel.test.tsx',
+    ],
+  },
+  {
+    id: 'board-editor',
+    family: 'board',
+    title: 'Board layout editing',
+    modes: ['pcb', 'convert'],
+    computes: 'The board the rest of the app reads — footprint placements, routed traces, vias, keep-out regions and the rectangular outline — with whole-snapshot undo, plus a session-only distance ruler.',
+    method:
+      'Every pointer gesture is reduced to snapped board millimetres once, so the rubber band, the keep-out rectangle, the outline handle and the measure ruler read the same grid and land snap the copper uses. Placement, routing and keep-out edits share one `useBoardEdits` history of whole-board snapshots; a drag is coalesced by key and sealed on pointer-up, so one drag is one undo step. A drawn keep-out is handed unchanged to both the autorouter, as a reservation it never releases, and the DRC, so the router that avoids a region and the checker that audits it measure the same rectangle. The outline is resized from its right, bottom and corner handles with the origin fixed; the panel turns on the outline rule the checker leaves off by default for callers that carry no outline.',
+    notCovered: [
+      'The outline is a rectangle only: its right, bottom and corner handles resize it between 10 and 500 mm with the origin pinned, so no non-rectangular cut-out, rounded corner, internal slot or moved origin can be authored here.',
+      'Keep-outs are axis-aligned rectangles drawn from two corners, not polygons or arcs. A new one bars every copper layer unless Alt is held, which names the active layer; an inner-layer-only keep-out is enforced by DRC but the autorouter routes only the two outer films and has no inner copper to bar, while a via is barred from any keep-out because its barrel crosses the stack.',
+      'The measure tool reports straight-line distance and Δx/Δy between two snapped points only — no routed path length, no impedance-versus-length — and the measurement is session state, not saved with the project.',
+      'Moving a part after copper is laid only flags that copper as stale; nothing is ripped up or rerouted until the autorouter or the engineer runs again.',
+      'An edit is checked when the checker is run, not continuously during the drag: the panel reports the rules it measured, and a keep-out or outline that a later move invalidates is caught by the next DRC pass.',
+    ],
+    validatedBy: [
+      'src/lib/pcb/boardEdit.test.ts',
+      'src/lib/manufacturing/drc.test.ts',
+      'src/lib/manufacturing/autorouter.test.ts',
+      'src/__tests__/pcbDesignPanel.test.tsx',
+    ],
+  },
+  {
+    id: 'schematic-symbols',
+    family: 'board',
+    title: 'Schematic symbol authoring',
+    modes: ['schematic', 'pcb', 'convert'],
+    computes: 'A validated symbol body (size plus SVG outline paths) and pin table for a placed part, written to every instance of that library part.',
+    method: 'The editor works on a draft of the same width/height/path/pin model the canvas renders by, runs the shared validateSymbol contract on every change, and refuses to apply a draft with faults.',
+    notCovered: [
+      'The body is authored as SVG path text plus a pin table; there is no graphical pen, arc handle or filled-shape tool.',
+      'Circles, rectangles and text already on a library symbol are preserved by an edit but cannot be changed in this editor.',
+      'Edits live in the open project: there is no write-back to a shared or vendor library and no symbol version history.',
+      'Pin ids are plain text fields; renaming one does not rewrite wires that referenced the old id.',
+    ],
+    validatedBy: [
+      'src/lib/schematic/symbolEditor.test.ts',
+      'src/lib/schematic/contextMenu.test.ts',
+      'src/__tests__/schematicSymbolEditor.test.tsx',
     ],
   },
   {
@@ -276,17 +383,24 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     modes: ['schematic', 'pcb', 'convert'],
     computes: 'Electrical rule findings on the net graph and geometry rule findings on the routed board, each naming the offending object.',
     method:
-      'ERC classifies unconnected pins by declared pin type (nc pins are skipped) and reports each physical problem exactly once: one violation per multi-driver net, one per power/ground short, with nets derived from wires on wire-only sheets. DRC uses exact axis-aligned and circle geometry, oval pads bounded by their box, and treats an empty layer set as all layers.',
+      'ERC classifies unconnected pins by declared pin type (nc pins are skipped) and reports each physical problem exactly once: one violation per multi-driver net, one per power/ground short, and a warning when a net joins input pins only with nothing to drive it. Nets are derived from wires on wire-only sheets. DRC uses exact axis-aligned and circle geometry, oval pads bounded by their box, and treats an empty layer set as all layers. Every outline — a land, a trace, a via annulus — comes from one shared measure in src/lib/geometry/landShape.ts, so the router that reserves clearance, the stitch planner that sizes a ring and the checker that audits the finished board cannot each hold a slightly different idea of the same copper; two edge-aligned rectangles that interpenetrate report 0 rather than their depth, which fails every positive rule identically. A plane board (poured rails, stitched lands) is handed to the same checker through `planeBoardDrc`, at the tightest via rule its own spec declares, so the demo\'s "DRC clean" is a reading taken when the board is built.',
     notCovered: [
       'DRC is a pre-fabrication gate, not a foundry CAM approval, and the fab-profile gate implements one vendor profile only; another fab is refused rather than approximated.',
       'No field solver: silkscreen legibility, etch asymmetry and copper balance are not checked.',
+      'The no-driver warning only fires when a net joins input pins and nothing else; an input fed through a passive part is not flagged, because a connector or series resistor is a legitimate entry point from off-sheet.',
       'Schematic cross-sheet imports reject duplicate reference designators, because two R1 would silently merge into one device.',
+      'A plane board\'s scene carries no layer span per hole, so its audit cannot tell a blind laser microvia from a through barrel: a 0.1 mm stitch is held to 0.1 mm and passes, while the 16:1 aspect ratio that makes it HDI-only is not a rule in `DRCSettings` at all and the 3-D view draws a full barrel.',
+      'Courtyard overlap is not measured on a plane board — those layouts place parts by their land patterns, and the checker\'s courtyard comes from a schematic symbol box. `assertLandsClear` and the footprint pattern audit are what keep land copper apart there, at two tiers: the fab\'s spacing rule inside one package, whose lands are one print, and the placement rule between packages.',
+      'Unconnected-net, acute-angle and trace-length rules are off for a plane board: its rails are pours the checker would read as open copper, and the other two are SI questions rather than fab-ability.',
     ],
     validatedBy: [
       'src/lib/manufacturing/drc.test.ts',
       'src/lib/manufacturing/erc.test.ts',
       'src/lib/simulation/multiSheet.test.ts',
       'src/lib/geometry/distance.test.ts',
+      'src/lib/geometry/landShape.test.ts',
+      'src/lib/demo/demoShowcase.test.ts',
+      'src/lib/demo/demoLaptopBoard.test.ts',
     ],
   },
   {
@@ -296,21 +410,27 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     modes: ['pcb', 'convert'],
     computes: 'Trace and via geometry per net — differential pairs, BGA fanout, DDR and HDI patterns — as the canonical copper the editor, 3-D view and exports draw.',
     method:
-      'Lee breadth-first and bidirectional A* hybrid on a per-layer grid, cell size the conservative max of minimum width and minimum spacing, nets ordered by a Manhattan-distance minimum spanning tree, a via penalty charged for layer changes, and routed cells marked as obstacles afterwards. Pair and DDR rules measure skew and length from the routed polylines.',
+      'Lee breadth-first and bidirectional A* hybrid on a per-layer grid. Cell size is derived from the rules rather than guessed: `routerGridMm` takes the finer of minimum spacing and minimum width, snaps it down to a 0.05 mm step, floors it at 0.05 and caps it at 0.5, because the cell itself is part of the barrier a trace centre faces and a coarse cell closes escape lanes the fab rule leaves open. Nets are ordered by a Manhattan-distance minimum spanning tree, a via penalty is charged for layer changes, and routed cells are marked as obstacles afterwards. Each land reserves its real copper: a rectangle, oval or circle rotated with the part rather than a disc around its bounding box, and a land with a drill reserves every routing layer because the plated barrel runs the full stack. Reservations use two grids, not one — the gap a trace centre line keeps is the rule\'s spacing plus half the track width plus half a cell, since the path runs between cell centres, and the gap a via landing keeps is spacing plus half the annulus, since a landing sits on the centre it was tested at. A net the greedy order cannot thread gets a bounded rip-up pass: the few nets standing in its way are lifted, it is routed, and what was lifted is re-laid; an attempt that leaves anything worse off is rolled back exactly. Pair and DDR rules measure skew and length from the routed polylines.',
     notCovered: [
-      'No rip-up and re-route: a later net that cannot find a path fails instead of evicting an earlier route, and stays visibly unrouted.',
+      'Rip-up is bounded and configurable: `ripUpPasses` sweeps (default 2) and one retry lifts at most `ripUpVictims` earlier nets (default 4). A net boxed in by more copper than that reports itself unrouted rather than spending the session.',
+      'The search also records *why* it failed. A net whose region is sealed by land reservations is marked walled and not retried, because lifting copper cannot move a footprint — which is why the laptop mainboard declares `ripUpPasses: 0` and why its misses are named instead of bartered.',
       'The Manhattan heuristic approximates 45-degree routes.',
+      'Escape density is grid-limited, not rule-limited: the 90 × 68 mm, 26-net, 0.8 mm-pitch board closes all 26 at 0.3 and at 0.4 mm cells and loses five at 0.5 mm, because a coarser grid cannot resolve two clear lanes inside one fine-pitch escape corridor. `src/lib/demo/demoShowcase.test.ts` sweeps that ladder.',
+      'The 245 × 90 mm, 56-part laptop mainboard closes 52 of 66 nets on its two outer films at 0.25 mm cells in about 6 s, measured on the main thread (`routeMs` in `demoLaptopBoard.test.ts`). The fourteen it misses are listed by name in `summary.unrouted` and drawn as ratsnest flylines, not as invented copper; a production board routes those as coupled, length-matched pairs on controlled impedance, which this router does not attempt.',
+      'One trace width and one spacing rule for the whole board: no net classes, no per-layer rule sets, and the autorouter pairs nothing — coupled differential geometry is produced by the pair designer and checked, not routed.',
       'HDI routing is a single-layer blocked-cell grid; layer changes are not modelled there, and a microvia that would span more than adjacent layers is refused in favour of a buried or plated through via.',
       'A declared pair impedance is the intent: the geometry that delivers it is checked, not field-solved, and converting skew to time needs the effective permittivity the pair actually rides over.',
       'IBIS parsing is the type and section scanner; no buffer transient is simulated.',
     ],
     validatedBy: [
       'src/lib/manufacturing/autorouter.test.ts',
+      'src/lib/geometry/landShape.test.ts',
       'src/lib/manufacturing/diffPair.test.ts',
       'src/lib/manufacturing/bgaFanout.test.ts',
       'src/lib/manufacturing/ddrRouting.test.ts',
       'src/lib/manufacturing/hdiRouting.test.ts',
       'src/lib/manufacturing/stackup.test.ts',
+      'src/lib/demo/demoLaptopBoard.test.ts',
     ],
   },
   {
@@ -360,18 +480,49 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     family: 'board',
     title: 'Board 3-D view and mesh export',
     modes: ['preview3d'],
-    computes: 'A three-dimensional board scene and STL/OBJ meshes built from the routed layout — outline, copper layers, soldermask in the chosen lacquer colour, ENIG/HASL/OSP pad metal, pads breaking through, vias, silkscreen and footprint bodies.',
-    method: 'One scene geometry builder shared by the renderer and the exporters, so the picture and the mesh come from the same canonical board model rather than a separate demo slab. Mask colour and pad finish select the preview materials; copper and pad geometry are unchanged by them.',
+    computes: 'A three-dimensional board scene and STL/OBJ meshes built from the routed layout — outline, copper layers, poured planes with their clearance keepaways, soldermask in the chosen lacquer colour, ENIG/HASL/OSP pad metal, pads breaking through, vias with their barrels, drills and mask openings, silkscreen and footprint bodies.',
+    method: 'One scene geometry builder shared by the renderer and the exporters, so the picture and the mesh come from the same canonical board model rather than a separate demo slab. Mask colour and pad finish select the preview materials; copper and pad geometry are unchanged by them. The footprint category chooses the moulding — a two-terminal chip is a body with end metal on the land axis, a diode adds the cathode band, an LED a lens in its own hue, an IC a pin-1 dimple — and a part\'s own colour chooses the hue inside that family, so four LED colours read as four parts. A part declaring no body height, such as a mounting hole, is drawn as its land and drill alone. Copper is emitted as buffers rather than as one shape per feature: a layer\'s routed traces become one mitred ribbon, its barrels, drills and mask openings one buffer each, and a poured plane is a shared rounded prism that keeps its keepaways as dielectric plugs instead of holes cut through its outline — cutting them is an ear-clipping triangulation of the whole boundary, and on the 56-part mainboard it held the tab for 83 seconds. Repeated shapes and finishes are shared by exact size, the size slider moves a transform instead of rebuilding geometry, and a replaced group releases the buffers it owned.',
     notCovered: [
       'A geometry preview and mesh exporter, not an electromagnetic, thermal or mechanical co-solve.',
       'Mask colour and pad finish are visual choices for the preview; the fabrication package does not encode either, so the fab house will use its own process unless the order says otherwise.',
+      'Bodies are built from the declared land pattern and category, not from a vendor 3-D model: the silhouette and terminal metal are to scale, the moulding details are representative.',
+      'Keepaways are drawn as the laminate that replaces the copper, so the clearance reads at the plane\'s own height; the void is not a boolean subtraction from the plane, and a section through a pour is not available.',
+      'The whole board is one mesh graph at one resolution: a 56-part eight-layer mainboard previews in 1 344 objects and 456 000 triangles, measured in `pcb3dBuildBudget.test.ts`, and there is no level-of-detail or progressive refinement path.',
       'Every warning names the element falling outside the outline instead of silently clamping it.',
       'Degenerate face normals are excluded from STL rather than replaced by a tidy (0,0,1) lie about the geometry.',
     ],
     validatedBy: [
       'src/lib/pcb/pcb3dModel.test.ts',
+      'src/lib/pcb/pcb3dBuildBudget.test.ts',
+      'src/lib/3d/prismGeometry.test.ts',
       'src/lib/pcb/pcbScene.test.ts',
       'src/lib/3d/exporters.test.ts',
+      'src/lib/3d/framing.test.ts',
+      'src/__tests__/circuit3DViewer.test.tsx',
+    ],
+  },
+  {
+    id: 'board-enclosure-fit',
+    family: 'board',
+    title: 'Enclosure import and board fit check',
+    modes: ['preview3d'],
+    computes:
+      'An STL or OBJ case shell dropped into the 3-D board preview, drawn around the board, and a fit verdict: cavity size, board stack size, the room left at each of the four walls, the floor and the lid, the tightest side named in words, and the shell\'s own open, non-manifold or reversed edges. A shell that is not a closed solid downgrades the headline from a yes/no to a qualified number. The same verdict is what eda.observe hands an agent.',
+    method:
+      'The board stack is the union of the outline with every body, pad and via in the scene — the content envelope widened to the board, grown to the tallest feature on either side. The shell is the bounding box and topology already measured by the shared mesh reader. Centres are made coincident and clearance is per-axis: half the box minus the stack extreme on each of the six faces, so the lid number is the gap above the tallest component, not above the laminate. Both sides read one implementation in src/lib/pcb/enclosureFit.ts, and the shell sentence comes from shellProblem in src/lib/3d/meshMeasure.ts — the same words the mechanical viewport prints, so a mesh cannot be a box in one panel and a hole in another.',
+    notCovered: [
+      'A bounding-box comparison, stated in the panel and in the agent payload. An imported shell has no feature tree, so ribs, bosses, connector cut-outs and a lid that dishes inward are invisible; a pass means the envelope clears the envelope, not that the assembly goes together.',
+      'The two are centred on each other by bounding box. The model\'s own origin and any intended offset are not trusted, so a deliberately off-centre board in an asymmetric case is not modelled.',
+      'A broken shell is reported as broken: open, non-manifold and reversed edges travel with the clearance numbers instead of being smoothed into a confident answer.',
+      'No Y-up/Z-up reorientation: the mesh is read as authored, with Y as the stack direction the board lies along.',
+      'The enclosure is context, not copper — excluded from the fab package, DRC, the router and every export, and kept per project so a case brought in for one board does not follow the designer into the next.',
+      'Session state: not saved into the project, not versioned, cleared on reload.',
+      'The parametric case in the fab export (enclosureStep) builds a shell from declared clearances; this record measures a shell the designer already has. Neither checks the other.',
+    ],
+    validatedBy: [
+      'src/lib/pcb/enclosureFit.test.ts',
+      'src/lib/agents/edaTools.test.ts',
+      'src/lib/3d/objImporter.test.ts',
       'src/lib/3d/framing.test.ts',
       'src/__tests__/circuit3DViewer.test.tsx',
     ],
@@ -381,10 +532,12 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     family: 'board',
     title: 'Fabrication package and STEP geometry',
     modes: ['pcb', 'bom'],
-    computes: 'A fab package — top and bottom copper films, masks, silk, Excellon drill, centroid file — behind a fab-profile DRC gate, plus BOM roll-ups and enclosure STEP.',
-    method: 'Deterministic writers over the canonical layout, with drill emitted as drill rather than as Gerber, and a resolved 1 oz vendor profile.',
+    computes: 'A fab package — every copper film in the declared stackup, outer and inner, net-named plane pours on inner films, masks, silk, Excellon drill with separate blind/buried files, centroid file — behind a fab-profile DRC gate, plus BOM roll-ups and enclosure STEP.',
+    method: 'Deterministic writers over the canonical layout, with every routed segment filed on the film it was drawn on, drill emitted as drill rather than as Gerber, a separate drill file per blind/buried span, plane pours as dark Gerber regions with clear-polarity anti-pads around foreign barrels, and a resolved 1 oz vendor profile with laser-via floors when the vendor declares them.',
     notCovered: [
-      'Fail-loud by design: a component with no resolvable footprint, an undefined pad, or copper on an inner layer is a violation, never a guess — this package has no inner-layer film to put it on.',
+      'Fail-loud by design: a component with no resolvable footprint, an undefined pad, inner copper whose film the package was not told about, a plane that connects to nothing, or a foreign trace routed on a plane film is a violation, never a guess.',
+      'Plane pours fill the board rectangle inset 0.3 mm: foreign drilled barrels get an anti-pad, same-net barrels are connected directly rather than through thermal-relief spokes, and the pour does not void itself around board cutouts or over other films\' copper.',
+      'The 3-D preview draws a poured plane and its keepaways on the film it was declared on; the 2-D editor canvas still shows routed copper only, so a plane is invisible while laying out.',
       'The export never claims a package that DRC refuses; it returns a refused flag instead.',
       'STEP here is plain text with no kernel behind it, so every solid is a faceted CLOSED_SHELL: boxes as four-point polygons and holes as N-gon prisms.',
       'BOM cost and lifecycle status are the values declared in the catalogue; a part with no declared price is unpriced, never zero.',
@@ -460,6 +613,27 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
       'src/lib/robotics/mechanismExport.test.ts',
       'src/lib/geometry/distance.test.ts',
     ],
+  },
+  {
+    id: 'structure-import',
+    family: 'structure',
+    title: 'STL and OBJ model import and inspection',
+    modes: ['mechanical'],
+    computes:
+      'Parses ASCII and binary STL plus wavefront OBJ uploads, draws the model beside the assembly as a reference, and reports triangle count, size in millimetres, surface area, divergence-theorem volume and a closed-shell check (open, non-manifold and reversed edges) to the panel and to mech.observe.',
+    method:
+      'Binary layout is confirmed by exact size (84 + 50 bytes per triangle) before any text sniffing, so a binary file whose header begins with "solid" is not misread; OBJ faces are resolved against the vertices defined so far, including negative indices, and polygons are fan-triangulated from the first corner so the ring winding survives. Both readers hand the same triangle soup to one measurement pass: normals are rebuilt from winding rather than trusting stored or zero facet normals, and edges are quantised to the mesh extent and paired to classify open, non-manifold and inconsistently wound boundaries.',
+    notCovered: [
+      'STL and OBJ only: no STEP, IGES, 3MF or native CAD import. A file named for the wrong reader is refused, not reinterpreted.',
+      'Neither format carries a unit system; coordinates are read as millimetres and never rescaled behind the user\'s back.',
+      'OBJ texture coordinates, vertex normals, groups, objects and material directives are parsed past, not applied: shading comes from the facet winding and no .mtl is read.',
+      'The reference mesh is rendered, framed and measured but is not part of the assembly model: it is excluded from STL/OBJ/GLTF export, from mech.analyze and from every mechanical solver.',
+      'Agents see the reference through mech.observe as an envelope and a shell verdict, never as its triangles; the vertex buffers stay in the browser.',
+      'The import is session state: it is not saved into the project, is not versioned, and reloading clears it.',
+      'The shell walk is skipped above 400,000 triangles and the panel says so; volume is reported only for a closed shell.',
+      'No repair: holes, flipped facets and degenerate triangles are reported, not stitched or culled from the mesh.',
+    ],
+    validatedBy: ['src/lib/3d/stlImporter.test.ts', 'src/lib/3d/objImporter.test.ts'],
   },
   // ── motion ─────────────────────────────────────────────────────────────────
   {
@@ -830,6 +1004,8 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     notCovered: [
       'There is no live distributor price, stock or lifecycle fetch; the catalogue is what is recorded locally.',
       'A datasheet import is a proposal the engineer confirms and unparsed parameters stay unparsed; a part with 48 datasheet pins becomes a 48-pin symbol — the importer never invents a pin.',
+      'Datasheet import synthesizes no SPICE model, because a pinout is not device physics; simulation needs a vendor model card. Its footprint is a generated dual-row land pattern sized from the stated dimensions (narrow body unless the package name ends in W), not a per-part IPC land-pattern calculation, so it is flagged for checking before fabrication.',
+      'An unstated package family is reported as assumed rather than presented as read from the document.',
       'Where a property is process-dependent, such as FR4 permittivity or solder alloy, the nominal value carries its typical spread.',
       'A duplicate ball, missing power or unmapped package pin fails loudly.',
     ],
@@ -901,9 +1077,9 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     family: 'agents',
     title: 'Agent tool surface',
     modes: ['agents'],
-    computes: 'The exact set of CAD calls an agent may make — 15 sheet tools, 8 board tools, 8 mechanical tools — each returning a fresh canonical observation plus an SVG, and a bounded autopilot that scores every iteration and restores the best design.',
+    computes: 'The exact set of CAD calls an agent may make — 15 sheet tools, 9 board tools, 8 mechanical tools — each returning a fresh canonical observation plus an SVG, and a bounded autopilot that scores every iteration and restores the best design.',
     method:
-      'Registered tools over the live store (cad.observe, listLibrary, addPart, removePart, movePart, setProperty, connect, disconnect, nameNet, simulate, assess, erc, exportNetlist, setFirmware, undo; eda.simulate, observe, route, movePart, addTrace, addVia, drc, exportFab; mech.observe, addPart, movePart, resizePart, setSupport, setLoad, analyze, autopilot), run through a harness that enforces a call and wall-time budget, approval gates and an audit trail, with a symbolic verifier for ground-truth connection, power-rail, bus-contention and Boolean claims.',
+      'Registered tools over the live store (cad.observe, listLibrary, addPart, removePart, movePart, setProperty, connect, disconnect, nameNet, simulate, assess, erc, exportNetlist, setFirmware, undo; eda.simulate, observe, route, editSymbol, movePart, addTrace, addVia, drc, exportFab; mech.observe, addPart, movePart, resizePart, setSupport, setLoad, analyze, autopilot), run through a harness that enforces a call and wall-time budget, approval gates and an audit trail, with a symbolic verifier for ground-truth connection, power-rail, bus-contention and Boolean claims.',
     notCovered: [
       'Electrical, board and mechanical sheets only: robotics, RF, HDL/IC, digital-twin and plugin authoring are not agent-driven yet.',
       'Agents act through declared tools, never raw code, and a denial is recorded as denied by approval gate.',
@@ -935,7 +1111,7 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
       'Provider calls behind the configured adapter; intents map to store actions that report executed or rejected; session records persist in local storage without their SVG payloads, which are regenerated from the design on demand.',
     notCovered: [
       'Without an AI provider credential there are no live answers: the panel reports the provider as unavailable instead of inventing one.',
-      'Local autopilot needs no server. Always-on or scheduled agents need a server-side runner with a job queue, a sandboxed worker, durable design storage and an authenticated token exchange; until that exists, a missing configuration is reported honestly rather than pretended.',
+      'Local autopilot and the always-on job queue need no server, but they only run while Folio is open. 24/7 or scheduled agents need a server-side runner with a job queue, a sandboxed worker, durable design storage and an authenticated token exchange; until that exists, a missing configuration is reported honestly rather than pretended.',
       'Assistant prose is not a substitute for the computed result shown next to it.',
     ],
     validatedBy: [
@@ -948,6 +1124,53 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     ],
     cloudOnly: true,
   },
+  {
+    id: 'agents-voice',
+    family: 'agents',
+    title: 'Voice conversation',
+    modes: ['schematic'],
+    computes:
+      'A spoken conversation surface: recognition transcripts, intent dispatch onto the live store (place library parts, wire named references, undo/redo, open workspaces, save and export through the shell), spoken replies that state what actually happened, and a bounded on-screen transcript.',
+    method:
+      'Browser SpeechRecognition for the microphone and speechSynthesis for replies, with restart, quick-end loop detection, barge-in and timeout handling. Intents are matched by keyword bags, pattern templates and example-sentence similarity; add and connect commands use the shipped library, pin world coordinates and the undoable store actions, so a refusal names the available references and claims nothing changed.',
+    notCovered: [
+      'No audio is recorded or uploaded: recognition runs in the browser speech service and Folio stores only the transcript.',
+      'Intents are deterministic keyword matching, not a language model; there is no LLM backend behind voice, and unfamiliar phrasing is answered with guidance rather than guessed.',
+      'Placement and wiring act on the schematic workspace; other workspaces respond to navigation and description only.',
+      'A spoken reply only ever claims what the handler reported: opening the simulation panel is described as opening a panel, never as running or passing a simulation.',
+      'Mic access is a browser permission; a denied or unsupported recogniser is reported as an error and typed commands remain available.',
+    ],
+    validatedBy: [
+      'src/lib/voice/speech.test.ts',
+      'src/lib/voice/voiceSession.test.ts',
+      'src/lib/voice/conversation.test.ts',
+      'src/lib/voice/designActions.test.ts',
+      'src/__tests__/voiceConversation.test.tsx',
+    ],
+  },
+  {
+    id: 'agents-jobs',
+    family: 'agents',
+    title: 'Always-on job queue',
+    modes: ['agents'],
+    computes:
+      'A persisted background job queue: a prompt is planned against the live sheet (plan → act → verify → report), runs while the human keeps designing, and can be paused, resumed, cancelled or held for approval. A job interrupted by closing the tab is recovered as paused and resumes from its last completed step.',
+    method:
+      'FIFO runner over a bounded local-storage queue, with a token-budgeted context pack (goal, parts, nets, issues, transcript) built per job, cooperative pause/cancel between steps, approval gates that pause instead of bypass, per-step persistence with an audit of every tool call, and crash recovery that marks interrupted running jobs as paused with a recovery flag.',
+    notCovered: [
+      'Always-on means while Folio is open: a closed tab cannot execute anything, and 24/7 execution needs the server-side runner documented in docs/AGENT_CLOUD.md.',
+      'Planning is deterministic keyword planning (planEdaFlow), not a language model; a prompt that maps to no plan is refused honestly.',
+      'Context-pack token counts are estimates (characters/4), not a tokenizer count, and the pack is a compact summary of the sheet, not the full design.',
+      'Approval-required steps (only eda.exportFab among built-in plans) pause the job; the decision is recorded and a denial stops the job.',
+    ],
+    validatedBy: [
+      'src/lib/agents/jobQueue.test.ts',
+      'src/lib/agents/contextPack.test.ts',
+      'src/lib/agents/jobRunner.test.ts',
+      'src/lib/agents/jobExecutor.test.ts',
+      'src/__tests__/jobRunnerPanel.test.tsx',
+    ],
+  },
   // ── platform ───────────────────────────────────────────────────────────────
   {
     id: 'platform-vcs',
@@ -956,12 +1179,12 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     modes: ['schematic', 'dashboard'],
     computes: 'Content-addressed commits, restore and log per project across domains (schematic, firmware, board, mechanical), the offline project store, backup export and per-keystroke undo.',
     method:
-      'Git-like and local-first: one repo per project id in browser storage, a commit id being a SHA-256 over its tree with parents and a tree hash. The first commit of a chain is stored whole and later commits as a JSON patch against that parent, falling back to a full copy when the patch is not smaller; every snapshot is reconstructed and hash-checked on load.',
+      'Git-like and self-contained: one repository per project id in workspace storage, a commit id being a SHA-256 over its tree with parents and a tree hash. The first commit of a chain is stored whole and later commits as a JSON patch against that parent, falling back to a full copy when the patch is not smaller; every snapshot is reconstructed and hash-checked on load.',
     notCovered: [
       'A corrupted or hash-mismatched record is reported, never served silently as history.',
-      'Local-first: no remote repository, no push or pull, no merge engine or branch federation.',
-      'Persistence is browser storage: a cleared origin clears the history, which is why backup export exists.',
-      'The launcher states the revision count stored in this browser, never a cloud-side history, and a project read that failed is named as a failure with a retry instead of being dressed up as "no projects yet".',
+      'No remote repository, no push or pull, no merge engine or branch federation.',
+      'Persistence is workspace storage: clearing the origin clears the history, which is why backup export exists.',
+      'The launcher states the revision count stored in this workspace, never a cloud-side history, and a project read that failed is named as a failure with a retry instead of being dressed up as "no projects yet".',
     ],
     validatedBy: [
       'src/lib/vcs/vcsService.test.ts',
@@ -1002,12 +1225,13 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     modes: ['siem'],
     computes: 'An event log with alert lifecycle and audit trail, heuristic threat detection (port scan, exfiltration, privilege escalation, brute force), control checklist status, and encrypted, tamper-evident asset storage with role-based access.',
     method:
-      'In-memory event log capped at 10 000 events and an audit trail capped at 50 000 entries, swept on an interval from real recorded state; asset protection uses AES-GCM 256 with PBKDF2 at 100 000 SHA-256 iterations over five roles and a hash-chained audit log.',
+      'In-memory event log capped at 10 000 events and an audit trail capped at 50 000 entries, swept on an interval from real recorded state; asset protection uses AES-GCM 256 with PBKDF2 at 100 000 SHA-256 iterations over five roles and a hash-chained audit log. Backup evidence is read from the checkpoint store the app actually writes, and a saved project with no checkpoint newer than 24 hours raises one overdue notice that retires as soon as a newer checkpoint exists.',
     notCovered: [
       'The ISO 27001, IEC 62443, NIST CSF, GDPR and HIPAA entries are heuristic checklist evidence computed from local state, not an audited certification. No GDPR, ISO 27001 or IEC 62443 certification is claimed anywhere in this product.',
       'TLS evidence is derived from whether the page is served over HTTPS; network segmentation is inferred from declared zones. There is no packet capture and no external collector — the traffic arrays are passed in by callers.',
-      'Crypto is browser Web Crypto on this device. There is no key management service, HSM or recovery path.',
+      'Crypto is Web Crypto in this workspace. There is no key management service, HSM or recovery path.',
       'The SIEM surface is design-time audit visibility, not a monitored production SOC with guaranteed delivery.',
+      'Backups are the manual project checkpoints: there is no scheduler, so a saved project without a recent checkpoint stays overdue until someone takes one. A workspace with no saved project reports the backup control as not applicable rather than passing it.',
     ],
     validatedBy: [
       'src/lib/siem/siemService.test.ts',
@@ -1062,16 +1286,21 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     family: 'platform',
     title: 'Compute capability reporting',
     modes: ['dashboard'],
-    computes: 'Device capability and acceleration-path reporting, and the dispatch that chooses CPU, Worker or WebGPU for a thermal grid.',
-    method: 'Adapter probing that resolves every failure mode — no navigator.gpu, no adapter, a denied request, a lost device — to null, after which the caller falls back to the Worker or main-thread path with the same physics.',
+    computes: 'Device capability and acceleration-path reporting, and the dispatch that chooses CPU, Worker or WebGPU for a thermal grid and Worker pools for Monte Carlo tolerance sweeps, AC frequency sweeps and noise sweeps.',
+    method: 'Adapter probing that resolves every failure mode — no navigator.gpu, no adapter, a denied request, a lost device — to null, after which the caller falls back to the Worker or main-thread path with the same physics. Monte Carlo runs carry per-run seeds derived from the sweep seed, so a pooled run draws exactly what the in-thread run would draw, and the main thread accumulates the returned samples in run order. The AC pool receives the bias, diode conductances and frequency grid solved once on the main thread, solves an independent complex MNA system per frequency, and assembles the returned points in sweep order. The noise pool receives the bias, output node and source densities computed once on the main thread, runs the transposed-MNA adjoint solve for each frequency and assembles the spectrum in the same order.',
     notCovered: [
       'It never advertises an acceleration path that the dispatch code cannot execute.',
-      'The e-CAD analyses are CPU-first by design; only large thermal grids take the GPU or Worker route.',
+      'Thermal grids can use WebGPU or a Worker; Monte Carlo, AC and noise sweeps use a Worker pool. Every other analysis is CPU-first and in-thread.',
+      'The pools change where the runs execute, not what they compute: pooled Monte Carlo statistics, pooled AC responses and pooled noise spectra are identical to the in-thread results. They do not parallelise a single circuit solve, whose Newton iteration, transient integration and DC sweep are sequential.',
+      'A worker pool is not automatically faster. It keeps the sweep off the main thread; whether wall-clock time improves depends on circuit size and hardware, and a small sweep stays in-thread below the threshold.',
       'A panel that reports a speed-up without measuring one would be a claim, so the panel reports the device state instead.',
     ],
     validatedBy: [
       'src/lib/acceleration/webgpuDevice.test.ts',
       'src/lib/acceleration/acceleratedSimulation.test.ts',
+      'src/lib/acceleration/monteCarloDispatch.test.ts',
+      'src/lib/acceleration/acSweepDispatch.test.ts',
+      'src/lib/acceleration/noiseSweepDispatch.test.ts',
     ],
   },
   {
@@ -1079,15 +1308,15 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     family: 'platform',
     title: 'Administration, quotas and usage',
     modes: ['dashboard', 'siem'],
-    computes: 'The administration console view of users, roles, quotas and usage, with a device-local append-only usage ledger.',
+    computes: 'The administration console view of users, roles, quotas and usage, with an append-only workspace usage ledger.',
     method:
-      'Cloud mode reads the profiles table from the admin migration; offline mode has exactly one principal, the device owner. Quotas are evaluated as policy from the role table, and the local ledger aggregates deterministically.',
+      'Cloud mode reads the profiles table from the admin migration; standalone mode has exactly one principal, the workspace administrator. Quotas are evaluated as policy from the role table, and the workspace ledger aggregates deterministically.',
     notCovered: [
       'A limit of null means unlimited and the owner is always unlimited, so a workspace can never lock itself out of administration.',
       'When the cloud schema is absent or unreachable the console says so instead of rendering a made-up user list, and it labels cloud-only capabilities without faking invitations.',
-      'The ledger never leaves the browser and is not an analytics pipeline; mirroring to the cloud table is best-effort and only in a configured deployment, and a failed mirror never breaks the design action it was recording.',
+      'The ledger is confined to this workspace and is not an analytics pipeline; mirroring to the cloud table is best-effort and only in a configured deployment, and a failed mirror never breaks the design action it was recording.',
       'The guided tour counts itself honestly: a card closed before the last step is recorded as an exit carrying the number of steps actually opened, and only reaching the end — or taking the register hand-off there — is recorded as a finished tour.',
-      'Console numbers are this client ledger, not a billing system.',
+      'Console numbers are this workspace ledger, not a billing system.',
     ],
     validatedBy: [
       'src/lib/admin/adminService.test.ts',
@@ -1130,7 +1359,7 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     notCovered: [
       'Tutorial steps are self-checked. The workbench does not watch the screen, inspect the design or grade the result; copying a step does not prove a circuit is correct.',
       'Hover copy describes what a control does on screen. It is not a validity statement about any result the control produces.',
-      'Tutorial progress is stored in this browser only, and a cleared or blocked storage loses it rather than syncing it.',
+      'Tutorial progress is stored in this workspace only, and a cleared or blocked storage loses it rather than syncing it.',
       'The shortcut list names only shortcuts that are implemented; a command without a key is described without one.',
     ],
     validatedBy: [

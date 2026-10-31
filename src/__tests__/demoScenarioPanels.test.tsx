@@ -7,7 +7,7 @@
  * shows a manifest and installs through the permission gate, and the design
  * marketplace surfaces its publish round-trip verdict.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 
@@ -16,6 +16,16 @@ import PiImagingPanel from '../components/programming/PiImagingPanel'
 import PluginMarketplace from '../components/ecad/PluginMarketplace'
 import MarketplacePanel from '../components/marketplace/MarketplacePanel'
 import { useAppStore } from '../stores/useAppStore'
+
+/*
+ * The marketplace verdict arrives from a dynamic import inside the publish
+ * handler, so it lands a tick after the click. Under a full parallel run that
+ * chunk resolution reliably outlasts findByRole's one second, so warm it here
+ * the way the app-shell suite warms its code-split overlays.
+ */
+beforeAll(async () => {
+  await import('../lib/demo/demoMarketplace')
+})
 
 beforeEach(() => {
   useAppStore.setState({ demoRequest: null })

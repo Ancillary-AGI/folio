@@ -15,7 +15,7 @@
  */
 import type { CanvasComponent } from '../../stores/useProjectStore'
 
-export type ContextActionId = 'rotate' | 'duplicate' | 'delete' | 'front' | 'back'
+export type ContextActionId = 'edit-symbol' | 'rotate' | 'duplicate' | 'delete' | 'front' | 'back'
 
 export interface ContextAction {
   id: ContextActionId
@@ -23,6 +23,7 @@ export interface ContextAction {
 }
 
 export const CONTEXT_ACTIONS: ContextAction[] = [
+  { id: 'edit-symbol', label: 'Edit symbol…' },
   { id: 'rotate', label: 'Rotate 90°' },
   { id: 'duplicate', label: 'Duplicate' },
   { id: 'front', label: 'Bring to front' },
@@ -60,6 +61,10 @@ export function applyContextAction(
       return [...components.filter((component) => component.id !== targetId), target]
     case 'back':
       return [target, ...components.filter((component) => component.id !== targetId)]
+    case 'edit-symbol':
+      // The editor is a dialog over the canvas, not a reducer; the sheet is
+      // untouched until the engineer applies the draft.
+      return components
   }
 }
 

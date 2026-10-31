@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
-  Cpu, FolderOpen, Menu, Bot, BarChart3, Settings, Package, Users,
+  FolderOpen, Menu, Bot, BarChart3, Settings, Package, Users,
   Download, Image, FileText, List, Lock, LogOut, Mic, MicOff,
   Shield, Bell, RefreshCw, History, RotateCcw, Moon, Sun, AlertCircle, FlaskConical, Search,
   MoreHorizontal, ShieldCheck, ShieldAlert, HelpCircle, X,
@@ -20,15 +20,19 @@ import { pluginManager } from './lib/plugins/pluginManager'
 import { type CollabUser } from './lib/collaboration/collaborativeEditor'
 import { useCollaborationPresence } from './lib/collaboration/useCollaborationPresence'
 import { nlpService } from './lib/nlp/nlpService'
+import { voiceController } from './lib/voice/controller'
+import { useVoiceStore } from './stores/useVoiceStore'
 import { siemService } from './lib/siem/siemService'
 import { assetSecurity } from './lib/security/assetSecurity'
 import { backupService, type ProjectBackup } from './lib/backup/backupService'
+import { buildCheckpointPayload } from './lib/backup/checkpoint'
 import { useAppStore, type WorkspaceMode } from './stores/useAppStore'
+import { useShortcutStore } from './stores/useShortcutStore'
+import { isEditableTarget, matchesShortcut } from './lib/keymap/shortcuts'
 import {
   ADMIN_ROUTE,
   currentRoute,
   isAdminPath,
-  isWorkspaceMode,
   navigateTo,
   PROJECTS_ROUTE,
   subscribeToRoute,
@@ -37,6 +41,7 @@ import {
 import { useProjectStore } from './stores/useProjectStore'
 import type { CanvasComponent, CanvasWire } from './stores/useProjectStore'
 import { vcsService, type VcsCommit } from './lib/vcs/vcsService'
+import { agentJobRunner } from './lib/agents/agentJobs'
 import { createDefaultMechanicalParts, type MechanicalPart } from './lib/mechanical/partModel'
 import OnboardingTour, { type TourExitReason } from './components/OnboardingTour'
 import { ONBOARDING_STEP_COUNT } from './lib/onboarding/onboardingSteps'
@@ -52,12 +57,14 @@ import type { HelpTab } from './components/help/HelpCenter'
 import type { Tutorial } from './lib/tutorials/tutorials'
 import ProjectManager from './components/ProjectManager'
 import AuthForm from './components/AuthForm'
+import FolioLogo, { FolioMark } from './components/brand/FolioLogo'
 import VoiceCommandBar from './components/nlp/VoiceCommandBar'
 import { LoadingSpinner } from './components/ui/LoadingSpinner'
 import UserPresence from './components/collaboration/UserPresence'
 import { useTheme } from './lib/theme/useTheme'
 import { describeTheme } from './lib/theme/tokens'
-import { WORKSPACE_MODE_META } from './lib/workspace/modes'
+import { WORKSPACE_MODE_META, groupForMode } from './lib/workspace/modes'
+import { groupAccent } from './lib/workspace/accents'
 import { resolveLocalRole } from './lib/admin/adminService'
 import { checkQuotaCapacity } from './lib/admin/quotaPolicy'
 import { countUsage } from './lib/admin/usageLedger'
@@ -139,6 +146,47 @@ function NoticeBanner({ message, onDismiss }: { message: string; onDismiss: () =
   )
 }
 
+/*
+ * A board demo is routed on the main thread when it is opened: the laptop
+ * mainboard measures about six seconds of A* plus a nine-thousand-segment scene
+ * build, and a blocked thread paints nothing. Yielding two frames first lets the
+ * busy state below actually reach the screen. The timer is a guard for a hidden
+ * document, where animation frames never fire.
+ */
+function yieldToPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    const finish = () => {
+      window.clearTimeout(fallback)
+      resolve()
+    }
+    const fallback = window.setTimeout(finish, 250)
+    requestAnimationFrame(() => requestAnimationFrame(finish))
+  })
+}
+
+/** Blocks input while a demo's routing run holds the main thread. */
+function DemoLoadingOverlay({ title }: { title: string }) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-overlay/60"
+    >
+      <div className="app-panel flex w-[min(26rem,calc(100vw-2rem))] items-start gap-4 rounded-xl border border-border bg-card px-5 py-4 shadow-2xl">
+        <LoadingSpinner size="lg" className="mt-0.5 flex-shrink-0" />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-card-foreground">Opening {title}</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Placing every part and routing the copper runs on this tab, so the workspace
+            pauses for a few seconds on a large board. It resumes by itself.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /** Deterministic presence colour so a user looks the same in every session. */
 function generateUserColor(userId: string): string {
   const palette = ['#3B82F6','#EF4444','#10B981','#F59E0B','#8B5CF6','#EC4899','#06B6D4','#84CC16','#F97316','#6366F1']
@@ -148,12 +196,12 @@ function generateUserColor(userId: string): string {
 }
 
 function App() {
-  // Without cloud credentials the app boots straight into local mode — there is
-  // no account to sign in to, so users never hit a login or "continue offline" gate.
+  // A standalone deployment boots into its workspace administrator; there is no
+  // account to sign in to, so users never hit a login gate.
   const [user, setUser] = useState<User | null>(() =>
     isSupabaseConfigured
       ? null
-      : { id: 'offline-local', name: 'Local User', email: 'local@offline', role: 'owner' },
+      : { id: 'offline-local', name: 'Workspace Owner', email: 'owner@folio.app', role: 'owner' },
   )
   const offlineMode = !isSupabaseConfigured
   const [showSettings, setShowSettings] = useState(false)
@@ -178,6 +226,7 @@ function App() {
   const [showProjectManager, setShowProjectManager] = useState(false)
   const [showAdmin, setShowAdmin] = useState(false)
   const [notice, setNotice] = useState('')
+  const [demoBusy, setDemoBusy] = useState<string | null>(null)
   const [showPluginPanel, setShowPluginPanel] = useState(false)
   const [showDemoGallery, setShowDemoGallery] = useState(false)
   const [showLimits, setShowLimits] = useState(false)
@@ -188,9 +237,8 @@ function App() {
   const [showCollaborativePanel, setShowCollaborativePanel] = useState(false)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const [collaborativeUsers, setCollaborativeUsers] = useState<CollabUser[]>([])
-  const [isVoiceActive, setIsVoiceActive] = useState(false)
-  const [showVoiceBar, setShowVoiceBar] = useState(false)
-  const [voiceError, setVoiceError] = useState('')
+  const voiceListening = useVoiceStore((state) => state.listening)
+  const voiceOpen = useVoiceStore((state) => state.open)
   const [exportStatus, setExportStatus] = useState('')
   const [activeAlertCount, setActiveAlertCount] = useState(0)
   const [activeAlertSummary, setActiveAlertSummary] = useState('')
@@ -438,43 +486,72 @@ function App() {
     siemService.startMonitoring()
     const refreshAlerts = () => {
       const alerts = siemService.getAlerts({ status: 'active' })
-      setActiveAlertCount(alerts.length)
-      setActiveAlertSummary(alerts[0]?.description ?? alerts[0]?.title ?? '')
+      const count = alerts.length
+      const summary = alerts[0]?.description ?? alerts[0]?.title ?? ''
+      setActiveAlertCount((previous) => (previous === count ? previous : count))
+      setActiveAlertSummary((previous) => (previous === summary ? previous : summary))
     }
     refreshAlerts()
+    // Subscribe so an alert opened or retired by a panel updates the status bar
+    // at once. The slow poll stays as a fallback for conditions the service
+    // cannot observe (a checkpoint written by another surface).
+    const unsubscribe = siemService.subscribe(refreshAlerts)
     const interval = setInterval(refreshAlerts, 15000)
-    return () => clearInterval(interval)
+    return () => {
+      unsubscribe()
+      clearInterval(interval)
+    }
+  }, [])
+
+  // ── Always-on agent jobs ────────────────────────────────────────────────────
+  // A tab closed mid-run leaves the active job marked running; recover() brings
+  // it back as paused with a recovery flag, then the FIFO runner drains the
+  // queue against the live sheet. Jobs run only while Folio is open — 24/7
+  // execution needs the cloud runner documented in docs/AGENT_CLOUD.md.
+  useEffect(() => {
+    agentJobRunner.recover()
+    agentJobRunner.start()
+    return () => agentJobRunner.stop()
   }, [])
 
   // ── NLP intent → store dispatch ─────────────────────────────────────────────
+
+  /*
+   * Help, its tutorial runner and the palette open from global shortcuts that
+   * work on the first frame. Their chunks are code-split, so fetch them once the
+   * shell is idle: the keypress should open the surface, not a spinner.
+   */
   useEffect(() => {
-    nlpService.registerIntent({
-      name: 'switch_workspace',
-      patterns: ['switch to {mode}', 'open {mode}', 'go to {mode}'],
-      examples: ['switch to pcb', 'open siem', 'go to robotics'],
-      handler: async (entities) => {
-        const mode = String(entities.mode || '').toLowerCase()
-        if (isWorkspaceMode(mode)) useAppStore.getState().setWorkspaceMode(mode)
-        return { action: 'switch_workspace', mode }
-      },
-    })
+    const warm = () => {
+      void import('./components/help/HelpCenter')
+      void import('./components/help/TutorialRunner')
+      void import('./components/workspace/CommandPalette')
+    }
+    const idle = (window as Window & { requestIdleCallback?: (callback: () => void) => number }).requestIdleCallback
+    if (idle) {
+      const handle = idle(warm)
+      return () => (window as Window & { cancelIdleCallback?: (handle: number) => void }).cancelIdleCallback?.(handle)
+    }
+    const timer = window.setTimeout(warm, 800)
+    return () => window.clearTimeout(timer)
   }, [])
 
-  // ── Keyboard entry points: command palette (Ctrl/⌘+K), demo gallery and help ─
+  // ── Keyboard entry points: command palette, demo gallery, agents and help ───
+  // Keys come from the shared shortcut registry, so a rebind applies here too.
+  const shortcutOverrides = useShortcutStore((s) => s.overrides)
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       // Administration is a sibling surface with no workbench overlays mounted;
       // honouring these keys there would only create invisible open state.
       if (isAdminPath(window.location.pathname)) return
-      const mod = event.metaKey || event.ctrlKey
-      const target = event.target
-      const typing =
-        target instanceof HTMLElement &&
-        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)
+      const typing = isEditableTarget(event.target)
       // These surfaces share the viewport, so a shortcut replaces whatever is
       // already open instead of stacking a second modal over it.
       // F1 always works; `?` is a normal character in netlist and property fields.
-      if (event.key === 'F1' || (event.key === '?' && !mod && !typing)) {
+      if (
+        matchesShortcut(event, 'help.open', shortcutOverrides) ||
+        (!typing && matchesShortcut(event, 'help.openQuestion', shortcutOverrides))
+      ) {
         event.preventDefault()
         setShowCommandPalette(false)
         setShowDemoGallery(false)
@@ -483,7 +560,7 @@ function App() {
         setShowHelp(true)
         return
       }
-      if (mod && !event.shiftKey && event.key.toLowerCase() === 'k') {
+      if (matchesShortcut(event, 'palette.open', shortcutOverrides)) {
         event.preventDefault()
         setShowHelp(false)
         setShowDemoGallery(false)
@@ -491,17 +568,31 @@ function App() {
         setShowCommandPalette((open) => !open)
         return
       }
-      if (mod && event.shiftKey && event.key.toLowerCase() === 'd') {
+      if (matchesShortcut(event, 'demos.open', shortcutOverrides)) {
         event.preventDefault()
         setShowHelp(false)
         setShowCommandPalette(false)
         setShowLimits(false)
         setShowDemoGallery((open) => !open)
+        return
+      }
+      if (matchesShortcut(event, 'agents.open', shortcutOverrides)) {
+        event.preventDefault()
+        setShowHelp(false)
+        setShowCommandPalette(false)
+        setShowLimits(false)
+        setShowDemoGallery(false)
+        useAppStore.getState().setWorkspaceMode('agents')
+        return
+      }
+      if (!typing && matchesShortcut(event, 'voice.toggle', shortcutOverrides)) {
+        event.preventDefault()
+        voiceController.toggleListening()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [shortcutOverrides])
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
   const handleNewProject = async () => {
@@ -607,12 +698,27 @@ function App() {
     return Boolean(useProjectStore.getState().currentProject)
   }
 
+  /*
+   * One entry point for loading a demo, so the busy state cannot be forgotten by
+   * a caller: the gallery, the palette and a tutorial re-seeding its own demo all
+   * route through here and all show the same pause.
+   */
+  const runDemoLoad = async (scenario: DemoScenario): Promise<void> => {
+    setDemoBusy(scenario.title)
+    try {
+      await yieldToPaint()
+      loadDemoScenario(scenario)
+    } finally {
+      setDemoBusy(null)
+    }
+  }
+
   // Gallery / palette entry point: a demo must be savable, and a board demo
   // must never silently overwrite an unsaved schematic.
   const openDemoScenario = async (scenario: DemoScenario): Promise<boolean> => {
     if (isBoardDemoLoad(scenario.load) && !confirmReplace(scenario.title)) return false
     if (!(await ensureProject())) return false
-    loadDemoScenario(scenario)
+    await runDemoLoad(scenario)
     recordPlatformUsage('demo.load', user, offlineMode, { scenario: scenario.title })
     return true
   }
@@ -643,7 +749,7 @@ function App() {
 
   const restartTutorialDemo = (tutorial: Tutorial) => {
     const scenario = DEMO_SCENARIOS.find((entry) => entry.id === tutorial.demoId)
-    if (scenario) loadDemoScenario(scenario)
+    if (scenario) void runDemoLoad(scenario)
   }
 
   const openWorkspaceFromHelp = (mode: WorkspaceMode) => {
@@ -872,16 +978,7 @@ function App() {
     }
   }, [currentProject, offlineMode, markClean, user])
 
-  const getCheckpointData = () => ({
-    components: useProjectStore.getState().components,
-    wires: useProjectStore.getState().wires,
-    firmwareCode: useProjectStore.getState().firmwareCode,
-    simulationRuns: useProjectStore.getState().simulationRuns,
-    pcbLayout: useProjectStore.getState().pcbLayout,
-    mechanicalParts: useProjectStore.getState().mechanicalParts,
-    domainDesigns: useProjectStore.getState().domainDesigns,
-    viewport: useAppStore.getState().viewport,
-  })
+  const getCheckpointData = () => buildCheckpointPayload()
 
   const refreshVcs = () => {
     if (!currentProject) return
@@ -1170,7 +1267,7 @@ function App() {
 
   const handleSignOut = async () => {
     if (offlineMode) {
-      // Local mode has no session to end; "signing out" returns to the project list.
+      // A standalone workspace has no session to end; signing out returns to the project list.
       setCurrentProject(null)
       setCurrentSchematic(null)
       setCanvasData(null)
@@ -1189,29 +1286,53 @@ function App() {
   const themeLabel = describeTheme(themePreference, resolvedTheme)
   const themeToggleLabel = isDarkTheme ? 'Switch to light theme' : 'Switch to dark theme'
 
-  const toggleVoice = async () => {
-    setShowVoiceBar(true)
-    if (isVoiceActive) {
-      nlpService.stopVoiceListening()
-      setIsVoiceActive(false)
-      return
-    }
-    try {
-      await nlpService.startVoiceListening()
-      setIsVoiceActive(true)
-      setVoiceError('')
-    } catch (error) {
-      // The typed command bar stays usable even without SpeechRecognition.
-      setVoiceError(error instanceof Error ? error.message : 'Voice input unavailable')
-    }
+  const toggleVoice = () => {
+    voiceController.toggleListening()
   }
 
   const closeVoiceBar = () => {
-    nlpService.stopVoiceListening()
-    setIsVoiceActive(false)
-    setShowVoiceBar(false)
-    setVoiceError('')
+    voiceController.close()
   }
+
+  // ── Voice → shell actions ───────────────────────────────────────────────────
+  // Save and export live in this component; the voice controller asks here
+  // instead of duplicating them. Results report what really happened. The
+  // effect deliberately has no dependency array: the hooks are reassigned on
+  // every render so they always close over the freshest handlers.
+  useEffect(() => {
+    const saveDesign = async (): Promise<{ applied: boolean; detail: string }> => {
+      if (!currentProject) return { applied: false, detail: 'No project is open, so there was nothing to save.' }
+      await handleSave(getCheckpointData())
+      const stillDirty = useProjectStore.getState().isDirty
+      return stillDirty
+        ? { applied: true, detail: 'Save requested, but the project still shows unsaved changes — check the save.' }
+        : { applied: true, detail: 'Saved the project.' }
+    }
+
+    const exportDesign = async (format: string): Promise<{ applied: boolean; detail: string }> => {
+      const handlers: Record<string, (() => void) | undefined> = {
+        json: handleExportJSON,
+        netlist: handleExportNetlist,
+        bom: handleExportBOM,
+        gerber: handleExportGerber,
+        png: handleExportImage,
+        svg: handleExportDrawing,
+        drawing: handleExportDrawing,
+      }
+      const run = handlers[format]
+      if (!run) return { applied: false, detail: `Voice cannot export as ${format}; use the Export menu instead.` }
+      if (!currentProject) return { applied: false, detail: 'No project is open to export.' }
+      const quotaError = exportQuotaError()
+      if (quotaError) return { applied: false, detail: quotaError }
+      if (format === 'png' && !document.querySelector('canvas')) {
+        return { applied: false, detail: 'There is no canvas to capture, so no image was exported.' }
+      }
+      run()
+      return { applied: true, detail: `Started the ${format} export — check your downloads.` }
+    }
+
+    nlpService.registerActionHooks({ saveDesign, exportDesign })
+  })
 
   const handleExportEncrypted = async () => {
     if (!currentProject) return
@@ -1274,6 +1395,12 @@ function App() {
           onOpenDemos={() => setShowDemoGallery(true)}
           onOpenLimits={openLimitsRegister}
           onOpenHelp={() => openHelp('tutorials')}
+          onOpenShortcuts={() => {
+            setShowCommandPalette(false)
+            setShowDemoGallery(false)
+            setShowLimits(false)
+            openHelp('shortcuts')
+          }}
           onToggleTheme={toggleTheme}
           onOpenScenario={openDemoScenario}
         />
@@ -1305,6 +1432,13 @@ function App() {
     </Suspense>
   )
 
+  /*
+   * Outside the stack, because the stack sits inside a `Suspense`: a lazy chunk
+   * that mounts after the click would hold the fallback and swallow the busy
+   * state — the one moment the user needs to be told the tab is working.
+   */
+  const demoBusyOverlay = demoBusy ? <DemoLoadingOverlay title={demoBusy} /> : null
+
   if (!user) return <AuthForm onAuthSuccess={() => {}} />
 
   if (showAdmin) {
@@ -1328,13 +1462,11 @@ function App() {
     return (
       <div className="flex min-h-screen flex-col bg-background">
         <header className="app-chrome app-chrome-divider flex flex-shrink-0 items-center justify-between px-6 py-4" data-tour="app-header">
-          <div className="flex items-center gap-3">
-            <Cpu className="h-7 w-7 text-primary" />
-            <div>
-              <h1 className="text-lg font-semibold leading-tight text-surface-foreground">Folio</h1>
-              <p className="text-xs text-muted-foreground">Multi-domain engineering workbench</p>
-            </div>
-          </div>
+          <FolioLogo
+            markClassName="h-9 w-9 flex-shrink-0 text-primary"
+            wordmarkClassName="h-[17px] w-auto text-surface-foreground"
+            showTagline
+          />
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" onClick={openAdmin} title="Administration" aria-label="Administration">
               <ShieldCheck className="h-4 w-4" />
@@ -1351,6 +1483,7 @@ function App() {
         <NoticeBanner message={notice} onDismiss={() => setNotice('')} />
         <ProjectManager onSelectProject={handleSelectProject} onNewProject={handleNewProject} offlineMode={offlineMode} />
         {overlayStack}
+        {demoBusyOverlay}
         {showOnboarding && (
           <OnboardingTour
             onClose={closeOnboarding}
@@ -1370,6 +1503,10 @@ function App() {
   // ── Main IDE layout ───────────────────────────────────────────────────────────
   return (
     <div className="app-shell">
+      {/* First focusable thing in the tab order: the header carries dozens of
+          repeated controls before the design sheet, so a keyboard user needs one
+          keypress to skip past them (WCAG 2.4.1). */}
+      <a href="#workspace" className="skip-link">Skip to the workspace</a>
 
       {/* ── Header ── */}
       <header className="app-chrome app-chrome-divider flex min-w-0 flex-shrink-0 items-center justify-between gap-2 px-4 py-2" data-tour="app-header">
@@ -1392,15 +1529,14 @@ function App() {
           </HoverHelp>
           <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
           <div className="flex min-w-0 items-center gap-2">
-            <Cpu className="hidden h-4 w-4 flex-shrink-0 text-primary sm:block" />
+            <FolioMark className="hidden h-[18px] w-[18px] flex-shrink-0 text-primary sm:block" />
             <div className="min-w-0">
               <h1 className="truncate text-[13px] font-semibold leading-tight text-foreground" title={currentProject.name}>
                 {currentProject.name}
               </h1>
-              {(isDirty || offlineMode) && (
+              {isDirty && (
                 <div className="flex items-center gap-2 text-[10px] uppercase leading-tight tracking-[0.08em]">
-                  {isDirty && <span className="text-warning">● Unsaved</span>}
-                  {offlineMode && <span className="text-muted-foreground">Local only</span>}
+                  <span className="text-warning">● Unsaved</span>
                 </div>
               )}
             </div>
@@ -1415,12 +1551,12 @@ function App() {
             {/* Voice control */}
             <HoverHelp topicId="header.voice" placement="bottom">
               <Button
-                variant={isVoiceActive ? 'default' : 'ghost'}
+                variant={voiceListening ? 'default' : 'ghost'}
                 size="icon"
                 onClick={toggleVoice}
-                aria-label={isVoiceActive ? 'Stop voice control' : 'Start voice control'}
+                aria-label={voiceListening ? 'Stop voice control' : 'Start voice control'}
               >
-                {isVoiceActive ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                {voiceListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
               </Button>
             </HoverHelp>
 
@@ -1437,7 +1573,7 @@ function App() {
             </HoverHelp>
 
             <HoverHelp topicId="header.assistant" placement="bottom">
-              <Button variant="ghost" size="icon" onClick={toggleAiChat} aria-label="AI Assistant" data-tour="agent-button">
+              <Button variant="ghost" size="icon" onClick={toggleAiChat} aria-label="Design assistant" data-tour="agent-button">
                 <Bot className="w-4 h-4" />
               </Button>
             </HoverHelp>
@@ -1489,7 +1625,7 @@ function App() {
                   <h2 className="text-sm font-semibold">Version history</h2>
                   <p className="text-xs text-muted-foreground mt-1">
                     Content-addressed commits of the whole project — schematic, PCB, mechanical assembly,
-                    firmware and every CAD domain — stored on this device. Restore brings the design back
+                    firmware and every CAD domain — kept with the project. Restore brings the design back
                     as one consistent state.
                   </p>
                   <form
@@ -1687,9 +1823,9 @@ function App() {
                   aria-label="More tools"
                 >
                   {([
-                    { label: isVoiceActive ? 'Stop voice control' : 'Start voice control', icon: isVoiceActive ? MicOff : Mic, action: toggleVoice },
+                    { label: voiceListening ? 'Stop voice control' : 'Start voice control', icon: voiceListening ? MicOff : Mic, action: toggleVoice },
                     { label: activeAlertCount > 0 ? `Security alerts (${activeAlertCount} active)` : 'Security alerts', icon: Shield, action: () => useAppStore.getState().setWorkspaceMode('siem') },
-                    { label: 'AI Assistant', icon: Bot, action: toggleAiChat },
+                    { label: 'Design assistant', icon: Bot, action: toggleAiChat },
                     { label: 'Administration', icon: ShieldCheck, action: openAdmin },
                     { label: 'Simulation workspace', icon: BarChart3, action: () => useAppStore.getState().setWorkspaceMode('simulation') },
                     { label: 'Settings', icon: Settings, action: () => setShowSettings(true) },
@@ -1717,17 +1853,10 @@ function App() {
 
       <NoticeBanner message={notice} onDismiss={() => setNotice('')} />
 
-      {showVoiceBar && (
-        <VoiceCommandBar
-          listening={isVoiceActive}
-          onToggleListening={() => { void toggleVoice() }}
-          onClose={closeVoiceBar}
-          error={voiceError}
-        />
-      )}
+      {voiceOpen && <VoiceCommandBar onClose={closeVoiceBar} />}
 
       {/* ── Main area ── */}
-      <main aria-label="Workspace" className="relative flex min-w-0 flex-1 overflow-hidden">
+      <main id="workspace" aria-label="Workspace" className="relative flex min-w-0 flex-1 overflow-hidden">
         {/* Domain workspace with 13-mode tab routing */}
         <DomainWorkspace
           libraryComponents={paletteComponents}
@@ -1783,6 +1912,11 @@ function App() {
       {/* ── Status bar: document metrics on the sheet, workspace context elsewhere ── */}
       <footer className="status-bar" aria-label="Workspace status" data-tour="status-bar">
         <span className="status-segment text-foreground" title={WORKSPACE_MODE_META[workspaceMode].description}>
+          <span
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ backgroundColor: `hsl(${groupAccent(groupForMode(workspaceMode))})` }}
+            aria-hidden="true"
+          />
           MODE <span className="cad-readout uppercase">{WORKSPACE_MODE_META[workspaceMode].label}</span>
         </span>
         {workspaceMode === 'schematic' ? (
@@ -1815,7 +1949,7 @@ function App() {
           THEME <span className="cad-readout">{themeLabel}</span>
         </span>
         {isDirty && <span className="status-segment text-warning">● UNSAVED</span>}
-        {isVoiceActive && (
+        {voiceListening && (
           <span className="status-segment animate-pulse text-success">
             <Mic className="h-3 w-3" /> VOICE
           </span>
@@ -1867,6 +2001,7 @@ function App() {
       />
 
       {overlayStack}
+      {demoBusyOverlay}
       {showOnboarding && (
         <OnboardingTour
           onClose={closeOnboarding}

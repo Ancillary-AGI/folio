@@ -83,7 +83,7 @@ export function isAdminRole(role: string | undefined | null): role is 'owner' | 
   return role === 'owner' || role === 'admin'
 }
 
-/** Offline devices authenticate one local owner; cloud roles come from `profiles`. */
+/** A standalone workspace has one administrator; managed roles come from `profiles`. */
 export function resolveLocalRole(user: User | null, offlineMode: boolean): AdminRole | 'user' {
   if (offlineMode) return 'owner'
   return normalizeRole((user as User & { role?: string } | null)?.role)
@@ -147,7 +147,7 @@ export async function listMembers(
     return {
       members: [{
         id: actor.id,
-        name: actor.name || 'Local User',
+        name: actor.name || 'Workspace Owner',
         email: actor.email || 'local@offline',
         role: 'owner',
         status: 'active',
@@ -187,7 +187,7 @@ export async function setMemberRole(
   memberId: string,
   role: AdminRole,
 ): Promise<{ ok: boolean; error?: string }> {
-  if (offlineMode) return { ok: false, error: 'Local mode has one owner; cloud accounts are managed by the cloud directory.' }
+  if (offlineMode) return { ok: false, error: 'Standalone mode has one administrator; managed accounts are handled by the directory service.' }
   if (!ADMIN_ROLE_SET.has(role)) return { ok: false, error: 'Unknown role.' }
   if (memberId === actor.id && !isAdminRole(role)) {
     return { ok: false, error: 'You cannot remove your own administrator access. Ask another owner to change it.' }
@@ -213,7 +213,7 @@ export async function setMemberStatus(
   memberId: string,
   status: MemberStatus,
 ): Promise<{ ok: boolean; error?: string }> {
-  if (offlineMode) return { ok: false, error: 'Local mode has no remote accounts to suspend.' }
+  if (offlineMode) return { ok: false, error: 'Standalone mode has no remote accounts to suspend.' }
   if (memberId === actor.id && status === 'suspended') {
     return { ok: false, error: 'You cannot suspend your own account.' }
   }
@@ -268,7 +268,7 @@ export async function savePolicy(
     details: { ...limits, cloudSynced: !cloudError && !offlineMode },
   })
   if (cloudError) {
-    return { ok: false, error: `Saved on this device, but the cloud policy was not updated: ${cloudError}` }
+    return { ok: false, error: `Saved in the workspace, but the cloud policy was not updated: ${cloudError}` }
   }
   return cached
 }
@@ -407,8 +407,8 @@ export function capabilities(offlineMode: boolean): AdminCapabilities {
     inviteMembers: false,
     cloudUsageFeed: !offlineMode,
     note: offlineMode
-      ? 'This device has a single local owner. People, invitations and cross-device usage require the cloud deployment; everything on this page still works locally.'
-      : 'People and usage come from the cloud governance schema. Invitations require a server-side admin function and are intentionally not faked in the browser.',
+      ? 'This workspace has a single administrator. People, invitations and cross-workspace usage require a managed deployment; everything on this page still works in the workspace.'
+      : 'People and usage come from the cloud governance schema. Invitations require a server-side admin function and are intentionally not faked in the client.',
   }
 }
 

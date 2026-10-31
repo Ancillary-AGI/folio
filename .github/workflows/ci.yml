@@ -32,6 +32,9 @@ jobs:
       - name: Button label audit
         run: npm run a11y:buttons
 
+      - name: Accessibility contract audit
+        run: npm run a11y:contract
+
       - name: Typecheck (app)
         run: npm run typecheck
 

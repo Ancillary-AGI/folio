@@ -195,6 +195,39 @@ describe('ElectricalRuleChecker net conflicts', () => {
     expect(result.summary.errors).toBe(2)
   })
 
+  it('warns when a net ties inputs together with no driver', () => {
+    const a = component('u1', 'Buffer A', [pin('1', 'IN', 'input')])
+    const b = component('u2', 'Buffer B', [pin('1', 'IN', 'input')])
+    const nets = [net('n1', 'SIG', [
+      { componentId: 'u1', pinId: '1' },
+      { componentId: 'u2', pinId: '1' },
+    ])]
+
+    const result = new ElectricalRuleChecker([a, b], [], nets).runERC()
+
+    expect(result.violations).toContainEqual(expect.objectContaining({
+      type: 'no_driver',
+      severity: 'warning',
+      netId: 'n1',
+      message: 'Net "SIG" connects only inputs (Buffer A.IN, Buffer B.IN) — nothing drives it',
+    }))
+    // A warning, not an error: the design is suspicious, not electrically invalid.
+    expect(result.isValid).toBe(true)
+  })
+
+  it('does not call an input fed through a passive part undriven', () => {
+    const u1 = component('u1', 'Buffer', [pin('1', 'IN', 'input')])
+    const r1 = component('r1', 'Resistor', [pin('1', 'A', 'passive'), pin('2', 'B', 'passive')], 'passive')
+    const nets = [net('n1', 'SIG', [
+      { componentId: 'u1', pinId: '1' },
+      { componentId: 'r1', pinId: '1' },
+    ])]
+
+    const result = new ElectricalRuleChecker([u1, r1], [], nets).runERC()
+
+    expect(result.violations.filter(v => v.type === 'no_driver')).toEqual([])
+  })
+
   it('deduplicates repeated pin connections across wires and nets', () => {
     const a = component('u1', 'A', [pin('1', 'Y', 'output')])
     const b = component('u2', 'B', [pin('1', 'Y', 'output')])

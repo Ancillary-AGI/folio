@@ -1,10 +1,12 @@
-import { useRef, useEffect, useState, useMemo } from 'react';
+import { useCallback, useRef, useEffect, useState, useMemo, type ChangeEvent, type ReactNode } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid } from '@react-three/drei';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { RangeControl } from '../ui/range-control';
+import { cn } from '../../lib/utils';
 import { 
   RotateCcw, 
   ZoomIn, 
@@ -15,16 +17,31 @@ import {
   Layers, 
   Download,
   Settings,
-  X
+  Upload,
+  X,
+  Box,
+  Cpu,
+  FileStack,
+  MonitorPlay,
+  Palette,
 } from 'lucide-react';
 import { useProjectStore } from '../../stores/useProjectStore';
+import { useEnclosureStore } from '../../stores/useEnclosureStore';
 import { downloadFile } from '../../lib/exportUtils';
 import { STLExporter } from '../../lib/3d/stlExporter';
 import { objExporter } from '../../lib/3d/objExporter';
+import { MeshImportError, readMeshFile, shellProblem } from '../../lib/3d/meshMeasure';
+import { buildEnclosureShell, type EnclosureShell } from '../../lib/3d/enclosureShell';
+import { fitFrameDistance, unionFrames, type Framing } from '../../lib/3d/framing';
+import { parseObj } from '../../lib/3d/objImporter';
+import { parseStl } from '../../lib/3d/stlImporter';
 import { arvrPreviewService } from '../../lib/arvr/arvrPreview';
 import { buildPcbScene, type PcbScene } from '../../lib/pcb/pcbScene';
+import { assessEnclosureFit, contentEnvelope, stackEnvelope, tightestSide, type EnclosureFit } from '../../lib/pcb/enclosureFit';
 import {
+  applyComponentScale,
   buildPcbGroup,
+  disposePcbGroup,
   PAD_FINISH_SPECS,
   SOLDERMASK_SPECS,
   type PcbMaskColor,
@@ -177,40 +194,10 @@ const VIEW_POSITIONS: Record<string, [number, number, number]> = {
 };
 
 const CAMERA_FOV_DEG = 42;
-const CAMERA_FIT_MARGIN = 1.25;
-
-/** Axis-aligned box in scene millimeters: centre plus half extents. */
-interface Framing {
-  center: [number, number, number];
-  half: [number, number, number];
-}
 
 interface OrbitLikeControls {
   target: THREE.Vector3;
   update: () => void;
-}
-
-/**
- * Distance needed to fit `frame` on screen for a given view and aspect ratio.
- * Using the projected half extents (instead of a bounding sphere) keeps a wide,
- * shallow circuit filling a wide viewport rather than shrinking to a dot.
- */
-function fitDistance(frame: Framing, view: string, aspect: number): number {
-  const direction = new THREE.Vector3(...(VIEW_POSITIONS[view] ?? VIEW_POSITIONS.iso)).normalize();
-  const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), direction);
-  // Looking straight down makes world-up parallel to the view direction.
-  if (right.lengthSq() < 1e-8) right.set(1, 0, 0);
-  else right.normalize();
-  const up = new THREE.Vector3().crossVectors(direction, right).normalize();
-  const [halfX, halfY, halfZ] = frame.half;
-  const halfWidth = Math.abs(halfX * right.x) + Math.abs(halfY * right.y) + Math.abs(halfZ * right.z);
-  const halfHeight = Math.abs(halfX * up.x) + Math.abs(halfY * up.y) + Math.abs(halfZ * up.z);
-  const tanHalfFov = Math.tan((CAMERA_FOV_DEG * Math.PI) / 360);
-  const safeAspect = Number.isFinite(aspect) && aspect > 0 ? aspect : 1.6;
-  return Math.max(
-    5,
-    Math.max(halfWidth / (tanHalfFov * safeAspect), halfHeight / tanHalfFov) * CAMERA_FIT_MARGIN + 1,
-  );
 }
 
 // Camera controller — the canonical viewpoints are unit vectors scaled to the
@@ -234,13 +221,15 @@ function CameraController({
   const [halfX, halfY, halfZ] = frame.half;
 
   useEffect(() => {
-    const aspect = size && size.height > 0 ? size.width / size.height : 1.6;
-    const distance = fitDistance({ center: [centerX, centerY, centerZ], half: [halfX, halfY, halfZ] }, view, aspect) / zoom;
-    const base = new THREE.Vector3(...(VIEW_POSITIONS[view] ?? VIEW_POSITIONS.iso)).normalize();
+    const viewport = size ?? { width: 16, height: 10 };
+    const base = new THREE.Vector3(...(VIEW_POSITIONS[view] ?? VIEW_POSITIONS.iso));
+    const framed: Framing = { center: [centerX, centerY, centerZ], half: [halfX, halfY, halfZ] };
+    const distance = fitFrameDistance(framed, base, viewport, CAMERA_FOV_DEG) / zoom;
+    const direction = base.normalize();
     camera.position.set(
-      centerX + base.x * distance,
-      centerY + base.y * distance,
-      centerZ + base.z * distance,
+      centerX + direction.x * distance,
+      centerY + direction.y * distance,
+      centerZ + direction.z * distance,
     );
     camera.lookAt(centerX, centerY, centerZ);
     if (controls) {
@@ -250,6 +239,132 @@ function CameraController({
   }, [view, zoom, reframe, centerX, centerY, centerZ, halfX, halfY, halfZ, camera, controls, size]);
 
   return null;
+}
+
+/* The viewport HUD. These sit over a rendered board, so they read as one
+   floating bar of controls rather than a grid of separate boxes: the active
+   control carries the accent, everything else stays quiet until hovered. */
+const hudItem = (active: boolean) =>
+  cn(
+    'h-7 shrink-0 rounded-lg px-2.5 text-[11px] font-semibold uppercase tracking-wide transition-colors',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+    active
+      ? 'bg-primary text-primary-foreground shadow-sm'
+      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+  );
+
+const hudIcon =
+  'grid h-7 w-7 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background';
+
+/**
+ * A layer or object switch. The eye icon alone made state something you had to
+ * read; a filled track and tinted row say it at a glance, and the swatch ties
+ * the row to the copper or moulding it controls.
+ */
+function VisibilityRow({
+  label,
+  on,
+  onToggle,
+  swatch,
+  note,
+}: {
+  label: string;
+  on: boolean;
+  onToggle: () => void;
+  swatch?: string;
+  note?: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={onToggle}
+      className={cn(
+        'flex w-full items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-left text-xs transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card',
+        on
+          ? 'border-primary/35 bg-primary/10 text-foreground'
+          : 'border-border bg-background/40 text-muted-foreground hover:bg-accent',
+      )}
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        {swatch && (
+          <span
+            aria-hidden="true"
+            className={cn('cad-swatch h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-inset ring-black/25', !on && 'opacity-40')}
+            style={{ backgroundColor: swatch }}
+          />
+        )}
+        <span className="truncate font-medium">{label}</span>
+        {note}
+      </span>
+      <span
+        aria-hidden="true"
+        className={cn(
+          'relative h-4 w-7 shrink-0 rounded-full transition-colors',
+          on ? 'bg-primary' : 'bg-muted-foreground/35',
+        )}
+      >
+        <span
+          className={cn(
+            'absolute top-0.5 h-3 w-3 rounded-full bg-card shadow transition-all',
+            on ? 'left-3.5' : 'left-0.5',
+          )}
+        />
+      </span>
+    </button>
+  );
+}
+
+/**
+ * One read-out in the strip along the bottom of the viewport. A `div` inside a
+ * `dl` is the spec's way of grouping a term with its value, and the group is
+ * what stays together when the strip wraps on a narrow viewport.
+ */
+function Stat({
+  label,
+  value,
+  hint,
+  accent,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className="flex items-baseline gap-1.5">
+      <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className="font-mono tabular-nums" data-testid={`hud-${label}`}>
+        <span className={accent ? 'text-info' : 'text-foreground'}>{value}</span>
+        {hint && <span className="text-muted-foreground"> · {hint}</span>}
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * A panel section heading. The glyph and its hue are the only way to tell nine
+ * near-identical cards apart at a glance, so each one carries a different accent.
+ */
+function SectionTitle({ icon: Icon, tone, children }: {
+  icon: typeof Eye;
+  tone: 'primary' | 'info' | 'success' | 'warning';
+  children: ReactNode;
+}) {
+  const tones = {
+    primary: 'text-primary',
+    info: 'text-info',
+    success: 'text-success',
+    warning: 'text-warning',
+  } as const;
+  return (
+    <CardTitle className="flex items-center gap-2 text-sm">
+      <Icon className={cn('h-3.5 w-3.5 shrink-0', tones[tone])} aria-hidden="true" />
+      {children}
+    </CardTitle>
+  );
 }
 
 // Lighting setup: a soft studio key/fill/rim plus the environment map from the
@@ -281,6 +396,20 @@ function Lighting() {
   );
 }
 
+/** Millimetres to the precision a fit decision is made at, without false padding. */
+function millimetres(value: number): string {
+  const rounded = Math.round(value * 100) / 100;
+  return `${rounded === 0 ? 0 : rounded} mm`;
+}
+
+/** The yes/no, named to the side it belongs to. */
+function fitVerdict(fit: EnclosureFit): string {
+  const side = tightestSide(fit).side;
+  return fit.fits
+    ? `Board fits — ${millimetres(fit.tightestMm)} left at the ${side}`
+    : `Board does not fit — ${millimetres(-fit.tightestMm)} past the ${side}`;
+}
+
 export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
   const { components, wires } = useProjectStore();
   const pcbLayout = useProjectStore((s) => s.pcbLayout);
@@ -290,7 +419,6 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
   const [showComponents, setShowComponents] = useState(true);
   const [showTraces, setShowTraces] = useState(true);
   const [showPCB, setShowPCB] = useState(true);
-  const [selectedLayer, setSelectedLayer] = useState<string | null>(null);
   const [hiddenComponentIds, setHiddenComponentIds] = useState<string[]>([]);
   const [hiddenLayerIds, setHiddenLayerIds] = useState<string[]>([]);
   const [zoom, setZoom] = useState(1);
@@ -328,6 +456,48 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
   }, [pcbLayout]);
   const scene = pcbSceneState.scene;
 
+  const projectId = useProjectStore((s) => s.currentProject?.id ?? null);
+  const enclosure = useEnclosureStore((s) => s.enclosure);
+  const setEnclosure = useEnclosureStore((s) => s.setEnclosure);
+  const [showEnclosure, setShowEnclosure] = useState(true);
+  const [enclosureError, setEnclosureError] = useState<string | null>(null);
+  const enclosureInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (enclosure && enclosure.projectId !== projectId) setEnclosure(null);
+  }, [enclosure, projectId, setEnclosure]);
+
+  // No routed layout, no stack to size against: the panel says so instead of
+  // comparing the shell with a board it has not seen.
+  const enclosureFit = useMemo<EnclosureFit | null>(
+    () => (enclosure && scene ? assessEnclosureFit(stackEnvelope(scene), enclosure.mesh) : null),
+    [enclosure, scene],
+  );
+
+  const importEnclosure = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    // Reset first so choosing the same file again still fires a change event.
+    event.target.value = '';
+    if (!file) return;
+    setEnclosureError(null);
+    try {
+      const buffer = await readMeshFile(file);
+      const mesh = /\.obj$/i.test(file.name) ? parseObj(buffer) : parseStl(buffer);
+      setEnclosure({ name: file.name, mesh, projectId });
+    } catch (error) {
+      setEnclosureError(
+        error instanceof MeshImportError
+          ? error.message
+          : `Could not read "${file.name}": ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }, [setEnclosure, projectId]);
+
+  // The shell's own defects travel with the numbers: an open mesh has no inside,
+  // so the envelope comparison is reported as what it is instead of as a verdict.
+  const shellDefect = enclosure ? shellProblem(enclosure.mesh) : null;
+  const enclosureVerdict = enclosureFit ? fitVerdict(enclosureFit) : null;
+
   const hiddenLayerSet = useMemo(() => new Set(hiddenLayerIds), [hiddenLayerIds]);
   const hiddenComponentSet = useMemo(() => new Set(hiddenComponentIds), [hiddenComponentIds]);
   const boardGroup = useMemo(
@@ -339,11 +509,10 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
         showComponents,
         hiddenLayerIds: hiddenLayerSet,
         hiddenComponentIds: hiddenComponentSet,
-        componentScale,
         maskColor,
         padFinish,
       }),
-    [scene, showPCB, showTraces, showComponents, hiddenLayerSet, hiddenComponentSet, componentScale, maskColor, padFinish],
+    [scene, showPCB, showTraces, showComponents, hiddenLayerSet, hiddenComponentSet, maskColor, padFinish],
   );
 
   // A schematic-scale circuit on a 100 x 80 mm outline is a few millimetres
@@ -359,73 +528,75 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
 
   const circuitFrame = useMemo<Framing | null>(() => {
     if (!scene) return null;
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minZ = Infinity;
-    let maxZ = -Infinity;
-    let minY = -scene.board.thicknessMm / 2;
-    let maxY = scene.board.thicknessMm / 2;
-    const include = (x: number, z: number, radius: number) => {
-      minX = Math.min(minX, x - radius);
-      maxX = Math.max(maxX, x + radius);
-      minZ = Math.min(minZ, z - radius);
-      maxZ = Math.max(maxZ, z + radius);
-    };
-    for (const component of scene.components) {
-      include(
-        component.position.x,
-        component.position.z,
-        Math.max(component.bodyWidthMm, component.bodyDepthMm) / 2,
-      );
-      for (const pad of component.pads) {
-        include(pad.position.x, pad.position.z, Math.max(pad.widthMm, pad.depthMm) / 2);
-      }
-      minY = Math.min(minY, component.position.y - component.bodyHeightMm / 2);
-      maxY = Math.max(maxY, component.position.y + component.bodyHeightMm / 2);
-    }
-    for (const trace of scene.traces) {
-      include(trace.start.x, trace.start.z, trace.widthMm / 2);
-      include(trace.end.x, trace.end.z, trace.widthMm / 2);
-    }
-    for (const via of scene.vias) {
-      include(via.position.x, via.position.z, via.padDiameterMm / 2);
-    }
-    if (!Number.isFinite(minX)) return null;
+    const content = contentEnvelope(scene);
+    if (content.empty) return null;
     return {
-      center: [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2],
+      center: [
+        (content.minX + content.maxX) / 2,
+        (content.minY + content.maxY) / 2,
+        (content.minZ + content.maxZ) / 2,
+      ],
       half: [
-        Math.max((maxX - minX) / 2, 1),
-        Math.max((maxY - minY) / 2, 1),
-        Math.max((maxZ - minZ) / 2, 1),
+        Math.max((content.maxX - content.minX) / 2, 1),
+        Math.max((content.maxY - content.minY) / 2, 1),
+        Math.max((content.maxZ - content.minZ) / 2, 1),
       ],
     };
   }, [scene]);
 
-  const framing = useMemo<Framing>(
-    () => (frameMode === 'circuit' && circuitFrame ? circuitFrame : boardFrame),
-    [frameMode, circuitFrame, boardFrame],
+  // A case that is bigger than the board has to be on screen with it, or the
+  // import looks like it did nothing. The shell is drawn centred on the board
+  // centre, so its frame is the extent the shell object reports about the origin.
+  const shell = useMemo(
+    () => (enclosure && showEnclosure ? buildEnclosureShell(enclosure.mesh) : null),
+    [enclosure, showEnclosure],
   );
+
+  const shellFrame = useMemo<Framing | null>(
+    () => (shell ? { center: [0, 0, 0], half: shell.half } : null),
+    [shell],
+  );
+
+  const framing = useMemo<Framing>(() => {
+    const base = frameMode === 'circuit' && circuitFrame ? circuitFrame : boardFrame;
+    return shellFrame ? unionFrames(base, shellFrame) : base;
+  }, [frameMode, circuitFrame, boardFrame, shellFrame]);
+
+  const framingMode = frameMode === 'circuit' && circuitFrame ? 'circuit' : 'board';
 
   const gridSize = scene
     ? Math.max(scene.board.widthMm, scene.board.heightMm) * 1.4
     : 50;
 
-  // Every toggle rebuilds the group; dispose the replaced GPU buffers so a long
-  // review session does not accumulate one board per click. Disposal happens
+  // Every toggle rebuilds the group; release the replaced buffers so a long
+  // review session does not accumulate one board per click. Release happens
   // only when a *new* group takes over, never on mount/unmount, so React's
   // strict-mode double effect cannot free the geometry that is still on screen.
+  // Shapes and finishes repeated across rebuilds are shared and stay alive.
   const previousBoardGroup = useRef<THREE.Group | null>(null);
   useEffect(() => {
     const previous = previousBoardGroup.current;
     previousBoardGroup.current = boardGroup;
     if (!previous || previous === boardGroup) return;
-    previous.traverse((object) => {
-      if (!(object instanceof THREE.Mesh || object instanceof THREE.LineSegments)) return;
-      object.geometry.dispose();
-      const materials = Array.isArray(object.material) ? object.material : [object.material];
-      for (const material of materials) material.dispose();
-    });
+    disposePcbGroup(previous);
   }, [boardGroup]);
+
+  // Same rule for the shell: a replaced case frees the old one's buffers, an
+  // unmount leaves the object that was just on screen alone.
+  const previousShell = useRef<EnclosureShell | null>(null);
+  useEffect(() => {
+    const previous = previousShell.current;
+    previousShell.current = shell;
+    if (!previous || previous === shell) return;
+    previous.dispose();
+  }, [shell]);
+
+  // The size slider scales each part about its own centre, which is a transform,
+  // not a geometry question: rebuilding a 56-part board's buffers to move a
+  // slider is what made the preview stop answering.
+  useEffect(() => {
+    if (boardGroup) applyComponentScale(boardGroup, componentScale);
+  }, [boardGroup, componentScale]);
 
   // Convert 2D components to 3D — the board fills the viewport (60x53 mm
   // centred at the origin), so canvas (0..800, 0..500) maps onto it and
@@ -756,6 +927,8 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                 ))}
               </>
             )}
+
+            {shell && <primitive object={shell.group} />}
             
             <OrbitControls
               makeDefault
@@ -766,86 +939,97 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
             />
           </Canvas>
 
-          {/* View Controls Overlay */}
-          <div className="absolute top-4 left-4 flex flex-col gap-2">
-            <div className="flex gap-2">
-              {['iso', 'top', 'front', 'side'].map(view => (
-                <Button
+          {/* View Controls Overlay — one floating bar. The board is the subject
+              here, so the chrome stays out of the sky it is drawn over. */}
+          <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-wrap items-start justify-between gap-2">
+            <div className="pointer-events-auto flex flex-wrap items-center gap-1 rounded-xl border border-border/70 bg-card/85 p-1 shadow-lg backdrop-blur-md">
+              {(['iso', 'top', 'front', 'side'] as const).map(view => (
+                <button
                   key={view}
-                  variant={currentView === view ? 'default' : 'outline'}
-                  size="sm"
+                  type="button"
                   onClick={() => setCurrentView(view)}
-                  className="capitalize"
+                  aria-pressed={currentView === view}
+                  className={hudItem(currentView === view)}
                 >
                   {view}
-                </Button>
+                </button>
               ))}
-            </div>
-            
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => { setCurrentView('iso'); setZoom(1); }}
-                title="Reset View" aria-label="Reset View"
-              >
-                <Home className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setZoom(z => Math.min(4, z * 1.25))}
-                title="Zoom In" aria-label="Zoom In"
-              >
-                <ZoomIn className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setZoom(z => Math.max(0.25, z / 1.25))}
-                title="Zoom Out" aria-label="Zoom Out"
-              >
-                <ZoomOut className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setReframe(n => n + 1)}
-                title="Reset Rotation" aria-label="Reset Rotation"
-              >
-                <RotateCcw className="w-4 h-4" />
-              </Button>
-            </div>
 
-            <div className="flex gap-2">
-              <Button
-                variant={frameMode === 'circuit' && circuitFrame ? 'default' : 'outline'}
-                size="sm"
+              <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
+
+              <button
+                type="button"
+                onClick={() => { setFrameMode('circuit'); setZoom(1) }}
+                aria-pressed={frameMode === 'circuit' && Boolean(circuitFrame)}
                 disabled={!circuitFrame}
-                onClick={() => { setFrameMode('circuit'); setZoom(1); }}
                 title="Frame the placed components and routed copper"
+                className={cn(hudItem(frameMode === 'circuit' && Boolean(circuitFrame)), 'disabled:pointer-events-none disabled:opacity-40')}
               >
                 Circuit
-              </Button>
-              <Button
-                variant={frameMode === 'board' || !circuitFrame ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => { setFrameMode('board'); setZoom(1); }}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setFrameMode('board'); setZoom(1) }}
+                aria-pressed={frameMode === 'board' || !circuitFrame}
                 title="Frame the whole board outline"
+                className={hudItem(frameMode === 'board' || !circuitFrame)}
               >
                 Board
-              </Button>
+              </button>
+
+              <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
+
+              <button
+                type="button"
+                onClick={() => { setCurrentView('iso'); setZoom(1); }}
+                title="Reset View" aria-label="Reset View"
+                className={hudIcon}
+              >
+                <Home className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setZoom(z => Math.min(4, z * 1.25))}
+                title="Zoom In" aria-label="Zoom In"
+                className={hudIcon}
+              >
+                <ZoomIn className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setZoom(z => Math.max(0.25, z / 1.25))}
+                title="Zoom Out" aria-label="Zoom Out"
+                className={hudIcon}
+              >
+                <ZoomOut className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setReframe(n => n + 1)}
+                title="Reset Rotation" aria-label="Reset Rotation"
+                className={hudIcon}
+              >
+                <RotateCcw className="h-4 w-4" />
+              </button>
             </div>
           </div>
-
-          {/* Info Overlay — compact, over the sky rather than the board */}
-          <div className="absolute right-4 top-4 rounded-md border border-border bg-card/80 px-2.5 py-1.5 text-[11px] leading-4 text-muted-foreground backdrop-blur-sm">
-            <div>Components: {scene ? scene.counts.components : components3D.length}</div>
-            <div>Traces: {scene ? scene.counts.segments : traces3D.length}</div>
-            {scene && <div>Board: {scene.board.widthMm} × {scene.board.heightMm} mm · {scene.counts.copperLayers} copper</div>}
-            {scene && <div>Vias: {scene.counts.vias} · Pads: {scene.counts.pads}</div>}
-            <div>View: {currentView.toUpperCase()} · {framing === circuitFrame ? 'circuit' : 'board'}</div>
-          </div>
+          {/* Info strip — the numbers that change when the design changes. It
+              runs along the bottom edge rather than over the board: a card in
+              the top-right sat on top of half the copper on a 245 mm mainboard,
+              and the one thing worth looking at was the thing it hid. */}
+          <dl className="pointer-events-none absolute bottom-3 left-3 flex max-w-[calc(100%-1.5rem)] flex-wrap items-baseline gap-x-4 gap-y-0.5 rounded-lg border border-border/40 bg-background/75 px-2.5 py-1 text-[11px] leading-4 shadow-sm backdrop-blur-sm">
+            <Stat label="Parts" value={String(scene ? scene.counts.components : components3D.length)} />
+            <Stat label="Traces" value={String(scene ? scene.counts.segments : traces3D.length)} />
+            {scene && (
+              <Stat
+                label="Board"
+                value={`${scene.board.widthMm} × ${scene.board.heightMm} mm`}
+                hint={`${scene.counts.copperLayers} copper`}
+              />
+            )}
+            {scene && <Stat label="Vias" value={String(scene.counts.vias)} hint={`${scene.counts.pads} pads`} />}
+            <Stat label="View" value={currentView.toUpperCase()} hint={framingMode} accent />
+          </dl>
         </div>
 
         {/* Control Panel */}
@@ -858,67 +1042,140 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {/* Enclosure */}
+            <Card data-testid="enclosure-card">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-2">
+                  <SectionTitle icon={Box} tone="info">Enclosure</SectionTitle>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 gap-1 px-2 text-[11px]"
+                      onClick={() => enclosureInputRef.current?.click()}
+                      title="Import an STL or OBJ enclosure shell (millimetres)"
+                    >
+                      <Upload className="w-3 h-3" />
+                      Import
+                    </Button>
+                    {enclosure && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => { setEnclosure(null); setEnclosureError(null); }}
+                        aria-label="Remove enclosure shell"
+                        title="Remove enclosure shell"
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-2 text-xs">
+                <input
+                  ref={enclosureInputRef}
+                  type="file"
+                  accept=".stl,.obj,model/stl,application/sla,text/plain"
+                  /*
+                   * Screen-reader only rather than `display: none`, so the file
+                   * picker is a reachable control in its own right: a keyboard or
+                   * screen-reader user meets "Choose an enclosure file to import"
+                   * and can act on it, instead of a button that silently opens an
+                   * operating-system dialog they cannot see. The Import button
+                   * still forwards its click here for pointer users.
+                   */
+                  className="sr-only"
+                  tabIndex={0}
+                  aria-label="Choose an enclosure file to import"
+                  onChange={event => { void importEnclosure(event); }}
+                />
+                {enclosureError && (
+                  <p role="alert" className="text-destructive">{enclosureError}</p>
+                )}
+                {!enclosure && (
+                  <p className="text-muted-foreground">
+                    No shell imported. An STL or OBJ enclosure is drawn around the board and measured
+                    against it; it never enters the fab package, the router or the exports.
+                  </p>
+                )}
+                {enclosure && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-foreground" title={enclosure.name}>{enclosure.name}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => setShowEnclosure(value => !value)}
+                      aria-label={showEnclosure ? 'Hide enclosure shell' : 'Show enclosure shell'}
+                      title={showEnclosure ? 'Hide enclosure shell' : 'Show enclosure shell'}
+                    >
+                      {showEnclosure ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                    </Button>
+                  </div>
+                )}
+                {enclosure && enclosureFit && (
+                  <div className="space-y-2">
+                    {shellDefect === null ? (
+                      <p className={enclosureFit.fits ? 'text-success' : 'text-destructive'}>
+                        {enclosureVerdict}
+                      </p>
+                    ) : (
+                      <p className="text-warning">
+                        {`${enclosureVerdict}. ${shellDefect} — these figures compare outer boxes, so they are not an assembly proof.`}
+                      </p>
+                    )}
+                    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-muted-foreground">
+                      <dt>Cavity</dt>
+                      <dd className="text-right tabular-nums">
+                        {millimetres(enclosureFit.cavityMm.width)} × {millimetres(enclosureFit.cavityMm.depth)} × {millimetres(enclosureFit.cavityMm.height)}
+                      </dd>
+                      <dt>Board stack</dt>
+                      <dd className="text-right tabular-nums">
+                        {millimetres(enclosureFit.stackMm.width)} × {millimetres(enclosureFit.stackMm.depth)} × {millimetres(enclosureFit.stackMm.height)}
+                      </dd>
+                      <dt>Wall room</dt>
+                      <dd className="text-right tabular-nums">
+                        {millimetres(enclosureFit.clearanceMm.negX)}/{millimetres(enclosureFit.clearanceMm.posX)} ×{' '}
+                        {millimetres(enclosureFit.clearanceMm.negZ)}/{millimetres(enclosureFit.clearanceMm.posZ)}
+                      </dd>
+                      <dt>Lid / floor</dt>
+                      <dd className="text-right tabular-nums">
+                        {millimetres(enclosureFit.clearanceMm.posY)} / {millimetres(enclosureFit.clearanceMm.negY)}
+                      </dd>
+                    </dl>
+                    <p className="text-muted-foreground">
+                      Centred by bounding box; ribs, bosses and cut-outs in the model are not measured.
+                    </p>
+                  </div>
+                )}
+                {enclosure && !enclosureFit && (
+                  <p className="text-muted-foreground">
+                    The shell is drawn at its own size. The fit needs a routed board layout — until then
+                    the board stack is unknown.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
             {/* Visibility Controls */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Visibility</CardTitle>
+                <SectionTitle icon={Eye} tone="primary">Visibility</SectionTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Grid</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setShowGrid(!showGrid)}
-                    aria-label={showGrid ? 'Hide grid' : 'Show grid'}
-                    className="h-6 w-6"
-                  >
-                    {showGrid ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                  </Button>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Components</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setShowComponents(!showComponents)}
-                    aria-label={showComponents ? 'Hide components' : 'Show components'}
-                    className="h-6 w-6"
-                  >
-                    {showComponents ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                  </Button>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Traces</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setShowTraces(!showTraces)}
-                    aria-label={showTraces ? 'Hide traces' : 'Show traces'}
-                    className="h-6 w-6"
-                  >
-                    {showTraces ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                  </Button>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">PCB</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setShowPCB(!showPCB)}
-                    aria-label={showPCB ? 'Hide PCB' : 'Show PCB'}
-                    className="h-6 w-6"
-                  >
-                    {showPCB ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                  </Button>
-                </div>
+              <CardContent className="grid gap-1.5 sm:grid-cols-2">
+                <VisibilityRow label="Grid" on={showGrid} onToggle={() => setShowGrid(!showGrid)} swatch="#5b7cb8" />
+                <VisibilityRow label="Components" on={showComponents} onToggle={() => setShowComponents(!showComponents)} swatch="#1f2126" />
+                <VisibilityRow label="Traces" on={showTraces} onToggle={() => setShowTraces(!showTraces)} swatch="#d9a441" />
+                <VisibilityRow label="PCB" on={showPCB} onToggle={() => setShowPCB(!showPCB)} swatch="#0a5732" />
               </CardContent>
             </Card>
 
             {/* Board source / layout warnings */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Board source</CardTitle>
+                <SectionTitle icon={FileStack} tone="success">Board source</SectionTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-xs text-muted-foreground">
                 {scene ? (
@@ -947,40 +1204,17 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
             {/* PCB Layers */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Layers className="w-4 h-4" />
-                  PCB Layers
-                </CardTitle>
+                <SectionTitle icon={Layers} tone="info">PCB Layers</SectionTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
+              <CardContent className="grid gap-1.5">
                 {layerRows.map(layer => (
-                  <div
+                  <VisibilityRow
                     key={layer.key}
-                    className={`flex items-center justify-between p-2 rounded cursor-pointer transition-colors ${
-                      selectedLayer === layer.key ? 'bg-primary/10' : 'hover:bg-accent'
-                    }`}
-                    onClick={() => setSelectedLayer(layer.key)}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-3 h-3 rounded border"
-                        style={{ backgroundColor: layer.color }}
-                      />
-                      <span className="text-xs">{layer.label}</span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        layer.toggle();
-                      }}
-                      aria-label={layer.visible ? `Hide ${layer.label} layer` : `Show ${layer.label} layer`}
-                      className="h-5 w-5"
-                    >
-                      {layer.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                    </Button>
-                  </div>
+                    label={layer.label}
+                    on={layer.visible}
+                    onToggle={layer.toggle}
+                    swatch={layer.color}
+                  />
                 ))}
               </CardContent>
             </Card>
@@ -988,7 +1222,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
             {/* Board appearance — how the fabricated board is expected to look */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Board appearance</CardTitle>
+                <SectionTitle icon={Palette} tone="warning">Board appearance</SectionTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div>
@@ -1005,7 +1239,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                           aria-label={`${spec.label} soldermask`}
                           aria-pressed={active}
                           title={spec.label}
-                          className={`h-7 w-7 rounded-full border-2 transition-transform ${
+                          className={`cad-swatch h-7 w-7 rounded-full border-2 transition-transform ${
                             active ? 'scale-110 border-primary ring-2 ring-primary/30' : 'border-border hover:scale-105'
                           }`}
                           style={{ backgroundColor: spec.overlayColor }}
@@ -1037,35 +1271,18 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
             {/* Component List */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Components</CardTitle>
+                <SectionTitle icon={Cpu} tone="primary">Components</SectionTitle>
               </CardHeader>
-              <CardContent className="space-y-2 max-h-40 overflow-y-auto">
+              <CardContent className="max-h-52 space-y-1.5 overflow-y-auto">
                 {componentRows.map(component => (
-                  <div
+                  <VisibilityRow
                     key={component.key}
-                    className="flex items-center justify-between p-2 rounded hover:bg-accent cursor-pointer"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-3 h-3 rounded"
-                        style={{ backgroundColor: component.color }}
-                      />
-                      <span className="text-xs">{component.label}</span>
-                      {!component.onBoard && <span className="text-[10px] text-destructive">off-board</span>}
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-5 w-5"
-                      aria-label={component.visible ? `Hide ${component.label}` : `Show ${component.label}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        component.toggle();
-                      }}
-                    >
-                      {component.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                    </Button>
-                  </div>
+                    label={component.label}
+                    on={component.visible}
+                    onToggle={component.toggle}
+                    swatch={component.color}
+                    note={component.onBoard ? null : <span className="text-[10px] text-destructive">off-board</span>}
+                  />
                 ))}
               </CardContent>
             </Card>
@@ -1073,7 +1290,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
             {/* Export Options */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Export</CardTitle>
+                <SectionTitle icon={Download} tone="warning">Export</SectionTitle>
               </CardHeader>
               <CardContent className="space-y-2">
                 <Button
@@ -1109,7 +1326,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
             {/* XR Preview */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">AR / VR Preview</CardTitle>
+                <SectionTitle icon={MonitorPlay} tone="info">AR / VR Preview</SectionTitle>
               </CardHeader>
               <CardContent className="space-y-2">
                 <div className="flex gap-2">
@@ -1143,10 +1360,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
             {/* Settings */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Settings className="w-4 h-4" />
-                  Settings
-                </CardTitle>
+                <SectionTitle icon={Settings} tone="primary">Settings</SectionTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div>
@@ -1163,20 +1377,16 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                     <option value={2}>Ultra (2×)</option>
                   </select>
                 </div>
-                <div>
-                  <label className="text-xs font-medium" htmlFor="component-scale">Component scale</label>
-                  <input
-                    id="component-scale"
-                    type="range"
-                    min="0.5"
-                    max="2"
-                    step="0.1"
-                    value={componentScale}
-                    onChange={(event) => setComponentScale(parseFloat(event.target.value))}
-                    className="w-full mt-1"
-                  />
-                  <div className="text-xs text-muted-foreground">{componentScale.toFixed(1)}×</div>
-                </div>
+                <RangeControl
+                  id="component-scale"
+                  label="Component scale"
+                  min={0.5}
+                  max={2}
+                  step={0.1}
+                  value={componentScale}
+                  onValueChange={setComponentScale}
+                  format={(value) => `${value.toFixed(1)}×`}
+                />
                 <div className="flex items-center justify-between">
                   <span className="text-xs">Shadows</span>
                   <input

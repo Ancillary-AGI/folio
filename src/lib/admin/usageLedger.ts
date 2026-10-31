@@ -1,11 +1,11 @@
 /**
- * Device-local usage ledger for the administration console.
+ * Workspace usage ledger for the administration console.
  *
  * The ledger is deliberately small and boring: append-only events, a hard cap,
  * and aggregation that is deterministic for a given clock. It records what the
- * workbench actually did on this device (workspace opens, demos, projects,
+ * workbench actually did in this workspace (workspace opens, demos, projects,
  * commits, exports). It is not an analytics pipeline and never leaves the
- * browser; cloud-wide usage lives in `usage_events` (see the admin migration).
+ * deployment; cloud-wide usage lives in `usage_events` (see the admin migration).
  */
 
 export const USAGE_STORAGE_KEY = 'folio.usage.v1'

@@ -11,6 +11,9 @@
  *  • Periodic background health + threat checks via setInterval
  */
 
+import { backupService, type BackupService } from '../backup/backupService'
+import { offlineProjectStore } from '../offlineProjectStore'
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface SIEMEvent {
@@ -88,6 +91,8 @@ interface SystemSnapshot {
   backupExists: boolean
   /** Seconds since last backup */
   secondsSinceLastBackup: number
+  /** Saved designs a recovery point would protect; 0 means there is nothing to back up */
+  protectedProjectCount: number
   /** Whether TLS is enforced for external comms (heuristic) */
   tlsEnforced: boolean
 }
@@ -98,8 +103,15 @@ interface ComplianceRule {
   id: string
   standard: ComplianceCheck['standard']
   requirement: string
-  evaluate: (snap: SystemSnapshot) => { compliant: boolean; evidence: string[] }
+  evaluate: (snap: SystemSnapshot) => { compliant: boolean; evidence: string[]; notApplicable?: boolean }
 }
+
+/** Health condition messages double as the alert description, so they are shared. */
+const BACKUP_NOTICE_MESSAGE = 'No recent backup detected (ISO 27001 A.12.3)'
+const BACKLOG_NOTICE_RULE = 'high_alert_backlog'
+const BACKUP_NOTICE_RULE = 'backup_overdue'
+const BACKUP_INTERVAL_SECONDS = 86400
+const HIGH_ALERT_THRESHOLD = 5
 
 const COMPLIANCE_RULES: ComplianceRule[] = [
   // ── ISO 27001 ───────────────────────────────────────────────────────────────
@@ -137,13 +149,25 @@ const COMPLIANCE_RULES: ComplianceRule[] = [
     id: 'iso_backup',
     standard: 'ISO27001',
     requirement: 'A.12.3 — Information Backup',
-    evaluate: snap => ({
-      compliant: snap.backupExists && snap.secondsSinceLastBackup < 86400,
-      evidence: [
-        snap.backupExists ? '✓ Backup snapshot exists' : '✗ No backup found',
-        `Last backup: ${snap.backupExists ? `${Math.round(snap.secondsSinceLastBackup / 60)} min ago` : 'never'}`,
-      ],
-    }),
+    evaluate: snap => {
+      // A fresh install with no saved design has nothing to recover, so the
+      // control is not applicable rather than failed.
+      if (snap.protectedProjectCount === 0) {
+        return {
+          compliant: true,
+          notApplicable: true,
+          evidence: ['— No saved project requires a backup yet'],
+        }
+      }
+      const fresh = snap.backupExists && snap.secondsSinceLastBackup < BACKUP_INTERVAL_SECONDS
+      return {
+        compliant: fresh,
+        evidence: [
+          snap.backupExists ? '✓ Backup snapshot exists' : '✗ No backup found',
+          `Last backup: ${snap.backupExists ? `${Math.round(snap.secondsSinceLastBackup / 60)} min ago` : 'never'}`,
+        ],
+      }
+    },
   },
   // ── IEC 62443 ───────────────────────────────────────────────────────────────
   {
@@ -304,7 +328,7 @@ export class SIEMService {
   /** Monotonic id source — deterministic, collision-free, and testable. */
   private sequence = 0
 
-  constructor() {
+  constructor(private readonly backups: Pick<BackupService, 'latestBackupAt'> = backupService) {
     this.initializeThreatIntelligence()
   }
 
@@ -567,12 +591,12 @@ export class SIEMService {
     const nextCheck = now + 30 * 24 * 3600 * 1000
 
     const results: ComplianceCheck[] = rules.map(rule => {
-      const { compliant, evidence } = rule.evaluate(snap)
+      const { compliant, evidence, notApplicable } = rule.evaluate(snap)
       return {
         id: rule.id,
         standard: rule.standard,
         requirement: rule.requirement,
-        status: compliant ? 'compliant' : 'non_compliant',
+        status: notApplicable ? 'not_applicable' : compliant ? 'compliant' : 'non_compliant',
         evidence,
         lastChecked: now,
         nextCheck,
@@ -637,20 +661,18 @@ export class SIEMService {
     // Heuristic: if the page is served over HTTPS (production) TLS is enforced
     const tlsEnforced = typeof window !== 'undefined' && window.location.protocol === 'https:'
 
-    // Backup: check localStorage for backup service entries
-    let backupExists = false
-    let secondsSinceLastBackup = Infinity
-    try {
-      const backupMeta = localStorage.getItem('ide-backups-meta')
-      if (backupMeta) {
-        const parsed = JSON.parse(backupMeta) as Array<{ timestamp: number }>
-        if (parsed.length > 0) {
-          backupExists = true
-          const latest = Math.max(...parsed.map(b => b.timestamp))
-          secondsSinceLastBackup = (Date.now() - latest) / 1000
-        }
-      }
-    } catch { /* localStorage unavailable */ }
+    // Backup evidence comes from the checkpoint store the app actually writes,
+    // so taking a checkpoint is what changes this reading. A cloud project with
+    // no local checkpoint still counts as work worth protecting.
+    const lastBackupAt = this.backups.latestBackupAt()
+    const backupExists = lastBackupAt !== null
+    const secondsSinceLastBackup = lastBackupAt === null
+      ? Infinity
+      : Math.max(0, (Date.now() - lastBackupAt) / 1000)
+    const protectedProjectCount = Math.max(
+      offlineProjectStore.list().length,
+      backupExists ? 1 : 0,
+    )
 
     return {
       mfaEnforcementRate,
@@ -661,6 +683,7 @@ export class SIEMService {
       unresolvedHighAlerts,
       backupExists,
       secondsSinceLastBackup,
+      protectedProjectCount,
       tlsEnforced,
     }
   }
@@ -742,6 +765,13 @@ export class SIEMService {
     this.monitoringIntervals.push(setInterval(() => this.performHealthCheck(), 30_000))
     // Compliance drift every 6 h
     this.monitoringIntervals.push(setInterval(() => this.detectComplianceDrift(), 6 * 3600 * 1000))
+    // The first reading should describe this session, not the one 30 s later.
+    this.performHealthCheck()
+  }
+
+  /** Run the same condition check the 30-second monitor runs, on demand. */
+  checkHealth(): void {
+    this.performHealthCheck()
   }
 
   stopMonitoring(): void {
@@ -752,20 +782,52 @@ export class SIEMService {
 
   private performHealthCheck(): void {
     const snap = this.buildSystemSnapshot()
-    if (snap.unresolvedHighAlerts > 5) {
+
+    if (snap.unresolvedHighAlerts > HIGH_ALERT_THRESHOLD) {
       this.logHealthEvent({
         type: 'security', severity: 'high', source: 'health_monitor',
         message: `${snap.unresolvedHighAlerts} unresolved high/critical alerts outstanding`,
         metadata: { unresolvedHighAlerts: snap.unresolvedHighAlerts },
       })
+    } else {
+      this.resolveHealthNotice(BACKLOG_NOTICE_RULE, 'Alert backlog returned below the health threshold')
     }
-    if (!snap.backupExists || snap.secondsSinceLastBackup > 86400) {
+
+    const backupDue = snap.protectedProjectCount > 0
+      && (!snap.backupExists || snap.secondsSinceLastBackup > BACKUP_INTERVAL_SECONDS)
+    if (backupDue) {
       this.logHealthEvent({
         type: 'compliance', severity: 'medium', source: 'health_monitor',
-        message: 'No recent backup detected (ISO 27001 A.12.3)',
+        message: BACKUP_NOTICE_MESSAGE,
         metadata: { backupExists: snap.backupExists, secondsSinceLastBackup: snap.secondsSinceLastBackup },
       })
+    } else {
+      this.resolveHealthNotice(BACKUP_NOTICE_RULE, 'A recent checkpoint now covers the saved projects')
     }
+  }
+
+  /**
+   * Retire the open notice for a health condition that no longer holds. The
+   * notice is derived state; leaving it active after the condition clears is
+   * how a dashboard ends up showing an alert that can never go away.
+   */
+  private resolveHealthNotice(ruleId: string, resolution: string): void {
+    let changed = false
+    for (const alert of this.alerts) {
+      if (alert.status !== 'active' || alert.ruleId !== ruleId) continue
+      alert.status = 'resolved'
+      const event = this.events.find(
+        candidate => !candidate.resolved
+          && candidate.source === 'health_monitor'
+          && candidate.message === alert.description,
+      )
+      if (event) {
+        event.resolved = true
+        event.resolution = resolution
+      }
+      changed = true
+    }
+    if (changed) this.notify()
   }
 
   /** One open notice per condition; a recurring check must not re-alert. */
@@ -889,7 +951,16 @@ export class SIEMService {
         },
       },
       {
-        match: e => e.type === 'security' && e.severity === 'high',
+        match: e => e.type === 'security' && e.source === 'health_monitor' && e.severity === 'high',
+        alert: {
+          ruleId: BACKLOG_NOTICE_RULE, severity: 'high',
+          title: 'Alert backlog',
+          description: event.message,
+          recommendedActions: ['Triage and resolve the oldest high/critical alerts', 'Assign an owner to each open alert'],
+        },
+      },
+      {
+        match: e => e.type === 'security' && e.severity === 'high' && e.source !== 'health_monitor',
         alert: {
           ruleId: 'high_security', severity: 'high',
           title: 'High-Priority Security Event', description: event.message,
@@ -905,7 +976,16 @@ export class SIEMService {
         },
       },
       {
-        match: e => e.type === 'compliance',
+        match: e => e.type === 'compliance' && e.source === 'health_monitor' && e.message === BACKUP_NOTICE_MESSAGE,
+        alert: {
+          ruleId: BACKUP_NOTICE_RULE, severity: 'medium',
+          title: 'Backup overdue',
+          description: event.message,
+          recommendedActions: ['Create a checkpoint from the version-control menu', 'Keep at least one checkpoint newer than 24 hours'],
+        },
+      },
+      {
+        match: e => e.type === 'compliance' && e.source !== 'health_monitor',
         alert: {
           ruleId: 'compliance_drift', severity: 'medium',
           title: 'Compliance Drift', description: event.message,

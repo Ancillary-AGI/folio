@@ -6,20 +6,20 @@ import type { User } from '../types'
 import { QUOTA_STORAGE_KEY } from '../lib/admin/quotaPolicy'
 import { USAGE_STORAGE_KEY, getUsageEvents, recordUsage, resetUsageLedger } from '../lib/admin/usageLedger'
 
-const owner: User = { id: 'owner-1', name: 'Local User', email: 'local@offline', role: 'owner' }
+const owner: User = { id: 'owner-1', name: 'Workspace Owner', email: 'owner@folio.app', role: 'owner' }
 
 beforeEach(() => {
   localStorage.clear()
   resetUsageLedger()
 })
 
-describe('AdminConsole (local owner)', () => {
+describe('AdminConsole (standalone workspace)', () => {
   it('renders the overview and records the open in the ledger', async () => {
     render(<AdminConsole user={owner} offlineMode onBack={vi.fn()} />)
 
     expect(await screen.findByRole('heading', { name: 'Administration' })).toBeInTheDocument()
-    expect(screen.getByText('This device · local owner')).toBeInTheDocument()
-    expect(screen.getByText('Local only')).toBeInTheDocument()
+    expect(screen.getByText('Workspace administration')).toBeInTheDocument()
+    expect(screen.getByText('Standalone')).toBeInTheDocument()
 
     await waitFor(() => {
       const stored = JSON.parse(localStorage.getItem(USAGE_STORAGE_KEY) ?? '[]') as Array<{ kind: string }>
@@ -27,15 +27,15 @@ describe('AdminConsole (local owner)', () => {
     })
   })
 
-  it('shows the single local owner and labels invitations as cloud-only', async () => {
+  it('shows the single administrator and labels invitations as cloud-only', async () => {
     render(<AdminConsole user={owner} offlineMode onBack={vi.fn()} />)
     await screen.findByRole('heading', { name: 'Administration' })
 
     fireEvent.click(screen.getByRole('tab', { name: 'People' }))
-    expect(await screen.findByText('Local User (you)')).toBeInTheDocument()
-    expect(screen.getByText('local@offline')).toBeInTheDocument()
+    expect(await screen.findByText('Workspace Owner (you)')).toBeInTheDocument()
+    expect(screen.getByText('owner@folio.app')).toBeInTheDocument()
     expect(screen.getByText('Managed in cloud')).toBeInTheDocument()
-    expect(screen.getByText(/Invitations need Supabase's server-side admin API/)).toBeInTheDocument()
+    expect(screen.getByText(/Invitations require a server-side admin API/)).toBeInTheDocument()
   })
 
   it('lists recorded usage and filters by kind', async () => {
@@ -83,9 +83,9 @@ describe('AdminConsole (local owner)', () => {
     await screen.findByRole('heading', { name: 'Administration' })
 
     fireEvent.click(screen.getByRole('tab', { name: 'Environment' }))
-    expect(await screen.findByText('Local device')).toBeInTheDocument()
-    expect(screen.getByText('No Supabase credentials; all data stays in this browser.')).toBeInTheDocument()
-    expect(screen.getByText('Local runner only')).toBeInTheDocument()
+    expect((await screen.findAllByText('Standalone')).length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText('No external identity service; workspace data stays in this deployment.')).toBeInTheDocument()
+    expect(screen.getByText('In-process runner')).toBeInTheDocument()
     expect(screen.getByText('Not applicable')).toBeInTheDocument()
     expect(screen.getByText(/Invite accounts: server function required/)).toBeInTheDocument()
   })
@@ -135,7 +135,7 @@ describe('AdminConsole (local owner)', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Usage' }))
 
     expect(await screen.findByText(/removes all 3 recorded events/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: "Clear this device's ledger" }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear ledger' }))
     fireEvent.click(screen.getByRole('button', { name: /clear all 3 events/i }))
 
     await waitFor(() => expect(getUsageEvents()).toHaveLength(0))
@@ -152,7 +152,7 @@ describe('AdminConsole (local owner)', () => {
       fireEvent.click(screen.getByRole('tab', { name: 'Quotas' }))
 
       expect(await screen.findByText('Unavailable')).toBeInTheDocument()
-      expect(screen.getByText(/did not report a storage estimate/)).toBeInTheDocument()
+      expect(screen.getByText(/No storage estimate was reported/)).toBeInTheDocument()
     } finally {
       if (originalStorage) Object.defineProperty(navigator, 'storage', originalStorage)
       else Object.defineProperty(navigator, 'storage', { value: undefined, configurable: true })

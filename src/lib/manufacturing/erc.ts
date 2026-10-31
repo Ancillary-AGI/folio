@@ -6,6 +6,7 @@ export type ERCViolationType =
   | 'multiple_drivers'
   | 'power_ground_short'
   | 'supply_output_unconnected'
+  | 'no_driver'
 
 export interface ERCViolation {
   type: ERCViolationType
@@ -256,6 +257,23 @@ export class ElectricalRuleChecker {
           message: `Net "${net.name}" shorts power (${supplies}) to ground (${returns})`,
           netId: net.id,
           suggestion: 'Separate the power and ground nets',
+        })
+      }
+
+      /*
+       * Input pins wired only to other input pins: nothing on this net can drive
+       * it. A passive pin is not flagged, because a connector or series part is
+       * routinely the entry point of a signal from off-sheet.
+       */
+      const inputs = resolved.filter(entry => entry.pin.type === 'input')
+      if (inputs.length > 0 && inputs.length === resolved.length) {
+        const pins = inputs.map(entry => `${entry.component.name}.${entry.pin.name}`).join(', ')
+        violations.push({
+          type: 'no_driver',
+          severity: 'warning',
+          message: `Net "${net.name}" connects only inputs (${pins}) — nothing drives it`,
+          netId: net.id,
+          suggestion: 'Connect it to an output or source, or split the net',
         })
       }
     }

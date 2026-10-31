@@ -1,8 +1,9 @@
 /**
  * AI Datasheet-to-Component Ingestion Engine.
- * Extracts pinouts, electrical ratings, package dimensions, and SPICE parameters
- * from component datasheets (text, tables, or OCR) and synthesizes ready-to-use
- * schematic symbols, IPC-7351 footprints, and SPICE models.
+ * Extracts pinouts, electrical ratings and package dimensions from datasheet
+ * text and synthesizes a schematic symbol plus a generated SOIC-family land
+ * pattern. It deliberately synthesizes no SPICE model: a pinout is not device
+ * physics, and an invented macromodel would simulate confidently and wrongly.
  */
 
 import type { Component as SupabaseComponent } from '../supabase';
@@ -41,7 +42,6 @@ export interface ExtractedPin {
 
 export interface ExtractedElectricalSpecs {
   minSupplyVoltageV?: number;
-  nominalSupplyVoltageV?: number;
   maxSupplyVoltageV?: number;
   maxCurrentA?: number;
   quiescentCurrentUa?: number;
@@ -50,6 +50,8 @@ export interface ExtractedElectricalSpecs {
 
 export interface ExtractedPackage {
   packageName: string;
+  /** False when no package line was read and the SOIC family was assumed. */
+  packageStated: boolean;
   pinCount: number;
   pitchMm: number;
   bodyWidthMm: number;
@@ -72,7 +74,6 @@ export interface IngestedDatasheet {
 export interface SynthesizedPart {
   component: SupabaseComponent;
   footprint: Footprint;
-  spiceSubcircuit: string;
 }
 
 /**
@@ -93,6 +94,7 @@ export function parseDatasheetText(rawText: string): IngestedDatasheet {
   let explicitPackage: string | undefined;
   const packaging: ExtractedPackage = {
     packageName: 'SOIC-8',
+    packageStated: false,
     pinCount: 8,
     pitchMm: 1.27,
     bodyWidthMm: 3.9,
@@ -113,7 +115,7 @@ export function parseDatasheetText(rawText: string): IngestedDatasheet {
     if (descMatch) description = descMatch[1];
 
     // Only the 1.27 mm dual-row family is modelled by the synthesized footprint.
-    const packageMatch = line.match(/^(?:Package|Package Type|Case):\s*((?:SOIC|SOP|SO)-?\d+)/i);
+    const packageMatch = line.match(/^(?:Package|Package Type|Case):\s*((?:SOIC|SOP|SO)-?\d+W?)/i);
     if (packageMatch) explicitPackage = packageMatch[1].toUpperCase();
 
     // Electrical limits
@@ -121,22 +123,24 @@ export function parseDatasheetText(rawText: string): IngestedDatasheet {
     if (vddMatch) {
       electrical.minSupplyVoltageV = parseFloat(vddMatch[1]);
       electrical.maxSupplyVoltageV = parseFloat(vddMatch[2]);
-      electrical.nominalSupplyVoltageV = (electrical.minSupplyVoltageV + electrical.maxSupplyVoltageV) / 2;
     }
 
-    // Pin table extraction: "Pin 1: VDD (Power)" or markdown row "| 1 | VDD | Power |"
-    const pinRowMatch = line.match(/^\|?\s*(\d+)\s*\|?\s*([A-Za-z0-9_#/-]+)\s*\|?\s*([A-Za-z/]+)?/);
+    // Pin row: "1 VDD Power" or a markdown row "| 1 | VDD | Power |". The
+    // description may be several words ("Analog Input"), so it is captured to
+    // the next cell divider rather than as a single word.
+    const pinRowMatch = line.match(/^\|?\s*(\d+)\s*\|?\s*([A-Za-z0-9_#/-]+)\s*\|?\s*([A-Za-z/ ]*)/);
     if (pinRowMatch) {
       const pinNum = parseInt(pinRowMatch[1], 10);
       const pinName = pinRowMatch[2];
-      const rawKind = (pinRowMatch[3] ?? '').toLowerCase();
+      const rawKind = (pinRowMatch[3] ?? '').trim().toLowerCase();
 
       if (pinNum > 0 && !isNaN(pinNum)) {
         let kind: ExtractedPin['kind'] = 'bidirectional';
         const uName = pinName.toUpperCase();
         if (uName.includes('VDD') || uName.includes('VCC') || rawKind.includes('power')) kind = 'power';
         else if (uName.includes('GND') || uName.includes('VSS') || rawKind.includes('ground')) kind = 'ground';
-        else if (rawKind.includes('in') && !rawKind.includes('out')) kind = 'input';
+        else if (rawKind.includes('in') && rawKind.includes('out')) kind = 'bidirectional';
+        else if (rawKind.includes('in')) kind = 'input';
         else if (rawKind.includes('out')) kind = 'output';
         else if (rawKind.includes('pass')) kind = 'passive';
 
@@ -154,13 +158,18 @@ export function parseDatasheetText(rawText: string): IngestedDatasheet {
     if (declaredCount) packaging.pinCount = parseInt(declaredCount[1], 10);
   }
 
-  // The default package is an 8-pin SOIC; widen the name and body for larger
-  // dual-row parts instead of reporting "SOIC-8 (16 pins)".
+  // Without a package line the family is an assumption, not a reading, and the
+  // UI says so. With one, the land pattern below still uses generic pad
+  // geometry, not a per-part IPC land-pattern calculation.
+  packaging.packageStated = explicitPackage !== undefined;
   packaging.packageName = explicitPackage ?? `SOIC-${packaging.pinCount}`;
   if (packaging.pinCount > 8) {
     const pinsPerSide = Math.ceil(packaging.pinCount / 2);
     packaging.bodyHeightMm = 4.9 + (pinsPerSide - 4) * packaging.pitchMm;
   }
+  // A trailing W marks the 300 mil wide body; without it the 150 mil narrow
+  // body is assumed, which is the common case for 16-pin logic and converters.
+  if (explicitPackage?.endsWith('W')) packaging.bodyWidthMm = 7.5;
 
   return {
     partNumber,
@@ -174,7 +183,8 @@ export function parseDatasheetText(rawText: string): IngestedDatasheet {
 }
 
 /**
- * Synthesize a Folio Component, Footprint, and SPICE model from an ingested datasheet.
+ * Synthesize a Folio component and footprint from an ingested datasheet.
+ * No SPICE model is produced; see the module comment.
  */
 export function synthesizeComponentFromDatasheet(data: IngestedDatasheet): SynthesizedPart {
   const pinCount = data.pins.length > 0 ? data.pins.length : data.packaging.pinCount;
@@ -227,16 +237,25 @@ export function synthesizeComponentFromDatasheet(data: IngestedDatasheet): Synth
       height: symbolHeight,
       paths: symbolPaths,
     },
+    /*
+     * Only limits the datasheet actually stated. A default voltage here would
+     * become a declared rating, and margins measured against an invented limit
+     * are worse than a part that reports no rating at all.
+     */
     default_properties: {
       footprint: data.packaging.packageName,
       manufacturer: data.manufacturer,
       mpn: data.partNumber,
-      minSupplyV: String(data.electrical.minSupplyVoltageV ?? 3.3),
-      maxSupplyV: String(data.electrical.maxSupplyVoltageV ?? 5.0),
+      ...(data.electrical.minSupplyVoltageV === undefined
+        ? {}
+        : { minSupplyV: String(data.electrical.minSupplyVoltageV) }),
+      ...(data.electrical.maxSupplyVoltageV === undefined
+        ? {}
+        : { maxSupplyV: String(data.electrical.maxSupplyVoltageV) }),
     },
   };
 
-  // 2. Generate IPC-7351 Footprint
+  // 2. Generate a dual-row SOIC-family land pattern from those dimensions
   const fpPads: Footprint['pads'] = [];
   const pitch = data.packaging.pitchMm;
   const pWidth = data.packaging.padWidthMm;
@@ -276,20 +295,8 @@ export function synthesizeComponentFromDatasheet(data: IngestedDatasheet): Synth
     },
   };
 
-  // 3. Generate SPICE Subcircuit Card
-  const pinOrder = data.pins.map((p) => p.name).join(' ');
-  const spiceSubcircuit = [
-    `* SPICE Macromodel for ${data.partNumber} (${data.description})`,
-    `* Generated automatically from datasheet`,
-    `.SUBCKT ${data.partNumber} ${pinOrder}`,
-    `* Behavioral core`,
-    `R_leak 1 0 100MEG`,
-    `.ENDS ${data.partNumber}`,
-  ].join('\n');
-
   return {
     component,
     footprint,
-    spiceSubcircuit,
   };
 }

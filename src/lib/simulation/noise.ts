@@ -50,7 +50,7 @@ import {
   type AnalysisOutcome,
   type Waveform,
 } from './solver'
-import { stampSemiconductorSmallSignal } from './semiconductors'
+import { stampSemiconductorSmallSignal, type SemiconductorState } from './semiconductors'
 
 export interface NoiseOptions {
   temperatureCelsius: number
@@ -184,7 +184,54 @@ function integrateSpectrum(frequencies: readonly number[], spectrum: readonly nu
  * instead of only the sum. The sum is only over modelled mechanisms —
  * `excludedSources` lists what is missing from it.
  */
-export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): NoiseResult {
+/** One solved noise frequency: per-device power contributions and their sum. */
+export interface NoisePoint {
+  frequency: number
+  /** Power contribution (V²/Hz) for each modelled device, in netlist order. */
+  contributions: Array<{ device: string; power: number }>
+  totalPower: number
+  singular: boolean
+}
+
+/** The bias and source strengths every noise frequency shares. */
+export interface NoiseBias {
+  diodeConductances: Map<string, number>
+  semiconductor: SemiconductorState
+  thermalVoltage: number
+  operatingVoltages: Map<string, number>
+  operatingCurrents: Map<string, number>
+  densities: Array<{
+    device: string
+    p: string
+    n: string
+    kind: 'thermal' | 'shot'
+    density: number
+  }>
+}
+
+/** Everything a noise sweep needs before any frequency is solved. */
+export interface NoisePlan {
+  frequencies: number[]
+  outputNode: string
+  outputIndex: number
+  bias: NoiseBias
+  notes: string[]
+  iterations: number
+  excludedSources: UnmodelledNoiseSource[]
+  temperatureCelsius: number
+}
+
+export type NoisePreparation =
+  | { ok: true; plan: NoisePlan }
+  | { ok: false; result: NoiseResult }
+
+/**
+ * Validate the request and solve the bias once.
+ *
+ * Shot noise depends on the bias current, so a failed bias leaves nothing to
+ * linearise about; the sweep refuses instead of reporting a zero-noise circuit.
+ */
+export function prepareNoiseAnalysis(model: CircuitModel, options: NoiseOptions): NoisePreparation {
   const { temperatureCelsius, startFrequency, stopFrequency, pointsPerDecade = 10, gmin } = options
   const empty: NoiseResult = {
     nodes: [],
@@ -198,35 +245,38 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
   }
 
   if (!Number.isFinite(temperatureCelsius) || temperatureCelsius <= -273.15) {
-    return { ...empty, notes: ['Noise analysis needs a finite temperature above absolute zero.'] }
+    return { ok: false, result: { ...empty, notes: ['Noise analysis needs a finite temperature above absolute zero.'] } }
   }
   if (!Number.isFinite(pointsPerDecade) || pointsPerDecade < 1) {
-    return { ...empty, notes: ['Noise analysis needs at least one frequency point per decade.'] }
+    return { ok: false, result: { ...empty, notes: ['Noise analysis needs at least one frequency point per decade.'] } }
   }
   if (gmin !== undefined && (!Number.isFinite(gmin) || gmin < 0)) {
-    return { ...empty, notes: ['Noise analysis needs a finite, non-negative gmin.'] }
+    return { ok: false, result: { ...empty, notes: ['Noise analysis needs a finite, non-negative gmin.'] } }
   }
   if (!Number.isFinite(startFrequency) || !Number.isFinite(stopFrequency)) {
-    return { ...empty, notes: ['Noise analysis needs finite start and stop frequencies.'] }
+    return { ok: false, result: { ...empty, notes: ['Noise analysis needs finite start and stop frequencies.'] } }
   }
   if (!(startFrequency > 0) || !(stopFrequency > startFrequency)) {
-    return { ...empty, notes: ['Noise analysis needs 0 < start frequency < stop frequency.'] }
+    return { ok: false, result: { ...empty, notes: ['Noise analysis needs 0 < start frequency < stop frequency.'] } }
   }
 
   const outputNode = resolveOutputNode(model, options.outputNode)
   if (!outputNode) {
     return {
-      ...empty,
-      notes: [
-        options.outputNode
-          ? `Noise output node "${options.outputNode}" is not a net in this circuit.`
-          : 'Noise analysis needs an output net. Name a net "OUT", or choose one explicitly.',
-      ],
+      ok: false,
+      result: {
+        ...empty,
+        notes: [
+          options.outputNode
+            ? `Noise output node "${options.outputNode}" is not a net in this circuit.`
+            : 'Noise analysis needs an output net. Name a net "OUT", or choose one explicitly.',
+        ],
+      },
     }
   }
   const outputIndex = model.nodeIndex.get(outputNode)
   if (outputIndex === undefined) {
-    return { ...empty, notes: [`"${outputNode}" is ground; output noise cannot be measured there.`] }
+    return { ok: false, result: { ...empty, notes: [`"${outputNode}" is ground; output noise cannot be measured there.`] } }
   }
 
   const operatingPoint = runOperatingPoint(model, { temperatureCelsius, gmin, time: 0 })
@@ -242,9 +292,12 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
       'Noise analysis needs a converged DC operating point; the bias solve failed, so no noise spectrum was computed.',
     )
     return {
-      ...empty,
-      notes,
-      iterations: operatingPoint.outcome.iterations,
+      ok: false,
+      result: {
+        ...empty,
+        notes,
+        iterations: operatingPoint.outcome.iterations,
+      },
     }
   }
   if (!biasSolved) {
@@ -258,37 +311,83 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
     : new Array<number>(model.size).fill(0)
   const biasDiodeConductances = biasSolved ? operatingPoint.diodeConductances : new Map<string, number>()
   const fourKT = 4 * BOLTZMANN * (temperatureCelsius + 273.15)
-
   const frequencies = buildLogFrequencyGrid(startFrequency, stopFrequency, pointsPerDecade)
-  const modelledSum = new Array<number>(frequencies.length).fill(0)
-  const contributions = new Map<string, { spectrum: number[]; kind: 'thermal' | 'shot' }>()
+
   /*
    * Only resistors and diodes get a bucket: those are the two classes whose noise
-   * the device models define. Anything else that is noisy is reported in
-   * `excludedSources` below rather than summed with a borrowed formula.
+   * the device models define. The density is fixed by the bias, so it is
+   * computed once and sent with the shared plan.
    */
+  const densities: NoiseBias['densities'] = []
   for (const device of model.devices) {
     if (device.kind === 'resistor') {
-      contributions.set(device.name, { spectrum: new Array(frequencies.length).fill(0), kind: 'thermal' })
+      densities.push({
+        device: device.name,
+        p: device.p,
+        n: device.n,
+        kind: 'thermal',
+        density: fourKT / device.resistance,
+      })
     } else if (device.kind === 'diode') {
-      contributions.set(device.name, { spectrum: new Array(frequencies.length).fill(0), kind: 'shot' })
+      const biasCurrent = Math.abs(operatingPoint.diodeOperatingPoints.get(device.name)?.current ?? 0)
+      densities.push({
+        device: device.name,
+        p: device.p,
+        n: device.n,
+        kind: 'shot',
+        density: 2 * ELEMENTARY_CHARGE * biasCurrent,
+      })
     }
   }
-  const excludedSources = collectUnmodelledSources(model)
 
-  for (let index = 0; index < frequencies.length; index += 1) {
-    const frequency = frequencies[index]
+  return {
+    ok: true,
+    plan: {
+      frequencies,
+      outputNode,
+      outputIndex,
+      bias: {
+        diodeConductances: biasDiodeConductances,
+        semiconductor: operatingPoint.semiconductor,
+        thermalVoltage: thermalVoltage(temperatureCelsius),
+        operatingVoltages: readNodeVoltages(model, biasSolution),
+        operatingCurrents: readBranchCurrents(model, biasSolution),
+        densities,
+      },
+      notes,
+      iterations: operatingPoint.outcome.iterations,
+      excludedSources: collectUnmodelledSources(model),
+      temperatureCelsius,
+    },
+  }
+}
+
+/**
+ * Solve the adjoint network at each frequency.
+ *
+ * Every frequency is an independent solve against the prepared bias, which is
+ * what makes the sweep safe to split across workers; the returned contributions
+ * follow netlist order so summation order never depends on scheduling.
+ */
+export function solveNoiseFrequencyPoints(
+  model: CircuitModel,
+  frequencies: readonly number[],
+  bias: NoiseBias,
+  outputIndex: number,
+  gmin?: number,
+): NoisePoint[] {
+  return frequencies.map((frequency) => {
     const omega = 2 * Math.PI * frequency
     const system = createComplexSystem(model)
-    stampAc(system, model, omega, biasDiodeConductances, gmin ?? 1e-12)
+    stampAc(system, model, omega, bias.diodeConductances, gmin ?? 1e-12)
     stampSemiconductorSmallSignal(
       system,
       model,
-      operatingPoint.semiconductor,
-      thermalVoltage(temperatureCelsius),
+      bias.semiconductor,
+      bias.thermalVoltage,
       omega,
-      readNodeVoltages(model, biasSolution),
-      { currents: readBranchCurrents(model, biasSolution), time: 0 },
+      bias.operatingVoltages,
+      { currents: bias.operatingCurrents, time: 0 },
     )
 
     // Adjoint solve: Aᵀ·x = e_out, i.e. a unit current injected at the output.
@@ -296,8 +395,7 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
     adjointRhs[outputIndex] = complex(1)
     const transfer = solveComplexSystem(transpose(system.matrix), adjointRhs)
     if (!transfer) {
-      notes.push(`The noise network is singular at ${frequency.toPrecision(4)} Hz.`)
-      return { ...empty, notes, converged: false, iterations: operatingPoint.outcome.iterations }
+      return { frequency, contributions: [], totalPower: 0, singular: true }
     }
 
     const transimpedance = (p: string, n: string): number => {
@@ -310,26 +408,54 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
       return cAbs(difference)
     }
 
+    const contributions: Array<{ device: string; power: number }> = []
     let sum = 0
-    for (const device of model.devices) {
-      let density: number
-      if (device.kind === 'resistor') {
-        density = fourKT / device.resistance
-      } else if (device.kind === 'diode') {
-        const bias = Math.abs(operatingPoint.diodeOperatingPoints.get(device.name)?.current ?? 0)
-        density = 2 * ELEMENTARY_CHARGE * bias
-      } else {
-        continue
-      }
-
-      const h = transimpedance(device.p, device.n)
-      const contribution = h * h * density // V²/Hz
-      const bucket = contributions.get(device.name)
-      if (bucket) bucket.spectrum[index] += contribution
-      sum += contribution
+    for (const entry of bias.densities) {
+      const h = transimpedance(entry.p, entry.n)
+      const power = h * h * entry.density // V²/Hz
+      contributions.push({ device: entry.device, power })
+      sum += power
     }
+    return { frequency, contributions, totalPower: sum, singular: false }
+  })
+}
 
-    modelledSum[index] = sum
+/** Turn solved frequencies into spectra, a breakdown and the integrated RMS. */
+export function assembleNoiseAnalysis(
+  plan: NoisePlan,
+  points: readonly NoisePoint[],
+): NoiseResult {
+  const notes = [...plan.notes]
+  const { frequencies, outputNode } = plan
+  const modelledSum = new Array<number>(frequencies.length).fill(0)
+  const contributions = new Map<string, { spectrum: number[]; kind: 'thermal' | 'shot' }>()
+  for (const entry of plan.bias.densities) {
+    contributions.set(entry.device, {
+      spectrum: new Array(frequencies.length).fill(0),
+      kind: entry.kind,
+    })
+  }
+
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index]
+    if (point.singular) {
+      notes.push(`The noise network is singular at ${point.frequency.toPrecision(4)} Hz.`)
+      return {
+        nodes: [],
+        waveforms: [],
+        iterations: plan.iterations,
+        converged: false,
+        notes,
+        integratedThermalAndDiodeNoise: 0,
+        contributions: [],
+        excludedSources: [],
+      }
+    }
+    modelledSum[index] = point.totalPower
+    for (const contribution of point.contributions) {
+      const bucket = contributions.get(contribution.device)
+      if (bucket) bucket.spectrum[index] += contribution.power
+    }
   }
 
   const waveforms: Waveform[] = [
@@ -361,20 +487,20 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
       : value >= 1e3 ? `${(value / 1e3).toFixed(3)} kHz`
         : `${value.toFixed(1)} Hz`
   )
-  const bandStart = frequencies[0] ?? startFrequency
-  const bandStop = frequencies[frequencies.length - 1] ?? stopFrequency
+  const bandStart = frequencies[0] ?? 0
+  const bandStop = frequencies[frequencies.length - 1] ?? 0
   notes.push(
-    `Bias: ${thermalVoltage(temperatureCelsius).toFixed(4)} V thermal voltage at ${temperatureCelsius} °C. ` +
+    `Bias: ${plan.bias.thermalVoltage.toFixed(4)} V thermal voltage at ${plan.temperatureCelsius} °C. ` +
       `Integrated thermal+diode (modelled) noise ${formatHz(bandStart)}–${formatHz(bandStop)} is ` +
       `${(integratedThermalAndDiodeNoise * 1e6).toFixed(3)} µV RMS at ${outputNode}.`,
   )
-  if (excludedSources.length > 0) {
+  if (plan.excludedSources.length > 0) {
     notes.push(
-      `This is not the total output noise: ${excludedSources.length} device(s) in the netlist have no noise ` +
+      `This is not the total output noise: ${plan.excludedSources.length} device(s) in the netlist have no noise ` +
         `model here and are excluded from the figure above — ` +
-        `${excludedSources.map((source) => `${source.device} (${source.kind})`).join(', ')}.`,
+        `${plan.excludedSources.map((source) => `${source.device} (${source.kind})`).join(', ')}.`,
     )
-    for (const source of excludedSources) {
+    for (const source of plan.excludedSources) {
       notes.push(`Unmodelled noise source ${source.device} (${source.kind}): ${source.reason}`)
     }
   }
@@ -382,11 +508,24 @@ export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): No
   return {
     nodes: [],
     waveforms,
-    iterations: operatingPoint.outcome.iterations,
+    iterations: plan.iterations,
     converged: true,
     notes,
     integratedThermalAndDiodeNoise,
     contributions: breakdown,
-    excludedSources,
+    excludedSources: plan.excludedSources,
   }
+}
+
+export function runNoiseAnalysis(model: CircuitModel, options: NoiseOptions): NoiseResult {
+  const prepared = prepareNoiseAnalysis(model, options)
+  if (!prepared.ok) return prepared.result
+  const points = solveNoiseFrequencyPoints(
+    model,
+    prepared.plan.frequencies,
+    prepared.plan.bias,
+    prepared.plan.outputIndex,
+    options.gmin,
+  )
+  return assembleNoiseAnalysis(prepared.plan, points)
 }

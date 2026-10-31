@@ -44,6 +44,21 @@ describe('BackupService', () => {
     expect(new BackupService().listBackups('project-b')).toHaveLength(1);
   });
 
+  it('reports the newest checkpoint across projects', () => {
+    const service = new BackupService();
+    expect(service.latestBackupAt()).toBeNull();
+
+    const first = service.createBackup('project-a', { revision: 1 });
+    const second = service.createBackup('project-b', { revision: 2 });
+    expect(service.latestBackupAt()).toBe(second.createdAt);
+    expect(service.latestBackupAt()).toBeGreaterThanOrEqual(first.createdAt);
+
+    service.deleteProjectBackups('project-b');
+    expect(service.latestBackupAt()).toBe(first.createdAt);
+    service.deleteProjectBackups('project-a');
+    expect(service.latestBackupAt()).toBeNull();
+  });
+
   it('returns null for missing or malformed checkpoint payloads', () => {
     const service = new BackupService();
     expect(service.restore('missing')).toBeNull();

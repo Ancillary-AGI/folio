@@ -9,6 +9,7 @@ export const DEMO_DATASHEET_TEXT = `MPN: MCP3008-I/SL
 Manufacturer: Microchip Technology
 Description: 8-Channel 10-Bit ADC with SPI Interface
 Supply Voltage: 2.7V to 5.5V
+Package: SOIC-16
 
 Pinout Table:
 | 1 | CH0 | Analog Input |

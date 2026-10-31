@@ -16,7 +16,7 @@ import { collaborativeEditor, type CollabUser } from './collaborativeEditor'
 
 const localUser: CollabUser = {
   id: 'user-1',
-  name: 'Local User',
+  name: 'Workspace Owner',
   email: 'local@example.com',
   color: '#3B82F6',
   isActive: true,

@@ -13,6 +13,8 @@ describe('datasheet demo', () => {
 
     const synthesized = synthesizeComponentFromDatasheet(parsed)
     expect(synthesized.component.pins).toHaveLength(16)
-    expect(synthesized.spiceSubcircuit).toContain('.SUBCKT MCP3008-I/SL')
+    // The demo datasheet states its package; no SPICE model may be invented.
+    expect(parsed.packaging.packageStated).toBe(true)
+    expect(synthesized).not.toHaveProperty('spiceSubcircuit')
   })
 })

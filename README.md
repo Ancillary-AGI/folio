@@ -1,10 +1,11 @@
 # Folio — Multi-Domain Engineering Workbench
 
-Browser-based, offline-first engineering workbench for electronic CAD, mechanical
-design, simulation, robotics, and embedded development. Everything runs locally
-unless you explicitly configure a backend; no account is required for local use.
+A self-contained engineering workbench for electronic CAD, mechanical design,
+simulation, robotics and embedded development. The workbench runs without a
+backend unless you explicitly configure one; no account is required for
+standalone use.
 
-**Status:** active development. Lint, both typechecks, 2,166 tests across 216
+**Status:** active development. Lint, both typechecks, 2,581 tests across 251
 files, the icon-button accessibility audit, and the production build all pass.
 
 ---
@@ -41,7 +42,7 @@ rules); it makes no model or network call, and its output is advisory.
   a screenshot.
 - The half-wave rectifier demos share one board: schematic → transient → PCB →
   autorouted 3-D scene → BOM audit → HIL → digital twin.
-- **Grouped workspaces**: Design, Electrical, Mechanical and Ops & AI families
+- **Grouped workspaces**: Design, Electrical, Mechanical and Operations families
   with icons and descriptions instead of a flat tab ribbon.
 - **Clean, linkable routes**: `/projects/:id/pcb`, `/projects/:id/agents`,
   `/agents`, `/projects`, plus the separate `/admin` console — no `#` fragments.
@@ -99,13 +100,23 @@ rules); it makes no model or network call, and its output is advisory.
 - Discrete-event digital simulator (four-state logic, gates, flip-flops, clocks,
   X propagation, combinational-loop detection) and a lockstep mixed-signal bridge
   to the analog solver.
-- Netlist import/export, waveform viewer with measurements, per-net PCB feedback.
+- Netlist import/export — KiCad/EAGLE interchange, plus SPICE deck import (`.cir`,
+  `.sp`) solved as written — waveform viewer with measurements, per-net PCB feedback.
 - Every solved DC/transient/sweep run reports declared-rating margins, a
   first-order junction-temperature estimate, the supplied/dissipated power
   budget, and an explicit list of parts that could not be rated. All of it is
   measured from the solved circuit against declared limits or a vendor model —
   never assumed, and thermal numbers are labelled as estimates.
 - Multi-sheet schematics and KiCad netlist round-tripping.
+- Freehand sketch mode: draw with a stylus, finger or mouse and have the ink
+  recognised (offline, template-scored) into real parts, wires and junctions;
+  import line-art images to trace the same way. Unrecognised ink is reported,
+  never guessed, and the sketch only sets position and quarter-turn rotation.
+- Voice conversation (`Ctrl+Shift+M`): dictate or type commands — place parts,
+  wire references, undo, open workspaces, describe the sheet — and hear replies
+  that state what really changed. Speech runs in the browser's own service (no
+  audio leaves the machine), intents are deterministic keyword matching rather
+  than a model, and refusals always say the sheet is unchanged.
 
 ### PCB & manufacturing
 
@@ -127,8 +138,12 @@ rules); it makes no model or network call, and its output is advisory.
   trace with declared stackup and driver assumptions; crosstalk is not modelled.
 - Closed-form EMC emission estimates, stackup/impedance rules, differential
   pairs, BGA fanout, power integrity, DDR constraints, HDI routing.
-- Fabrication output: Gerber set, Excellon drill, centroid/PnP, BOM, and an
-  optional encrypted project export (AES-GCM-256 with PBKDF2 key derivation).
+- Fabrication output: Gerber copper film per declared layer (inner films
+  included), masks, silk, Excellon drill with separate blind/buried files,
+  centroid/PnP, BOM, and an optional encrypted project export
+  (AES-GCM-256 with PBKDF2 key derivation). An inner film can be poured as a
+  named net's plane: the pour clears every foreign drilled barrel and flashes
+  its own; a plane with no drilled connection is refused as floating copper.
 
 ### Control systems & electric machines
 
@@ -193,9 +208,53 @@ rules); it makes no model or network call, and its output is advisory.
   emitting invalid G-code, and open mesh chains are reported, not fabricated.
 - Printability metrics (overhang, thin walls, build-volume fit) computed from the
   actual mesh.
+- Import an STL or OBJ model into the mechanical 3D viewport: ASCII and binary
+  STL are told apart by exact binary layout (84 + 50 bytes per triangle),
+  including binary files whose 80-byte header begins with "solid", and OBJ faces
+  are resolved against the vertices defined so far — negative indices included —
+  with polygons fan-triangulated from the first corner. Both formats are handed
+  to one measurement pass, so the model renders beside the assembly, is framed
+  with it, and the panel reports triangle count, size in millimetres, surface
+  area, divergence-theorem volume and a closed-shell check that separates open,
+  non-manifold and reversed edges. The reference is excluded from STL/OBJ/GLTF
+  export and from every solver; neither format carries a unit system, so
+  coordinates are read as millimetres; OBJ texture coordinates, vertex normals
+  and materials are parsed past, not applied; nothing is repaired, and the shell
+  walk is skipped with an explicit note above 400,000 triangles. Agents see
+  the same model through `mech.observe` — name, format, millimetre envelope,
+  surface area, closed-shell verdict and the note that it is not a part — but
+  never its triangles. The import is session state: it is not saved into the
+  project or versioned, it is dropped when you switch projects, and reloading
+  clears it.
+- Drop an STL or OBJ **enclosure** into the PCB 3D preview: the shell is drawn
+  translucent around the board, seams traced so it reads as a case rather than
+  over the circuit as fog, and the camera refits so a case larger than the board
+  stays on screen with it. It is measured against the board by the same code that
+  draws it. The board stack is the
+  outline widened to every body, pad and via, so the lid clearance is the gap
+  above the tallest component rather than above the laminate; the panel reports
+  cavity and stack size, room at each of the four walls, the floor and the lid,
+  and names the side holding the design back ("Board does not fit — 6 mm past
+  the left wall"). A shell with open, non-manifold or reversed edges is reported
+  as broken instead of being given a confident verdict, and the check states its
+  own limit: it compares bounding boxes, so ribs, bosses and connector cut-outs
+  inside the model are not measured, and the two are centred on each other
+  because an imported mesh's origin is not trusted. No routed layout, no verdict
+  — the shell is drawn at its own size and the panel says the stack is unknown.
+  `eda.observe` hands agents the same numbers and the same sentence about the
+  mesh (both come from the shared reader, so the picture, the report and the
+  agent cannot disagree about one import), and the shell is
+  context, not copper: excluded from the fab package, DRC, the router and every
+  export, kept per project, session state only.
 - Particle-swarm section sizing (PSO over width/height with stress, deflection,
   and slenderness constraints), applied back to the beam model. The result is
   re-checked against the closed-form relations before it is shown as feasible.
+- Psychrometric zone cooling design: Buck saturation pressure with ASHRAE
+  humidity ratio, enthalpy and specific volume; dew point and wet bulb solved on
+  the same curve by bisection; a steady sensible/latent balance over envelope
+  UA, solar and internal gains, occupancy and outdoor ventilation air; SHR,
+  supply airflow and one equivalent round-duct diameter. The panel states that
+  this is a sizing estimate, not a certified Manual J/ASHRAE calculation.
 - Three.js viewer, XR preview, enclosure workflow from PCB dimensions. The PCB
   mode's 3-D preview is driven by the routed board (outline, copper, vias,
   footprints) rather than a fixed demo slab.
@@ -243,7 +302,8 @@ rules); it makes no model or network call, and its output is advisory.
   unknown-footprint geometry is reported, never silently clamped. `eda.movePart`
   moves or rotates one placed part and re-routes in the same call, so copper can
   never silently lag the pads; `eda.addTrace` and `eda.addVia` add agent-authored
-  copper with on-board validation. DRC remains the gate before fabrication, and
+  copper with on-board validation; `eda.editSymbol` rewrites a part's symbol body
+  and pins across its instances, refusing any draft the canvas contract rejects. DRC remains the gate before fabrication, and
   removing copper is still human-only. Route, DRC, and fab export all consume
   that published layout. The agent workbench shows the routed-board view beside
   the schematic and waveform previews. The same tools drive a deterministic
@@ -268,10 +328,19 @@ rules); it makes no model or network call, and its output is advisory.
   The autopilot tab switches between circuit tuning and mechanical sizing, and
   shows the assembly drawing beside the schematic, waveforms, and routed board.
 - Durable agent-session timeline in local storage (bounded history, quota-aware
-  writes). Always-on/background agents need a server-side runner; the exact job
-  protocol, security requirements, and worker checklist are in
+  writes). Genuinely 24/7 or scheduled agents still need the server-side runner;
+  the exact job protocol, security requirements, and worker checklist are in
   [docs/AGENT_CLOUD.md](docs/AGENT_CLOUD.md). Without `VITE_AGENT_CLOUD_URL`
-  the UI says so and local autopilot still works.
+  the UI says so and the local always-on queue still works.
+- Always-on job queue (the Agent panel's Always-on tab): queue prompts and keep
+  designing — each job is planned against the live sheet (plan → act → verify →
+  report) and run by a FIFO background runner with pause, resume, cancel,
+  per-step progress, approval gates that pause instead of bypass, and a
+  token-budgeted context pack (goal, parts, nets, issues, transcript; token
+  counts are a chars/4 estimate, not a tokenizer). Jobs persist in local storage
+  (bounded to 40): a tab closed mid-run recovers the active job as paused and it
+  resumes from its last completed step. Honest scope: jobs run while Folio is
+  open, never on a closed tab — 24/7 execution is the cloud runner's job.
 - Local project store, autosave, content-addressed version history and backup
   snapshots. A commit captures the whole multi-domain design — schematic, routed
   PCB, mechanical assembly, firmware and every registered CAD domain — with diff,
@@ -283,8 +352,8 @@ rules); it makes no model or network call, and its output is advisory.
   owner, administrator, engineer and viewer, documented in
   [docs/ADMINISTRATION.md](docs/ADMINISTRATION.md).
   Real-time presence and operation broadcast use Supabase Realtime **when
-  configured**; otherwise the sharing model is local-only, and the status row
-  says so. Presence and broadcast are separate channel calls: if the track
+  configured**; otherwise sharing is scoped to the current workspace, and the
+  status row says so. Presence and broadcast are separate channel calls: if the track
   fails, the panel reports that peers may not see you rather than claiming a
   healthy realtime session.
 - Plugin system with manifest validation, declared-permission gating, lifecycle
@@ -321,16 +390,41 @@ rules); it makes no model or network call, and its output is advisory.
 
 ### Compute acceleration
 
-The PCB panel's **Compute Acceleration** card probes the actual browser:
+The system dashboard's **Compute Acceleration** card probes the actual browser:
 
 - WebGPU availability and adapter name
 - Worker support and SharedArrayBuffer availability
 - Recommended thermal path
+- Monte Carlo, AC and noise sweep worker counts
 
 WebGPU is used only for grids of at least 1,024 cells; smaller grids stay on the
 CPU to avoid upload overhead. If the adapter, pipeline, or readback fails, the
 dispatch falls back to Worker → CPU. The reported accelerator is the path that
 produced the converged result.
+
+Monte Carlo tolerance sweeps use a pool of up to four Workers once a sweep is
+large enough to be worth splitting (32 runs or more). Each run derives its own
+seed from the sweep seed and its run index, and the main thread accumulates the
+returned samples in run order, so the pooled statistics are identical to the
+in-thread sweep rather than a different sample set. The pool keeps the sweep off
+the main thread; whether it shortens wall-clock time depends on the circuit and
+the machine. A worker fault falls back to the in-thread sweep.
+
+AC frequency sweeps use the same pool above 64 frequency points. The bias solve,
+diode conductances and frequency grid are prepared once on the main thread, each
+worker solves an independent complex MNA system per frequency, and the main
+thread assembles the points in sweep order. The response is therefore identical
+to the in-thread sweep — same bias, same points, same order — and a worker fault
+falls back to the in-thread path. Noise sweeps use the pool above 32 frequency
+points: the bias, output node and thermal/shot source densities are prepared
+once, each worker runs the transposed-MNA adjoint solve for its frequencies, and
+the spectrum is assembled in sweep order, so it is identical to the in-thread
+sweep. Transient integration, DC sweeps and a single Newton solve remain
+sequential by nature.
+
+The acceleration paths have been checked in a real browser (Chrome/Electron
+WebGPU): the GPU thermal grid matches the CPU reference peak and average within
+0.01 °C and is only labelled `webgpu` when converged.
 
 ---
 
@@ -341,7 +435,7 @@ npm run lint            # ESLint, zero warnings
 npm run a11y:buttons    # every icon-only button has an accessible name
 npm run typecheck       # app TypeScript
 npm run typecheck:node  # Vite/build config TypeScript
-npm test                # Vitest, 2,166 tests / 216 files
+npm test                # Vitest, 2,581 tests / 251 files
 npm run build           # production build
 npm run verify          # all of the gates above, in order
 npm run preview         # preview the build on port 4173
@@ -415,6 +509,11 @@ or "zero errors". The bullets below are the prose form of that register.
 - Thermal and structural analyses are reduced-order: a 2-D finite-volume PCB
   grid, 1-D/2-D members and trusses, and closed-form beam/shaft/column formulas.
   They are not 3-D FEA, CFD, or contact solvers.
+- Psychrometric zone loads are steady sizing estimates over −20…80 °C moist air,
+  not certified Manual J/ASHRAE load calculations. No thermal mass, solar path,
+  duct gain, fan heat, coil bypass, part-load bins or coil ADP/condensate model is
+  present, and the duct result is one equivalent round diameter at a target
+  velocity rather than a friction-and-fitting pressure design.
 - Control analysis is single-input/single-output and linear time-invariant.
   Polynomial roots, Bode curves and margins are computed from the declared
   transfer function; nonlinear plants, MIMO state feedback, observers and
@@ -450,6 +549,10 @@ or "zero errors". The bullets below are the prose form of that register.
   Robotics, RF, HDL/IC, digital-twin and plugin authoring are not agent-driven
   yet; the Tools tab in the assistant lists exactly which calls exist rather than
   describing a wider surface than the harness registers.
+- Voice commands use the browser's speech service (permission-gated, no audio
+  recorded) and deterministic keyword intents, not a language model; replies
+  only claim what the handler reported, and opening the simulation panel is
+  never described as running a simulation.
 - The language selector stores a preference; only English strings ship.
 - No GDPR, ISO 27001, or IEC 62443 certification is claimed.
 

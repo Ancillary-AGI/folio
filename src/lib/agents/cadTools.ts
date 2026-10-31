@@ -27,7 +27,6 @@ import {
   type DesignSnapshot,
 } from './designSnapshot'
 import {
-  autoPlace,
   findComponentByReference,
   findLibrarySymbol,
   listLibrarySymbols,
@@ -35,13 +34,13 @@ import {
   netOnTerminal,
   newComponentId,
   newWireId,
-  nextReference,
   pinWorldPosition,
-  referencePrefixFor,
   resolveTerminal,
   terminalLabel,
   type CadRuntime,
 } from './cadRuntime'
+import { autoPlace } from '../schematic/placePart'
+import { nextReference, referencePrefixFor } from '../schematic/references'
 import { routePoints } from '../schematic/wireRouting'
 import type { CanvasComponent, CanvasWire } from '../../stores/useProjectStore'
 

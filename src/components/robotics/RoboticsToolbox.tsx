@@ -4,6 +4,7 @@ import { OrbitControls, Box, Cylinder, Sphere } from '@react-three/drei';
 import * as THREE from 'three';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { RangeControl } from '../ui/range-control';
 import { Play, Pause, RotateCcw, Settings, Zap, Cpu, X, Download, Upload } from 'lucide-react';
 import { stepJointDynamics } from '../../lib/robotics/jointDynamics';
 import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign';
@@ -83,6 +84,13 @@ const AXES: JointAxis[] = ['x', 'y', 'z'];
 
 function isFiniteTuple(value: unknown, length: number): value is number[] {
   return Array.isArray(value) && value.length === length && value.every((v) => typeof v === 'number' && Number.isFinite(v));
+}
+
+/** Revolute joints are in radians, prismatic ones in metres — read each in its own unit. */
+function jointReadout(joint: RobotJoint, value: number): string {
+  return joint.type === 'prismatic'
+    ? `${value.toFixed(3)} m`
+    : `${((value * 180) / Math.PI).toFixed(1)}°`;
 }
 
 /**
@@ -512,25 +520,17 @@ export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
               </CardHeader>
               <CardContent className="space-y-3">
                 {robotConfig.joints.map((joint) => (
-                  <div key={joint.id} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium">{joint.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {(joint.currentValue * 180 / Math.PI).toFixed(1)}°
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min={joint.limits.min}
-                      max={joint.limits.max}
-                      step={0.01}
-                      value={joint.currentValue}
-                      disabled={isSimulating}
-                      aria-label={`${joint.name} angle`}
-                      onChange={(e) => handleJointChange(joint.id, parseFloat(e.target.value))}
-                      className="w-full"
-                    />
-                  </div>
+                  <RangeControl
+                    key={joint.id}
+                    label={joint.name}
+                    min={joint.limits.min}
+                    max={joint.limits.max}
+                    step={0.01}
+                    value={joint.currentValue}
+                    disabled={isSimulating}
+                    onValueChange={(value) => handleJointChange(joint.id, value)}
+                    format={(value) => jointReadout(joint, value)}
+                  />
                 ))}
                 {isSimulating && (
                   <p className="text-xs text-muted-foreground">Joint sliders resume when the simulation is paused.</p>
@@ -593,20 +593,15 @@ export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div>
-                  <label className="text-xs font-medium">Speed</label>
-                  <input
-                    type="range"
-                    min="0.1"
-                    max="5"
-                    step="0.1"
-                    value={simulationSpeed}
-                    aria-label="Simulation speed"
-                    onChange={(e) => setSimulationSpeed(parseFloat(e.target.value))}
-                    className="w-full mt-1"
-                  />
-                  <div className="text-xs text-muted-foreground">{simulationSpeed.toFixed(1)}×</div>
-                </div>
+                <RangeControl
+                  label="Simulation speed"
+                  min={0.1}
+                  max={5}
+                  step={0.1}
+                  value={simulationSpeed}
+                  onValueChange={setSimulationSpeed}
+                  format={(value) => `${value.toFixed(1)}×`}
+                />
                 <div className="flex items-center justify-between">
                   <span className="text-sm">Gravity dynamics</span>
                   <input

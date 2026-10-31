@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, type ChangeEvent } from 'react'
 import { Play, Download, Zap, BarChart3, X, AlertCircle, Info } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
+import { RangeControl } from '../ui/range-control'
 import TraceChart, { type TraceRow, type TraceSeries } from '../charts/TraceChart'
 import {
   spiceEngine,
@@ -22,6 +23,7 @@ import { emitKicadNetlist } from '../../lib/manufacturing/kicadNetlist'
 import { serializeEagleSchematic } from '../../lib/manufacturing/eagleSchematic'
 import { downloadFile } from '../../lib/exportUtils'
 import { parseSpiceModelLibrary, type SpiceModelCard } from '../../lib/simulation/modelLibrary'
+import { parseSpiceDeck } from '../../lib/simulation/spiceImport'
 import type { AnalogToDigitalProbe, DigitalToAnalogDrive } from '../../lib/simulation/mixedSignal'
 import { playbackDuration, playbackFrame } from '../../lib/simulation/playback'
 import { measureWaveform, waveformsToCsv } from '../../lib/simulation/scopeAnalysis'
@@ -314,6 +316,18 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
     setError(null)
   }, [selectedAnalysis])
 
+  /*
+   * Every result opens on its input/output traces. Keyed on the result object,
+   * so clearing every trace by hand stays cleared until the next solve. This is
+   * a render-phase state adjustment, not an effect: the plot is never committed
+   * blank for a frame while an effect would catch up.
+   */
+  const [waveformOwner, setWaveformOwner] = useState<SimulationResult | null>(null)
+  if (simulationResults !== waveformOwner) {
+    setWaveformOwner(simulationResults)
+    setSelectedWaveforms(pickDefaultWaveforms((simulationResults?.waveforms ?? []).map((waveform) => waveform.name)))
+  }
+
   const handleRunSimulation = async () => {
     if (modelLibrary && modelLibrary.errors.length > 0) {
       setError(`Fix the model-card errors first: ${modelLibrary.errors.join(' ')}`)
@@ -348,7 +362,6 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
       if (runToken !== runTokenRef.current) return
       setMarginDesign(solvedDesign)
       setSimulationResults(result)
-      setSelectedWaveforms(pickDefaultWaveforms(result.waveforms.map((w) => w.name)))
     } catch (thrown) {
       if (runToken !== runTokenRef.current) return
       // Building the netlist can fail (conflicting net names). Report it here
@@ -472,7 +485,6 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
       // canvas, so rating margins are unavailable for this result.
       setMarginDesign(null)
       setSimulationResults(result)
-      setSelectedWaveforms(pickDefaultWaveforms(result.waveforms.map((w) => w.name)))
       const iterations = result.convergenceInfo?.iterations
       setStitchVerdict(
         `${sheets.length} sheet${sheets.length === 1 ? '' : 's'} stitched into ${
@@ -487,6 +499,85 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
     } finally {
       // A superseded stitch must not clear the busy flag of the newer one.
       if (runToken === runTokenRef.current) setStitching(false)
+    }
+  }
+
+  /*
+   * A SPICE deck is solved as written: its own `.op`/`.tran`/`.ac` card decides
+   * the analysis, not the tab above. Parsing is pure, so the preview reports
+   * unsupported constructs before the solver ever runs.
+   */
+  const [spiceDeckText, setSpiceDeckText] = useState('')
+  const [deckSolving, setDeckSolving] = useState(false)
+  const [deckStatus, setDeckStatus] = useState<string | null>(null)
+  const [deckError, setDeckError] = useState<string | null>(null)
+  const spiceDeck = useMemo(
+    () => (spiceDeckText.trim() ? parseSpiceDeck(spiceDeckText) : null),
+    [spiceDeckText],
+  )
+
+  const handleLoadDeckFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setDeckStatus(null)
+    setDeckError(null)
+    try {
+      setSpiceDeckText(await readFileText(file))
+    } catch (thrown) {
+      setDeckError(describeError(thrown))
+    }
+  }
+
+  const handleSolveDeck = async () => {
+    if (!spiceDeck) return
+    setDeckStatus(null)
+    setDeckError(null)
+    if (spiceDeck.errors.length > 0) {
+      setDeckError(`The deck cannot be solved: ${spiceDeck.errors.join(' ')}`)
+      return
+    }
+    const blocked = beforeRun?.()
+    if (blocked) {
+      setDeckError(blocked)
+      return
+    }
+    const runToken = ++runTokenRef.current
+    const analysis = spiceDeck.netlist.analyses[0]
+    setDeckSolving(true)
+    try {
+      const result = await spiceEngine.simulate(spiceDeck.netlist)
+      if (runToken !== runTokenRef.current) return
+      if (!result.success) throw new Error(result.error ?? 'The imported deck did not solve.')
+      addSimulationRun({
+        name: `${ANALYSIS_LABELS[analysis.type]} — ${spiceDeck.netlist.title}`,
+        type: analysis.type,
+        parameters: analysis as unknown as Record<string, unknown>,
+        results: result as unknown as Record<string, unknown>,
+        status: 'completed',
+      })
+      onRunComplete?.()
+      setSelectedAnalysis(analysis.type)
+      // The parts live in the deck, not on the canvas, so rating margins do not apply.
+      setMarginDesign(null)
+      setSimulationResults(result)
+      setDeckStatus(
+        `${ANALYSIS_LABELS[analysis.type]} solved ${spiceDeck.netlist.title}: ${
+          spiceDeck.netlist.components.length
+        } device${spiceDeck.netlist.components.length === 1 ? '' : 's'}, ${
+          result.waveforms.length
+        } trace${result.waveforms.length === 1 ? '' : 's'}${
+          spiceDeck.warnings.length > 0
+            ? ` · ${spiceDeck.warnings.length} warning${spiceDeck.warnings.length === 1 ? '' : 's'}`
+            : ''
+        }`,
+      )
+    } catch (thrown) {
+      if (runToken !== runTokenRef.current) return
+      setDeckError(describeError(thrown))
+      setSimulationResults(null)
+    } finally {
+      if (runToken === runTokenRef.current) setDeckSolving(false)
     }
   }
 
@@ -1194,7 +1285,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
           <input
             id="interchange-import"
             type="file"
-            accept=".net,.cir,.sch,.xml"
+            accept=".net,.sch,.xml"
             onChange={handleImportNetlist}
             className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs file:text-foreground"
           />
@@ -1255,6 +1346,80 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
           {interchangeError ? (
             <p role="alert" className="mt-2 text-xs leading-relaxed text-destructive">
               {interchangeError}
+            </p>
+          ) : null}
+        </div>
+
+        {/* SPICE deck import: solve a .cir/.sp deck exactly as written. */}
+        <div className="rounded-md border border-border bg-muted/50 p-3">
+          <h4 className="mb-1 text-xs font-medium text-card-foreground">SPICE deck import</h4>
+          <p className="mb-2 text-xs leading-relaxed text-muted-foreground">
+            Paste or load a SPICE deck and solve it on this engine. The importer reads linear and
+            semiconductor elements, PULSE/SIN/EXP/SFFM/PWL sources, .model cards and
+            .op/.dc/.tran/.ac/.noise analyses. Subcircuits, .include/.lib files, .param expressions
+            and F/H sources are named in the errors rather than silently approximated.
+          </p>
+          <textarea
+            aria-label="SPICE deck"
+            value={spiceDeckText}
+            onChange={(event) => {
+              setSpiceDeckText(event.target.value)
+              setDeckStatus(null)
+              setDeckError(null)
+            }}
+            placeholder={'* divider\nV1 in 0 10\nR1 in out 1k\nR2 out 0 1k\n.op\n.end'}
+            className="mb-2 h-28 w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-xs"
+          />
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <label htmlFor="spice-deck-file" className="text-xs text-muted-foreground">
+              Load a deck file
+            </label>
+            <input
+              id="spice-deck-file"
+              type="file"
+              accept=".cir,.sp,.spice,.ckt"
+              onChange={handleLoadDeckFile}
+              className="block text-xs text-muted-foreground file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs file:text-foreground"
+            />
+            <Button
+              onClick={() => void handleSolveDeck()}
+              disabled={!spiceDeck || (spiceDeck?.errors.length ?? 0) > 0 || deckSolving}
+              variant="outline"
+              size="sm"
+            >
+              {deckSolving ? 'Solving…' : 'Solve deck'}
+            </Button>
+          </div>
+          {spiceDeck ? (
+            <div className="space-y-1 text-xs leading-relaxed">
+              <p className="text-muted-foreground">
+                <span className="text-card-foreground">{spiceDeck.netlist.title}</span> —{' '}
+                {spiceDeck.netlist.components.length} device
+                {spiceDeck.netlist.components.length === 1 ? '' : 's'} ·{' '}
+                {spiceDeck.netlist.analyses
+                  .map((analysis) => ANALYSIS_LABELS[analysis.type])
+                  .join(', ')}
+              </p>
+              {spiceDeck.warnings.map((warning, index) => (
+                <p key={`warning-${index}`} className="text-warning">
+                  {warning}
+                </p>
+              ))}
+              {spiceDeck.errors.map((message, index) => (
+                <p key={`error-${index}`} className="text-destructive">
+                  {message}
+                </p>
+              ))}
+            </div>
+          ) : null}
+          {deckStatus ? (
+            <p role="status" className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              {deckStatus}
+            </p>
+          ) : null}
+          {deckError ? (
+            <p role="alert" className="mt-2 text-xs leading-relaxed text-destructive">
+              {deckError}
             </p>
           ) : null}
         </div>
@@ -1526,17 +1691,16 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
                         >
                           {playing ? 'Pause' : '▶ Run live'}
                         </Button>
-                        <input
-                          type="range"
+                        <RangeControl
+                          compact
+                          label="Playback time"
                           min={0}
                           max={1000}
                           value={playhead === null ? 0 : Math.round((playhead / playDuration) * 1000)}
-                          onChange={(e) => {
+                          onValueChange={(value) => {
                             setPlaying(false)
-                            setPlayhead((Number(e.target.value) / 1000) * playDuration)
+                            setPlayhead((value / 1000) * playDuration)
                           }}
-                          aria-label="Playback time"
-                          className="flex-1"
                         />
                         <span className="font-mono text-xs text-muted-foreground">
                           {playhead === null ? '—' : `${playhead.toExponential(2)} s`}

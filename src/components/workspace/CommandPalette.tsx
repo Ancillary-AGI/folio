@@ -4,6 +4,8 @@ import { DEMO_SCENARIOS, type DemoScenario } from '../../lib/demo/demoScenarios'
 import { loadDemoScenario } from '../../lib/demo/loadDemo'
 import { WORKSPACE_GROUPS, WORKSPACE_MODES, WORKSPACE_MODE_META } from '../../lib/workspace/modes'
 import { useAppStore } from '../../stores/useAppStore'
+import { useShortcutStore } from '../../stores/useShortcutStore'
+import { describeShortcut } from '../../lib/keymap/shortcuts'
 
 interface CommandPaletteProps {
   open: boolean
@@ -12,6 +14,8 @@ interface CommandPaletteProps {
   onOpenDemos: () => void
   onOpenLimits: () => void
   onOpenHelp: () => void
+  /** Opens the guide on its editable shortcut sheet. */
+  onOpenShortcuts: () => void
   onToggleTheme: () => void
   /** Overrides the default loader so the host can create a project, confirm replacement, etc. */
   onOpenScenario?: (scenario: DemoScenario) => void
@@ -37,9 +41,11 @@ export default function CommandPalette({
   onOpenDemos,
   onOpenLimits,
   onOpenHelp,
+  onOpenShortcuts,
   onToggleTheme,
   onOpenScenario,
 }: CommandPaletteProps) {
+  const shortcutOverrides = useShortcutStore((state) => state.overrides)
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -61,14 +67,15 @@ export default function CommandPalette({
       run: () => (onOpenScenario ?? loadDemoScenario)(scenario),
     }))
     const actions: PaletteCommand[] = [
-      { id: 'action:help', label: 'Open help and tutorials', hint: 'Action · F1', kind: 'action', run: onOpenHelp },
+      { id: 'action:help', label: 'Open help and tutorials', hint: `Action · ${describeShortcut('help.open', shortcutOverrides)}`, kind: 'action', run: onOpenHelp },
+      { id: 'action:shortcuts', label: 'Keyboard shortcuts: view and rebind', hint: 'Action', kind: 'action', run: onOpenShortcuts },
       { id: 'action:demos', label: 'Open demo gallery', hint: 'Action', kind: 'action', run: onOpenDemos },
       { id: 'action:limits', label: 'Open capabilities and limits', hint: 'Action', kind: 'action', run: onOpenLimits },
-      { id: 'action:save', label: 'Save design snapshot', hint: 'Action · Ctrl+S', kind: 'action', run: onSave },
+      { id: 'action:save', label: 'Save design snapshot', hint: `Action · ${describeShortcut('schematic.save', shortcutOverrides)}`, kind: 'action', run: onSave },
       { id: 'action:theme', label: 'Toggle colour theme', hint: 'Action', kind: 'action', run: onToggleTheme },
     ]
     return [...workspaceCommands, ...demoCommands, ...actions]
-  }, [onOpenDemos, onOpenHelp, onOpenLimits, onOpenScenario, onSave, onToggleTheme])
+  }, [onOpenDemos, onOpenHelp, onOpenShortcuts, onOpenLimits, onOpenScenario, onSave, onToggleTheme, shortcutOverrides])
 
   const filtered = useMemo(() => {
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean)

@@ -4,6 +4,7 @@ import {
   Layers, RefreshCw, Shield, ShieldCheck, Trash2, UserRound, Users, Wrench,
 } from 'lucide-react'
 import { Button } from '../ui/button'
+import { FolioMark } from '../brand/FolioLogo'
 import type { User } from '../../types'
 import { siemService } from '../../lib/siem/siemService'
 import {
@@ -241,6 +242,8 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
   const rows = quotaRows(subjectRole, quotaUsage)
   const activeAlerts = siemService.getAlerts({ status: 'active' }).length
   const capabilitiesForMode = capabilities(offlineMode)
+  // Ledger rows carry principal ids; show the directory name where one exists.
+  const accountName = (id: string) => members.find((member) => member.id === id)?.name ?? (id === user.id ? user.name : id)
 
   if (!access) {
     return (
@@ -255,7 +258,7 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
       <div className="flex min-h-screen flex-col bg-background">
         <header className="flex items-center justify-between border-b border-border px-6 py-4">
           <div className="flex items-center gap-3">
-            <Shield className="h-6 w-6 text-primary" aria-hidden="true" />
+            <FolioMark className="h-7 w-7 flex-shrink-0 text-primary" />
             <div>
               <h1 className="text-base font-semibold text-foreground">Administration</h1>
               <p className="text-xs text-muted-foreground">Access control</p>
@@ -287,11 +290,11 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
           <Button variant="ghost" size="icon" onClick={onBack} aria-label="Back to projects" title="Back to projects">
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <ShieldCheck className="h-6 w-6 flex-shrink-0 text-primary" aria-hidden="true" />
+          <FolioMark className="h-7 w-7 flex-shrink-0 text-primary" />
           <div className="min-w-0">
             <h1 className="truncate text-base font-semibold leading-tight text-foreground">Administration</h1>
             <p className="truncate text-[11px] text-muted-foreground">
-              {offlineMode ? 'This device · local owner' : `${ROLE_LABELS[access.role as AdminRole]} · cloud workspace`}
+              {offlineMode ? 'Workspace administration' : `${ROLE_LABELS[access.role as AdminRole]} · cloud workspace`}
             </p>
           </div>
         </div>
@@ -299,7 +302,7 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
           <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] ${
             offlineMode ? 'border-warning/40 bg-warning/10 text-warning' : 'border-success/40 bg-success/10 text-success'
           }`}>
-            {offlineMode ? 'Local only' : 'Cloud connected'}
+            {offlineMode ? 'Standalone' : 'Cloud connected'}
           </span>
           <Button variant="ghost" size="icon" onClick={() => { void refresh() }} aria-label="Refresh administration data" title="Refresh">
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
@@ -339,9 +342,9 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
         {tab === 'overview' && (
           <section role="tabpanel" id="admin-panel-overview" aria-labelledby="admin-tab-overview" className="space-y-6">
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <Kpi label="Usage events" value={String(summary.total)} hint={`Last ${usageDays} days on this device`} icon={Activity} />
-              <Kpi label="Projects" value={String(projectCount)} hint={offlineMode ? 'Stored on this device' : 'Owned by your account'} icon={Layers} />
-              <Kpi label="People" value={String(members.length)} hint={offlineMode ? 'One local owner' : `${members.filter((member) => member.status === 'active').length} active`} icon={Users} />
+              <Kpi label="Usage events" value={String(summary.total)} hint={`Last ${usageDays} days`} icon={Activity} />
+              <Kpi label="Projects" value={String(projectCount)} hint={offlineMode ? 'In this workspace' : 'Owned by your account'} icon={Layers} />
+              <Kpi label="People" value={String(members.length)} hint={offlineMode ? '1 member' : `${members.filter((member) => member.status === 'active').length} active`} icon={Users} />
               <Kpi label="Security alerts" value={String(activeAlerts)} hint="Active SIEM alerts" icon={AlertTriangle} />
             </div>
 
@@ -390,7 +393,7 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
                         <div className="min-w-0">
                           <p className="truncate text-xs font-medium text-foreground">{USAGE_KIND_LABELS[event.kind]}</p>
                           <p className="truncate text-[10px] text-muted-foreground">
-                            {event.user}{typeof event.detail?.mode === 'string' ? ` · ${event.detail.mode}` : ''}
+                            {accountName(event.user)}{typeof event.detail?.mode === 'string' ? ` · ${event.detail.mode}` : ''}
                           </p>
                         </div>
                         <time className="flex-shrink-0 text-[10px] tabular-nums text-muted-foreground" dateTime={new Date(event.at).toISOString()}>
@@ -405,7 +408,7 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
                 <h2 className="text-sm font-semibold text-foreground">What this console governs</h2>
                 <p className="text-xs leading-relaxed text-muted-foreground">{capabilitiesForMode.note}</p>
                 <ul className="space-y-1.5 text-xs text-muted-foreground">
-                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-success" aria-hidden="true" />Local usage ledger and quota enforcement are active.</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-success" aria-hidden="true" />Usage ledger and quota enforcement are active.</li>
                   <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-success" aria-hidden="true" />Administrative actions are written to the audit trail.</li>
                   <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-success" aria-hidden="true" />Role policies apply to cloud accounts when configured.</li>
                 </ul>
@@ -420,7 +423,7 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
               <div>
                 <h2 className="text-sm font-semibold text-foreground">People</h2>
                 <p className="text-xs text-muted-foreground">
-                  {offlineMode ? 'One owner on this device. Cloud accounts appear here when Supabase is configured.' : 'Accounts from the cloud governance profile table.'}
+                  {offlineMode ? 'Single administrator. Managed accounts appear here when a directory service is connected.' : 'Accounts from the cloud governance profile table.'}
                 </p>
               </div>
               <span className="text-[11px] text-muted-foreground">{members.length} account{members.length === 1 ? '' : 's'}</span>
@@ -530,8 +533,8 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
             <div className="rounded-lg border border-border bg-card p-4">
               <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Invitations</h3>
               <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                Invitations need Supabase's server-side admin API with a service-role key, which must never ship in the
-                browser. This build does not fake that call: create accounts in Supabase Auth and assign a role here.
+                Invitations require a server-side admin API with a service-role key that must never be exposed to the
+                client. This build does not fake that call: create accounts in the identity service and assign a role here.
                 See <span className="font-medium text-foreground">docs/ADMINISTRATION.md</span> for the deployment contract.
               </p>
             </div>
@@ -543,7 +546,7 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold text-foreground">Usage</h2>
-                <p className="text-xs text-muted-foreground">Append-only ledger of actions on this device. Cloud-wide aggregation is shown separately.</p>
+                <p className="text-xs text-muted-foreground">Append-only ledger of workspace actions. Cloud-wide aggregation is shown separately.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <label className="text-[11px] text-muted-foreground">
@@ -586,8 +589,8 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
 
             {environment?.cloudUsageMirrorError && (
               <p role="alert" className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-                The last usage mirror failed: {environment.cloudUsageMirrorError}. The event is still recorded on this
-                device, but cloud-wide reports and server-side quota checks did not see it.
+                The last usage mirror failed: {environment.cloudUsageMirrorError}. The event is still recorded in the
+                workspace ledger, but cloud-wide reports and server-side quota checks did not see it.
               </p>
             )}
 
@@ -652,7 +655,7 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
                   {filteredEvents.slice(0, 200).map((event: UsageEvent) => (
                     <tr key={event.id}>
                       <td className="whitespace-nowrap px-4 py-2 tabular-nums text-muted-foreground">{formatTime(event.at)}</td>
-                      <td className="px-4 py-2 text-foreground">{event.user}</td>
+                      <td className="px-4 py-2 text-foreground">{accountName(event.user)}</td>
                       <td className="px-4 py-2 text-foreground">{USAGE_KIND_LABELS[event.kind]}</td>
                       <td className="px-4 py-2 text-muted-foreground">
                         {event.detail ? Object.entries(event.detail).map(([key, value]) => `${key}=${String(value)}`).join(', ') : '—'}
@@ -668,14 +671,14 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
 
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
               <div>
-                <h3 className="text-xs font-semibold text-foreground">Device ledger</h3>
+                <h3 className="text-xs font-semibold text-foreground">Usage ledger</h3>
                 <p className="mt-1 max-w-xl text-[11px] text-muted-foreground">
-                  Clearing removes all {ledgerTotal.toLocaleString()} recorded event{ledgerTotal === 1 ? '' : 's'} from this
-                  browser, not only the rows in the current window. Audit events are kept.
+                  Clearing removes all {ledgerTotal.toLocaleString()} recorded event{ledgerTotal === 1 ? '' : 's'} from the
+                  ledger, not only the rows in the current window. Audit events are kept.
                 </p>
                 {environment && !environment.ledgerPersistent && (
                   <p className="mt-1 max-w-xl text-[11px] font-medium text-warning">
-                    This browser refused durable storage, so the ledger lives in memory only and is lost when the tab closes.
+                    Durable storage is unavailable, so the ledger lives in memory only and is lost when the tab closes.
                   </p>
                 )}
               </div>
@@ -699,7 +702,7 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
                   <Button variant="ghost" size="sm" onClick={() => setClearArmed(false)}>Cancel</Button>
                 </div>
               ) : (
-                <Button variant="outline" size="sm" onClick={() => setClearArmed(true)}>Clear this device&apos;s ledger</Button>
+                <Button variant="outline" size="sm" onClick={() => setClearArmed(true)}>Clear ledger</Button>
               )}
             </div>
           </section>
@@ -714,7 +717,7 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
               </p>
               {policySyncError && (
                 <p role="alert" className="mt-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-                  The cloud policy table could not be read: {policySyncError}. Showing this device&apos;s last known policies.
+                  The cloud policy table could not be read: {policySyncError}. Showing the last known policies.
                 </p>
               )}
             </div>
@@ -729,7 +732,7 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
                       <>
                         <p className="mt-1 text-sm font-semibold text-muted-foreground">Unavailable</p>
                         <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
-                          The browser did not report a storage estimate, so this row is not compared to the policy.
+                          No storage estimate was reported, so this row is not compared to the policy.
                         </p>
                       </>
                     ) : (
@@ -746,7 +749,7 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
                 ))}
               </div>
               <p className="mt-3 text-[11px] text-muted-foreground">
-                Project creation, exports and solver runs are checked against the active role&apos;s policy in this browser. Storage is reported from the browser&apos;s estimate; the cloud schema enforces quotas for the account activity it records.
+                Project creation, exports and solver runs are checked against the active role&apos;s policy. Storage is reported from the available estimate; the cloud schema enforces quotas for the account activity it records.
               </p>
             </div>
 
@@ -874,7 +877,7 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
                   {audit.map((entry) => (
                     <tr key={entry.id}>
                       <td className="whitespace-nowrap px-4 py-2 tabular-nums text-muted-foreground">{formatTime(entry.timestamp)}</td>
-                      <td className="px-4 py-2 text-foreground">{entry.user}</td>
+                      <td className="px-4 py-2 text-foreground">{accountName(entry.user)}</td>
                       <td className="px-4 py-2 font-mono text-[11px] text-foreground">{entry.action}</td>
                       <td className="px-4 py-2 text-muted-foreground">{entry.resource}</td>
                       <td className="max-w-[240px] truncate px-4 py-2 text-muted-foreground">{JSON.stringify(entry.details)}</td>
@@ -896,19 +899,19 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               <div className="rounded-lg border border-border bg-card p-4">
                 <p className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Deployment</p>
-                <p className="mt-1 text-sm font-semibold text-foreground">{environment?.deployment === 'cloud' ? 'Cloud-connected' : 'Local device'}</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">{environment?.supabaseConfigured ? 'Supabase credentials detected.' : 'No Supabase credentials; all data stays in this browser.'}</p>
+                <p className="mt-1 text-sm font-semibold text-foreground">{environment?.deployment === 'cloud' ? 'Cloud-connected' : 'Standalone'}</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">{environment?.supabaseConfigured ? 'Managed identity service connected.' : 'No external identity service; workspace data stays in this deployment.'}</p>
               </div>
               <div className="rounded-lg border border-border bg-card p-4">
                 <p className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Always-on agents</p>
-                <p className="mt-1 text-sm font-semibold text-foreground">{environment?.agentCloudConfigured ? 'Runner configured' : 'Local runner only'}</p>
+                <p className="mt-1 text-sm font-semibold text-foreground">{environment?.agentCloudConfigured ? 'Runner configured' : 'In-process runner'}</p>
                 <p className="mt-1 text-[11px] text-muted-foreground">{environment?.agentCloudConfigured ? 'Background agents can connect to the configured runner.' : 'Agents stop when this tab closes; set VITE_AGENT_CLOUD_URL for an always-on runner.'}</p>
               </div>
               <div className="rounded-lg border border-border bg-card p-4">
-                <p className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Browser storage</p>
+                <p className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Workspace storage</p>
                 <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">{formatBytesMb(environment?.storageUsedMb ?? null)}</p>
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  {environment?.storageQuotaMb ? `of an estimated ${formatBytesMb(environment.storageQuotaMb)} quota` : 'Browser quota estimate unavailable'}
+                  {environment?.storageQuotaMb ? `of an estimated ${formatBytesMb(environment.storageQuotaMb)} quota` : 'Storage quota estimate unavailable'}
                 </p>
               </div>
               <div className="rounded-lg border border-border bg-card p-4">
@@ -916,15 +919,15 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
                 <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">{environment?.ledgerEvents ?? 0} events</p>
                 <p className={`mt-1 text-[11px] ${environment && !environment.ledgerPersistent ? 'text-warning' : 'text-muted-foreground'}`}>
                   {environment && !environment.ledgerPersistent
-                    ? 'Stored in memory only: this browser refused durable storage, so events are lost when the tab closes.'
-                    : 'Append-only, capped at 5,000 entries, persisted under folio.usage.v1 in this browser.'}
+                    ? 'Stored in memory only: durable storage is unavailable, so events are lost when the tab closes.'
+                    : 'Append-only, capped at 5,000 entries, persisted in workspace storage.'}
                 </p>
               </div>
               <div className="rounded-lg border border-border bg-card p-4">
                 <p className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Governance schema</p>
                 <p className="mt-1 text-sm font-semibold text-foreground">{offlineMode ? 'Not applicable' : 'profiles · usage_events · quota_policies'}</p>
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  {offlineMode ? 'Local mode has no server directory.' : 'Apply the admin migration before granting roles.'}
+                  {offlineMode ? 'Standalone mode has no account directory.' : 'Apply the admin migration before granting roles.'}
                 </p>
               </div>
               <div className="rounded-lg border border-border bg-card p-4">
@@ -940,9 +943,9 @@ export default function AdminConsole({ user, offlineMode, onBack }: AdminConsole
             <div className="rounded-lg border border-border bg-card p-4">
               <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Honest limits</h3>
               <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                Local mode cannot enumerate accounts on other devices, cannot revoke a session remotely, and cannot enforce a
-                quota for someone else. Those operations require the cloud schema plus RLS, and invitations require a
-                service-role server function. The console labels each capability above rather than pretending otherwise.
+                Standalone mode cannot enumerate accounts in other workspaces, cannot revoke a session remotely, and cannot
+                enforce a quota for someone else. Those operations require the cloud schema plus RLS, and invitations require
+                a service-role server function. The console labels each capability above rather than pretending otherwise.
               </p>
             </div>
           </section>

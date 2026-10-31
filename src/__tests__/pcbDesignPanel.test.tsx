@@ -11,6 +11,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import PCBDesignPanel from '../components/pcb/PCBDesignPanel'
 import { useProjectStore } from '../stores/useProjectStore'
+import { useAppStore } from '../stores/useAppStore'
 import { emcSimulationEngine } from '../lib/emc/emcSimulation'
 import type { EMCResult } from '../lib/emc/emcSimulation'
 import { thermalAnalysisEngine } from '../lib/pcb/thermalAnalysis'
@@ -27,6 +28,7 @@ import { planeLoopInductance, stitchingGrid } from '../lib/manufacturing/powerIn
 import { dogboneFanout, MICROVIA_FANOUT_RULES } from '../lib/manufacturing/bgaFanout'
 import { SOC_256 } from '../lib/electronics/socPackages'
 import type { PlacedComponent, Wire, Net } from '../types'
+import type { Component } from '../lib/supabase'
 import { buildDemoBoard } from '../lib/demo/demoBoard'
 import { buildDemoPcb } from '../lib/demo/demoPcb'
 import { AgentHarness } from '../lib/agents/agentHarness'
@@ -137,6 +139,7 @@ describe('PCBDesignPanel', () => {
     // The panel adopts a stored routed layout on mount, so each test starts
     // from a clean board rather than inheriting the previous test's copper.
     useProjectStore.setState({ components: [], wires: [], pcbLayout: null })
+    useAppStore.setState({ selectedComponents: [], selectedWires: [] })
   })
 
   afterEach(() => {
@@ -166,7 +169,7 @@ describe('PCBDesignPanel', () => {
     expect(screen.getByRole('button', { name: 'Show Bottom Soldermask' })).toBeInTheDocument()
 
     // Tool palette, canvas readout, counters and the design-rule table.
-    for (const tool of ['select', 'route', 'via', 'move']) {
+    for (const tool of ['Select', 'Route', 'Place via', 'Move part', 'Keep-out', 'Measure', 'Board outline']) {
       expect(screen.getByRole('button', { name: tool })).toBeInTheDocument()
     }
     expect(screen.getAllByText(/100 × 80 mm/)).not.toHaveLength(0)
@@ -202,12 +205,12 @@ describe('PCBDesignPanel', () => {
   it('switches the active tool and layer, and toggles layer visibility', () => {
     render(<PCBDesignPanel onClose={vi.fn()} />)
 
-    // 'select' starts active (default variant); picking a tool moves it.
-    expect(screen.getByRole('button', { name: 'select' })).toHaveClass('bg-primary')
-    expect(screen.getByRole('button', { name: 'route' })).toHaveClass('bg-background')
-    fireEvent.click(screen.getByRole('button', { name: 'route' }))
-    expect(screen.getByRole('button', { name: 'route' })).toHaveClass('bg-primary')
-    expect(screen.getByRole('button', { name: 'select' })).not.toHaveClass('bg-primary')
+    // 'Select' starts active (default variant); picking a tool moves it.
+    expect(screen.getByRole('button', { name: 'Select' })).toHaveClass('bg-primary')
+    expect(screen.getByRole('button', { name: 'Route' })).toHaveClass('bg-background')
+    fireEvent.click(screen.getByRole('button', { name: 'Route' }))
+    expect(screen.getByRole('button', { name: 'Route' })).toHaveClass('bg-primary')
+    expect(screen.getByRole('button', { name: 'Select' })).not.toHaveClass('bg-primary')
 
     // Selecting a layer re-labels the canvas readout.
     fireEvent.click(screen.getByText('Inner 1 (GND)'))
@@ -251,9 +254,14 @@ describe('PCBDesignPanel', () => {
     expect(screen.getByRole('tab', { name: 'DRC' })).toHaveAttribute('data-state', 'active')
     expect(screen.getByText('Design Rule Check — 0 issues')).toBeInTheDocument()
     expect(screen.getByText(/No copper rule broken in the scope above/)).toBeInTheDocument()
-    expect(screen.getByText(/DRC clean on 2 traces/)).toBeInTheDocument()
-    // The verdict names what it did not judge, because the board model has no pads.
-    expect(screen.getByText(/Not checked: pad size/)).toBeInTheDocument()
+    // The verdict counts the copper and constraint geometry it measured: the four
+    // lands the parts were routed from and the drawn keep-outs are scope, not
+    // omissions.
+    expect(screen.getByText(/DRC clean on 2 traces, 0 vias, 4 lands and 0 keep-outs/)).toBeInTheDocument()
+    // What it did not judge is still named, and for the reason that is true: the
+    // board places lands, so no package outline exists to overlap.
+    expect(screen.getByText(/Not checked: courtyard overlap between footprints/)).toBeInTheDocument()
+    expect(screen.queryByText(/Not checked: pad size/)).not.toBeInTheDocument()
   })
 
   it('flags nets that have no copper as DRC warnings', () => {
@@ -457,13 +465,40 @@ describe('PCBDesignPanel', () => {
       centroid: [],
       bom: [],
       violations: [],
+      planes: [],
       shippable: true,
     })
     try {
       render(<PCBDesignPanel onClose={vi.fn()} components={[part]} wires={[net('GND', 'w1')]} />)
       fireEvent.click(screen.getByRole('button', { name: /Fab package/ }))
       expect(spy).toHaveBeenCalled()
+      // Four copper layers in the default stackup means two inner films.
+      expect(spy.mock.calls[0][2]).toMatchObject({ innerLayerCount: 2, planes: [] })
+      expect(spy.mock.calls[0][2]?.nets?.map((entry) => entry.name)).toEqual(['GND'])
       expect(screen.getByText(/shippable/)).toBeInTheDocument()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('passes an inner-layer pour to the fab package when the stack declares one', async () => {
+    const fab = await import('../lib/manufacturing/fabExport')
+    const spy = vi.spyOn(fab, 'buildFabPackage').mockReturnValue({
+      files: new Map([['folio-pcb-In1_Cu.g1', 'G04 plane*']]),
+      centroid: [],
+      bom: [],
+      violations: [],
+      planes: [{ film: 'inner-1', netName: 'GND', connections: 1, antiPads: 0 }],
+      shippable: true,
+    })
+    try {
+      const { container } = render(<PCBDesignPanel onClose={vi.fn()} components={[part]} wires={[net('GND', 'w1')]} />)
+      const select = container.querySelector<HTMLSelectElement>('#plane-net-in1-cu')
+      expect(select).not.toBeNull()
+      fireEvent.change(select!, { target: { value: 'GND' } })
+      fireEvent.click(screen.getByRole('button', { name: /Fab package/ }))
+      expect(spy.mock.calls[0][2]?.planes).toEqual([{ film: 'inner-1', netName: 'GND' }])
+      expect(screen.getByText(/GND pour on inner-1/)).toBeInTheDocument()
     } finally {
       spy.mockRestore()
     }
@@ -652,6 +687,85 @@ describe('PCBDesignPanel', () => {
     }
   })
 
+  it('highlights the part selected on the sheet when it opens on a stored board', () => {
+    const board = buildDemoBoard()
+    const pcb = buildDemoPcb()
+    useProjectStore.setState({ components: board.components, wires: board.wires, pcbLayout: pcb.scene })
+    const target = board.components[0]
+    useAppStore.setState({ selectedComponents: [target.id] })
+
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+
+    // Opening the board must not drop the sheet's selection.
+    expect(useAppStore.getState().selectedComponents).toEqual([target.id])
+    expect(document.querySelector(`[data-component-id="${target.id}"]`)).toHaveAttribute('data-selected', 'true')
+  })
+
+  it("lights the selected part's nets and recedes the rest of the copper", () => {
+    const board = buildDemoBoard()
+    const pcb = buildDemoPcb()
+    useProjectStore.setState({ components: board.components, wires: board.wires, pcbLayout: pcb.scene })
+    const target = board.components.find(component => component.reference === 'D1') ?? board.components[0]
+    const ownNets = new Set(
+      board.wires
+        .filter(wire => wire.connectedPins.some(pin => pin.componentId === target.id))
+        .map(wire => wire.netName),
+    )
+    useAppStore.setState({ selectedComponents: [target.id] })
+
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+
+    const traces = [...document.querySelectorAll('[data-trace-net]')]
+    const focused = traces.filter(trace => trace.getAttribute('data-focused') === 'true')
+    expect(focused.length).toBeGreaterThan(0)
+    for (const trace of focused) {
+      expect(ownNets.has(trace.getAttribute('data-trace-net')!)).toBe(true)
+    }
+    // Copper on other nets stays visible but gives way to the part's own nets.
+    expect(traces.some(trace => trace.getAttribute('data-receded') === 'true')).toBe(true)
+  })
+
+  it('keeps the board at full contrast when the selected part has no routed copper', () => {
+    const board = buildDemoBoard()
+    const pcb = buildDemoPcb()
+    // Only the source net is routed; D1's own nets (MID, OUT) have no copper.
+    const scene = { ...pcb.scene, traces: pcb.scene.traces.filter(trace => trace.net === 'SRC') }
+    useProjectStore.setState({ components: board.components, wires: board.wires, pcbLayout: scene })
+    const target = board.components.find(component => component.reference === 'D1')!
+    useAppStore.setState({ selectedComponents: [target.id] })
+
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+
+    const traces = [...document.querySelectorAll('[data-trace-net]')]
+    expect(traces.length).toBeGreaterThan(0)
+    // Dimming everything while nothing is lit would read as a rendering fault.
+    expect(traces.some(trace => trace.getAttribute('data-receded') === 'true')).toBe(false)
+  })
+
+  it('follows a sheet selection made while the board is open', () => {
+    const board = buildDemoBoard()
+    useProjectStore.setState({ components: board.components, wires: board.wires, pcbLayout: null })
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+    const target = board.components[0]
+    const group = document.querySelector(`[data-component-id="${target.id}"]`)
+    expect(group).not.toHaveAttribute('data-selected')
+
+    act(() => { useAppStore.setState({ selectedComponents: [target.id] }) })
+
+    expect(document.querySelector(`[data-component-id="${target.id}"]`)).toHaveAttribute('data-selected', 'true')
+  })
+
+  it('selects the sheet part when a board part is picked', () => {
+    render(
+      <PCBDesignPanel onClose={vi.fn()} components={[partAt('r1', 20, 20)]} wires={[]} />,
+    )
+    mockBoardRect()
+
+    fireEvent.pointerDown(document.querySelector('[data-component-id="r1"]') as SVGGElement, { button: 0 })
+
+    expect(useAppStore.getState().selectedComponents).toEqual(['r1'])
+  })
+
   it('adopts copper routed by the agent harness without a reload', async () => {
     const board = buildDemoBoard()
     useProjectStore.setState({ components: board.components, wires: board.wires, pcbLayout: null })
@@ -678,17 +792,104 @@ describe('PCBDesignPanel', () => {
   it('drops a via where the board is clicked', () => {
     render(<PCBDesignPanel onClose={vi.fn()} />)
     const svg = mockBoardRect()
-    fireEvent.click(screen.getByRole('button', { name: 'via' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Place via' }))
 
     fireEvent.pointerDown(svg, { button: 0, ...boardToClient(100, 80)(50, 40) })
 
     expect(screen.getByText('Traces: 0 | Vias: 1')).toBeInTheDocument()
   })
 
+  it('draws a keep-out rectangle and picks it for deletion', () => {
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+    const svg = mockBoardRect()
+    const at = boardToClient(100, 80)
+    fireEvent.click(screen.getByRole('button', { name: 'Keep-out' }))
+
+    fireEvent.pointerDown(svg, { button: 0, ...at(20, 20) })
+    expect(document.querySelector('[data-testid="pcb-keepout-draft"]')).not.toBeNull()
+    fireEvent.pointerMove(svg.parentElement!, at(30, 30))
+    fireEvent.pointerUp(svg.parentElement!)
+
+    const zone = document.querySelector('[data-keepout-id]')
+    expect(zone).not.toBeNull()
+    expect(zone).toHaveAttribute('data-keepout-layers', 'all')
+    // The rectangle is stored origin-anchored with the drawn size.
+    expect(zone!.querySelector('rect')).toHaveAttribute('width', '10')
+    expect(zone!.querySelector('rect')).toHaveAttribute('height', '10')
+    // Drawing it picks it, so Delete removes it without hunting for it.
+    expect(screen.getByText(/keep-out picked — press Delete to remove/)).toBeInTheDocument()
+    expect(document.querySelector('svg[aria-label^="PCB layout"]')).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('1 keep-outs'),
+    )
+  })
+
+  it('restricts a keep-out to the active layer when Alt is held', () => {
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+    const svg = mockBoardRect()
+    const at = boardToClient(100, 80)
+    fireEvent.click(screen.getByRole('button', { name: 'Keep-out' }))
+
+    fireEvent.pointerDown(svg, { button: 0, altKey: true, ...at(20, 20) })
+    fireEvent.pointerMove(svg.parentElement!, at(30, 30))
+    fireEvent.pointerUp(svg.parentElement!)
+
+    expect(document.querySelector('[data-keepout-id]')).toHaveAttribute('data-keepout-layers', 'top-cu')
+  })
+
+  it('reports copper inside a keep-out to the DRC', () => {
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+    const svg = mockBoardRect()
+    const at = boardToClient(100, 80)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Route' }))
+    fireEvent.pointerDown(svg, { button: 0, ...at(50, 40) })
+    fireEvent.pointerDown(svg, { button: 0, ...at(60, 40) })
+    fireEvent.click(screen.getByRole('button', { name: 'Finish trace' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep-out' }))
+    fireEvent.pointerDown(svg, { button: 0, ...at(45, 35) })
+    fireEvent.pointerMove(svg.parentElement!, at(65, 45))
+    fireEvent.pointerUp(svg.parentElement!)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run DRC' }))
+
+    expect(screen.getByText(/contains copper of trace/)).toBeInTheDocument()
+  })
+
+  it('measures between two snapped points', () => {
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+    const svg = mockBoardRect()
+    const at = boardToClient(100, 80)
+    fireEvent.click(screen.getByRole('button', { name: 'Measure' }))
+
+    fireEvent.pointerDown(svg, { button: 0, ...at(10, 10) })
+    fireEvent.pointerDown(svg, { button: 0, ...at(40, 30) })
+
+    const ruler = document.querySelector('[data-testid="pcb-measure"]')
+    expect(ruler).not.toBeNull()
+    expect(ruler!.textContent).toContain('36.06 mm')
+    expect(ruler!.textContent).toContain('Δx 30.00 · Δy 20.00 mm')
+  })
+
+  it('resizes the board from the outline corner handle', () => {
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+    const svg = mockBoardRect()
+    const at = boardToClient(100, 80)
+    fireEvent.click(screen.getByRole('button', { name: 'Board outline' }))
+    expect(document.querySelector('[data-outline-handle="corner"]')).not.toBeNull()
+
+    fireEvent.pointerDown(svg, { button: 0, ...at(100, 80) })
+    fireEvent.pointerMove(svg.parentElement!, at(110, 90))
+    fireEvent.pointerUp(svg.parentElement!)
+
+    expect(screen.getAllByText(/110 × 90 mm/)).not.toHaveLength(0)
+  })
+
   it('lays a two-point trace with the route tool and finishes it', () => {
     render(<PCBDesignPanel onClose={vi.fn()} />)
     const svg = mockBoardRect()
-    fireEvent.click(screen.getByRole('button', { name: 'route' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Route' }))
     const at = boardToClient(100, 80)
 
     fireEvent.pointerDown(svg, { button: 0, ...at(50, 40) })
@@ -709,7 +910,7 @@ describe('PCBDesignPanel', () => {
       />,
     )
     const svg = mockBoardRect()
-    fireEvent.click(screen.getByRole('button', { name: 'move' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Move part' }))
     const at = boardToClient(100, 80)
     const start = at(20, 20)
     const group = document.querySelector('[data-component-id="r1"]') as SVGGElement
@@ -723,5 +924,270 @@ describe('PCBDesignPanel', () => {
 
     expect(group.getAttribute('transform')).toBe('translate(22 20) rotate(0)')
     expect(screen.getByRole('status')).toHaveTextContent(/Parts moved after routing/)
+  })
+
+  describe('board editing', () => {
+    /** Two lands on one net, nothing routed — the smallest ratable board. */
+    const twoLands = {
+      components: [partAt('r1', 20, 20), partAt('r2', 60, 45)],
+      wires: [pinNet('VIN', 'w1', [
+        { componentId: 'r1', pinId: '1' },
+        { componentId: 'r2', pinId: '1' },
+      ])],
+    }
+    const partGroup = () => document.querySelector('[data-component-id="r1"]')
+
+    it('flies a ratsnest line between lands no copper joins', () => {
+      render(<PCBDesignPanel onClose={vi.fn()} {...twoLands} />)
+      expect(document.querySelectorAll('[data-testid="pcb-ratsnest"] line')).toHaveLength(1)
+
+      fireEvent.click(screen.getByRole('switch', { name: /Ratsnest/ }))
+      expect(document.querySelector('[data-testid="pcb-ratsnest"]')).toBeNull()
+    })
+
+    it('silent ratsnest once the two lands are routed together', async () => {
+      render(<PCBDesignPanel onClose={vi.fn()} {...twoLands} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Auto-Route from Schematic' }))
+      await waitFor(() => expect(screen.getByText(/Traces: [1-9]/)).toBeInTheDocument())
+      expect(document.querySelector('[data-testid="pcb-ratsnest"]')).toBeNull()
+    })
+
+    it('turns the selected part with R and back with Shift+R', async () => {
+      render(<PCBDesignPanel onClose={vi.fn()} {...twoLands} />)
+      mockBoardRect()
+      fireEvent.pointerDown(partGroup()!, { button: 0 })
+
+      fireEvent.keyDown(window, { key: 'r' })
+      await waitFor(() => expect(partGroup()?.getAttribute('transform')).toContain('rotate(90)'))
+
+      fireEvent.keyDown(window, { key: 'R', shiftKey: true })
+      await waitFor(() => expect(partGroup()?.getAttribute('transform')).toContain('rotate(0)'))
+    })
+
+    it('flips the selected part to the bottom face with F', async () => {
+      render(<PCBDesignPanel onClose={vi.fn()} {...twoLands} />)
+      mockBoardRect()
+      fireEvent.pointerDown(partGroup()!, { button: 0 })
+      expect(partGroup()).toHaveAttribute('data-side', 'top')
+
+      fireEvent.keyDown(window, { key: 'f' })
+      await waitFor(() => expect(partGroup()).toHaveAttribute('data-side', 'bottom'))
+    })
+
+    it('picks up a via on click and deletes it, and undo puts it back', () => {
+      render(<PCBDesignPanel onClose={vi.fn()} {...twoLands} />)
+      const svg = mockBoardRect()
+      const at = boardToClient(100, 80)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Place via' }))
+      fireEvent.pointerDown(svg, { button: 0, ...at(50, 40) })
+      expect(screen.getByText('Traces: 0 | Vias: 1')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+      fireEvent.pointerDown(svg, { button: 0, ...at(50, 40) })
+      expect(document.querySelector('[data-via-id][data-picked="true"]')).not.toBeNull()
+
+      fireEvent.keyDown(window, { key: 'delete' })
+      expect(screen.getByText('Traces: 0 | Vias: 0')).toBeInTheDocument()
+
+      fireEvent.keyDown(window, { key: 'z', ctrlKey: true })
+      expect(screen.getByText('Traces: 0 | Vias: 1')).toBeInTheDocument()
+    })
+
+    it('counts a whole drag as one undo step', async () => {
+      render(<PCBDesignPanel onClose={vi.fn()} components={[partAt('r1', 20, 20)]} wires={[]} />)
+      const svg = mockBoardRect()
+      const at = boardToClient(100, 80)
+      const start = at(20, 20)
+      const step = at(21, 20).clientX - start.clientX
+
+      fireEvent.pointerDown(partGroup()!, { button: 0, ...start })
+      // Three moves along one drag: an undo per pixel would bury the history.
+      for (const mm of [2, 3, 4]) {
+        fireEvent.pointerMove(svg.parentElement!, { clientX: start.clientX + mm * step, clientY: start.clientY })
+      }
+      fireEvent.pointerUp(svg.parentElement!)
+      await waitFor(() => expect(partGroup()?.getAttribute('transform')).toContain('translate(24 20)'))
+
+      fireEvent.keyDown(window, { key: 'z', ctrlKey: true })
+      await waitFor(() => expect(partGroup()?.getAttribute('transform')).toContain('translate(20 20)'))
+
+      // Nothing left to undo: the board stays where the undo put it.
+      fireEvent.keyDown(window, { key: 'z', ctrlKey: true })
+      expect(partGroup()?.getAttribute('transform')).toContain('translate(20 20)')
+
+      fireEvent.keyDown(window, { key: 'z', ctrlKey: true, shiftKey: true })
+      await waitFor(() => expect(partGroup()?.getAttribute('transform')).toContain('translate(24 20)'))
+    })
+
+    it('marquee-selects the parts a rubber band touches', () => {
+      render(<PCBDesignPanel onClose={vi.fn()} {...twoLands} />)
+      const svg = mockBoardRect()
+      const at = boardToClient(100, 80)
+
+      fireEvent.pointerDown(svg, { button: 0, ...at(10, 10) })
+      fireEvent.pointerMove(svg.parentElement!, at(35, 35))
+      expect(document.querySelector('[data-testid="pcb-marquee"]')).not.toBeNull()
+      fireEvent.pointerUp(svg.parentElement!)
+
+      // r1 sits at 20,20 inside the band; r2 at 60,45 is outside it.
+      expect(useAppStore.getState().selectedComponents).toEqual(['r1'])
+      expect(document.querySelector('[data-testid="pcb-marquee"]')).toBeNull()
+    })
+
+    it('adds to and clears the selection with Shift and a bare click', () => {
+      render(<PCBDesignPanel onClose={vi.fn()} {...twoLands} />)
+      const svg = mockBoardRect()
+      const at = boardToClient(100, 80)
+      const r1 = () => document.querySelector('[data-component-id="r1"]') as SVGGElement
+      const r2 = () => document.querySelector('[data-component-id="r2"]') as SVGGElement
+
+      fireEvent.pointerDown(r1(), { button: 0, ...at(20, 20) })
+      fireEvent.pointerDown(r2(), { button: 0, shiftKey: true, ...at(60, 45) })
+      expect(useAppStore.getState().selectedComponents).toEqual(['r1', 'r2'])
+
+      // A press on empty board that never moves clears on release.
+      fireEvent.pointerDown(svg, { button: 0, ...at(10, 70) })
+      fireEvent.pointerUp(svg.parentElement!)
+      expect(useAppStore.getState().selectedComponents).toEqual([])
+    })
+
+    it('moves every selected part as one undo step', async () => {
+      render(<PCBDesignPanel onClose={vi.fn()} {...twoLands} />)
+      const svg = mockBoardRect()
+      const at = boardToClient(100, 80)
+      const start = at(20, 20)
+      const step = at(21, 20).clientX - start.clientX
+      const part = (id: string) => document.querySelector(`[data-component-id="${id}"]`) as SVGGElement
+
+      fireEvent.pointerDown(part('r1'), { button: 0, ...start })
+      fireEvent.pointerDown(part('r2'), { button: 0, shiftKey: true, ...at(60, 45) })
+      // Grabbing any member drags the whole selection.
+      fireEvent.pointerDown(part('r1'), { button: 0, ...start })
+      fireEvent.pointerMove(svg.parentElement!, { clientX: start.clientX + 5 * step, clientY: start.clientY })
+      fireEvent.pointerUp(svg.parentElement!)
+
+      await waitFor(() => expect(part('r1').getAttribute('transform')).toContain('translate(25 20)'))
+      expect(part('r2').getAttribute('transform')).toContain('translate(65 45)')
+
+      fireEvent.keyDown(window, { key: 'z', ctrlKey: true })
+      await waitFor(() => expect(part('r1').getAttribute('transform')).toContain('translate(20 20)'))
+      expect(part('r2').getAttribute('transform')).toContain('translate(60 45)')
+    })
+
+    it('snaps manual copper to the grid the selector is set to', () => {
+      render(<PCBDesignPanel onClose={vi.fn()} {...twoLands} />)
+      const svg = mockBoardRect()
+      const at = boardToClient(100, 80)
+
+      fireEvent.click(screen.getByRole('button', { name: '0.1' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Route' }))
+      fireEvent.pointerDown(svg, { button: 0, ...at(50.44, 40.27) })
+      fireEvent.pointerDown(svg, { button: 0, ...at(60.44, 40.27) })
+      fireEvent.click(screen.getByRole('button', { name: 'Finish trace' }))
+
+      const boardSvg = document.querySelector('svg[aria-label^="PCB layout"]')
+      expect(boardSvg!.querySelector('polyline')?.getAttribute('points')).toBe('50.4,40.3 60.4,40.3')
+    })
+  })
+
+  describe('placing library parts', () => {
+    const resistor: Component = {
+      id: 'lib-res',
+      name: 'Resistor',
+      category: 'Passive',
+      is_standard: true,
+      symbol_data: { width: 40, height: 20, paths: [] },
+      pins: [
+        { id: '1', name: 'A', x: -20, y: 0, type: 'passive' },
+        { id: '2', name: 'B', x: 20, y: 0, type: 'passive' },
+      ],
+      default_properties: { resistance: '10k' },
+    }
+    const partOnBoard = () => document.querySelector('[data-component-id]') as SVGGElement | null
+
+    /**
+     * jsdom has no DragEvent and a plain Event ignores coordinates in its init,
+     * so the payload a browser sends is defined explicitly.
+     */
+    const dropEvent = (point: { clientX: number; clientY: number }, componentId: string) => {
+      const event = new Event('drop', { bubbles: true, cancelable: true })
+      Object.defineProperty(event, 'clientX', { value: point.clientX })
+      Object.defineProperty(event, 'clientY', { value: point.clientY })
+      Object.defineProperty(event, 'dataTransfer', {
+        value: { types: ['componentId'], getData: () => componentId },
+      })
+      return event
+    }
+
+    it('adds a dropped part to the design and lands it where it was dropped', () => {
+      render(<PCBDesignPanel onClose={vi.fn()} library={[resistor]} />)
+      const svg = mockBoardRect()
+      const at = boardToClient(100, 80)(30.04, 20.07)
+
+      fireEvent(svg, dropEvent(at, 'lib-res'))
+
+      // The sheet owns the netlist, so the drop creates the part there too…
+      const design = useProjectStore.getState().components
+      expect(design).toHaveLength(1)
+      expect(design[0].reference).toBe('R1')
+      expect(design[0].properties).toEqual({ resistance: '10k' })
+      // …and the board records the snapped drop point, not the sheet slot.
+      expect(partOnBoard()?.getAttribute('transform')).toBe('translate(30 20) rotate(0)')
+    })
+
+    it('places an armed part on the next board click and reports it placed', () => {
+      const onPendingPlaced = vi.fn()
+      render(
+        <PCBDesignPanel
+          onClose={vi.fn()}
+          library={[resistor]}
+          pendingComponent={resistor}
+          onPendingPlaced={onPendingPlaced}
+        />,
+      )
+      const svg = mockBoardRect()
+      const at = boardToClient(100, 80)(70, 55)
+      expect(screen.getByText(/Resistor is armed/)).toBeInTheDocument()
+
+      fireEvent.pointerDown(svg, { button: 0, ...at })
+
+      expect(useProjectStore.getState().components).toHaveLength(1)
+      expect(partOnBoard()?.getAttribute('transform')).toBe('translate(70 55) rotate(0)')
+      expect(onPendingPlaced).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves the route tool alone while a part is armed', () => {
+      render(
+        <PCBDesignPanel onClose={vi.fn()} library={[resistor]} pendingComponent={resistor} />,
+      )
+      const svg = mockBoardRect()
+      const at = boardToClient(100, 80)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Route' }))
+      fireEvent.pointerDown(svg, { button: 0, ...at(50, 40) })
+      fireEvent.pointerDown(svg, { button: 0, ...at(60, 40) })
+      fireEvent.click(screen.getByRole('button', { name: 'Finish trace' }))
+
+      // The click routed copper; the armed part was not dropped on the way.
+      expect(screen.getByText('Traces: 1 | Vias: 0')).toBeInTheDocument()
+      expect(useProjectStore.getState().components).toHaveLength(0)
+    })
+
+    it('disarms on Escape', () => {
+      const onPendingPlaced = vi.fn()
+      render(
+        <PCBDesignPanel
+          onClose={vi.fn()}
+          library={[resistor]}
+          pendingComponent={resistor}
+          onPendingPlaced={onPendingPlaced}
+        />,
+      )
+
+      fireEvent.keyDown(window, { key: 'Escape' })
+
+      expect(onPendingPlaced).toHaveBeenCalledTimes(1)
+    })
   })
 })

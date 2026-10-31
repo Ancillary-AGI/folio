@@ -20,6 +20,8 @@ export interface PcbSceneInputLayer {
   visible?: boolean
   thicknessMm?: number
   side?: 'top' | 'bottom'
+  /** Net this inner copper layer is poured as a plane; unset means routed copper. */
+  net?: string
 }
 
 export interface PcbSceneInputTrace {
@@ -50,6 +52,52 @@ export interface PcbSceneInputComponent {
   y: number
   rotationDeg?: number
   side?: 'top' | 'bottom'
+  /**
+   * Body colour override. The footprint category chooses the *finish* (matte
+   * epoxy, metal tab, translucent lens); this chooses the *hue* within it, so a
+   * red and a green LED share one lens material but read as two parts.
+   */
+  color?: string
+}
+
+/** Copper-free window punched in a pour, board millimetres. */
+export interface PcbSceneKeepout {
+  x: number
+  y: number
+  widthMm: number
+  depthMm: number
+  shape?: 'circle' | 'rectangle'
+}
+
+/**
+ * A poured plane on a declared copper layer: the layout names the net and the
+ * keepaways, and the scene draws the copper. This is how a real board carries
+ * a ground or power rail — the plane holds the DC and the router only threads
+ * the signals.
+ */
+export interface PcbSceneInputPour {
+  id: string
+  net: string
+  layerId: string
+  /** Keep-in distance from the board outline; defaults to 1.2 mm. */
+  marginMm?: number
+  /** Foreign pads, drills and any other copper the plane must pull back from. */
+  keepouts?: PcbSceneKeepout[]
+}
+
+/**
+ * A copper-free window the designer drew, as opposed to the keepaways a pour
+ * computes for itself. The router and DRC read it; the 2-D canvas draws it.
+ */
+export interface PcbSceneDesignKeepout {
+  id: string
+  /** Top-left corner, board millimetres. */
+  x: number
+  y: number
+  widthMm: number
+  depthMm: number
+  /** Layer ids the region bars copper from; empty means every layer. */
+  layers: string[]
 }
 
 export interface PcbSceneInput {
@@ -61,6 +109,8 @@ export interface PcbSceneInput {
   traces: PcbSceneInputTrace[]
   vias: PcbSceneInputVia[]
   components: PcbSceneInputComponent[]
+  pours?: PcbSceneInputPour[]
+  keepouts?: PcbSceneDesignKeepout[]
 }
 
 export interface PcbSceneVec3 {
@@ -148,9 +198,37 @@ export interface PcbSceneWarning {
     | 'via-outside-board'
     | 'component-outside-board'
     | 'unknown-footprint'
+    | 'pour-on-non-copper-layer'
+    | 'pour-edge-violation'
     | 'empty-board'
   message: string
   elementId?: string
+}
+
+/** A keepaway punched out of a pour, in scene millimetres. */
+export interface PcbScenePourHole {
+  x: number
+  z: number
+  widthMm: number
+  depthMm: number
+  shape: 'circle' | 'rectangle'
+}
+
+export interface PcbScenePour {
+  id: string
+  net: string
+  layerId: string
+  side: 'top' | 'bottom'
+  /** Scene Y of the copper the pour is drawn on. */
+  yMm: number
+  centerX: number
+  centerZ: number
+  widthMm: number
+  depthMm: number
+  cornerRadiusMm: number
+  holes: PcbScenePourHole[]
+  /** Poured copper area after the keepaways, mm². */
+  areaMm2: number
 }
 
 export interface PcbScene {
@@ -159,6 +237,7 @@ export interface PcbScene {
   traces: PcbSceneTraceSegment[]
   vias: PcbSceneVia[]
   components: PcbSceneComponent[]
+  pours: PcbScenePour[]
   warnings: PcbSceneWarning[]
   counts: {
     copperLayers: number
@@ -167,6 +246,7 @@ export interface PcbScene {
     vias: number
     components: number
     pads: number
+    pours: number
   }
 }
 
@@ -180,20 +260,37 @@ const CATEGORY_BODY_HEIGHT_MM: Record<string, number> = {
   inductor: 1.2,
   crystal: 0.9,
   switch: 2.0,
+  led: 0.85,
+  // A mounting hole is plated copper and a drill, nothing on top of it.
+  mechanical: 0,
 }
 
+/**
+ * Default body hue per family — the colour of the moulding, not its finish.
+ * `componentMaterial` in the renderer pairs these with the category's surface
+ * properties, and a part may override the hue through its own `color`.
+ */
 const COMPONENT_COLORS: Record<string, string> = {
   resistor: '#2b2b2b',
   capacitor: '#8a6d3b',
   semiconductor: '#1f1f1f',
   ic: '#111111',
-  connector: '#c9a227',
+  // Black plastic shrouding; the gold shows through on the pins, not the body.
+  connector: '#1b1d22',
   inductor: '#4a4a4a',
   crystal: '#9aa0a6',
   switch: '#555555',
+  led: '#e11d48',
+  mechanical: '#c9a227',
 }
 
 const EPSILON_MM = 1e-6
+
+/** Corner radius a fab mills on a board outline; pours follow it concentrically. */
+export const BOARD_CORNER_MM = 2.2
+
+/** Default distance a poured plane keeps from the board edge. */
+const POUR_EDGE_MM = 1.2
 
 function assertPositive(value: number, label: string): void {
   if (!Number.isFinite(value) || value <= 0) {
@@ -457,16 +554,94 @@ export function buildPcbScene(input: PcbSceneInput): PcbScene {
       bodyDepthMm: bodyDepth,
       bodyHeightMm: bodyHeight,
       bodyShape: category === 'capacitor' && bodyWidth > 4 ? 'cylinder' : 'box',
-      color: COMPONENT_COLORS[category] ?? '#4b5563',
+      color: component.color ?? COMPONENT_COLORS[category] ?? '#4b5563',
       pads,
       onBoard,
     }
   })
 
+  const pours: PcbScenePour[] = []
+  for (const pour of input.pours ?? []) {
+    const layer = layerById.get(pour.layerId)
+    if (!layer || layer.kind !== 'copper') {
+      warnings.push({
+        code: 'pour-on-non-copper-layer',
+        elementId: pour.id,
+        message: `Pour ${pour.id} names "${pour.layerId}", which is not a copper layer, and is not drawn.`,
+      })
+      continue
+    }
+    const requested = pour.marginMm ?? POUR_EDGE_MM
+    const margin = Number.isFinite(requested) && requested >= 0 ? requested : POUR_EDGE_MM
+    const pourWidth = width - margin * 2
+    const pourDepth = height - margin * 2
+    if (pourWidth <= 0 || pourDepth <= 0) {
+      warnings.push({
+        code: 'pour-edge-violation',
+        elementId: pour.id,
+        message: `Pour ${pour.id} keeps ${margin} mm from the edge of a ${width} x ${height} mm board, which leaves no copper.`,
+      })
+      continue
+    }
+    const holes: PcbScenePourHole[] = []
+    let holeArea = 0
+    for (const keepout of pour.keepouts ?? []) {
+      if (
+        !Number.isFinite(keepout.x) || !Number.isFinite(keepout.y) ||
+        !(keepout.widthMm > 0) || !(keepout.depthMm > 0)
+      ) {
+        warnings.push({
+          code: 'pour-edge-violation',
+          elementId: pour.id,
+          message: `Pour ${pour.id} has a keepaway with no usable size and skips it.`,
+        })
+        continue
+      }
+      const halfWidth = keepout.widthMm / 2
+      const halfDepth = keepout.depthMm / 2
+      // A hole that is not wholly inside the plane cannot be cut from it; the
+      // plane simply does not reach there, so the margin is reported instead.
+      if (
+        keepout.x - halfWidth < margin - EPSILON_MM ||
+        keepout.y - halfDepth < margin - EPSILON_MM ||
+        keepout.x + halfWidth > width - margin + EPSILON_MM ||
+        keepout.y + halfDepth > height - margin + EPSILON_MM
+      ) {
+        continue
+      }
+      const shape = keepout.shape ?? 'circle'
+      holes.push({
+        x: keepout.x - width / 2,
+        z: keepout.y - height / 2,
+        widthMm: keepout.widthMm,
+        depthMm: keepout.depthMm,
+        shape,
+      })
+      holeArea += shape === 'circle'
+        ? (Math.PI * keepout.widthMm * keepout.depthMm) / 4
+        : keepout.widthMm * keepout.depthMm
+    }
+    pours.push({
+      id: pour.id,
+      net: pour.net,
+      layerId: pour.layerId,
+      side: layer.side ?? 'top',
+      yMm: layer.yMm,
+      centerX: 0,
+      centerZ: 0,
+      widthMm: pourWidth,
+      depthMm: pourDepth,
+      cornerRadiusMm: Math.max(0, BOARD_CORNER_MM - margin),
+      holes,
+      areaMm2: Math.max(0, pourWidth * pourDepth - holeArea),
+    })
+  }
+
   if (
     input.traces.length === 0 &&
     input.vias.length === 0 &&
-    input.components.length === 0
+    input.components.length === 0 &&
+    (input.pours?.length ?? 0) === 0
   ) {
     warnings.push({
       code: 'empty-board',
@@ -487,6 +662,7 @@ export function buildPcbScene(input: PcbSceneInput): PcbScene {
     traces,
     vias,
     components,
+    pours,
     warnings,
     counts: {
       copperLayers: layers.filter((layer) => layer.kind === 'copper').length,
@@ -495,6 +671,7 @@ export function buildPcbScene(input: PcbSceneInput): PcbScene {
       vias: vias.length,
       components: components.length,
       pads: components.reduce((total, component) => total + component.pads.length, 0),
+      pours: pours.length,
     },
   }
 }
