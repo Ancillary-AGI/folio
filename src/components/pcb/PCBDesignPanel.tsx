@@ -4566,6 +4566,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                           <label htmlFor={`class-width-${entry.id}`} className="text-[10px] uppercase tracking-wide text-muted-foreground">Width</label>
                           <input
                             id={`class-width-${entry.id}`}
+                            aria-label={`${entry.name} trace width in millimetres`}
                             type="number"
                             min={0.05}
                             step={0.01}
@@ -4580,6 +4581,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                           <label htmlFor={`class-clearance-${entry.id}`} className="text-[10px] uppercase tracking-wide text-muted-foreground">Clear</label>
                           <input
                             id={`class-clearance-${entry.id}`}
+                            aria-label={`${entry.name} clearance in millimetres`}
                             type="number"
                             min={0.05}
                             step={0.01}
