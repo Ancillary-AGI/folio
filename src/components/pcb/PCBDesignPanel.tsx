@@ -77,12 +77,20 @@ import { useShortcutStore } from '../../stores/useShortcutStore'
 import { useDemoRequest } from '../workspace/useDemoRequest'
 import { polylineLength } from '../../lib/geometry/distance'
 import {
+  DEFAULT_NET_CLASSES,
+  netClassRules,
+  resolveNetClass,
+  type NetClass,
+} from '../../lib/pcb/netClasses'
+import {
   fourLayerStackup,
   microstripErEff,
   microstripImpedance,
   nearestPlane,
+  ozToMm,
   validateStackup,
   widthForImpedance,
+  type StackupLayer,
 } from '../../lib/manufacturing/stackup'
 import { planeLoopInductance, pourResistance, stitchingGrid } from '../../lib/manufacturing/powerIntegrity'
 import { dogboneFanout, escapeTracksPerChannel, MICROVIA_FANOUT_RULES } from '../../lib/manufacturing/bgaFanout'
@@ -615,7 +623,7 @@ function boxesOverlap(a: BoardBox, b: BoardBox): boolean {
 function PCBCanvas({
   traces, vias, keepouts, boardWidth, boardHeight, selectedLayerId, layers, scene,
   activeTool, selectedComponentIds, selectedCopper, routerPads, focusedNetNames,
-  snapGridMm, ratsnestWires, drcMarkers,
+  snapGridMm, ratsnestWires, drcMarkers, traceWidthForNet,
   onSelectComponents, onMoveComponents, onAddTrace, onAddVia, onAddKeepout, onSelectCopper,
   onEndGesture, onResizeBoard, onDropPart, onPlaceArmed,
 }: {
@@ -635,6 +643,8 @@ function PCBCanvas({
   snapGridMm: number
   ratsnestWires: readonly RatsnestWire[]
   drcMarkers: readonly DrcMarker[]
+  /** Copper width a net's class asks for; the default when it names no class. */
+  traceWidthForNet: (netName: string) => number
   onSelectComponents: (ids: string[]) => void
   onMoveComponents: (moves: Array<{ id: string; position: Point }>, gestureKey: string) => void
   onAddTrace: (draft: { points: Point[]; layerId: string; width: number; netName: string }) => void
@@ -837,7 +847,7 @@ function PCBCanvas({
     onAddTrace({
       points: current.points,
       layerId: current.layerId,
-      width: MANUAL_TRACE_WIDTH_MM,
+      width: traceWidthForNet(current.netName),
       netName: current.netName,
     })
   }
@@ -1747,7 +1757,7 @@ function PCBCanvas({
                   .join(' ')}
                 fill="none"
                 stroke={layerColor(draft.layerId)}
-                strokeWidth={MANUAL_TRACE_WIDTH_MM}
+                strokeWidth={traceWidthForNet(draft.netName)}
                 strokeDasharray="0.7 0.35"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -2100,6 +2110,16 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
     [components, schematicNets],
   )
   const [layers, setLayers] = useState<PCBLayer[]>(DEFAULT_LAYERS)
+  /**
+   * The physical laminate the impedance, skew, thermal and fab figures are
+   * computed from. It starts as the standard symmetric four-layer 1.6 mm
+   * stackup and every layer is editable; the copper films drawn on the canvas
+   * stay the same four, so an edit changes the physics, not the film list.
+   */
+  const [stackupLayers, setStackupLayers] = useState<StackupLayer[]>(() => fourLayerStackup())
+  const [netClasses, setNetClasses] = useState<NetClass[]>(DEFAULT_NET_CLASSES)
+  /** Explicit net-to-class pins; patterns resolve every other net. */
+  const [netAssignments, setNetAssignments] = useState<Record<string, string>>({})
   const [selectedLayerId, setSelectedLayerId] = useState('top-cu')
   const [activeTool, setActiveTool] = useState<BoardToolId>('select')
   const activeToolMeta = BOARD_TOOLS.find((tool) => tool.id === activeTool) ?? BOARD_TOOLS[0]
@@ -2139,6 +2159,29 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
   }, [selectedComponentIds, schematicNets])
   const traces = editor.traces
   const vias = editor.vias
+  /** Every net the sheet or the copper names, in one alphabetical list. */
+  const allNetNames = useMemo(() => {
+    const names = new Set<string>()
+    for (const net of schematicNets) if (net.name) names.add(net.name)
+    for (const trace of traces) if (trace.netName) names.add(trace.netName)
+    for (const via of vias) if (via.netName) names.add(via.netName)
+    return [...names].sort((a, b) => a.localeCompare(b))
+  }, [schematicNets, traces, vias])
+  const classRules = useMemo(
+    () => netClassRules(allNetNames, netClasses, netAssignments),
+    [allNetNames, netClasses, netAssignments],
+  )
+  /** Width a manual route commits for this net; untouched copper keeps its own. */
+  const traceWidthForNet = useCallback(
+    (netName: string) => (netName ? (classRules.widths[netName] ?? MANUAL_TRACE_WIDTH_MM) : MANUAL_TRACE_WIDTH_MM),
+    [classRules],
+  )
+  /** The panel's DRC reads the same net classes the router and canvas do. */
+  const drcOverrides = useMemo<Partial<DRCSettings>>(() => ({
+    ...PANEL_DRC_OVERRIDES,
+    netTraceWidth: classRules.widths,
+    netClearance: classRules.clearances,
+  }), [classRules])
   const [boardWidth, setBoardWidth] = useState(initialLayoutRef.current?.widthMm ?? autoLayout.size.width)
   const [boardHeight, setBoardHeight] = useState(initialLayoutRef.current?.heightMm ?? autoLayout.size.height)
   const [drcViolations, setDrcViolations] = useState<DRCViolation[]>([])
@@ -2188,7 +2231,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
   // ── Advanced: stackup, power integrity, BGA, diff pairs, IBIS ───────────────
 
   const stackupAnalysis = useMemo(() => {
-    const layers = fourLayerStackup()
+    const layers = stackupLayers
     const validation = validateStackup(layers)
     const reference = nearestPlane(layers, 0)
     const z0 = reference
@@ -2202,14 +2245,28 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
         mode: 'microstrip',
       })
       : undefined
-    return { layers, ...validation, reference, z0, widthFor50 }
-  }, [])
+    const copper = layers.filter((layer) => layer.kind !== 'dielectric')
+    const copperOz = copper.length > 0
+      ? copper.reduce((sum, layer) => sum + (layer.thickness ?? 1), 0) / copper.length
+      : 1
+    return { layers, ...validation, reference, z0, widthFor50, copperOz }
+  }, [stackupLayers])
+
+  /** Physical board thickness the 3D preview, thermal solver and DRC consume. */
+  const boardThicknessMm = Number.isFinite(stackupAnalysis.stackup.totalThickness)
+    ? stackupAnalysis.stackup.totalThickness
+    : 1.6
+  const copperThicknessMm = useMemo(() => {
+    const copper = stackupLayers.filter((layer) => layer.kind !== 'dielectric')
+    if (copper.length === 0) return THERMAL_COPPER_THICKNESS_MM
+    return copper.reduce((sum, layer) => sum + ozToMm(layer.thickness ?? 1), 0) / copper.length
+  }, [stackupLayers])
 
   const powerIntegrity = useMemo(() => ({
-    loopInductanceNh: planeLoopInductance(boardWidth, boardHeight, 0.2),
-    pourResistanceMohm: pourResistance(boardWidth, boardHeight, 1),
+    loopInductanceNh: planeLoopInductance(boardWidth, boardHeight, stackupAnalysis.reference?.distance ?? 0.2),
+    pourResistanceMohm: pourResistance(boardWidth, boardHeight, stackupAnalysis.copperOz),
     stitchingVias: stitchingGrid(boardWidth, boardHeight, 10, 1).length,
-  }), [boardWidth, boardHeight])
+  }), [boardWidth, boardHeight, stackupAnalysis])
 
   const bgaAnalysis = useMemo(() => {
     validateBallMap(SOC_256)
@@ -2453,12 +2510,24 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
   // ── Auto-route from schematic wires (real A* router) ────────────────────────
 
   const handleAutoRoute = useCallback(() => {
+    /*
+     * A net class may ask for wider copper than the house width. The grid has
+     * to reserve that width so a wide net is not routed into a gap it cannot
+     * legally occupy, while each net still prints its own class width.
+     */
+    const widestTrace = Math.max(
+      boardRouterRules().minTraceWidthMm,
+      ...allNetNames.map((name) => traceWidthForNet(name)),
+    )
     const result = autoroute(routerPads, {
       boardWidthMm: boardWidth,
       boardHeightMm: boardHeight,
       layers: ['F.Cu', 'B.Cu'],
       keepouts: routerKeepoutsFromPanel(keepouts),
-      ...boardRouterRules(),
+      ...boardRouterRules({
+        minTraceWidthMm: widestTrace,
+        traceWidthForNet,
+      }),
     })
 
     const newTraces: PCBTrace[] = result.traces.map((t, i) => ({
@@ -2500,7 +2569,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
     })))
     setDrcRan(result.unrouted.length > 0)
     setStaleRouting(false)
-  }, [routerPads, boardWidth, boardHeight, keepouts, applyBoardEdits])
+  }, [routerPads, boardWidth, boardHeight, keepouts, applyBoardEdits, allNetNames, traceWidthForNet])
 
   useDemoRequest('pcb-autoroute', handleAutoRoute)
 
@@ -2569,6 +2638,54 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
     setSelectedCopper({ kind: 'keepout', id })
     invalidateChecks()
   }, [applyBoardEdits, invalidateChecks])
+
+  /**
+   * Rip up every piece of copper routed for one net. This is the manual
+   * counterpart to the router's own rip-up: the design keeps the net in the
+   * ratsnest and the designer re-routes it, with undo restoring the copper in
+   * one step. A keep-out is a board constraint, never part of a net, so it is
+   * left alone.
+   */
+  const ripUpNet = useCallback((netName: string) => {
+    if (!netName) return
+    applyBoardEdits((current) => ({
+      ...current,
+      traces: current.traces.filter((trace) => trace.netName !== netName),
+      vias: current.vias.filter((via) => via.netName !== netName),
+    }))
+    setSelectedCopper(null)
+    invalidateChecks()
+  }, [applyBoardEdits, invalidateChecks])
+
+  const updateNetClass = useCallback((
+    classId: string,
+    patch: Partial<Pick<NetClass, 'traceWidthMm' | 'clearanceMm' | 'patterns'>>,
+  ) => {
+    setNetClasses((previous) => previous.map((entry) => (
+      entry.id === classId ? { ...entry, ...patch } : entry
+    )))
+  }, [])
+
+  const assignNetToClass = useCallback((netName: string, classId: string) => {
+    setNetAssignments((previous) => {
+      if (classId === '') {
+        if (!(netName in previous)) return previous
+        const next = { ...previous }
+        delete next[netName]
+        return next
+      }
+      return { ...previous, [netName]: classId }
+    })
+  }, [])
+
+  const updateStackupLayer = useCallback((
+    index: number,
+    patch: Partial<Pick<StackupLayer, 'thickness' | 'er'>>,
+  ) => {
+    setStackupLayers((previous) => previous.map((layer, layerIndex) => (
+      layerIndex === index ? { ...layer, ...patch } : layer
+    )))
+  }, [])
 
   /**
    * Moves a whole gesture's parts in one snapshot. A drag fires on every
@@ -2769,7 +2886,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
     return {
       id: 'panel-design',
       name: 'PCB Design',
-      dimensions: { width: boardWidth, height: boardHeight, thickness: 1.6 },
+      dimensions: { width: boardWidth, height: boardHeight, thickness: boardThicknessMm },
       layers: layers.map(layer => ({
         id: layer.id,
         name: layer.name,
@@ -2787,7 +2904,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
         layerId: trace.layerId,
         width: trace.width,
         points: trace.points,
-        clearance: PANEL_DRC_RULES.minTraceClearance,
+        clearance: classRules.clearances[trace.netName] ?? PANEL_DRC_RULES.minTraceClearance,
       })),
       vias: vias.map(via => ({
         id: via.id,
@@ -2820,21 +2937,25 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
         minViaDrillDiameter: PANEL_DRC_RULES.minViaDrillDiameter,
         minPadDiameter: PANEL_DRC_RULES.minPadDiameter,
         minHoleDiameter: PANEL_DRC_RULES.minHoleDiameter,
-        copperThickness: 0.035,
+        copperThickness: copperThicknessMm,
         solderMaskClearance: 0.1,
         silkScreenClearance: 0.15,
       },
     }
-  }, [traces, vias, wires, layers, boardWidth, boardHeight, designPads, copperLayerIds, keepouts])
+  }, [traces, vias, wires, layers, boardWidth, boardHeight, boardThicknessMm, copperThicknessMm, classRules, designPads, copperLayerIds, keepouts])
 
-  /** Stackup figures the thermal solvers are given, derived from `layers`. */
+  /** Stackup figures the thermal solvers are given, derived from the laminate. */
   const thermalStackup = useMemo(() => {
     const copperLayers = countCopperLayers(layers)
     return {
       copperLayers,
-      inPlaneConductivityWmk: effectiveInPlaneConductivityWmk(1.6, copperLayers, THERMAL_COPPER_THICKNESS_MM),
+      inPlaneConductivityWmk: effectiveInPlaneConductivityWmk(
+        boardThicknessMm,
+        copperLayers,
+        copperThicknessMm,
+      ),
     }
-  }, [layers])
+  }, [layers, boardThicknessMm, copperThicknessMm])
 
   /**
    * The 3D viewer previews this exact object: outline, copper layers, routed
@@ -2845,8 +2966,8 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
   const pcbSceneLayout = useMemo<PcbSceneInput>(() => ({
     widthMm: boardWidth,
     heightMm: boardHeight,
-    thicknessMm: 1.6,
-    copperThicknessMm: 0.035,
+    thicknessMm: boardThicknessMm,
+    copperThicknessMm,
     layers: layers.map(layer => ({
       id: layer.id,
       name: layer.name,
@@ -2901,7 +3022,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
         rotationDeg: component.rotation,
         side: placements[component.id]?.side ?? 'top',
       })),
-  }), [traces, vias, components, layers, placements, keepouts, boardWidth, boardHeight])
+  }), [traces, vias, components, layers, placements, keepouts, boardWidth, boardHeight, boardThicknessMm, copperThicknessMm])
 
   const pcbScene = useMemo<PcbScene | null>(() => {
     try {
@@ -2955,7 +3076,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
   }, [pcbSceneLayout, setPcbLayout])
 
   const handleDRC = useCallback(() => {
-    const result = new DesignRuleChecker(boardDesign, PANEL_DRC_OVERRIDES).runDRC()
+    const result = new DesignRuleChecker(boardDesign, drcOverrides).runDRC()
     setDrcViolations(result.violations.map((violation, index): DRCViolation => ({
       id: `${violation.type}_${violation.elementId}_${index}`,
       severity: violation.severity,
@@ -2967,7 +3088,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
     })))
     setDrcRan(true)
     setActiveTab('drc')
-  }, [boardDesign])
+  }, [boardDesign, drcOverrides])
 
   // ── EMC analysis ──────────────────────────────────────────────────────────────
 
@@ -3065,7 +3186,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
         ambientTemperature: THERMAL_AMBIENT_C,
         convectionCoefficient: THERMAL_CONVECTION_W_M2K,
         boardMaterial: 'FR4',
-        copperThickness: THERMAL_COPPER_THICKNESS_MM,
+        copperThickness: copperThicknessMm,
         layerCount: thermalStackup.copperLayers,
         simulationTime: 300,
         timeStep: 1,
@@ -3109,7 +3230,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
         {
           boardWidthMm: boardWidth,
           boardHeightMm: boardHeight,
-          boardThicknessMm: 1.6,
+          boardThicknessMm,
           gridResolutionMm: 1,
           effectiveConductivityWmk: thermalStackup.inPlaneConductivityWmk,
           convectionCoeffWperM2K: THERMAL_CONVECTION_W_M2K,
@@ -3128,7 +3249,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
       setAnalysisRunning(false)
       setActiveTab('thermal')
     }
-  }, [components, thermalStackup, boardWidth, boardHeight])
+  }, [components, thermalStackup, boardWidth, boardHeight, boardThicknessMm, copperThicknessMm])
 
   // ── Signal integrity ──────────────────────────────────────────────────────────
 
@@ -3518,7 +3639,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                     />
                   </div>
                   <p className="text-xs text-muted-foreground pb-1">
-                    Outline {boardWidth} × {boardHeight} mm · 1.6 mm FR-4 · 1 oz copper
+                    Outline {boardWidth} × {boardHeight} mm · {boardThicknessMm.toFixed(2)} mm FR-4 · {stackupAnalysis.copperOz.toFixed(1)} oz copper
                   </p>
                 </div>
 
@@ -3597,6 +3718,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                     routerPads={routerPads}
                     focusedNetNames={focusedNetNames}
                     snapGridMm={snapGridMm}
+                    traceWidthForNet={traceWidthForNet}
                     ratsnestWires={ratsnestWires}
                     drcMarkers={drcMarkers}
                     onSelectComponents={selectComponents}
@@ -3764,7 +3886,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                     </div>
                     <p className="text-[11px] text-muted-foreground">
                       Model: {THERMAL_AMBIENT_C} °C ambient, {THERMAL_CONVECTION_W_M2K} W/m²·K natural convection over{' '}
-                      {boardWidth} × {boardHeight} mm of 1.6 mm FR-4 with {thermalStackup.copperLayers} copper layer(s).
+                      {boardWidth} × {boardHeight} mm of {boardThicknessMm.toFixed(2)} mm FR-4 with {thermalStackup.copperLayers} copper layer(s).
                       The parts link through FR-4 in the lumped solve; the heat map spreads laterally through an
                       in-plane laminate conductivity of {thermalStackup.inPlaneConductivityWmk.toFixed(1)} W/m·K derived
                       from {(THERMAL_COPPER_THICKNESS_MM * 1000).toFixed(0)} µm copper per layer. Heat-map positions come
@@ -3965,15 +4087,71 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                   </CardHeader>
                   <CardContent className="space-y-1 px-3 pb-3 text-xs">
                     {stackupAnalysis.layers.map((layer, index) => (
-                      <div key={`${layer.name}-${index}`} className="flex justify-between">
-                        <span className="capitalize">{layer.name} <span className="text-muted-foreground">{layer.kind}</span></span>
-                        <span className="text-muted-foreground">
-                          {layer.kind === 'dielectric'
-                            ? `${layer.thickness} mm · εr ${layer.er}`
-                            : `${layer.thickness ?? 1} oz${layer.net ? ` · ${layer.net}` : ''}`}
+                      <div key={`${layer.name}-${index}`} className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 flex-1 truncate capitalize">
+                          {layer.name} <span className="text-muted-foreground">{layer.kind}</span>
                         </span>
+                        {layer.kind === 'dielectric' ? (
+                          <div className="flex shrink-0 items-center gap-1">
+                            <input
+                              aria-label={`${layer.name} ${index + 1} dielectric thickness in millimetres`}
+                              type="number"
+                              min={0.05}
+                              step={0.01}
+                              value={layer.thickness ?? 0}
+                              onFocus={(event) => event.target.select()}
+                              onChange={(event) => {
+                                const value = Number(event.target.value)
+                                if (Number.isFinite(value) && value > 0) updateStackupLayer(index, { thickness: value })
+                              }}
+                              className="w-14 rounded border border-border bg-background px-1 py-0.5 text-[11px]"
+                            />
+                            <span className="text-[10px] text-muted-foreground">mm</span>
+                            <input
+                              aria-label={`${layer.name} ${index + 1} dielectric constant`}
+                              type="number"
+                              min={1}
+                              step={0.1}
+                              value={layer.er ?? 4.4}
+                              onFocus={(event) => event.target.select()}
+                              onChange={(event) => {
+                                const value = Number(event.target.value)
+                                if (Number.isFinite(value) && value >= 1) updateStackupLayer(index, { er: value })
+                              }}
+                              className="w-14 rounded border border-border bg-background px-1 py-0.5 text-[11px]"
+                            />
+                            <span className="text-[10px] text-muted-foreground">εr</span>
+                          </div>
+                        ) : (
+                          <div className="flex shrink-0 items-center gap-1">
+                            <input
+                              aria-label={`${layer.name} copper weight in ounces`}
+                              type="number"
+                              min={0.25}
+                              step={0.25}
+                              value={layer.thickness ?? 1}
+                              onFocus={(event) => event.target.select()}
+                              onChange={(event) => {
+                                const value = Number(event.target.value)
+                                if (Number.isFinite(value) && value > 0) updateStackupLayer(index, { thickness: value })
+                              }}
+                              className="w-14 rounded border border-border bg-background px-1 py-0.5 text-[11px]"
+                            />
+                            <span className="text-[10px] text-muted-foreground">oz</span>
+                            {layer.net ? <span className="text-[10px] text-muted-foreground">· {layer.net}</span> : null}
+                          </div>
+                        )}
                       </div>
                     ))}
+                    <div className="flex justify-end pt-1">
+                      <Button
+                        variant="ghost"
+                        className="h-6 px-2 text-[11px] font-normal text-muted-foreground"
+                        onClick={() => setStackupLayers(fourLayerStackup())}
+                      >
+                        Standard 4-layer
+                      </Button>
+                    </div>
                     <div className={`pt-1 ${stackupAnalysis.violations.length === 0 ? 'text-success' : 'text-destructive'}`}>
                       {stackupAnalysis.violations.length === 0
                         ? 'Symmetric stackup, thickness within 0.2–4 mm.'
@@ -4358,6 +4536,123 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                     <Waypoints className="w-3 h-3 mr-1" /> Auto-Route from Schematic
                   </Button>
                   <div className="text-xs text-muted-foreground">Traces: {traces.length} | Vias: {vias.length}</div>
+                </CardContent>
+              </Card>
+
+              {/* Net classes: one rule set for routing, manual copper and DRC. */}
+              <Card>
+                <CardHeader className="pb-2 pt-3 px-3">
+                  <CardTitle className="flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1"><BoxSelect className="w-3 h-3" /> Net classes</span>
+                    <Button
+                      variant="ghost"
+                      className="h-5 px-1.5 text-[10px] font-normal text-muted-foreground"
+                      onClick={() => { setNetClasses(DEFAULT_NET_CLASSES); setNetAssignments({}) }}
+                    >
+                      Reset
+                    </Button>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 px-3 pb-3">
+                  {netClasses.map((entry) => {
+                    const members = allNetNames.filter((name) => resolveNetClass(name, netClasses, netAssignments)?.id === entry.id).length
+                    return (
+                      <div key={entry.id} className="space-y-1 rounded border border-border p-1.5">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-medium">{entry.name}</span>
+                          <span className="text-muted-foreground">{members} net{members === 1 ? '' : 's'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <label htmlFor={`class-width-${entry.id}`} className="text-[10px] uppercase tracking-wide text-muted-foreground">Width</label>
+                          <input
+                            id={`class-width-${entry.id}`}
+                            type="number"
+                            min={0.05}
+                            step={0.01}
+                            value={entry.traceWidthMm}
+                            onFocus={(event) => event.target.select()}
+                            onChange={(event) => {
+                              const value = Number(event.target.value)
+                              if (Number.isFinite(value) && value > 0) updateNetClass(entry.id, { traceWidthMm: value })
+                            }}
+                            className="w-16 rounded border border-border bg-background px-1.5 py-0.5 text-[11px]"
+                          />
+                          <label htmlFor={`class-clearance-${entry.id}`} className="text-[10px] uppercase tracking-wide text-muted-foreground">Clear</label>
+                          <input
+                            id={`class-clearance-${entry.id}`}
+                            type="number"
+                            min={0.05}
+                            step={0.01}
+                            value={entry.clearanceMm}
+                            onFocus={(event) => event.target.select()}
+                            onChange={(event) => {
+                              const value = Number(event.target.value)
+                              if (Number.isFinite(value) && value > 0) updateNetClass(entry.id, { clearanceMm: value })
+                            }}
+                            className="w-16 rounded border border-border bg-background px-1.5 py-0.5 text-[11px]"
+                          />
+                          <span className="text-[10px] text-muted-foreground">mm</span>
+                        </div>
+                        <input
+                          aria-label={`${entry.name} net patterns`}
+                          value={entry.patterns.join(', ')}
+                          placeholder="net patterns, comma separated"
+                          onFocus={(event) => event.target.select()}
+                          onChange={(event) => updateNetClass(entry.id, {
+                            patterns: event.target.value.split(',').map((pattern) => pattern.trim()).filter(Boolean),
+                          })}
+                          className="w-full rounded border border-border bg-background px-1.5 py-0.5 text-[10px]"
+                        />
+                      </div>
+                    )
+                  })}
+                  <details className="rounded border border-border px-1.5 py-1">
+                    <summary className="cursor-pointer text-[11px] text-muted-foreground">
+                      Nets ({allNetNames.length}) — assign class or rip up
+                    </summary>
+                    <div className="mt-1 max-h-56 space-y-1 overflow-y-auto pr-1">
+                      {allNetNames.length === 0 ? (
+                        <p className="py-1 text-[11px] text-muted-foreground">No nets yet: place or load a circuit first.</p>
+                      ) : allNetNames.map((name) => {
+                        const effective = resolveNetClass(name, netClasses, netAssignments)
+                        const routedMm = netLengths.get(name) ?? 0
+                        const hasCopper = traces.some((trace) => trace.netName === name)
+                          || vias.some((via) => via.netName === name)
+                        return (
+                          <div key={name} className="flex items-center gap-1 text-[11px]">
+                            <span className="min-w-0 flex-1 truncate" title={name}>{name}</span>
+                            <span className="w-12 shrink-0 text-right text-muted-foreground">{routedMm > 0 ? `${routedMm.toFixed(1)} mm` : '—'}</span>
+                            <select
+                              aria-label={`Class for ${name}`}
+                              value={netAssignments[name] ?? ''}
+                              onChange={(event) => assignNetToClass(name, event.target.value)}
+                              className="w-24 shrink-0 rounded border border-border bg-background px-1 py-0.5 text-[10px]"
+                            >
+                              <option value="">Auto — {effective?.name ?? 'none'}</option>
+                              {netClasses.map((entry) => (
+                                <option key={entry.id} value={entry.id}>{entry.name}</option>
+                              ))}
+                            </select>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5 shrink-0"
+                              disabled={!hasCopper}
+                              onClick={() => ripUpNet(name)}
+                              title={hasCopper ? `Rip up every track and via on ${name}` : `${name} has no routed copper`}
+                              aria-label={`Rip up ${name}`}
+                            >
+                              <X className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </details>
+                  <p className="text-[10px] leading-snug text-muted-foreground">
+                    Width applies to new manual routes and auto-routed copper. Clearance is enforced by DRC
+                    on top of the board minimum; a class can tighten a rule, never loosen it.
+                  </p>
                 </CardContent>
               </Card>
 

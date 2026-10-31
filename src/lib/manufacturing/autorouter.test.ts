@@ -39,6 +39,35 @@ describe('autoroute', () => {
     }
   })
 
+  it('prints each net at its own class width while reserving the widest', () => {
+    const pads: RouterPad[] = [
+      { netId: 'SIG', componentId: 'A', pinId: '1', x: 2, y: 2, layer: 'F.Cu' },
+      { netId: 'SIG', componentId: 'B', pinId: '1', x: 8, y: 2, layer: 'F.Cu' },
+      { netId: 'PWR', componentId: 'C', pinId: '1', x: 2, y: 8, layer: 'F.Cu' },
+      { netId: 'PWR', componentId: 'D', pinId: '1', x: 8, y: 8, layer: 'F.Cu' },
+    ]
+    const widths: Record<string, number> = { SIG: 0.2, PWR: 0.5 }
+    const result = autoroute(pads, {
+      ...config,
+      // The grid reserves the widest class; each net prints its own width.
+      minTraceWidthMm: 0.5,
+      traceWidthForNet: (netId) => widths[netId],
+    })
+
+    expect(result.unrouted).toEqual([])
+    expect(new Set(result.traces.filter((t) => t.netId === 'SIG').map((t) => t.widthMm))).toEqual(new Set([0.2]))
+    expect(new Set(result.traces.filter((t) => t.netId === 'PWR').map((t) => t.widthMm))).toEqual(new Set([0.5]))
+  })
+
+  it('refuses a net class that asks for a non-positive width', () => {
+    const pads: RouterPad[] = [
+      { netId: 'N1', componentId: 'A', pinId: '1', x: 2, y: 2, layer: 'F.Cu' },
+      { netId: 'N1', componentId: 'B', pinId: '1', x: 8, y: 2, layer: 'F.Cu' },
+    ]
+    expect(() => autoroute(pads, { ...config, traceWidthForNet: () => 0 }))
+      .toThrow(/trace width for net "N1" must be positive/i)
+  })
+
   it('lands on off-grid pad centres without a zero-area stub', () => {
     // Pad A is 0.1 mm past the first grid node in the direction of travel.
     // Prepending the pad centre unconditionally drew 2.1 -> 2.0 -> 2.5, a

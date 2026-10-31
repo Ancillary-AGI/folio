@@ -264,6 +264,66 @@ describe('PCBDesignPanel', () => {
     expect(screen.queryByText(/Not checked: pad size/)).not.toBeInTheDocument()
   })
 
+  it('prints each net at its class width, and rips one net up without touching the other', () => {
+    const components = [partAt('r1', 10, 10), partAt('r2', 60, 45)]
+    const wires = [
+      pinNet('GND', 'w1', [
+        { componentId: 'r1', pinId: '1' },
+        { componentId: 'r2', pinId: '1' },
+      ]),
+      pinNet('VCC', 'w2', [
+        { componentId: 'r1', pinId: '2' },
+        { componentId: 'r2', pinId: '2' },
+      ]),
+    ]
+    const { container } = render(<PCBDesignPanel onClose={vi.fn()} components={components} wires={wires} />)
+
+    // Both nets resolve to the power class, so widening it widens both prints.
+    const powerWidth = container.querySelector('#class-width-power') as HTMLInputElement
+    expect(powerWidth).not.toBeNull()
+    fireEvent.change(powerWidth, { target: { value: '0.4' } })
+    expect(powerWidth.value).toBe('0.4')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Auto-Route from Schematic' }))
+    expect(screen.getByText('Traces: 2 | Vias: 0')).toBeInTheDocument()
+
+    const boardSvg = document.querySelector('svg[aria-label^="PCB layout"]') as SVGSVGElement
+    for (const netName of ['GND', 'VCC']) {
+      const trace = boardSvg.querySelector(`[data-trace-net="${netName}"] polyline`)
+      expect(trace).not.toBeNull()
+      expect(Number(trace!.getAttribute('stroke-width'))).toBeCloseTo(0.4, 6)
+    }
+
+    // Rip-up is scoped to one net: the undoable edit removes only its copper.
+    fireEvent.click(screen.getByRole('button', { name: 'Rip up GND' }))
+    expect(screen.getByText('Traces: 1 | Vias: 0')).toBeInTheDocument()
+    expect(boardSvg.querySelector('[data-trace-net="GND"]')).toBeNull()
+    expect(boardSvg.querySelector('[data-trace-net="VCC"]')).not.toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(screen.getByText('Traces: 2 | Vias: 0')).toBeInTheDocument()
+    expect(boardSvg.querySelector('[data-trace-net="GND"]')).not.toBeNull()
+  })
+
+  it('recomputes the stackup when a dielectric is edited, and restores the template', () => {
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+    openTab('Advanced')
+
+    const layers = fourLayerStackup()
+    const baseline = validateStackup(layers).stackup.totalThickness
+    const index = layers.findIndex((layer) => layer.kind === 'dielectric')
+    const original = layers[index].thickness ?? 0
+
+    const input = screen.getByLabelText(
+      `${layers[index].name} ${index + 1} dielectric thickness in millimetres`,
+    ) as HTMLInputElement
+    fireEvent.change(input, { target: { value: '0.3' } })
+    expect(screen.getByText(`${(baseline - original + 0.3).toFixed(2)} mm`)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Standard 4-layer' }))
+    expect(screen.getByText(`${baseline.toFixed(2)} mm`)).toBeInTheDocument()
+  })
+
   it('flags nets that have no copper as DRC warnings', () => {
     render(<PCBDesignPanel onClose={vi.fn()} wires={[net('GND', 'w1')]} />)
 

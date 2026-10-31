@@ -69,6 +69,14 @@ export interface DRCSettings {
    * origin and turns it on.
    */
   checkBoardOutline: boolean
+  /**
+   * Per-net minimums from net classes, keyed by net name. A class tightens the
+   * board-wide rule for its own nets; it never loosens it, and for a pair of
+   * different nets the stricter of the two applies. Omitted means the
+   * board-wide figures govern every net.
+   */
+  netTraceWidth?: Readonly<Record<string, number>>
+  netClearance?: Readonly<Record<string, number>>
 }
 
 export const DEFAULT_DRC_RULES: DRCSettings = {
@@ -268,6 +276,22 @@ export class DesignRuleChecker {
     return this.cachedOutlines
   }
 
+  /** Width a net's copper must hold to, class rules included. */
+  private requiredWidth(netId?: string): number {
+    const fromClass = netId ? this.rules.netTraceWidth?.[netId] : undefined
+    return Math.max(this.rules.minTraceWidth, fromClass ?? 0)
+  }
+
+  /** Clearance two copper pieces owe each other under the class rules. */
+  private requiredClearance(...netIds: Array<string | undefined>): number {
+    let required = this.rules.minTraceClearance
+    for (const netId of netIds) {
+      const fromClass = netId ? this.rules.netClearance?.[netId] : undefined
+      if (fromClass !== undefined) required = Math.max(required, fromClass)
+    }
+    return required
+  }
+
   runDRC(): DRCResult {
     const violations: DRCViolation[] = [
       ...this.checkTraceWidths(),
@@ -300,16 +324,17 @@ export class DesignRuleChecker {
   private checkTraceWidths(): DRCViolation[] {
     const violations: DRCViolation[] = []
     for (const trace of this.design.traces) {
-      if (trace.width < this.rules.minTraceWidth) {
+      const minimumWidth = this.requiredWidth(trace.netId)
+      if (trace.width < minimumWidth) {
         violations.push({
           type: 'width',
           severity: 'error',
-          message: `Trace "${trace.id}" width ${trace.width}mm is below minimum ${this.rules.minTraceWidth}mm`,
+          message: `Trace "${trace.id}" width ${trace.width}mm is below minimum ${minimumWidth}mm`,
           location: this.getTraceCenter(trace),
           elementId: trace.id,
           layer: trace.layerId,
           value: trace.width,
-          required: this.rules.minTraceWidth,
+          required: minimumWidth,
         })
       }
       if (trace.width > this.rules.maxTraceWidth) {
@@ -343,16 +368,17 @@ export class DesignRuleChecker {
 
         const clearance = polylineDistance(trace1.points, trace2.points)
           - (trace1.width + trace2.width) / 2
-        if (clearance < this.rules.minTraceClearance) {
+        const required = this.requiredClearance(trace1.netId, trace2.netId)
+        if (clearance < required) {
           violations.push({
             type: 'clearance',
             severity: 'error',
-            message: `Trace clearance ${Math.max(0, clearance).toFixed(3)}mm between "${trace1.id}" and "${trace2.id}" is below minimum ${this.rules.minTraceClearance}mm`,
+            message: `Trace clearance ${Math.max(0, clearance).toFixed(3)}mm between "${trace1.id}" and "${trace2.id}" is below minimum ${required}mm`,
             location: this.getTraceCenter(trace1),
             elementId: trace1.id,
             layer: trace1.layerId,
             value: Math.max(0, clearance),
-            required: this.rules.minTraceClearance,
+            required,
           })
         }
       }
@@ -411,16 +437,17 @@ export class DesignRuleChecker {
         if (via.netId !== undefined && trace.netId === via.netId) continue
         if (via.layers.length > 0 && !via.layers.includes(trace.layerId)) continue
         const gap = viaTraceCopperGap(via, trace)
-        if (gap < this.rules.minTraceClearance) {
+        const required = this.requiredClearance(via.netId, trace.netId)
+        if (gap < required) {
           violations.push({
             type: 'clearance',
             severity: 'error',
-            message: `Via "${via.id}" clearance ${Math.max(0, gap).toFixed(3)}mm to trace "${trace.id}" is below minimum ${this.rules.minTraceClearance}mm`,
+            message: `Via "${via.id}" clearance ${Math.max(0, gap).toFixed(3)}mm to trace "${trace.id}" is below minimum ${required}mm`,
             location: via.position,
             elementId: via.id,
             layer: trace.layerId,
             value: Math.max(0, gap),
-            required: this.rules.minTraceClearance,
+            required,
           })
         }
       }
@@ -438,15 +465,16 @@ export class DesignRuleChecker {
         if (!shareLayer) continue
         const gap = Math.hypot(a.position.x - b.position.x, a.position.y - b.position.y)
           - (a.diameter + b.diameter) / 2
-        if (gap < this.rules.minTraceClearance) {
+        const required = this.requiredClearance(a.netId, b.netId)
+        if (gap < required) {
           violations.push({
             type: 'clearance',
             severity: 'error',
-            message: `Via clearance ${Math.max(0, gap).toFixed(3)}mm between "${a.id}" and "${b.id}" is below minimum ${this.rules.minTraceClearance}mm`,
+            message: `Via clearance ${Math.max(0, gap).toFixed(3)}mm between "${a.id}" and "${b.id}" is below minimum ${required}mm`,
             location: a.position,
             elementId: a.id,
             value: Math.max(0, gap),
-            required: this.rules.minTraceClearance,
+            required,
           })
         }
       }
@@ -518,20 +546,21 @@ export class DesignRuleChecker {
         if (trace.netId === pad.netId) return
         if (pad.layers.length > 0 && !pad.layers.includes(trace.layerId)) return
         const box = bounds[traceIndex]
-        const near = outline.reachMm + trace.width / 2 + this.rules.minTraceClearance
+        const required = this.requiredClearance(pad.netId, trace.netId)
+        const near = outline.reachMm + trace.width / 2 + required
         if (pointBoxDistance(outline.x, outline.y, box) > near) return
 
         const copperGap = padTraceCopperGap(outline, trace)
-        if (copperGap < this.rules.minTraceClearance) {
+        if (copperGap < required) {
           violations.push({
             type: 'clearance',
             severity: 'error',
-            message: `Pad "${pad.id}" clearance ${Math.max(0, copperGap).toFixed(3)}mm to trace "${trace.id}" is below minimum ${this.rules.minTraceClearance}mm`,
+            message: `Pad "${pad.id}" clearance ${Math.max(0, copperGap).toFixed(3)}mm to trace "${trace.id}" is below minimum ${required}mm`,
             location: pad.position,
             elementId: pad.id,
             layer: trace.layerId,
             value: Math.max(0, copperGap),
-            required: this.rules.minTraceClearance,
+            required,
           })
         }
       })
@@ -553,24 +582,25 @@ export class DesignRuleChecker {
         if (a.componentId === b.componentId) continue
         if (a.netId && a.netId === b.netId) continue
         if (!layersOverlap(a.layers, b.layers)) continue
+        const required = this.requiredClearance(a.netId, b.netId)
         if (
           Math.hypot(b.position.x - a.position.x, b.position.y - a.position.y)
-          >= outlines[i].reachMm + outlines[j].reachMm + this.rules.minTraceClearance
+          >= outlines[i].reachMm + outlines[j].reachMm + required
         ) continue
 
         const gap = padPadCopperGap(outlines[i], outlines[j])
-        if (gap < this.rules.minTraceClearance) {
+        if (gap < required) {
           violations.push({
             type: 'clearance',
             severity: 'error',
-            message: `Pad clearance ${Math.max(0, gap).toFixed(3)}mm between "${a.id}" and "${b.id}" is below minimum ${this.rules.minTraceClearance}mm`,
+            message: `Pad clearance ${Math.max(0, gap).toFixed(3)}mm between "${a.id}" and "${b.id}" is below minimum ${required}mm`,
             location: {
               x: (a.position.x + b.position.x) / 2,
               y: (a.position.y + b.position.y) / 2,
             },
             elementId: a.id,
             value: Math.max(0, gap),
-            required: this.rules.minTraceClearance,
+            required,
           })
         }
       }
@@ -589,18 +619,19 @@ export class DesignRuleChecker {
         if (pad.netId && via.netId && pad.netId === via.netId) return
         if (!layersOverlap(pad.layers, via.layers)) return
         const other = vias[viaIndex]
-        if (Math.hypot(other.x - outline.x, other.y - outline.y) >= outline.reachMm + other.reachMm + this.rules.minTraceClearance) return
+        const required = this.requiredClearance(pad.netId, via.netId)
+        if (Math.hypot(other.x - outline.x, other.y - outline.y) >= outline.reachMm + other.reachMm + required) return
 
         const gap = padViaCopperGap(outline, other)
-        if (gap < this.rules.minTraceClearance) {
+        if (gap < required) {
           violations.push({
             type: 'clearance',
             severity: 'error',
-            message: `Pad "${pad.id}" clearance ${Math.max(0, gap).toFixed(3)}mm to via "${via.id}" is below minimum ${this.rules.minTraceClearance}mm`,
+            message: `Pad "${pad.id}" clearance ${Math.max(0, gap).toFixed(3)}mm to via "${via.id}" is below minimum ${required}mm`,
             location: pad.position,
             elementId: pad.id,
             value: Math.max(0, gap),
-            required: this.rules.minTraceClearance,
+            required,
           })
         }
       })

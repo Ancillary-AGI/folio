@@ -46,6 +46,15 @@ export interface RouterConfig {
   gridMm: number           // grid cell size in mm (typ. 0.2 – 0.5)
   minTraceWidthMm: number  // trace width for routed segments
   minSpacingMm: number     // clearance between adjacent copper
+  /**
+   * Width of the copper emitted for a net, in millimetres. Defaults to
+   * `minTraceWidthMm`. The search grid and its clearance masks are still built
+   * from `minTraceWidthMm`, so a caller whose classes ask for wider copper
+   * passes the widest class width as `minTraceWidthMm` and returns the exact
+   * per-net width here: every route then reserves room for the widest net and
+   * prints only the width its own class requires.
+   */
+  traceWidthForNet?: (netId: string) => number
   viaDrillMm: number       // via drill diameter
   viaPadMm: number         // via pad outer diameter
   viaPenalty: number       // cost units to use a via (default 5)
@@ -914,6 +923,10 @@ function routeNet(
   netPadList: RouterPad[],
 ): { route: NetRoute; blockers: Set<number> } {
   const cfg = clr.config
+  const traceWidthMm = cfg.traceWidthForNet?.(netId) ?? cfg.minTraceWidthMm
+  if (!Number.isFinite(traceWidthMm) || traceWidthMm <= 0) {
+    throw new Error(`Router trace width for net "${netId}" must be positive and finite (got ${traceWidthMm}).`)
+  }
   const route: NetRoute = {
     netId, pads: netPadList, cells: [], viaCells: [], traces: [], vias: [], complete: true,
     walled: false,
@@ -946,7 +959,7 @@ function routeNet(
 
     const { traces, vias } = pathToTracesAndVias(
       path, netId, cfg.gridMm,
-      cfg.minTraceWidthMm,
+      traceWidthMm,
       cfg.viaDrillMm,
       cfg.viaPadMm,
       grid.layers,
@@ -1180,6 +1193,7 @@ export function autoroute(
     ripUpPasses: config.ripUpPasses ?? RIP_MAX_ROUNDS,
     ripUpVictims: config.ripUpVictims ?? RIP_MAX_VICTIMS,
     keepouts: config.keepouts ?? [],
+    traceWidthForNet: config.traceWidthForNet,
   }
 
   // Reject configs that would otherwise build a zero-sized grid and quietly

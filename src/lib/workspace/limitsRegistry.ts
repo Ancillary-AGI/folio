@@ -392,6 +392,7 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
       'A plane board\'s scene carries no layer span per hole, so its audit cannot tell a blind laser microvia from a through barrel: a 0.1 mm stitch is held to 0.1 mm and passes, while the 16:1 aspect ratio that makes it HDI-only is not a rule in `DRCSettings` at all and the 3-D view draws a full barrel.',
       'Courtyard overlap is not measured on a plane board — those layouts place parts by their land patterns, and the checker\'s courtyard comes from a schematic symbol box. `assertLandsClear` and the footprint pattern audit are what keep land copper apart there, at two tiers: the fab\'s spacing rule inside one package, whose lands are one print, and the placement rule between packages.',
       'Unconnected-net, acute-angle and trace-length rules are off for a plane board: its rails are pours the checker would read as open copper, and the other two are SI questions rather than fab-ability.',
+      'Net-class widths and clearances enter the same comparison as an optional per-net map. They are panel session state, not part of a saved board document, and a class cannot loosen the board minimum — only tighten it.',
     ],
     validatedBy: [
       'src/lib/manufacturing/drc.test.ts',
@@ -417,7 +418,7 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
       'The Manhattan heuristic approximates 45-degree routes.',
       'Escape density is grid-limited, not rule-limited: the 90 × 68 mm, 26-net, 0.8 mm-pitch board closes all 26 at 0.3 and at 0.4 mm cells and loses five at 0.5 mm, because a coarser grid cannot resolve two clear lanes inside one fine-pitch escape corridor. `src/lib/demo/demoShowcase.test.ts` sweeps that ladder.',
       'The 245 × 90 mm, 56-part laptop mainboard closes 52 of 66 nets on its two outer films at 0.25 mm cells in about 6 s, measured on the main thread (`routeMs` in `demoLaptopBoard.test.ts`). The fourteen it misses are listed by name in `summary.unrouted` and drawn as ratsnest flylines, not as invented copper; a production board routes those as coupled, length-matched pairs on controlled impedance, which this router does not attempt.',
-      'One trace width and one spacing rule for the whole board: no net classes, no per-layer rule sets, and the autorouter pairs nothing — coupled differential geometry is produced by the pair designer and checked, not routed.',
+      'Net classes set a width per net and a clearance for DRC, but not a per-class routing clearance: the search keeps the single board spacing rule while its grid reserves the widest class width, so a wide net can never be boxed in by a narrow one. A class can tighten a rule, never loosen it. There are no per-layer rule sets, and the autorouter pairs nothing — coupled differential geometry is produced by the pair designer and checked, not routed.',
       'HDI routing is a single-layer blocked-cell grid; layer changes are not modelled there, and a microvia that would span more than adjacent layers is refused in favour of a buried or plated through via.',
       'A declared pair impedance is the intent: the geometry that delivers it is checked, not field-solved, and converting skew to time needs the effective permittivity the pair actually rides over.',
       'IBIS parsing is the type and section scanner; no buffer transient is simulated.',

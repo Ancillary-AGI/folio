@@ -137,6 +137,58 @@ describe('DesignRuleChecker trace rules', () => {
   })
 })
 
+describe('DesignRuleChecker net class rules', () => {
+  it('applies a class width to its own net and leaves other nets alone', () => {
+    const design = makeDesign({
+      traces: [
+        trace('sig', 'SIG', [{ x: 0, y: 0 }, { x: 5, y: 0 }], 'top', 0.25),
+        trace('pwr', 'PWR', [{ x: 0, y: 5 }, { x: 5, y: 5 }], 'top', 0.25),
+      ],
+    })
+    const result = new DesignRuleChecker(design, {
+      ...quiet,
+      netTraceWidth: { PWR: 0.4 },
+    }).runDRC()
+
+    const width = result.violations.filter(v => v.type === 'width')
+    expect(width.map(v => v.elementId)).toEqual(['pwr'])
+    expect(width[0].required).toBe(0.4)
+  })
+
+  it('uses the stricter of the two nets when their classes disagree', () => {
+    const design = makeDesign({
+      traces: [
+        trace('a', 'A', [{ x: 0, y: 0 }, { x: 10, y: 0 }], 'top', 0.2),
+        trace('b', 'B', [{ x: 0, y: 0.55 }, { x: 10, y: 0.55 }], 'top', 0.2),
+      ],
+    })
+    const result = new DesignRuleChecker(design, {
+      ...quiet,
+      netClearance: { A: 0.1, B: 0.5 },
+    }).runDRC()
+
+    const clearance = result.violations.find(v => v.type === 'clearance')
+    expect(clearance?.value).toBeCloseTo(0.35, 6)
+    expect(clearance?.required).toBe(0.5)
+  })
+
+  it('never lets a class loosen the board-wide minimum', () => {
+    const design = makeDesign({
+      traces: [
+        trace('a', 'A', [{ x: 0, y: 0 }, { x: 10, y: 0 }], 'top', 0.2),
+        trace('b', 'B', [{ x: 0, y: 0.5 }, { x: 10, y: 0.5 }], 'top', 0.2),
+      ],
+    })
+    const result = new DesignRuleChecker(design, {
+      ...quiet,
+      minTraceClearance: 0.4,
+      netClearance: { A: 0.1, B: 0.1 },
+    }).runDRC()
+
+    expect(result.violations.find(v => v.type === 'clearance')?.required).toBe(0.4)
+  })
+})
+
 describe('DesignRuleChecker via and pad rules', () => {
   it('flags undersized via drill and annular ring', () => {
     const design = makeDesign({ vias: [via('v1', 'A', { x: 5, y: 5 }, 0.3, 0.2)] })

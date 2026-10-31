@@ -138,6 +138,24 @@
   barrel crosses the stack; the measure tool reads the straight-line distance and
   Δx/Δy between two land- or grid-snapped points. Measurements are session-only
   and are not stored in the design
+- **Net classes**: named rule sets matched by `*`/`?` glob patterns, first match
+  wins, with an explicit per-net assignment overriding every pattern. Each class
+  carries a trace width and a clearance: the width is applied to new manual
+  routes and auto-routed copper, and the router reserves the widest class width
+  so a wide net is never boxed in by a narrow one; the clearance is enforced by
+  DRC on top of the board minimum, so a class can tighten a rule, never loosen
+  it. Defaults equal the board's existing house rules, so an unedited design
+  gains no invented violations. Classes are live for the open panel session and
+  are not yet written into a saved project
+- **Manual rip-up**: the net list names every net with its routed length; one
+  action removes that net's tracks and vias as a single undoable board edit,
+  leaving placement and keep-outs untouched. The flylines reappear for the
+  opened connection instead of a route being invented
+- **Editable stackup**: the Advanced tab edits each dielectric's thickness and
+  εr and each copper film's weight; total board thickness, controlled impedance,
+  PDN loop inductance, thermal spreading and the 3-D board body read the edited
+  stack. Stack edits are session state, and the copper films drawn on the canvas
+  remain the fixed four-layer set
 - **Checks**: DRC (clearance, width, drill, annular ring, copper inside a drawn
   keep-out, and copper crossing the rectangular outline) and ERC (unconnected
   pins by pin type, multi-driver nets, power/ground shorts, and a warning when a
