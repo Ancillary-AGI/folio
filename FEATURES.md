@@ -1,10 +1,10 @@
 # Folio — Feature Documentation
 
 > **Honesty note:** every feature below exists in the codebase today. Markers:
-> ✅ = implemented and covered by automated tests · 🟡 = implemented at UI level
+> `[done]` = implemented and covered by automated tests · `[partial]` = implemented at UI level
 > or requires an optional external service. Counts come from `npm test`.
 
-## 🧭 Demo Gallery & Workspace Navigation ✅
+## Demo Gallery & Workspace Navigation [done]
 
 - **Demo gallery**: 31 runnable scenarios — at least one per workspace mode —
   searchable by title, summary or analysis name and filterable by family.
@@ -31,7 +31,7 @@
   execution, scenario coverage of all 25 modes, routed-board geometry, compact
   header menu routing, drawer dismissal and the limits-register filters.
 
-## 🎯 Schematic Editor ✅
+## Schematic Editor [done]
 
 - **Placement**: click-to-arm or drag from the 39-part library, grid snap, rulers
 - **Wiring**: click-to-click routes, junctions, net labels, wire tool, delete tool
@@ -56,7 +56,7 @@
   engine. Perspective, shading and pencil texture are not corrected, so a
   photographed sketch may trace poorly — the panel says so
 
-## ⚡ Simulation Engine ✅
+## Simulation Engine [done]
 
 - **Analyses**: DC operating point, DC sweep, transient, AC, noise, Monte Carlo —
   all wired into the simulation panel
@@ -84,7 +84,7 @@
 - **Truth checks**: solver outputs compared against independently computed
   reference equations in the test suite
 
-## 🎛 Control Systems & Electric Machines ✅
+## Control Systems & Electric Machines [done]
 
 - **Linear control**: transfer-function algebra (series, parallel, feedback),
   Durand–Kerner polynomial roots, pole/zero stability classification,
@@ -105,7 +105,7 @@
 - **Machines panel**: steady-state operating points and time-domain speed,
   current, torque, power, dq and rotor-position traces
 
-## 🖥 PCB Design & Manufacturing ✅
+## PCB Design & Manufacturing [done]
 
 - **Layout**: editable rectangular board outline (width/height inputs and drag
   handles), multi-layer stack, traces, vias, pads, layer toggles, interactive
@@ -151,6 +151,11 @@
   action removes that net's tracks and vias as a single undoable board edit,
   leaving placement and keep-outs untouched. The flylines reappear for the
   opened connection instead of a route being invented
+- **Orphan copper**: once the board carries lands, any track or via naming a net
+  that no land on the board holds is counted in a canvas notice, and one undoable
+  action rips exactly that copper up. A board that arrived without a schematic —
+  a demo layout or a reopened session — has no land model to judge against, so
+  its copper is left unjudged rather than called dead
 - **Editable stackup**: the Advanced tab edits each dielectric's thickness and
   εr and each copper film's weight; total board thickness, controlled impedance,
   PDN loop inductance, thermal spreading and the 3-D board body read the edited
@@ -185,7 +190,7 @@
   connect is refused
 - **Encrypted export**: AES-GCM-256 project snapshots with PBKDF2 key derivation
 
-## 🧮 Compute Acceleration ✅ (thermal, Monte Carlo, AC and noise)
+## Compute Acceleration [done] (thermal, Monte Carlo, AC and noise)
 
 - **Capability probe**: reports WebGPU adapter, Worker support, shared memory,
   the recommended thermal path, and the Monte Carlo, AC and noise sweep worker
@@ -215,7 +220,7 @@
 - **Browser-verified**: GPU and CPU peaks/averages agree within 0.01 °C on tested
   boards (50×50 and 100×80 grids)
 
-## 🤖 Robotics, Mechanical & 3D ✅ / 🟡
+## Robotics, Mechanical & 3D [done] / [partial]
 
 - **Mechanical**: shared material catalogue, support-aware Euler–Bernoulli beam
   analysis (cantilever or simply supported; axial force affects stress only),
@@ -232,13 +237,13 @@
   Air-standard cycles assume constant specific heats and no pressure loss; the
   Rankine table is nominal saturated water at 0.05–100 bar. Psychrometric loads
   are steady sizing estimates, not a certified Manual J or ASHRAE calculation.
-  Not a 3D FEM/CFD solver, and plates are analysed as beams (🟡)
+  Not a 3D FEM/CFD solver, and plates are analysed as beams [partial]
 - **3D**: Three.js circuit/PCB viewer, mesh printability metrics, STL export, and
   real FDM slicing to G-code (contours with hole orientation, clipped infill,
   solid shells, raft/brim/skirt, relative volumetric extrusion). Limits: single
   perimeter path, no support generation, FDM only — unsupported requests fail
   loudly instead of emitting wrong toolpaths. XR preview entry point
-  (🟡 browser/device dependent)
+  ([partial] browser/device dependent)
 - **STL and OBJ import** in the mechanical viewport: ASCII and binary STL are told
   apart by exact binary layout (84 + 50 bytes per triangle), so a binary file
   whose header begins with "solid" still reads correctly, and OBJ faces resolve
@@ -254,7 +259,7 @@
   and is excluded from STL/OBJ/GLTF export and from the solvers, while
   `mech.observe` gives an agent its millimetre envelope and shell verdict — not
   its triangles. The shell walk is
-  skipped — and says so — above 400,000 triangles (🟡 import and inspect, not
+  skipped — and says so — above 400,000 triangles ([partial] import and inspect, not
   STEP/IGES)
 - **Enclosure fit in the PCB 3D preview**: an STL or OBJ shell is drawn
   translucent around the routed board, its seams traced so it reads as a case and
@@ -285,23 +290,23 @@
   Lagrangian dynamics (Jacobian mass matrix, gravity, Coriolis/centrifugal,
   energy, conditioning; unsupported joints/state rejected explicitly). Links
   are not swept and there is no friction, motor, flexible-body, or narrow-phase
-  collision modelling (🟡 not a certified dynamics sign-off)
+  collision modelling ([partial] not a certified dynamics sign-off)
 - **RF**: antenna and filter synthesis with a dedicated workspace panel;
   numerically integrated dipole/monopole directivity and an optimiser that
   refuses unreachable targets. The same panel carries radio link budgets with
   ITU-R atmospheric/rain loss and NR/6G numerology, an OOK fibre link budget
   (declared attenuation, Gaussian dispersion penalty, PIN sensitivity from the
   Q-equation, photons-per-bit against the ideal bound), and exact statevector
-  quantum circuits up to 12 qubits with sampled measurement counts ✅
+  quantum circuits up to 12 qubits with sampled measurement counts [done]
 
-## 💻 HDL, FPGA & IC ✅
+## HDL, FPGA & IC [done]
 
 - **HDL**: VHDL and Verilog subsets with parsers and fail-loud diagnostics,
   logic synthesis, FPGA flow helpers
 - **IC**: flow adapters, standard-cell library, silicon floorplanning, GDS export,
   chip packaging models
 
-## 🔌 Embedded & Hardware ✅ / 🟡
+## Embedded & Hardware [done] / [partial]
 
 - **Interfaces**: simulated I²C, SPI, UART, CAN manager APIs (unit-tested)
 - **Firmware**: Intel HEX parse/serialize, firmware artifacts, board bring-up;
@@ -311,13 +316,13 @@
   (live when a port is granted, honest refusal otherwise); fails closed outside
   Node for browser-side toolchain steps
 - **HIL**: scenario UI and hardware-in-the-loop panel (render-tested)
-- **IIoT / digital twin**: twin synchronization and fleet dashboards 🟡
+- **IIoT / digital twin**: twin synchronization and fleet dashboards [partial]
 
-## 🧠 AI, Agents & Automation ✅ / 🟡
+## AI, Agents & Automation [done] / [partial]
 
 - **aiService**: component recommendations, circuit analysis, and design
   suggestions from deterministic keyword/threshold heuristics — no model or
-  network call is made, so answers are advisory, not predictions ✅
+  network call is made, so answers are advisory, not predictions [done]
 - **AI chat panel**: conversational UI over those heuristics, with confidence
   metadata and feedback
 - **Agents**: EDA tool harness with per-call budgets, approvals and an audit
@@ -347,19 +352,19 @@
   recovers the active job as paused, and 24/7 execution needs the server-side
   runner documented in `docs/AGENT_CLOUD.md`
 
-## 🗂 Projects, Collaboration, Plugins & Security ✅ / 🟡
+## Projects, Collaboration, Plugins & Security [done] / [partial]
 
 - **Offline-first projects**: create/open/save/delete, autosave, dirty state
 - **Version history**: content-addressed commits of the whole project — schematic,
   routed PCB, mechanical assembly, firmware and every CAD domain — with diff,
-  branch, tag, three-way merge and restore. Stored locally per device ✅
-- **Cloud (optional)**: Supabase auth and project persistence when configured 🟡
+  branch, tag, three-way merge and restore. Stored locally per device [done]
+- **Cloud (optional)**: Supabase auth and project persistence when configured [partial]
 - **Sharing & roles**: owner/admin/editor/reviewer/viewer with permission checks
   and collaborator management (`collaborationService` tests)
 - **Real-time**: Supabase Realtime presence and operation broadcast when
   configured; local-only otherwise. Presence and broadcast are reported apart — a
   failed presence track says peers may not see you instead of claiming a healthy
-  session 🟡
+  session [partial]
 - **Plugins**: manifest validation, declared-permission gating, lifecycle hooks,
   marketplace install/uninstall (unit-tested); not a security sandbox
 - **Asset security**: RBAC grants, AES-GCM-256 encryption/decryption, in-session
@@ -373,7 +378,7 @@
   resolved from the panel
 - **Encrypted export** wired into the app export menu
 
-## 🛡 Administration & Governance ✅ / 🟡
+## Administration & Governance [done] / [partial]
 
 - **Separate surface**: `/admin` opens without a project and is deliberately not
   a CAD mode; the shield button appears in the project list, IDE toolbar and
@@ -390,7 +395,7 @@
 - **Quota policies**: owner/administrator unlimited, engineer 100 projects /
   200 exports / 1,000 simulations per day, viewer 3 / 20 / 50; browser checks
   before project creation, exports and solver runs, plus Postgres triggers in
-  cloud mode; storage is reported as advisory 🟡
+  cloud mode; storage is reported as advisory [partial]
 - **Cloud governance schema**: `profiles`, `usage_events`, `quota_policies` with
   RLS, SECURITY DEFINER role helpers, profile-change guards, new-user trigger and
   quota triggers; first owner is promoted once with the service role
@@ -399,10 +404,22 @@
 - **Tests**: ledger, policy parsing/enforcement, service access paths, console
   render flows, `/admin` deep link and routing isolation
 
-## ⚙️ Settings, Theming & Accessibility ✅
+## Settings, Theming & Accessibility [done]
 
 - **Themes**: light, dark, high-contrast, system preference, migration of retired
   theme names
+- **One visual system**: every colour is a validated HSL token in
+  `src/lib/theme/tokens.ts`, written onto `<html>` and checked against a WCAG
+  contrast contract by `theme.test.ts`. Geometry and depth sit beside them in
+  `index.css`: a single `--radius` step drives the whole corner scale (field,
+  button, dock, dialog, card), and every Tailwind shadow level is drawn from
+  `--shadow-color` as a lit top edge plus a contact and an ambient stop, so a
+  panel reads as lifted off the sheet instead of outlined. `--panel-edge` and
+  `--control-glow` are alphas, not colours: light drops the panel edge to zero
+  (a white sheet has nothing to catch a highlight) and high-contrast drops both
+  the edge and the accent halo, which removes sheen and glow without touching a
+  hue or a contrast ratio. Focus indicators are not decoration and are not
+  switched off by either.
 - **Units & behavior**: metric/imperial, animation toggle, autosave interval,
   onboarding replay
 - **Guided tour**: thirteen-step first-run walkthrough with an animated spotlight —
@@ -418,9 +435,9 @@
   The final step hands off to the limits register instead of a completion screen.
 - **Accessibility**: keyboard-operable toolbars; every icon-only button must have
   an accessible name, enforced by `npm run a11y:buttons` in CI
-- **Language selector**: preference stored; English strings only today 🟡
+- **Language selector**: preference stored; English strings only today [partial]
 
-## 🎓 Help, Guides & Tutorials ✅
+## Help, Guides & Tutorials [done]
 
 - **CAD-style hover help**: resting on a tool-rail button, header control,
   workspace family or workspace tab raises a delayed (550 ms) one-line
@@ -449,7 +466,7 @@
   centre search and tabs; tutorial integrity (real demo ids, real modes, step
   copy) and runner progress; the shell's header and F1 entry points.
 
-## 🛠 Quality Infrastructure ✅
+## Quality Infrastructure [done]
 
 - **Capabilities and limits register**: `src/lib/workspace/limitsRegistry.ts`
   holds one record per family of results — what it computes, the numerical or
@@ -466,7 +483,7 @@
   render/integration tests
 - **Build**: heavily code-split; feature panels and vendor chunks load on demand
 
-## ❌ Not implemented
+## Not implemented
 
 - A certified multi-user backend beyond optional Supabase persistence/realtime
 - A plugin security sandbox (permission checks only)

@@ -98,6 +98,50 @@ describe('colour maths', () => {
   })
 })
 
+describe('shell geometry', () => {
+  /*
+   * The design system scales every corner from one number and every shadow from
+   * one hue, both declared in `index.css` rather than `tokens.ts` because neither
+   * is a colour. `var(--radius)` with no definition is the failure mode this
+   * pins: the CSS still parses, Tailwind still emits, and the entire product
+   * silently renders with square corners.
+   */
+  const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
+  const tailwind = readFileSync(resolve(process.cwd(), 'tailwind.config.js'), 'utf8')
+
+  it('defines the radius step that the border-radius scale reads', () => {
+    expect(css).toMatch(/--radius:\s*\d*\.?\d+rem/)
+    const scale = tailwind.match(/borderRadius:\s*\{([^}]*)\}/)
+    expect(scale, 'tailwind must override the borderRadius scale').not.toBeNull()
+    for (const step of ['sm', 'md', 'lg', 'xl', '2xl']) {
+      const rule = scale![1].match(new RegExp(`'?"?${step}"?:\\s*"([^"]+)"`))
+      expect(rule, `borderRadius.${step} is missing`).not.toBeNull()
+      expect(rule![1], `borderRadius.${step} must derive from --radius`).toContain('var(--radius)')
+    }
+  })
+
+  it('paints elevation from the shadow token, not a fixed black', () => {
+    const levels = tailwind.match(/boxShadow:\s*\{([\s\S]*?)\n\s{6}\},/)
+    expect(levels, 'tailwind must override the boxShadow scale').not.toBeNull()
+    const body = levels![1]
+    // Six levels, each depth stop drawn from the verified `--shadow-color`.
+    expect(body.match(/var\(--shadow-color\)/g)?.length).toBeGreaterThanOrEqual(12)
+    expect(body).toContain('var(--panel-edge)')
+    expect(body).not.toMatch(/rgb\(|#[0-9a-f]{3,6}/i)
+  })
+
+  it('lets an accessibility appearance switch the decoration off', () => {
+    expect(css).toMatch(/--panel-edge:\s*0\.0\d+/)
+    expect(css).toMatch(/--control-glow:\s*0\.4/)
+    const highContrast = css.match(/\[data-theme='high-contrast'\]\s*\{[^}]*\}/)
+    expect(highContrast, 'high contrast must override the decorative alphas').not.toBeNull()
+    expect(highContrast![0]).toMatch(/--panel-edge:\s*0;/)
+    expect(highContrast![0]).toMatch(/--control-glow:\s*0;/)
+    // Focus indicators are not decoration and stay untouched by either alpha.
+    expect(css).toMatch(/:focus-visible\s*\{[^}]*ring-ring/)
+  })
+})
+
 describe('pre-paint bootstrap', () => {
   /*
    * `index.html` needs two literal colours to avoid a white flash before the

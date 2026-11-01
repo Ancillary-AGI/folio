@@ -112,6 +112,28 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        // One scale, not two: `--radius` sets the step, so a dialog (`rounded-xl`)
+        // and a field (`rounded-sm`) always read as members of the same family.
+        xl: "calc(var(--radius) + 4px)",
+        "2xl": "calc(var(--radius) + 8px)",
+      },
+      /*
+       * Elevation. Tailwind's stock shadows are fixed black, which turns muddy on
+       * a navy shell and vanishes on a white one, so every level is painted from
+       * `--shadow-color` — the same token `src/lib/theme/tokens.ts` verifies.
+       * Each level carries three layers: a lit top edge (`--panel-edge`, which an
+       * appearance with no decoration sets to zero), a contact shadow, and an
+       * ambient one. That is what makes a panel look lifted off the sheet rather
+       * than outlined.
+       */
+      boxShadow: {
+        sm: "inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge)), 0 1px 2px -1px hsl(var(--shadow-color) / 0.35), 0 1px 3px -1px hsl(var(--shadow-color) / 0.25)",
+        DEFAULT:
+          "inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge)), 0 2px 4px -2px hsl(var(--shadow-color) / 0.35), 0 4px 12px -4px hsl(var(--shadow-color) / 0.28)",
+        md: "inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge)), 0 4px 8px -3px hsl(var(--shadow-color) / 0.38), 0 8px 20px -6px hsl(var(--shadow-color) / 0.30)",
+        lg: "inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge)), 0 8px 16px -6px hsl(var(--shadow-color) / 0.40), 0 16px 34px -10px hsl(var(--shadow-color) / 0.34)",
+        xl: "inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge)), 0 12px 24px -8px hsl(var(--shadow-color) / 0.45), 0 28px 56px -14px hsl(var(--shadow-color) / 0.40)",
+        "2xl": "inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge)), 0 20px 40px -12px hsl(var(--shadow-color) / 0.50), 0 44px 88px -20px hsl(var(--shadow-color) / 0.46)",
       },
       keyframes: {
         "accordion-down": {

@@ -325,7 +325,7 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       {/* Workspace families + the modes inside the selected family */}
       <nav
-        className="app-chrome flex w-full min-w-0 flex-shrink-0 flex-col overflow-hidden border-b border-border"
+        className="cad-workspace-nav app-chrome relative flex w-full min-w-0 flex-shrink-0 flex-col overflow-hidden border-b border-border"
         aria-label="Workspace"
         data-tour="workspace-nav"
         style={{ '--family-accent': groupAccent(activeGroup) } as CSSProperties}
@@ -374,7 +374,7 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
             <button
               type="button"
               onClick={onOpenDemos}
-              className="flex h-7 flex-shrink-0 items-center gap-1.5 rounded-sm border border-primary/40 bg-primary/10 px-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-primary transition-colors hover:bg-primary/20"
+              className="flex h-7 flex-shrink-0 items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-primary transition-colors hover:bg-primary/20"
             >
               <FlaskConical className="h-3.5 w-3.5" aria-hidden="true" />
               Demos

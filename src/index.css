@@ -30,6 +30,36 @@
     -webkit-text-size-adjust: 100%;
   }
 
+  /*
+   * ── Geometry & depth (non-colour) ────────────────────────────────────────
+   * `--radius` is the single corner-radius step the whole product scales from:
+   * Tailwind maps `sm`/`md`/`lg`/`xl`/`2xl` onto it, so one number here retunes
+   * every field, button, dock, dialog and card at once.
+   *
+   * The two alphas tune how much *light* the shell throws around itself — the
+   * lit top edge of a raised panel, and the accent halo behind an active
+   * control. They are numbers, not colours: the hues they modulate stay in
+   * `tokens.ts`, where the contrast tests can see them. An appearance with no
+   * room for decoration (high contrast) turns both off instead of inheriting a
+   * dark shell's assumptions.
+   */
+  :root {
+    --radius: 0.625rem;
+    --panel-edge: 0.09;
+    --control-glow: 0.45;
+  }
+
+  /* A white sheet has nothing to catch a highlight from; keep only depth. */
+  [data-theme='light'] {
+    --panel-edge: 0;
+    --control-glow: 0.3;
+  }
+
+  [data-theme='high-contrast'] {
+    --panel-edge: 0;
+    --control-glow: 0;
+  }
+
   * {
     @apply border-border;
   }
@@ -53,6 +83,47 @@
       'rlig' 1,
       'calt' 1;
     overscroll-behavior: none;
+  }
+
+  /* ── Themed scrollbars on every overflow container ──────────────────────
+   * Set globally so no panel can ship a native grey rail by forgetting a
+   * utility class. `scrollbar-color` covers Firefox and Chromium; the WebKit
+   * pseudo-elements paint the inset, rounded thumb used by every dock. The
+   * `.scrollbar-*` utilities only tune width/transparency where needed. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+    transition: background-color 120ms ease-out;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.8);
+    background-clip: content-box;
+  }
+
+  *::-webkit-scrollbar-thumb:active {
+    background-color: hsl(var(--primary));
+    background-clip: content-box;
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: transparent;
   }
 
   #root {
@@ -149,6 +220,36 @@
 
   .app-chrome {
     @apply bg-surface text-surface-foreground;
+    /* Every horizontal bar in this shell casts downward and catches light along
+     * its top edge, so the header, the workspace nav and the docks read as three
+     * shelves stacked above the sheet instead of three flat fills. */
+    box-shadow:
+      inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge)),
+      0 1px 0 hsl(var(--shadow-color) / 0.25),
+      0 10px 16px -16px hsl(var(--shadow-color) / 0.9);
+  }
+
+  /* The workspace nav wears its family hue as a hairline, the same hue the open
+   * tab already underlines. Decorative, so it goes where colour cannot carry a
+   * claim: high contrast and forced colours. */
+  .cad-workspace-nav::after {
+    content: '';
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    height: 1px;
+    pointer-events: none;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--family-accent, var(--primary)) / 0.85) 18%,
+      hsl(var(--family-accent, var(--primary)) / 0.85) 82%,
+      transparent
+    );
+  }
+
+  [data-theme='high-contrast'] .cad-workspace-nav::after {
+    display: none;
   }
 
   .app-chrome-divider {
@@ -157,6 +258,7 @@
 
   .app-panel {
     @apply bg-card text-card-foreground;
+    box-shadow: inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
   }
 
   .app-panel-header {
@@ -165,10 +267,16 @@
 
   .app-sidebar {
     @apply flex min-h-0 flex-col border-r border-border bg-card text-card-foreground;
+    box-shadow: inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
   }
 
   .editor-surface {
     @apply relative min-h-0 flex-1 overflow-hidden bg-canvas text-canvas-foreground;
+    /* The sheet sits *in* the shell: a contact shadow along its top edge is what
+     * makes the chrome read as raised without changing a single colour. */
+    box-shadow:
+      inset 0 1px 2px hsl(var(--shadow-color) / 0.35),
+      inset 0 0 0 1px hsl(var(--shadow-color) / 0.12);
   }
 
   /* ── CAD action pair (KiCad/Altium/Fusion convention) ────────────────────
@@ -222,13 +330,9 @@
       10px 10px;
   }
 
-  /* HUD / floating readout drawn over a scrim. */
-  .editor-hud {
-    @apply rounded bg-overlay/80 px-2 py-1 text-xs text-overlay-foreground;
-  }
-
   .status-bar {
     @apply flex h-7 min-w-0 flex-shrink-0 items-stretch overflow-x-auto overflow-y-hidden border-t border-border bg-surface text-xs text-muted-foreground;
+    box-shadow: inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
     scrollbar-width: none;
   }
 
@@ -242,32 +346,36 @@
   }
 
   .modal-scrim {
-    @apply fixed inset-0 z-50 flex items-center justify-center bg-overlay/70 p-4 backdrop-blur-sm;
+    @apply fixed inset-0 z-50 flex items-center justify-center bg-overlay/75 p-4 backdrop-blur-md;
   }
 
-  /* ── Buttons & controls ─────────────────────────────────────────────────── */
-  .toolbar-button {
-    @apply inline-flex h-9 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50;
+  /* ── Filled action buttons ────────────────────────────────────────────────
+   * A solid action throws a little of its own colour onto the shell, which is
+   * how the eye finds the one button that does something. `--control-glow` is
+   * what an appearance with no room for decoration switches off; `:hover`
+   * widens the same halo instead of brightening the fill further.
+   */
+  .cad-btn-primary,
+  .cad-btn-destructive {
+    transition:
+      background-color 150ms ease,
+      box-shadow 150ms ease;
   }
 
-  .toolbar-button-active {
-    @apply bg-primary text-primary-foreground;
+  .cad-btn-primary {
+    box-shadow: 0 2px 12px -4px hsl(var(--primary) / var(--control-glow));
   }
 
-  .toolbar-button-inactive {
-    @apply text-muted-foreground hover:bg-accent hover:text-accent-foreground;
+  .cad-btn-primary:hover:not(:disabled) {
+    box-shadow: 0 5px 18px -5px hsl(var(--primary) / var(--control-glow));
   }
 
-  .component-library-item {
-    @apply flex cursor-pointer flex-col items-center rounded-lg border-2 border-transparent p-3 transition-colors hover:border-primary/50 hover:bg-accent;
+  .cad-btn-destructive {
+    box-shadow: 0 2px 12px -4px hsl(var(--destructive) / var(--control-glow));
   }
 
-  .component-library-item-selected {
-    @apply border-primary bg-primary/10;
-  }
-
-  .properties-panel {
-    @apply flex min-h-0 w-80 flex-col overflow-y-auto border-l border-border bg-card p-4 text-card-foreground;
+  .cad-btn-destructive:hover:not(:disabled) {
+    box-shadow: 0 5px 18px -5px hsl(var(--destructive) / var(--control-glow));
   }
 
   /* ── CAD workstation chrome ────────────────────────────────────────────────
@@ -276,7 +384,7 @@
    * numeric readouts. Token-backed only — no colour values here.
    */
   .cad-tab {
-    @apply inline-flex h-7 flex-shrink-0 items-center whitespace-nowrap border-b-2 border-r border-border border-b-transparent px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground;
+    @apply inline-flex h-7 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-md border-b-2 border-b-transparent px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground transition-[background-color,color,box-shadow] duration-150 hover:bg-accent hover:text-foreground;
   }
 
   /* The family hue runs through its tabs: the icon carries it quietly all the
@@ -302,6 +410,8 @@
   .cad-tab-active {
     @apply bg-background text-foreground;
     border-bottom-color: hsl(var(--family-accent, var(--primary)));
+    /* The open document lifts out of the strip in its own family hue. */
+    box-shadow: 0 -3px 10px -6px hsl(var(--family-accent, var(--primary)) / var(--control-glow));
   }
 
   /* Brand rule: a two-pixel spectrum along the top edge of the shell. It names
@@ -330,21 +440,25 @@
   }
 
   @media (forced-colors: active) {
-    .app-shell::before {
+    .app-shell::before,
+    .cad-workspace-nav::after {
       display: none;
     }
   }
 
   .cad-rail {
-    @apply flex w-11 flex-shrink-0 flex-col items-center gap-0.5 border-r border-border bg-surface py-1.5 text-surface-foreground;
+    @apply flex w-11 flex-shrink-0 flex-col items-center gap-1 border-r border-border bg-surface py-2 text-surface-foreground;
+    /* Casts onto the sheet, so the rail reads as a shelf above it. */
+    box-shadow: 2px 0 10px -6px hsl(var(--shadow-color) / 0.65);
   }
 
   .cad-rail-btn {
-    @apply relative flex h-8 w-8 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+    @apply relative flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,box-shadow] duration-150 hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
   }
 
   .cad-rail-btn-active {
     @apply bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground;
+    box-shadow: 0 3px 12px -4px hsl(var(--primary) / var(--control-glow));
   }
 
   /* Mono shortcut badge pinned in a rail button's corner (V, D, G, F…). */
@@ -362,34 +476,50 @@
 
   .cad-dock {
     @apply flex w-64 min-w-64 min-h-0 max-w-64 flex-shrink-0 flex-col overflow-hidden border-r border-border bg-card text-card-foreground;
+    box-shadow:
+      inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge)),
+      4px 0 16px -10px hsl(var(--shadow-color) / 0.75);
   }
 
   /* Inspector dock — same palette anatomy as the library, mirrored border. */
   .cad-inspector {
     @apply flex w-72 min-w-72 min-h-0 max-w-72 flex-shrink-0 flex-col overflow-hidden border-l border-border bg-card text-card-foreground;
+    box-shadow:
+      inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge)),
+      -4px 0 16px -10px hsl(var(--shadow-color) / 0.75);
   }
 
   /* Narrow viewports: docks float over the sheet rather than squeezing it to an
    * unusable sliver. Both remain dismissible from their own close buttons (the
-   * library also has the header toggle). */
+   * library also has the header toggle). Floating is when the depth language
+   * earns its keep: a full border, all four corners, and a real drop shadow. */
   @media (max-width: 1279px) {
+    .cad-dock,
+    .cad-inspector {
+      @apply absolute inset-y-2 z-30 w-60 min-w-0 max-w-[calc(100%-1rem)] rounded-lg border shadow-xl;
+    }
+
     .cad-dock {
-      @apply absolute inset-y-0 left-0 z-30 shadow-2xl;
+      @apply left-2;
     }
 
     .cad-inspector {
-      @apply absolute inset-y-0 right-0 z-30 shadow-2xl;
+      @apply right-2 w-64;
     }
   }
 
   /* Fixed 28px palette title bar shared by every docked panel. */
   .cad-palette-title {
     @apply flex h-7 flex-shrink-0 items-center justify-between gap-2 border-b border-border bg-surface px-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground;
+    /* The bar catches the shell's light along its top edge — see `--panel-edge`,
+     * which an appearance that carries no decoration switches off. */
+    background-image: linear-gradient(180deg, hsl(var(--foreground) / var(--panel-edge)) 0%, transparent 100%);
   }
 
   /* Sticky section header bar inside a palette body. */
   .cad-section-title {
     @apply sticky top-0 z-10 flex h-6 items-center justify-between gap-2 border-b border-border bg-surface px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground;
+    background-image: linear-gradient(180deg, hsl(var(--foreground) / var(--panel-edge)) 0%, transparent 100%);
   }
 
   .cad-readout {
@@ -398,21 +528,23 @@
 
   /* Editor-local status strip pinned to the bottom of the sheet. */
   .cad-hud {
-    @apply pointer-events-none absolute inset-x-0 bottom-0 flex h-6 items-center justify-between border-t border-border bg-surface px-2 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground;
+    @apply pointer-events-none absolute inset-x-0 bottom-0 flex h-6 items-center justify-between border-t border-border bg-surface/90 px-2 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm;
   }
 
-  /* Chip shown while a library part is armed for placement. */
+  /* Chip shown while a library part is armed for placement. It is the only
+   * thing telling you the cursor will place rather than select, so it wears the
+   * accent ring and floats clear of the sheet chrome. */
   .cad-place-chip {
-    @apply pointer-events-none absolute left-1/2 top-7 z-10 flex -translate-x-1/2 items-center gap-2 border border-border border-l-2 border-l-primary bg-surface px-3 py-1 text-[11px] text-surface-foreground shadow;
+    @apply pointer-events-none absolute left-1/2 top-7 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-primary/40 bg-surface/95 px-3 py-1 text-[11px] text-surface-foreground shadow-lg backdrop-blur-sm;
   }
 
   /* Right-click menu over the sheet. */
   .cad-context-menu {
-    @apply absolute z-50 flex min-w-[11rem] flex-col border border-border bg-surface py-1 shadow;
+    @apply absolute z-50 flex min-w-[11rem] flex-col overflow-hidden rounded-lg border border-border bg-surface/95 py-1 shadow-xl backdrop-blur-md;
   }
 
   .cad-context-item {
-    @apply px-3 py-1 text-left text-[11px] text-surface-foreground hover:bg-muted/60;
+    @apply mx-1 rounded-md px-2 py-1 text-left text-[11px] text-surface-foreground transition-colors hover:bg-muted/60;
   }
 
   .cad-context-item--danger {
@@ -446,7 +578,14 @@
   }
 
   .cad-field {
-    @apply h-[22px] min-w-0 rounded-sm border border-border/70 bg-background px-1.5 font-mono text-[11px] text-foreground outline-none transition-colors hover:border-border focus:border-ring;
+    @apply h-[22px] min-w-0 rounded-md border border-border/70 bg-background px-1.5 font-mono text-[11px] text-foreground outline-none transition-[border-color,background-color] hover:border-border;
+  }
+
+  /* A live field tints as well as re-drawing its edge. The shell's focus ring is
+   * left alone — it is the keyboard indicator the a11y contract counts on — so
+   * this is the mouse-visible "you are editing this row" cue. */
+  .cad-field:focus {
+    @apply border-ring bg-accent/40;
   }
 
   .cad-field:disabled {
@@ -575,7 +714,7 @@
 
   /* ── Parts browser rows ─────────────────────────────────────────────────── */
   .cad-lib-row {
-    @apply relative flex h-[30px] w-full cursor-grab items-center gap-2 px-2 text-left transition-colors hover:bg-accent active:cursor-grabbing;
+    @apply relative flex h-[30px] w-full cursor-grab items-center gap-2 rounded-md px-2 text-left transition-colors hover:bg-accent active:cursor-grabbing;
   }
 
   .cad-lib-row-armed {
@@ -584,18 +723,19 @@
 
   .cad-lib-row-armed::before {
     content: '';
-    @apply absolute inset-y-0 left-0 w-0.5 bg-primary;
+    @apply absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary;
+    box-shadow: 0 0 8px hsl(var(--primary) / var(--control-glow));
   }
 
   /* CAD hover tooltip: follows the pointer, offset so it never covers the
    * pin or part under the cursor (KiCad-style readout, not a toast). */
   .cad-tip {
-    @apply pointer-events-none absolute left-0 top-0 z-30 flex max-w-64 items-center gap-2 truncate whitespace-nowrap rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] text-surface-foreground shadow-lg;
+    @apply pointer-events-none absolute left-0 top-0 z-30 flex max-w-64 items-center gap-2 truncate whitespace-nowrap rounded-md border border-border bg-surface/95 px-2.5 py-1 text-[11px] text-surface-foreground shadow-lg backdrop-blur-sm;
   }
 
   /* Bordered monospace glyph standing in for a symbol thumbnail. */
   .cad-glyph {
-    @apply flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded-sm border border-border bg-muted/50 font-mono text-[9px] font-bold leading-none text-muted-foreground;
+    @apply flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded-md border border-border bg-muted/50 font-mono text-[9px] font-bold leading-none text-muted-foreground;
   }
 
   /* Bare search input — its container draws the border. */
@@ -610,7 +750,9 @@
 
   /* Keyboard chip used in the placement banner. */
   .cad-kbd {
-    @apply rounded-sm border border-border bg-muted/60 px-1 font-mono text-[9px] font-semibold leading-[14px] text-foreground;
+    @apply rounded-md border border-border bg-muted/60 px-1 font-mono text-[9px] font-semibold leading-[14px] text-foreground;
+    /* One pixel of hard light under the baseline: a keycap, not a label. */
+    box-shadow: 0 1px 0 hsl(var(--shadow-color) / 0.45);
   }
 
   .simulation-waveform {
@@ -901,6 +1043,14 @@
  * leave them readable but no longer meaningful.
  */
 @media (forced-colors: active) {
+  /* The OS owns every colour here, so a sheen or an accent halo painted from the
+   * app's own tokens would be a stray line on someone else's palette. Depth and
+   * focus stay; only the light goes. */
+  :root {
+    --panel-edge: 0;
+    --control-glow: 0;
+  }
+
   [aria-current='page'],
   [aria-pressed='true'],
   [role='switch'][aria-checked='true'] {
@@ -920,8 +1070,7 @@
     forced-color-adjust: none;
   }
 
-  .scrollbar-thin,
-  .scrollbar-overlay {
+  * {
     scrollbar-color: ButtonText ButtonFace;
   }
 }
