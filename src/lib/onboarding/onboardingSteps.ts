@@ -125,8 +125,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     ],
     mode: 'schematic',
     icon: Activity,
-    target: 'simulation-toggle',
-    fallbackTarget: 'workspace-nav',
+    target: 'workspace-nav',
     placement: 'bottom',
   },
   {

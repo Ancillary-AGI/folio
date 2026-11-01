@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, useEffect, useMemo, useRef, useCallback } fro
 import {
   FolderOpen, Menu, Bot, BarChart3, Settings, Package, Users,
   Download, Image, FileText, List, Lock, LogOut, Mic, MicOff,
-  Shield, RefreshCw, History, RotateCcw, Moon, Sun, AlertCircle, FlaskConical, Search,
+  Shield, ArrowLeft, History, RotateCcw, Moon, Sun, AlertCircle, FlaskConical, Search,
   MoreHorizontal, ShieldCheck, ShieldAlert, HelpCircle, X,
 } from 'lucide-react'
 import { Button } from './components/ui/button'
@@ -1294,6 +1294,36 @@ function App() {
     voiceController.close()
   }
 
+  const backToProjects = () => {
+    setCurrentProject(null)
+    setCurrentSchematic(null)
+    setCanvasData(null)
+    openProjectManager()
+  }
+
+  /* Everything the bar no longer carries, as words instead of icons. Grouped so
+   * the overflow reads as a menu rather than a list of nine unrelated verbs. */
+  const moreMenuSections = [
+    {
+      group: 'Session',
+      items: [
+        { label: voiceListening ? 'Stop voice control' : 'Start voice control', icon: voiceListening ? MicOff : Mic, action: toggleVoice },
+        { label: activeAlertCount > 0 ? `Security alerts (${activeAlertCount} active)` : 'Security alerts', icon: Shield, action: () => useAppStore.getState().setWorkspaceMode('siem') },
+        { label: 'Simulation workspace', icon: BarChart3, action: () => useAppStore.getState().setWorkspaceMode('simulation') },
+      ],
+    },
+    {
+      group: 'Project',
+      items: [
+        { label: 'Collaboration', icon: Users, action: () => setShowCollaborativePanel(true) },
+        { label: 'Plugins', icon: Package, action: openPluginPanel },
+        { label: 'Administration', icon: ShieldCheck, action: openAdmin },
+        { label: 'Back to Projects', icon: ArrowLeft, action: backToProjects },
+      ],
+    },
+    ...(offlineMode ? [] : [{ group: 'Account', items: [{ label: 'Sign out', icon: LogOut, action: () => void handleSignOut() }] }]),
+  ]
+
   // ── Voice → shell actions ───────────────────────────────────────────────────
   // Save and export live in this component; the voice controller asks here
   // instead of duplicating them. Results report what really happened. The
@@ -1547,68 +1577,25 @@ function App() {
         </div>
 
         <div className="flex min-w-0 flex-shrink-0 items-center gap-1">
-          {/* Secondary actions stay out of the way on narrow viewports and are
-           * reachable from the More menu, so no control disappears. */}
-          <div className="hidden items-center gap-1 lg:flex">
-            <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-            {/* Voice control */}
-            <HoverHelp topicId="header.voice" placement="bottom">
-              <Button
-                variant={voiceListening ? 'default' : 'ghost'}
-                size="icon"
-                onClick={toggleVoice}
-                aria-label={voiceListening ? 'Stop voice control' : 'Start voice control'}
-              >
-                {voiceListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-              </Button>
-            </HoverHelp>
-
-            {/* Security alerts — shield itself flags active alerts (no floating count pill) */}
-            <HoverHelp topicId="header.security" placement="bottom">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => useAppStore.getState().setWorkspaceMode('siem')}
-                aria-label={activeAlertCount > 0 ? `${activeAlertCount} active security alert${activeAlertCount === 1 ? '' : 's'}` : 'Security alerts'}
-              >
-                <Shield className={activeAlertCount > 0 ? 'w-4 h-4 text-destructive' : 'w-4 h-4'} />
-              </Button>
-            </HoverHelp>
-
-            <HoverHelp topicId="header.assistant" placement="bottom">
-              <Button variant="ghost" size="icon" onClick={toggleAiChat} aria-label="Design assistant" data-tour="agent-button">
-                <Bot className="w-4 h-4" />
-              </Button>
-            </HoverHelp>
-            <HoverHelp topicId="header.admin" placement="bottom">
-              <Button variant="ghost" size="icon" onClick={openAdmin} aria-label="Administration">
-                <ShieldCheck className="w-4 h-4" />
-              </Button>
-            </HoverHelp>
-            <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-            <HoverHelp topicId="header.simulation" placement="bottom">
-              <Button variant="ghost" size="icon" onClick={() => useAppStore.getState().setWorkspaceMode('simulation')} aria-label="Open simulation workspace" data-tour="simulation-toggle">
-                <BarChart3 className="w-4 h-4" />
-              </Button>
-            </HoverHelp>
-            <HoverHelp topicId="header.settings" placement="bottom">
-              <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} aria-label="Settings">
-                <Settings className="w-4 h-4" />
-              </Button>
-            </HoverHelp>
-            <HoverHelp topicId="header.plugins" placement="bottom">
-              <Button variant="ghost" size="icon" onClick={openPluginPanel} aria-label="Plugins">
-                <Package className="w-4 h-4" />
-              </Button>
-            </HoverHelp>
-            <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-            <HoverHelp topicId="header.collaboration" placement="bottom">
-              <Button variant="ghost" size="icon" onClick={() => setShowCollaborativePanel(true)} aria-label="Collaboration">
-                <Users className="w-4 h-4" />
-              </Button>
-            </HoverHelp>
-            <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-          </div>
+          {/* The bar carries only what an engineer reaches every session: the
+           * assistant, history, search, help, demos, export, settings, theme.
+           * Nine icon-only controls used to sit here — two of them lookalike
+           * shields, one a refresh arrow standing in for "back" — and every one
+           * of the rest is a labelled row in the More menu below, which is
+           * available at every width rather than only under `lg`. */}
+          <HoverHelp topicId="header.assistant" placement="bottom">
+            <Button
+              variant={aiChatOpen ? 'default' : 'ghost'}
+              size="icon"
+              onClick={toggleAiChat}
+              aria-label="Design assistant"
+              aria-pressed={aiChatOpen}
+              data-tour="agent-button"
+            >
+              <Bot className="w-4 h-4" />
+            </Button>
+          </HoverHelp>
+          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
 
           <div className="relative" data-tour="version-history">
             <HoverHelp topicId="header.version-history" placement="bottom">
@@ -1781,30 +1768,19 @@ function App() {
             )}
           </div>
 
+          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+          <HoverHelp topicId="header.settings" placement="bottom">
+            <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} aria-label="Settings">
+              <Settings className="w-4 h-4" />
+            </Button>
+          </HoverHelp>
           <HoverHelp topicId="header.theme" placement="bottom">
             <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label={themeToggleLabel}>
               {themeIcon}
             </Button>
           </HoverHelp>
-          <HoverHelp topicId="header.back" placement="bottom">
-            <Button variant="ghost" size="icon" className="hidden sm:inline-flex" onClick={() => {
-              setCurrentProject(null)
-              setCurrentSchematic(null)
-              setCanvasData(null)
-              openProjectManager()
-            }} aria-label="Back to Projects">
-              <RefreshCw className="w-4 h-4" />
-            </Button>
-          </HoverHelp>
-          {!offlineMode && (
-            <HoverHelp topicId="header.sign-out" placement="bottom">
-              <Button variant="ghost" size="icon" className="hidden md:inline-flex" onClick={handleSignOut} aria-label="Sign Out">
-                <LogOut className="w-4 h-4" />
-              </Button>
-            </HoverHelp>
-          )}
 
-          <div className="relative lg:hidden">
+          <div className="relative">
             <HoverHelp topicId="header.more" placement="bottom">
               <Button
                 variant={showMoreMenu ? 'default' : 'ghost'}
@@ -1821,31 +1797,28 @@ function App() {
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} aria-hidden="true" />
                 <div
-                  className="app-panel absolute right-0 top-full z-50 mt-1 w-60 rounded-md border border-border py-1 shadow-xl"
+                  className="app-panel absolute right-0 top-full z-50 mt-1 w-64 rounded-md border border-border py-1 shadow-xl"
                   role="menu"
                   aria-label="More tools"
                 >
-                  {([
-                    { label: voiceListening ? 'Stop voice control' : 'Start voice control', icon: voiceListening ? MicOff : Mic, action: toggleVoice },
-                    { label: activeAlertCount > 0 ? `Security alerts (${activeAlertCount} active)` : 'Security alerts', icon: Shield, action: () => useAppStore.getState().setWorkspaceMode('siem') },
-                    { label: 'Design assistant', icon: Bot, action: toggleAiChat },
-                    { label: 'Administration', icon: ShieldCheck, action: openAdmin },
-                    { label: 'Simulation workspace', icon: BarChart3, action: () => useAppStore.getState().setWorkspaceMode('simulation') },
-                    { label: 'Settings', icon: Settings, action: () => setShowSettings(true) },
-                    { label: 'Plugins', icon: Package, action: openPluginPanel },
-                    { label: 'Collaboration', icon: Users, action: () => setShowCollaborativePanel(true) },
-                    { label: 'Back to Projects', icon: RefreshCw, action: () => { setCurrentProject(null); setCurrentSchematic(null); setCanvasData(null); openProjectManager() } },
-                  ] as const).map(({ label, icon: Icon, action }) => (
-                    <button
-                      key={label}
-                      type="button"
-                      role="menuitem"
-                      onClick={() => { action(); setShowMoreMenu(false) }}
-                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-foreground hover:bg-accent"
-                    >
-                      <Icon className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
-                      <span className="truncate">{label}</span>
-                    </button>
+                  {moreMenuSections.map(({ group, items }) => (
+                    <div key={group} role="group" aria-label={group} className="pb-1">
+                      <p className="px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                        {group}
+                      </p>
+                      {items.map(({ label, icon: Icon, action }) => (
+                        <button
+                          key={label}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => { action(); setShowMoreMenu(false) }}
+                          className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-foreground hover:bg-accent"
+                        >
+                          <Icon className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                          <span className="truncate">{label}</span>
+                        </button>
+                      ))}
+                    </div>
                   ))}
                 </div>
               </>

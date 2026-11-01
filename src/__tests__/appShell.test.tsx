@@ -178,7 +178,9 @@ describe('App shell', () => {
   it('ignores workbench shortcuts while the administration route is open', async () => {
     window.history.replaceState(null, '', '/admin')
     render(<App />)
-    await screen.findByRole('heading', { name: 'Administration' })
+    // The console is a lazy chunk; under a full parallel suite run the default
+    // 1 s is not enough to fetch and mount it.
+    await screen.findByRole('heading', { name: 'Administration' }, { timeout: 20000 })
 
     // No workbench overlay is mounted on this route, so honouring the shortcut
     // would only queue hidden open state that appears on the way back.
@@ -197,7 +199,7 @@ describe('App shell', () => {
     window.history.replaceState(null, '', '/admin')
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: 'Administration' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Administration' }, { timeout: 20000 })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Back to projects' }))
 
     expect(await screen.findByRole('button', { name: /create project/i })).toBeInTheDocument()
@@ -264,16 +266,33 @@ describe('App shell', () => {
     expect(useProjectStore.getState().isSimulating).toBe(false)
   })
 
-  it('keeps secondary tools reachable from the compact More menu', async () => {
+  it('keeps the bar to the tools used every session and folds the rest into words', async () => {
     render(<App />)
     fireEvent.click((await screen.findAllByRole('button', { name: /new project/i }))[0])
+    await screen.findByTestId('schematic-canvas')
 
-    fireEvent.click(await screen.findByRole('button', { name: 'More tools' }))
+    const header = screen.getByRole('banner')
+    expect(within(header).getByRole('button', { name: 'Design assistant' })).toBeInTheDocument()
+    expect(within(header).getByRole('button', { name: 'Settings' })).toBeInTheDocument()
+    expect(within(header).getByRole('button', { name: 'Version history' })).toBeInTheDocument()
+
+    // Two lookalike shields and a refresh-arrow standing in for "back" used to
+    // sit here. They are labelled rows in the overflow menu now, and the
+    // launcher button at the left of the bar is the only way out of a project.
+    expect(within(header).queryByRole('button', { name: /security alerts/i })).not.toBeInTheDocument()
+    expect(within(header).queryByRole('button', { name: 'Administration' })).not.toBeInTheDocument()
+    expect(within(header).queryByRole('button', { name: 'Back to Projects' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(header).getByRole('button', { name: 'More tools' }))
     const menu = screen.getByRole('menu', { name: 'More tools' })
-    expect(within(menu).getByRole('menuitem', { name: 'Settings' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: /Security alerts/ })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Administration' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Back to Projects' })).toBeInTheDocument()
 
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Design assistant' }))
-    expect(useAppStore.getState().aiChatOpen).toBe(true)
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Simulation workspace' }))
+    expect(useAppStore.getState().workspaceMode).toBe('simulation')
+    // Choosing a row closes the menu, so it cannot sit over the workspace.
+    expect(screen.queryByRole('menu', { name: 'More tools' })).not.toBeInTheDocument()
   })
 
   it('closes the component library from its palette close button', async () => {

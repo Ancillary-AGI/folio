@@ -101,48 +101,28 @@ export default function DemoGallery({ open, onClose, onOpenScenario, onStartTuto
       if (event.target === event.currentTarget) onClose()
     }}>
       <div
-        className="app-panel cad-panel-shell animate-rise-in max-w-5xl"
+        className="app-panel cad-panel-shell animate-rise-in max-w-6xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="demo-gallery-title"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="app-panel-header flex-shrink-0">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/15 text-primary">
               <FlaskConical className="h-4 w-4" aria-hidden="true" />
             </span>
-            <div>
+            <div className="min-w-0">
               <h2 id="demo-gallery-title" className="text-sm font-semibold">Demo gallery</h2>
-              <p className="text-xs text-muted-foreground">
+              <p className="hidden truncate text-xs text-muted-foreground sm:block">
                 Tested scenarios for every workspace — load one, tweak it and inspect the results.
               </p>
             </div>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Close demo gallery" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-
-        <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-3">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1" role="group" aria-label="Demo categories">
-            {FILTERS.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                aria-pressed={filter === entry.id}
-                onClick={() => setFilter(entry.id)}
-                className={`h-7 rounded-sm border px-2.5 text-[11px] font-medium transition-colors ${
-                  filter === entry.id
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
-                }`}
-              >
-                {entry.label}
-              </button>
-            ))}
-          </div>
-          <label className="cad-search flex h-8 w-full max-w-xs items-center gap-2 rounded-md border border-border bg-background px-2 sm:w-64">
+          {/* The filter belongs to the whole dialog, so it sits in the header.
+           * Down in the toolbar row it shared a flex line with a wrapping
+           * category strip and painted over it. */}
+          <label className="cad-search flex h-8 w-36 flex-shrink-0 items-center gap-2 rounded-md border border-border bg-background px-2 sm:w-56">
             <Search className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
             <span className="sr-only">Search demos</span>
             <input
@@ -150,10 +130,33 @@ export default function DemoGallery({ open, onClose, onOpenScenario, onStartTuto
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search demos, tools or analysis types…"
+              placeholder="Search demos…"
               className="h-full w-full min-w-0 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
+          <Button variant="ghost" size="icon" aria-label="Close demo gallery" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        {/* One line, scrolled instead of wrapped: a wrapped strip stacks the
+         * categories into a column and wastes the rest of the row. */}
+        <div className="scrollbar-none flex flex-shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-4 py-2" role="group" aria-label="Demo categories">
+          {FILTERS.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              aria-pressed={filter === entry.id}
+              onClick={() => setFilter(entry.id)}
+              className={`h-7 shrink-0 rounded-sm border px-2.5 text-[11px] font-medium transition-colors ${
+                filter === entry.id
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
+              }`}
+            >
+              {entry.label}
+            </button>
+          ))}
         </div>
 
         <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto p-4">

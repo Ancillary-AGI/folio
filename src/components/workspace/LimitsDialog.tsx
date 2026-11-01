@@ -110,31 +110,48 @@ export default function LimitsDialog({ open, onClose, currentMode = null }: Limi
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="app-panel-header flex-shrink-0">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <span className="flex h-8 w-8 items-center justify-center rounded-md bg-warning/15 text-warning">
               <ShieldAlert className="h-4 w-4" aria-hidden="true" />
             </span>
-            <div>
+            <div className="min-w-0">
               <h2 id="limits-title" className="text-sm font-semibold">Capabilities and limits</h2>
-              <p className="text-xs text-muted-foreground">
+              <p className="hidden truncate text-xs text-muted-foreground sm:block">
                 What each analysis actually computes, the method behind it, the tests that pin it — and what it refuses to model.
               </p>
             </div>
           </div>
+          {/* The filter belongs to the whole dialog, so it sits in the header
+           * beside the close control instead of sharing a flex line with the
+           * wrapping family strip below — where it used to paint over it. */}
+          <label className="cad-search flex h-8 w-36 flex-shrink-0 items-center gap-2 rounded-md border border-border bg-background px-2 sm:w-56">
+            <Search className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span className="sr-only">Search capabilities</span>
+            <input
+              ref={searchRef}
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search capabilities…"
+              className="h-full w-full min-w-0 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
+            />
+          </label>
           <Button variant="ghost" size="icon" aria-label="Close capabilities and limits" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         </div>
 
-        <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-3">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1" role="group" aria-label="Capability families">
+        <div className="flex flex-shrink-0 items-center gap-2 border-b border-border px-4 py-2">
+          {/* One line, scrolled instead of wrapped: a wrapped strip stacks the
+           * families into a column and wastes the rest of the row. */}
+          <div className="scrollbar-none flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" role="group" aria-label="Capability families">
             {CAPABILITY_FILTERS.map((entry) => (
               <button
                 key={entry}
                 type="button"
                 aria-pressed={filter === entry}
                 onClick={() => setFilter(entry)}
-                className={`h-7 rounded-sm border px-2.5 text-[11px] font-medium transition-colors ${
+                className={`h-7 shrink-0 rounded-sm border px-2.5 text-[11px] font-medium transition-colors ${
                   filter === entry
                     ? 'border-primary bg-primary text-primary-foreground'
                     : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -145,31 +162,17 @@ export default function LimitsDialog({ open, onClose, currentMode = null }: Limi
               </button>
             ))}
           </div>
-          <div className="flex w-full items-center gap-2 sm:w-auto">
-            <label className="cad-search flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-background px-2 sm:w-64 sm:flex-none">
-              <Search className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
-              <span className="sr-only">Search capabilities</span>
+          {currentMode && (
+            <label className="flex h-7 flex-shrink-0 items-center gap-1.5 rounded-sm border border-border bg-background px-2 text-[11px] text-muted-foreground">
               <input
-                ref={searchRef}
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search methods, models, limits…"
-                className="h-full w-full min-w-0 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
+                type="checkbox"
+                checked={modeOnly}
+                onChange={(event) => setModeOnly(event.target.checked)}
+                className="h-3 w-3 accent-primary"
               />
+              {WORKSPACE_MODE_META[currentMode].label} only
             </label>
-            {currentMode && (
-              <label className="flex h-8 flex-shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-[11px] text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={modeOnly}
-                  onChange={(event) => setModeOnly(event.target.checked)}
-                  className="h-3 w-3 accent-primary"
-                />
-                {WORKSPACE_MODE_META[currentMode].label} only
-              </label>
-            )}
-          </div>
+          )}
         </div>
 
         <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto p-4">

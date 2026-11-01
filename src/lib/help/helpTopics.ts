@@ -155,7 +155,7 @@ export const HELP_TOPICS = [
     id: 'header.admin',
     group: 'header',
     title: 'Administration',
-    description: 'Members, roles and the usage ledger for this workspace.',
+    description: 'Members, roles and the usage ledger for this workspace. In the More tools menu.',
   },
   {
     id: 'header.theme',
@@ -173,25 +173,26 @@ export const HELP_TOPICS = [
     id: 'header.plugins',
     group: 'header',
     title: 'Plugins',
-    description: 'Review, install and manage permission-gated plugins.',
+    description: 'Review, install and manage permission-gated plugins. In the More tools menu.',
   },
   {
     id: 'header.collaboration',
     group: 'header',
     title: 'Collaboration',
-    description: 'Share the project and review comments with collaborators.',
+    description: 'Share the project and review comments with collaborators. In the More tools menu.',
   },
   {
     id: 'header.security',
     group: 'header',
     title: 'Security alerts',
-    description: 'Open the audit trail and security alerts for this workspace.',
+    description:
+      'The audit trail and security alerts for this workspace, in the More tools menu. Active alerts also raise a red count in the status bar.',
   },
   {
     id: 'header.simulation',
     group: 'header',
     title: 'Simulation',
-    description: 'Open the Simulation workspace from anywhere in the shell.',
+    description: 'Open the Simulation workspace — from its tab in the workspace navigation, or from the More tools menu.',
   },
   {
     id: 'header.version-history',
@@ -203,13 +204,13 @@ export const HELP_TOPICS = [
     id: 'header.back',
     group: 'header',
     title: 'Back to projects',
-    description: 'Close the open design and return to the project launcher.',
+    description: 'Close the open design and return to the project launcher. The Projects button at the left does the same.',
   },
   {
     id: 'header.sign-out',
     group: 'header',
     title: 'Sign out',
-    description: 'End the session; projects remain in the workspace.',
+    description: 'End the session; projects remain in the workspace. In the More tools menu.',
   },
   {
     id: 'header.palette',
@@ -228,14 +229,15 @@ export const HELP_TOPICS = [
     id: 'header.more',
     group: 'header',
     title: 'More tools',
-    description: 'Reach the secondary header tools on a narrow window without hiding them.',
+    description:
+      'The overflow menu, at every window width: voice, security alerts, the simulation workspace, collaboration, plugins, administration, back to the launcher and sign out.',
   },
   {
     id: 'header.voice',
     group: 'header',
     title: 'Voice conversation',
     description:
-      'Start or stop the spoken conversation. Dictate commands such as “place a resistor” or “connect R1 to D1”, hear the reply, or type in the panel instead.',
+      'Start or stop the spoken conversation from the More tools menu. Dictate commands such as “place a resistor” or “connect R1 to D1”, hear the reply, or type in the panel instead.',
   },
 
   // ── Workspace navigation ───────────────────────────────────────────────────

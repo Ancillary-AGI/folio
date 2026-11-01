@@ -73,7 +73,7 @@ describe('LimitsDialog', () => {
 
   it('expands every match while the engineer is searching a phrase', () => {
     open()
-    fireEvent.change(screen.getByPlaceholderText(/search methods/i), { target: { value: 'damped least squares' } })
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search capabilities' }), { target: { value: 'damped least squares' } })
     expect(expectRow('motion-kinematics').trigger).toHaveAttribute('aria-expanded', 'true')
     expect(rowIsVisible('circuit-dc')).toBe(false)
     expect(screen.getByText(/matches are expanded/i)).toBeInTheDocument()
@@ -101,7 +101,7 @@ describe('LimitsDialog', () => {
     const { rerender } = render(<LimitsDialog open onClose={() => {}} />)
 
     fireEvent.click(screen.getByRole('button', { name: /^Circuit simulation/i }))
-    fireEvent.change(screen.getByPlaceholderText(/search methods/i), { target: { value: 'modified nodal' } })
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search capabilities' }), { target: { value: 'modified nodal' } })
     expect(expectRow('circuit-dc').trigger).toHaveAttribute('aria-expanded', 'true')
 
     // A new inline close handler is not a new opening; resetting here discarded
@@ -109,7 +109,7 @@ describe('LimitsDialog', () => {
     rerender(<LimitsDialog open onClose={() => {}} />)
 
     expect(screen.getByRole('button', { name: /^Circuit simulation/i })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByPlaceholderText(/search methods/i)).toHaveValue('modified nodal')
+    expect(screen.getByRole('searchbox', { name: 'Search capabilities' })).toHaveValue('modified nodal')
     expect(expectRow('circuit-dc').trigger).toHaveAttribute('aria-expanded', 'true')
   })
 

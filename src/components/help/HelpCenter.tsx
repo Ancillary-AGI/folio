@@ -180,12 +180,12 @@ export default function HelpCenter({
 
   const placeholder =
     tab === 'tutorials'
-      ? 'Search tutorials by domain or task…'
+      ? 'Search tutorials by domain…'
       : tab === 'workspaces'
-        ? 'Search workspaces by name or what they compute…'
+        ? 'Search workspaces by name…'
         : tab === 'controls'
-          ? 'Search controls by name or action…'
-          : 'Search shortcuts by action or workspace…'
+          ? 'Search controls by action…'
+          : 'Search shortcuts by key…'
 
   return (
     <div
@@ -196,69 +196,76 @@ export default function HelpCenter({
       }}
     >
       <div
-        className="app-panel cad-panel-shell animate-rise-in max-w-5xl"
+        className="app-panel cad-panel-shell animate-rise-in max-w-6xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="help-center-title"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="app-panel-header flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/15 text-primary">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
               <BookOpen className="h-4 w-4" aria-hidden="true" />
             </span>
-            <div>
+            <div className="min-w-0">
               <h2 id="help-center-title" className="text-sm font-semibold">Help and tutorials</h2>
-              <p className="text-xs text-muted-foreground">
+              <p className="hidden truncate text-xs text-muted-foreground sm:block">
                 Learn the workbench the way it is used: load a tested design, change it, read the result.
               </p>
             </div>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Close help" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-
-        <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1" role="tablist" aria-label="Help sections">
-            {TABS.map((entry) => {
-              const Icon = entry.icon
-              const active = tab === entry.id
-              return (
-                <button
-                  key={entry.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => {
-                    setTab(entry.id)
-                    setQuery('')
-                    searchRef.current?.focus()
-                  }}
-                  className={`flex h-7 shrink-0 grow basis-auto items-center justify-center gap-1.5 rounded-sm border px-2.5 text-[11px] font-medium transition-colors ${
-                    active
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-                  {entry.label}
-                </button>
-              )
-            })}
-          </div>
-          <label className="cad-search flex h-8 w-full max-w-xs items-center gap-2 rounded-md border border-border bg-background px-2 sm:w-64">
+          {/* The filter belongs to the whole dialog, so it lives in the header
+           * beside the close control. In the old toolbar row it shared a flex
+           * line with a wrapping tab strip and painted over the tabs. */}
+          <label className="cad-search flex h-8 w-36 flex-shrink-0 items-center gap-2 rounded-md border border-border bg-background px-2 sm:w-56">
             <Search className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
-            <span className="sr-only">Search help</span>
             <input
               ref={searchRef}
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={placeholder}
+              aria-label="Search help"
               className="h-full w-full min-w-0 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
+          <Button variant="ghost" size="icon" aria-label="Close help" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        {/* One line, scrolled rather than wrapped: a wrapped tab strip is what
+         * used to stack the four sections into a column and waste the row. */}
+        <div
+          className="scrollbar-none flex flex-shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-4 py-2"
+          role="tablist"
+          aria-label="Help sections"
+        >
+          {TABS.map((entry) => {
+            const Icon = entry.icon
+            const active = tab === entry.id
+            return (
+              <button
+                key={entry.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => {
+                  setTab(entry.id)
+                  setQuery('')
+                  searchRef.current?.focus()
+                }}
+                className={`flex h-7 shrink-0 items-center gap-1.5 rounded-sm border px-2.5 text-[11px] font-medium transition-colors ${
+                  active
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                {entry.label}
+              </button>
+            )
+          })}
         </div>
 
         <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto p-4">
@@ -271,7 +278,7 @@ export default function HelpCenter({
               {tutorials.length === 0 ? (
                 <p className="py-8 text-center text-sm text-muted-foreground">No tutorial matches “{query}”.</p>
               ) : (
-                <ul className="grid gap-3 sm:grid-cols-2" aria-label="Tutorials">
+                <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Tutorials">
                   {tutorials.map((tutorial) => {
                     const progress = readTutorialProgress(tutorial.id)
                     const resumed = Boolean(progress && !progress.completed && progress.step > 0)
@@ -335,7 +342,7 @@ export default function HelpCenter({
                       {group.label}
                       <span className="font-normal normal-case tracking-normal text-muted-foreground/80">{group.description}</span>
                     </h3>
-                    <ul className="grid gap-2 sm:grid-cols-2">
+                    <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                       {modes.map((mode) => {
                         const isCurrent = mode.id === currentMode
                         const demos = demoCount(mode.id)
