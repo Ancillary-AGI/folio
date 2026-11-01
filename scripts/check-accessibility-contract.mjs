@@ -97,6 +97,26 @@ check(
   '.cad-rail-btn must refuse to shrink; a squeezed tool button puts its keycap across the icon.'
 )
 
+// 7. The board palette and the board itself. Both failed in the same direction
+//    on a short or narrow window and both were measured: the palette's 11px
+//    scrollbar took width off the content box until every tool hit the 24px
+//    floor 5px off the rail's centre line, and the rows above the drawing left
+//    the board SVG exactly 0px tall.
+const pcbPanel = read('src/components/pcb/PCBDesignPanel.tsx')
+const boardPalette = pcbPanel.match(/aria-label="Board tools"\s*\n\s*className="([^"]+)"/)
+check(
+  boardPalette && /overflow-y-auto/.test(boardPalette[1]) && /scrollbar-none/.test(boardPalette[1]),
+  'The board palette must scroll without a visible bar; a scrollbar squeezes every tool and shifts its icon off the rail centre.'
+)
+check(
+  boardPalette && /w-12/.test(boardPalette[1]) && /lg:w-36/.test(boardPalette[1]),
+  'The board palette must collapse to a 48px icon rail below lg rather than take width off the board.'
+)
+check(
+  /min-h-\[180px\]\s+flex-1/.test(pcbPanel),
+  'The board drawing must keep a 180px floor; a short window used to squeeze it to zero height.'
+)
+
 if (failures.length > 0) {
   console.error('Accessibility contract violated:')
   failures.forEach((f) => console.error(`  - ${f}`))

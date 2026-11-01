@@ -247,7 +247,7 @@ export default function HelpCenter({
               )
             })}
           </div>
-          <label className="flex h-8 w-full max-w-xs items-center gap-2 rounded-md border border-border bg-background px-2 sm:w-64">
+          <label className="cad-search flex h-8 w-full max-w-xs items-center gap-2 rounded-md border border-border bg-background px-2 sm:w-64">
             <Search className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
             <span className="sr-only">Search help</span>
             <input

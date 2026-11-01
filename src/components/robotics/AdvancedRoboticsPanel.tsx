@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { Slider } from '../ui/slider';
+import { RangeControl } from '../ui/range-control';
 import { Badge } from '../ui/badge';
 import { advancedRobotics, Mechanism, Joint, Trajectory, DynamicsResult } from '../../lib/robotics/advancedRobotics';
 import {
@@ -616,20 +616,18 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
             </CardHeader>
             <CardContent className="space-y-3">
               {Array.from(selectedMechanism.joints.values()).map((joint, index) => (
-                <div key={joint.id} className="space-y-2">
-                  <Label className="text-xs">{joint.name}</Label>
-                  <Slider
-                    value={[jointToDisplay(joint, jointAngles[index])]}
-                    onValueChange={([value]) => updateJointAngle(index, jointFromDisplay(joint, value))}
-                    min={jointToDisplay(joint, joint.limits.min)}
-                    max={jointToDisplay(joint, joint.limits.max)}
-                    step={1}
-                    className="w-full"
-                  />
-                  <div className="text-xs text-muted-foreground">
-                    {formatJointValue(joint, jointAngles[index])}
-                  </div>
-                </div>
+                <RangeControl
+                  key={joint.id}
+                  label={joint.name}
+                  value={jointToDisplay(joint, jointAngles[index])}
+                  min={jointToDisplay(joint, joint.limits.min)}
+                  max={jointToDisplay(joint, joint.limits.max)}
+                  step={1}
+                  format={(display) => formatJointValue(joint, jointFromDisplay(joint, display))}
+                  onValueChange={(display) =>
+                    updateJointAngle(index, jointFromDisplay(joint, display))
+                  }
+                />
               ))}
             </CardContent>
           </Card>

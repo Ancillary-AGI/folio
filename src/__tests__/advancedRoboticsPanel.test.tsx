@@ -121,9 +121,12 @@ describe('AdvancedRoboticsPanel', () => {
     expect(screen.getByText('Total energy')).toBeInTheDocument()
     expect(screen.getByText('Waypoints')).toBeInTheDocument()
 
-    const shoulder = screen.getAllByRole('slider')[0]
-    shoulder.focus()
-    fireEvent.keyDown(shoulder, { key: 'ArrowRight' })
+    // Named by its label, so this also proves the joint slider is announced as
+    // "Shoulder". The value is set with `change` rather than a key press because
+    // jsdom has no native range-input keyboard handling — in a browser
+    // ArrowRight is what fires this event.
+    const shoulder = screen.getByRole('slider', { name: 'Shoulder' })
+    fireEvent.change(shoulder, { target: { value: '1' } })
 
     expect(reportedJoints()).toBe('1.0° 0.0°')
     expect(screen.queryByText('Total energy')).not.toBeInTheDocument()

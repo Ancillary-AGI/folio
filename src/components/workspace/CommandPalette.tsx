@@ -151,23 +151,29 @@ export default function CommandPalette({
         aria-label="Command palette"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center gap-2 border-b border-border px-3">
-          <Search className="h-4 w-4 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
-          <input
-            ref={inputRef}
-            type="text"
-            role="combobox"
-            aria-expanded="true"
-            aria-controls="command-palette-results"
-            aria-autocomplete="list"
-            aria-activedescendant={filtered[activeIndex] ? `command-${filtered[activeIndex].id}` : undefined}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder="Go to a workspace, open a demo, run an action…"
-            className="h-11 w-full min-w-0 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-          />
-          <span className="cad-kbd flex-shrink-0">ESC</span>
+        {/* The search line is a field, not a strip of the dialog: insetting it
+            gives the focus ring something to sit on. Painted straight onto the
+            full-bleed header row, the halo would bloom over the dialog's own
+            rounded border and read as a second window. */}
+        <div className="border-b border-border p-2">
+          <div className="cad-search flex h-10 items-center gap-2.5 rounded-lg border border-border bg-background px-3">
+            <Search className="h-4 w-4 flex-shrink-0 text-primary/70" aria-hidden="true" />
+            <input
+              ref={inputRef}
+              type="text"
+              role="combobox"
+              aria-expanded="true"
+              aria-controls="command-palette-results"
+              aria-autocomplete="list"
+              aria-activedescendant={filtered[activeIndex] ? `command-${filtered[activeIndex].id}` : undefined}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="Go to a workspace, open a demo, run an action…"
+              className="h-full w-full min-w-0 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+            />
+            <span className="cad-kbd flex-shrink-0">ESC</span>
+          </div>
         </div>
 
         <ul

@@ -137,6 +137,12 @@ describe('shell geometry', () => {
     expect(highContrast, 'high contrast must override the decorative alphas').not.toBeNull()
     expect(highContrast![0]).toMatch(/--panel-edge:\s*0;/)
     expect(highContrast![0]).toMatch(/--control-glow:\s*0;/)
+    expect(highContrast![0]).toMatch(/--control-depth:\s*0;/)
+    // The shading on a filled button's face is decoration too, and the sheet
+    // that hands colour to the OS has no business keeping it.
+    const forced = css.match(/@media \(forced-colors: active\)[\s\S]*?\{[\s\S]*?:root\s*\{[^}]*\}/)
+    expect(forced, 'forced colours must override the decorative alphas').not.toBeNull()
+    expect(forced![0]).toMatch(/--control-depth:\s*0;/)
     // Focus indicators are not decoration and stay untouched by either alpha.
     expect(css).toMatch(/:focus-visible\s*\{[^}]*ring-ring/)
   })
@@ -146,19 +152,40 @@ describe('shell geometry', () => {
    * outside it. `ring-offset-*` is exactly that: a seam of page background
    * between the element's own edge and the focus ring, which reads as a double
    * border. It recurs because every stock field primitive ships with one, so
-   * this pins both halves — the contract in the base layer, and the absence of
-   * the override in the primitives that used to carry it.
+   * this pins both halves — the contract itself, and the absence of the offset
+   * ring in the primitives that used to carry it.
+   *
+   * WHERE the contract lives is the part that was got wrong once: written in
+   * `@layer base` it loses to the panel's own `border-border` utility, which
+   * lives in the utilities layer, and a layer always beats specificity. The
+   * field then keeps its grey edge and grows the accent halo outside it — the
+   * double border, wearing a different hat. So this pins the layer too.
    */
   it('gives a bordered control one focus edge instead of two', () => {
-    const singleEdge = css.match(/input:focus-visible,[^}]*\}/)
-    expect(singleEdge, 'the base layer must carry the one-edge focus contract').not.toBeNull()
+    const singleEdge = css.match(/input:not\(\[type='range'\]\):focus-visible,[^}]*\}/)
+    expect(singleEdge, 'the one-edge focus contract must exist').not.toBeNull()
     expect(singleEdge![0]).toContain('var(--focus-halo)')
     expect(singleEdge![0]).toContain('border-color: hsl(var(--ring))')
     expect(singleEdge![0]).not.toMatch(/ring-offset/)
 
+    const utilitiesAt = css.indexOf('@layer utilities {')
+    const forcedColoursAt = css.indexOf('@layer base {', utilitiesAt)
+    expect(utilitiesAt, 'expected a @layer utilities block').toBeGreaterThan(-1)
+    expect(
+      singleEdge!.index,
+      'the focus contract must sit in @layer utilities, where it outranks a field border utility'
+    ).toBeGreaterThan(utilitiesAt)
+    expect(
+      singleEdge!.index,
+      'the focus contract must not be buried in the forced-colours sheet'
+    ).toBeLessThan(forcedColoursAt)
+
     for (const file of [
       'src/components/ui/input.tsx',
       'src/components/ui/select.tsx',
+      'src/components/ui/tabs.tsx',
+      'src/components/ui/checkbox.tsx',
+      'src/components/ui/badge.tsx',
       'src/components/AuthForm.tsx',
       'src/components/ProjectManager.tsx',
     ]) {
@@ -166,6 +193,40 @@ describe('shell geometry', () => {
       expect(source, `${file} must not paint an offset ring outside its own border`).not.toMatch(
         /ring-offset-\d/,
       )
+    }
+  })
+
+  /*
+   * A search field is a pill: the icon, the bare `bg-transparent` input and the
+   * key chip are one control, and the pill is the box the engineer sees. The
+   * contract above rings *any* input, so inside a pill it painted a bluish
+   * outline on the text box while the pill's grey border stayed put — two edges,
+   * with the narrower one drawn around the wrong box. `.cad-search` moves the
+   * edge onto the pill and silences the input inside it.
+   */
+  it('rings the search pill, not the input inside it', () => {
+    const pill = css.match(/\.cad-search:focus-within\s*\{[^}]*\}/)
+    expect(pill, 'the search pill must own the focus edge').not.toBeNull()
+    expect(pill![0]).toContain('border-color: hsl(var(--ring))')
+    expect(pill![0]).toContain('var(--focus-halo)')
+
+    const inner = css.match(/\.cad-search input:focus-visible,[^}]*\}/)
+    expect(inner, 'the input inside a pill must paint no edge of its own').not.toBeNull()
+    expect(inner![0]).toContain('box-shadow: none')
+
+    expect(
+      pill!.index,
+      'the pill rule must come after the bare-input rule: equal specificity, so order decides'
+    ).toBeGreaterThan(css.search(/input:not\(\[type='range'\]\):focus-visible/))
+
+    for (const file of [
+      'src/components/workspace/CommandPalette.tsx',
+      'src/components/workspace/DemoGallery.tsx',
+      'src/components/workspace/LimitsDialog.tsx',
+      'src/components/help/HelpCenter.tsx',
+    ]) {
+      const source = readFileSync(resolve(process.cwd(), file), 'utf8')
+      expect(source, `${file} must mark its search pill with .cad-search`).toContain('cad-search')
     }
   })
 })

@@ -414,23 +414,50 @@
   `index.css`: a single `--radius` step drives the whole corner scale (field,
   button, dock, dialog, card), and every Tailwind shadow level is drawn from
   `--shadow-color` as a lit top edge plus a contact and an ambient stop, so a
-  panel reads as lifted off the sheet instead of outlined. `--panel-edge` and
-  `--control-glow` are alphas, not colours: light drops the panel edge to zero
-  (a white sheet has nothing to catch a highlight) and high-contrast drops both
-  the edge and the accent halo, which removes sheen and glow without touching a
-  hue or a contrast ratio. Focus is one contract, not one per control: a control
-  that draws its own border turns that border to the accent and blooms a flush
-  halo (`--focus-halo`) from it, because an offset ring painted *outside* a live
-  border reads as a double line; borderless controls keep the offset ring, where
-  the gap is what keeps the indicator legible over filled chrome. High contrast
+  panel reads as lifted off the sheet instead of outlined. Three alphas tune the
+  light the shell throws around itself — `--panel-edge`, `--control-glow`,
+  `--control-depth` — and they are alphas, not colours: light drops the panel
+  edge to zero (a white sheet has nothing to catch a highlight), and
+  high-contrast and forced colours drop all three, which removes sheen, glow and
+  face shading without touching a hue or a contrast ratio. `--control-depth` is
+  what gives a filled button a body: the button's own label colour lights the
+  top edge and `--shadow-color` darkens the bottom, leaving the fill behind the
+  text alone — measured at 5.0:1 worst-case label contrast across all four
+  themes, against 6.5:1 for the undecorated fill. Focus is one contract, not one
+  per control: a control that draws its own border turns *that border* to the
+  accent and blooms a flush halo (`--focus-halo`) from it, and the rule lives in
+  `@layer utilities` because a base-layer `border-color` loses to every
+  `border-*` utility class however specific it looks — painted from base, a
+  field kept its grey edge and grew the ring outside it, which is exactly the
+  double line this contract exists to end. Controls that sit *inside* filled
+  chrome (tabs in a muted strip) also drop the offset, because an offset band is
+  painted from `--background` and reads as a seam of the wrong colour between the
+  control and its ring; a control on the open sheet keeps the offset ring, where
+  that gap is what keeps the indicator legible. A slider is the exception both
+  ways: its thumb carries the ring, so the rule skips `input[type=range]` rather
+  than ringing the whole track in a second, fainter rectangle. A search field
+  that is really a pill — icon plus borderless input — takes the edge on the pill
+  (`.cad-search`, `:focus-within`) and silences the input inside it: ringing the
+  text box put a bluish outline *inside* a grey border that never changed, which
+  is the double line in its least obvious form. High contrast
   turns the halo solid rather than off, and forced colours hands focus back to
-  the OS — so no appearance can lose the keyboard indicator. Target size is
+  the OS — so no appearance can lose the keyboard indicator. Panel headers set
+  their title in tight display tracking (`-0.01em`, balanced lines) so a 14px
+  semibold does not read looser than the 11px caption under it. Target size is
   floored the same way, centrally rather than panel by panel: buttons, tabs,
   links, fields and `<summary>` cannot render under 24px on either axis (WCAG
   2.5.8), native check boxes stay native but grow to a 20px box inside a 24px
   label row, and the editor tool rail scrolls instead of shrinking its 36px
   buttons — a squeezed rail used to print the shortcut keycap across the icon it
-  labelled.
+  labelled. The board palette follows the same rule below `lg`: seven labelled
+  tools and their part/history keys collapse to a 48px icon rail that keeps each
+  name as an accessible name and a tooltip, and moves the active tool's hint to
+  the panel header so nothing is readable only by hovering. Its scrollbar is
+  hidden for the same reason the rail's is: an 11px bar took the width off the
+  content box, squeezed every button to the 24px floor and pushed each icon 5px
+  off the rail's centre line — all measured here. And the canvas it serves keeps
+  a 180px floor with the pane scrolling around it, because at a short window the
+  board-size and snap rows above used to leave the drawing exactly 0px tall.
 - **Units & behavior**: metric/imperial, animation toggle, autosave interval,
   onboarding replay
 - **Guided tour**: thirteen-step first-run walkthrough with an animated spotlight —
@@ -446,8 +473,9 @@
   The final step hands off to the limits register instead of a completion screen.
 - **Accessibility**: keyboard-operable toolbars; every icon-only button must have
   an accessible name, enforced by `npm run a11y:buttons` in CI, and `npm run
-  a11y:contract` additionally pins the 24px target floor and the scrolling tool
-  rail, because both were measured defects that a type checker cannot see
+  a11y:contract` additionally pins the 24px target floor, the scrolling tool
+  rail, the board palette's hidden scrollbar and its 180px drawing floor, because
+  each was a measured defect that a type checker cannot see
 - **Language selector**: preference stored; English strings only today [partial]
 
 ## Help, Guides & Tutorials [done]

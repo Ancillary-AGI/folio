@@ -3498,8 +3498,16 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
       <div className="flex h-full w-full flex-col overflow-hidden bg-card">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-card/80">
-          <h3 className="font-semibold">PCB Design</h3>
+        <div className="flex items-center justify-between gap-3 border-b border-border bg-card/80 px-4 py-2">
+          <h3 className="shrink-0 font-semibold">PCB Design</h3>
+          {/* Below `lg` the palette sheds its labels, and a label-less rail can
+              only be read by hovering — which touch and keyboard users cannot
+              do. The active tool's gesture moves up here so the next click is
+              always stated in the open. `truncate` keeps the header one line
+              tall whatever the hint says. */}
+          <p className="min-w-0 flex-1 truncate text-center text-[11px] text-muted-foreground lg:hidden">
+            {activeToolMeta.hint}
+          </p>
           <div className="flex items-center gap-2">
             {drcRan && (
               <div className="flex items-center gap-1 text-xs">
@@ -3516,9 +3524,15 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
               </div>
             )}
             {onPreview3D && (
-              <Button variant="outline" size="sm" className="gap-1" onClick={onPreview3D}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 gap-1"
+                onClick={onPreview3D}
+                aria-label="Preview the board in 3D"
+              >
                 <Box className="w-4 h-4" />
-                Preview 3D
+                <span className="hidden sm:inline">Preview 3D</span>
               </Button>
             )}
             <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close PCB panel"><X className="w-4 h-4" /></Button>
@@ -3528,14 +3542,24 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
         <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
           <div className="flex min-h-0 flex-1">
           {/* Left: Tool palette. Labelled and grouped so each tool is findable
-              by intent; the hint under the rail states what the next gesture does. */}
+              by intent; the hint under the rail states what the next gesture does.
+              Below `lg` the palette narrows to a 48px icon rail instead of
+              stretching across the top of the board: twelve controls in a row
+              cost the canvas its height, which it needs far more than the 96px
+              of width the rail gives back.
+              Each tool keeps its name as `aria-label` and tooltip, and the
+              active tool's hint moves to the header, so nothing is readable
+              only by hovering. The rail scrolls without a visible bar: an 11px
+              scrollbar would take that width off the content box, squeeze every
+              32px button to the 24px floor and shift each icon off the rail's
+              centre line — measured here, not guessed. */}
           <aside
             aria-label="Board tools"
-            className="flex w-36 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border bg-card/50 p-2"
+            className="flex w-12 shrink-0 flex-col gap-3 overflow-y-auto scrollbar-none border-r border-border bg-card/50 p-2 lg:w-36"
           >
             {BOARD_TOOL_GROUPS.map((group) => (
               <div key={group.title} role="group" aria-label={group.title}>
-                <p className={`mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider ${group.tone}`}>
+                <p className={`mb-1 hidden px-1 text-[10px] font-semibold uppercase tracking-wider lg:block ${group.tone}`}>
                   {group.title}
                 </p>
                 <div className="flex flex-col gap-1">
@@ -3547,14 +3571,14 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                         key={tool.id}
                         variant={active ? 'default' : 'outline'}
                         size="sm"
-                        className="h-8 w-full justify-start gap-2 px-2 text-xs"
+                        className="h-8 w-full justify-center px-0 text-xs lg:justify-start lg:gap-2 lg:px-2"
                         onClick={() => setActiveTool(tool.id)}
                         title={tool.help}
                         aria-label={tool.label}
                         aria-pressed={active}
                       >
                         <Icon className={`h-3.5 w-3.5 shrink-0 ${active ? '' : group.tone}`} />
-                        <span className="truncate">{tool.label}</span>
+                        <span className="hidden truncate lg:inline">{tool.label}</span>
                       </Button>
                     )
                   })}
@@ -3563,12 +3587,14 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
             ))}
 
             {/* Edit commands. Rotate and flip act on the selected part; undo and
-                redo act on the whole board, copper included. */}
+                redo act on the whole board, copper included. One column on the
+                icon rail: three abreast at 40px of content would put each target
+                under the 24px floor. */}
             <div role="group" aria-label="Part edits">
-              <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="mb-1 hidden px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground lg:block">
                 Part
               </p>
-              <div className="grid grid-cols-3 gap-1">
+              <div className="grid grid-cols-1 gap-1 lg:grid-cols-3">
                 <Button
                   variant="outline" size="icon" className="h-8 w-full"
                   disabled={selectedComponentIds.length === 0}
@@ -3600,10 +3626,10 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
             </div>
 
             <div role="group" aria-label="History">
-              <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="mb-1 hidden px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground lg:block">
                 History
               </p>
-              <div className="grid grid-cols-2 gap-1">
+              <div className="grid grid-cols-1 gap-1 lg:grid-cols-2">
                 <Button
                   variant="outline" size="icon" className="h-8 w-full"
                   disabled={!editor.canUndo}
@@ -3625,7 +3651,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
               </div>
             </div>
 
-            <div className="mt-auto rounded-md border border-border bg-muted/40 p-2">
+            <div className="mt-auto hidden rounded-md border border-border bg-muted/40 p-2 lg:block">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Active tool
               </p>
@@ -3637,17 +3663,30 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
           {/* Centre: Canvas + tabs */}
           <div className="flex-1 flex flex-col min-w-0 min-h-0">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0">
-              <TabsList className="mx-2 mt-2 grid grid-cols-7 text-xs h-7">
-                <TabsTrigger value="canvas" className="text-xs">Canvas</TabsTrigger>
-                <TabsTrigger value="drc" className="text-xs">DRC</TabsTrigger>
-                <TabsTrigger value="emc" className="text-xs">EMC</TabsTrigger>
-                <TabsTrigger value="thermal" className="text-xs">Thermal</TabsTrigger>
-                <TabsTrigger value="si" className="text-xs">Signal</TabsTrigger>
-                <TabsTrigger value="advanced" className="text-xs">Advanced</TabsTrigger>
-                <TabsTrigger value="assembly" className="text-xs">Assembly</TabsTrigger>
+              {/* Seven analysis tabs will not fit side by side on a narrow
+                  sheet, and a grid column is happy to clip a label to prove it.
+                  Content-sized triggers in a horizontally scrollable strip keep
+                  every name whole; `justify-start` is load-bearing because a
+                  centred flex row overflows at the *left*, which no scrollbar
+                  can reach. Height is 36px so the 28px triggers fill the strip's
+                  content box instead of poking two pixels past its padding. */}
+              <TabsList className="mx-2 mt-2 flex h-9 w-auto flex-nowrap items-stretch justify-start gap-1 overflow-x-auto scrollbar-none text-xs">
+                <TabsTrigger value="canvas" className="h-7 shrink-0 px-3 text-xs">Canvas</TabsTrigger>
+                <TabsTrigger value="drc" className="h-7 shrink-0 px-3 text-xs">DRC</TabsTrigger>
+                <TabsTrigger value="emc" className="h-7 shrink-0 px-3 text-xs">EMC</TabsTrigger>
+                <TabsTrigger value="thermal" className="h-7 shrink-0 px-3 text-xs">Thermal</TabsTrigger>
+                <TabsTrigger value="si" className="h-7 shrink-0 px-3 text-xs">Signal</TabsTrigger>
+                <TabsTrigger value="advanced" className="h-7 shrink-0 px-3 text-xs">Advanced</TabsTrigger>
+                <TabsTrigger value="assembly" className="h-7 shrink-0 px-3 text-xs">Assembly</TabsTrigger>
               </TabsList>
 
-              <TabsContent value="canvas" className="flex-1 p-2 min-h-0 flex flex-col gap-2">
+              {/* The board keeps a real floor (180px) and the tab pane scrolls
+                  instead of yielding: at a short window the size and snap rows
+                  above left the drawing 0px tall — measured, not hypothetical —
+                  which is the one failure a CAD canvas must never have. On a
+                  normal window nothing scrolls and the board still takes all the
+                  slack. */}
+              <TabsContent value="canvas" className="flex-1 min-h-0 overflow-y-auto scrollbar-thin p-2 flex flex-col gap-2">
                 <div className="flex flex-wrap items-end gap-3 px-1">
                   <div>
                     <label htmlFor="board-width" className="text-xs font-medium mb-1 block">Board width (mm)</label>
@@ -3764,7 +3803,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                     </Button>
                   </div>
                 ) : null}
-                <div className="flex-1 min-h-0">
+                <div className="min-h-[180px] flex-1">
                   <PCBCanvas
                     traces={traces}
                     vias={vias}

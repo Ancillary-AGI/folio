@@ -36,21 +36,23 @@
    * Tailwind maps `sm`/`md`/`lg`/`xl`/`2xl` onto it, so one number here retunes
    * every field, button, dock, dialog and card at once.
    *
-   * The two alphas tune how much *light* the shell throws around itself — the
-   * lit top edge of a raised panel, and the accent halo behind an active
-   * control. They are numbers, not colours: the hues they modulate stay in
-   * `tokens.ts`, where the contrast tests can see them. An appearance with no
-   * room for decoration (high contrast) turns both off instead of inheriting a
-   * dark shell's assumptions.
+   * The decorative alphas tune how much *light* the shell throws around itself —
+   * the lit top edge of a raised panel, the accent halo behind an active
+   * control, and the shading that gives a filled button its rounded body. They
+   * are numbers, not colours: the hues they modulate stay in `tokens.ts`, where
+   * the contrast tests can see them. An appearance with no room for decoration
+   * (high contrast) turns them off instead of inheriting a dark shell's
+   * assumptions.
    *
-   * `--focus-halo` is the third alpha but not decoration: it is the strength of
-   * the ring around a focused field, so an appearance that flattens the others
-   * turns this one *up*, never off.
+   * `--focus-halo` is not decoration: it is the strength of the ring around a
+   * focused field, so an appearance that flattens the others turns this one
+   * *up*, never off.
    */
   :root {
     --radius: 0.625rem;
     --panel-edge: 0.09;
     --control-glow: 0.45;
+    --control-depth: 0.16;
     --focus-halo: 0.3;
   }
 
@@ -58,12 +60,14 @@
   [data-theme='light'] {
     --panel-edge: 0;
     --control-glow: 0.3;
+    --control-depth: 0.1;
     --focus-halo: 0.38;
   }
 
   [data-theme='high-contrast'] {
     --panel-edge: 0;
     --control-glow: 0;
+    --control-depth: 0;
     --focus-halo: 1;
   }
 
@@ -144,23 +148,15 @@
   }
 
   /*
-   * A control that already draws a border gets exactly one edge on focus. The
-   * offset ring above paints a 2px band of page background *outside* whatever
-   * edge the element has, so on a bordered field the engineer sees border,
-   * seam, ring — a double border. Here the border itself takes the accent and
-   * the halo blooms flush from it. Borderless controls (buttons, tabs, icon
-   * rails) keep the offset ring, where that gap is the thing that keeps the
-   * indicator legible over filled chrome.
+   * Bordered controls get exactly one focus edge — the rule itself lives in
+   * `@layer utilities` at the bottom of this file, because a base-layer
+   * `border-color` loses to every `border-*` utility class and the field then
+   * paints the accent halo *around* a border that never changed colour.
+   * Borderless controls on the open sheet keep the offset ring above, where that
+   * gap is what keeps the indicator legible; controls that sit *inside* filled
+   * chrome (the tab strip) drop the offset, because the band is painted from
+   * `--background` and reads as a seam of the wrong colour across the strip.
    */
-  input:focus-visible,
-  textarea:focus-visible,
-  select:focus-visible,
-  [role='combobox']:focus-visible,
-  [contenteditable='true']:focus-visible {
-    outline: none;
-    border-color: hsl(var(--ring));
-    box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
-  }
 
   /*
    * Fifty-odd dropdowns sit across the CAD panels, each with its own ad-hoc
@@ -323,7 +319,20 @@
   }
 
   .app-panel-header {
-    @apply flex items-center justify-between border-b border-border bg-surface px-4 py-2 text-surface-foreground;
+    @apply flex items-center justify-between gap-4 border-b border-border bg-surface px-4 py-2 text-surface-foreground;
+  }
+
+  /* Display type. A heading is read as one shape, not as separate letters, so
+   * tracking tightens as weight goes up. At the default 0 a 14px semibold title
+   * sits looser than the 11px caption underneath it — the wrong way round for a
+   * pair that should read title-then-detail. -0.01em closes that gap without
+   * disturbing any single glyph, and `balance` stops a two-word title from
+   * orphaning one word onto its own line in a narrow panel. */
+  .app-panel-header h1,
+  .app-panel-header h2,
+  .app-panel-header h3 {
+    letter-spacing: -0.01em;
+    text-wrap: balance;
   }
 
   .app-sidebar {
@@ -415,6 +424,15 @@
    * how the eye finds the one button that does something. `--control-glow` is
    * what an appearance with no room for decoration switches off; `:hover`
    * widens the same halo instead of brightening the fill further.
+   *
+   * `--control-depth` then shades the *face*: the button's own label colour
+   * lightens the top edge, `--shadow-color` darkens the bottom, and the fill in
+   * between — where the text actually sits — is untouched. That is what makes a
+   * filled button read as a body standing slightly above the shell instead of a
+   * rectangle pasted on it. The two films are measured, not assumed: at 0.16 the
+   * worst label contrast over the extremes of the gradient is 5.0:1 across all
+   * four themes (its fill alone is 6.5:1), so the tightening never buys depth
+   * with legibility.
    */
   .cad-btn-primary,
   .cad-btn-destructive {
@@ -424,6 +442,12 @@
   }
 
   .cad-btn-primary {
+    background-image: linear-gradient(
+      180deg,
+      hsl(var(--primary-foreground) / var(--control-depth)) 0%,
+      transparent 42%,
+      hsl(var(--shadow-color) / var(--control-depth)) 100%
+    );
     box-shadow: 0 2px 12px -4px hsl(var(--primary) / var(--control-glow));
   }
 
@@ -432,6 +456,12 @@
   }
 
   .cad-btn-destructive {
+    background-image: linear-gradient(
+      180deg,
+      hsl(var(--destructive-foreground) / var(--control-depth)) 0%,
+      transparent 42%,
+      hsl(var(--shadow-color) / var(--control-depth)) 100%
+    );
     box-shadow: 0 2px 12px -4px hsl(var(--destructive) / var(--control-glow));
   }
 
@@ -842,6 +872,52 @@
 }
 
 @layer utilities {
+  /*
+   * One-edge focus contract for controls that already draw a border — and it
+   * has to live in this layer to work. A panel puts `border-border` on a field,
+   * that class is generated into the utilities layer, and any base-layer rule
+   * loses to it no matter how specific it looks. Painted from base, the field
+   * kept its grey edge and grew the accent halo *outside* it: the double border
+   * engineers kept reporting. Here the border itself turns and the halo blooms
+   * flush from it, so there is exactly one edge. A panel can still override it
+   * with its own `focus:border-*` variant, which is more specific.
+   *
+   * `input[type='range']` is left out on purpose: its focus indicator is the
+   * thumb (`.cad-slider:focus-visible::-webkit-slider-thumb`), and painting this
+   * halo too would ring the whole track in a second, fainter rectangle.
+   */
+  input:not([type='range']):focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  [role='combobox']:focus-visible,
+  [contenteditable='true']:focus-visible {
+    outline: none;
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  /*
+   * A search field is a pill: icon, bare input and clear button together are
+   * one control, and only the pill has an edge. The inner `<input>` is
+   * `bg-transparent` with no border, so the rule above would ring the text box
+   * *inside* the pill — a bluish outline floating on a grey border that never
+   * changed. Wrong twice over: two edges, and the narrower one is not the thing
+   * the user clicked. So the pill takes the edge (`:focus-within` fires for
+   * keyboard, click and touch alike) and the inner input paints nothing.
+   * Declared after the rule above on purpose: same specificity, and inside one
+   * layer the later declaration wins.
+   */
+  .cad-search:focus-within {
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .cad-search input:focus-visible,
+  .cad-search [role='combobox']:focus-visible {
+    border-color: transparent;
+    box-shadow: none;
+  }
+
   /* ── Custom themed scrollbars (all token-driven, no hex) ────────────────
    * Overlay style: transparent track, bordered thumb that brightens on hover.
    * `.scrollbar-thin` for docks/lists, `.scrollbar-overlay` for panels/dialogs.
@@ -1124,12 +1200,14 @@
  * leave them readable but no longer meaningful.
  */
 @media (forced-colors: active) {
-  /* The OS owns every colour here, so a sheen or an accent halo painted from the
-   * app's own tokens would be a stray line on someone else's palette. Depth and
-   * focus stay; only the light goes. */
+  /* The OS owns every colour here, so a sheen, a filled button's shading or an
+   * accent halo painted from the app's own tokens would be a stray line on
+   * someone else's palette. The structural shadows and the focus ring stay; only
+   * the light goes. */
   :root {
     --panel-edge: 0;
     --control-glow: 0;
+    --control-depth: 0;
   }
 
   [aria-current='page'],
