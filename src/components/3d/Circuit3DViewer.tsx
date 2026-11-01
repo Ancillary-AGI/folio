@@ -425,7 +425,12 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
   const [reframe, setReframe] = useState(0);
   const [frameMode, setFrameMode] = useState<'board' | 'circuit'>('circuit');
   const [shadows, setShadows] = useState(true);
-  const [pixelRatio, setPixelRatio] = useState(1.5);
+  // Start at the display's own density (capped at 2× so a 5K panel does not
+  // quadruple the fragment cost) instead of a fixed 1.5 that softens on HiDPI.
+  const [pixelRatio, setPixelRatio] = useState(() => {
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    return dpr >= 2 ? 2 : dpr >= 1.5 ? 1.5 : 1;
+  });
   const [componentScale, setComponentScale] = useState(1);
   const [maskColor, setMaskColor] = useState<PcbMaskColor>('green');
   const [padFinish, setPadFinish] = useState<PcbPadFinish>('enig');

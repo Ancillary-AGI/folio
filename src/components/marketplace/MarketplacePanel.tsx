@@ -4,6 +4,7 @@ import type { DemoMarketplaceBundle } from '../../lib/demo/demoMarketplace';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
+import { Star } from 'lucide-react';
 import { useDemoRequest } from '../workspace/useDemoRequest';
 
 export default function MarketplacePanel() {
@@ -62,7 +63,11 @@ export default function MarketplacePanel() {
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <p className="text-muted-foreground">{item.description}</p>
-              <p>{item.author} · v{item.version} · ★ {item.rating} · {item.downloads} installs</p>
+              <p className="flex items-center gap-1">
+                {item.author} · v{item.version} ·
+                <Star className="h-3 w-3 fill-current text-chart-4" aria-hidden="true" />
+                {item.rating} · {item.downloads} installs
+              </p>
               <Button size="sm" onClick={() => install(item.id)}>Install into project</Button>
             </CardContent>
           </Card>

@@ -369,7 +369,7 @@ function App() {
     }
     const mode = WORKSPACE_MODE_META[workspaceMode].label
     document.title = currentProject
-      ? `${isDirty ? '● ' : ''}${currentProject.name} — ${mode} · Folio`
+      ? `${isDirty ? 'Unsaved — ' : ''}${currentProject.name} — ${mode} · Folio`
       : showProjectManager
         ? 'Projects · Folio'
         : `${mode} · Folio`
@@ -1536,7 +1536,10 @@ function App() {
               </h1>
               {isDirty && (
                 <div className="flex items-center gap-2 text-[10px] uppercase leading-tight tracking-[0.08em]">
-                  <span className="text-warning">● Unsaved</span>
+                  <span className="inline-flex items-center gap-1.5 text-warning">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-warning" aria-hidden="true" />
+                    Unsaved
+                  </span>
                 </div>
               )}
             </div>
@@ -1948,7 +1951,12 @@ function App() {
         <span className="status-segment hidden md:inline-flex">
           THEME <span className="cad-readout">{themeLabel}</span>
         </span>
-        {isDirty && <span className="status-segment text-warning">● UNSAVED</span>}
+        {isDirty && (
+          <span className="status-segment text-warning">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-warning" aria-hidden="true" />
+            UNSAVED
+          </span>
+        )}
         {voiceListening && (
           <span className="status-segment animate-pulse text-success">
             <Mic className="h-3 w-3" /> VOICE

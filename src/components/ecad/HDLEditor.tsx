@@ -10,7 +10,7 @@
  */
 
 import { useState, useRef, useCallback } from 'react'
-import { Play, Download, Upload, Cpu, Terminal, RefreshCw, ChevronRight, Check, AlertCircle } from 'lucide-react'
+import { Play, Download, Upload, Cpu, Terminal, RefreshCw, ChevronRight, Check, AlertCircle, X } from 'lucide-react'
 import { Button } from '../ui/button'
 import { parseVerilogModule } from '../../lib/fpga/verilogSubset'
 import { parseVhdl } from '../../lib/fpga/vhdlSubset'
@@ -162,7 +162,7 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
     setParseOk(null)
     try {
       const design = elaborate(code, language)
-      appendOutput(`✓ Parsed ${design.language === 'verilog' ? 'module' : 'entity'}: ${design.name}`)
+      appendOutput(`Parsed ${design.language === 'verilog' ? 'module' : 'entity'}: ${design.name}`)
       appendOutput(`  Ports: ${design.ports.map(p => `${p.direction} ${p.name}`).join(', ')}`)
 
       if (target === 'simulate') {
@@ -175,7 +175,7 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
         if (generated.length > 0) netlist.stimuli = generated
         const result = simulateDigital(netlist, stopTime)
         if (!result.success) throw new Error(result.error ?? 'digital simulation failed')
-        appendOutput(`\n📊 Digital simulation (0–${stopTime} time units, ${result.eventCount} events):`)
+        appendOutput(`\nDigital simulation (0–${stopTime} time units, ${result.eventCount} events):`)
         if (generated.length > 0) {
           appendOutput(
             `  Auto testbench: ${design.ports
@@ -196,7 +196,7 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
         })))
       } else if (target === 'synthesize') {
         const synth = synthesize(design.netlist, design.ports)
-        appendOutput('\n🔬 Logic synthesis (SkyWater SKY130):')
+        appendOutput('\nLogic synthesis (SkyWater SKY130):')
         appendOutput(`  Cells used: ${synth.cells.length}`)
         appendOutput(`  Total area: ${synth.totalArea.toFixed(2)} µm²`)
         appendOutput(`  Critical path: ${synth.criticalPathPs.toFixed(0)} ps`)
@@ -208,7 +208,7 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
           [{ name: design.name, language: design.language, source: code }],
           deviceId,
         )
-        appendOutput(`\n🔧 FPGA elaboration for ${synthesis.device?.part ?? deviceId}:`)
+        appendOutput(`\nFPGA elaboration for ${synthesis.device?.part ?? deviceId}:`)
         if (!synthesis.success) {
           throw new Error(synthesis.errors.join('; ') || 'FPGA elaboration failed')
         }
@@ -216,7 +216,7 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
         appendOutput(`  Flip-flops: ${synthesis.utilization.flipFlops} / ${synthesis.device?.flipFlops ?? '?'}`)
         appendOutput('  Timing: not modelled (vendor place-and-route required)')
         appendOutput('  BRAM/DSP: not inferred')
-        for (const warning of synthesis.warnings) appendOutput(`  ⚠ ${warning}`)
+        for (const warning of synthesis.warnings) appendOutput(`  Warning: ${warning}`)
         const manifest = fpgaDesignFlow.generateManifest(synthesis)
         if (manifest) {
           const bytes = new TextEncoder().encode(JSON.stringify(manifest)).length
@@ -228,7 +228,7 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
       setParseOk(true)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      appendOutput(`✗ Error: ${message}`)
+      appendOutput(`Error: ${message}`)
       setParseOk(false)
     } finally {
       setLoading(false)
@@ -336,7 +336,7 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
             <Download size={13} />
           </Button>
           {onClose && (
-            <Button size="sm" variant="ghost" onClick={onClose} className="text-muted-foreground" aria-label="Close HDL editor">✕</Button>
+            <Button size="sm" variant="ghost" onClick={onClose} className="text-muted-foreground" aria-label="Close HDL editor"><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
           )}
         </div>
         <input ref={fileInputRef} type="file" accept=".v,.sv,.vhd,.vhdl" aria-label="Import HDL file" className="hidden"

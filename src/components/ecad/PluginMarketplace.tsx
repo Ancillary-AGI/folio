@@ -16,7 +16,7 @@
  */
 
 import { useState, useEffect, type ReactNode } from 'react'
-import { Search, Download, Trash2, Upload, Star, Package, Cpu, Zap, Shield, BarChart3, CheckCircle } from 'lucide-react'
+import { Search, Download, Trash2, Upload, Star, Package, Cpu, Zap, Shield, BarChart3, CheckCircle, X } from 'lucide-react'
 
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
@@ -354,7 +354,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
           )}
         </div>
         {onClose && (
-          <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close plugin marketplace" className="text-muted-foreground hover:text-foreground">✕</Button>
+          <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close plugin marketplace" className="text-muted-foreground hover:text-foreground"><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
         )}
       </div>
 
@@ -617,7 +617,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
                   Tools: {selectedPlugin.tools.map((tool) => tool.name).join(', ')}
                 </p>
               </div>
-              <Button size="sm" variant="ghost" onClick={() => setSelectedPlugin(null)} aria-label="Close plugin details" className="shrink-0 text-muted-foreground">✕</Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedPlugin(null)} aria-label="Close plugin details" className="shrink-0 text-muted-foreground"><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
             </div>
 
             {manifest && (

@@ -122,7 +122,7 @@ const COMPLIANCE_RULES: ComplianceRule[] = [
     evaluate: snap => ({
       compliant: snap.rbacConfigured && snap.mfaEnforcementRate >= 0.8,
       evidence: [
-        snap.rbacConfigured ? '✓ RBAC grants configured' : '✗ No RBAC grants found',
+        snap.rbacConfigured ? 'Met: RBAC grants configured' : 'Not met: No RBAC grants found',
         `MFA enforcement rate: ${(snap.mfaEnforcementRate * 100).toFixed(0)}% (required ≥80%)`,
       ],
     }),
@@ -133,7 +133,7 @@ const COMPLIANCE_RULES: ComplianceRule[] = [
     requirement: 'A.10 — Cryptography',
     evaluate: snap => ({
       compliant: snap.encryptionActive,
-      evidence: [snap.encryptionActive ? '✓ Asset encryption active' : '✗ No encrypted assets detected'],
+      evidence: [snap.encryptionActive ? 'Met: Asset encryption active' : 'Not met: No encrypted assets detected'],
     }),
   },
   {
@@ -142,7 +142,7 @@ const COMPLIANCE_RULES: ComplianceRule[] = [
     requirement: 'A.12.4 — Logging and Monitoring',
     evaluate: snap => ({
       compliant: snap.auditLoggingActive,
-      evidence: [snap.auditLoggingActive ? '✓ Audit trail recording is active' : '✗ Audit logging inactive'],
+      evidence: [snap.auditLoggingActive ? 'Met: Audit trail recording is active' : 'Not met: Audit logging inactive'],
     }),
   },
   {
@@ -163,7 +163,7 @@ const COMPLIANCE_RULES: ComplianceRule[] = [
       return {
         compliant: fresh,
         evidence: [
-          snap.backupExists ? '✓ Backup snapshot exists' : '✗ No backup found',
+          snap.backupExists ? 'Met: Backup snapshot exists' : 'Not met: No backup found',
           `Last backup: ${snap.backupExists ? `${Math.round(snap.secondsSinceLastBackup / 60)} min ago` : 'never'}`,
         ],
       }
@@ -176,7 +176,7 @@ const COMPLIANCE_RULES: ComplianceRule[] = [
     requirement: 'SL-2 — Network Segmentation (FR 1)',
     evaluate: snap => ({
       compliant: snap.networkSegmentationDefined,
-      evidence: [snap.networkSegmentationDefined ? '✓ Network zones defined' : '✗ No network segmentation configured'],
+      evidence: [snap.networkSegmentationDefined ? 'Met: Network zones defined' : 'Not met: No network segmentation configured'],
     }),
   },
   {
@@ -185,7 +185,7 @@ const COMPLIANCE_RULES: ComplianceRule[] = [
     requirement: 'SL-2 — Access Control (FR 2)',
     evaluate: snap => ({
       compliant: snap.rbacConfigured,
-      evidence: [snap.rbacConfigured ? '✓ Role-based access configured' : '✗ RBAC not configured'],
+      evidence: [snap.rbacConfigured ? 'Met: Role-based access configured' : 'Not met: RBAC not configured'],
     }),
   },
   {
@@ -194,7 +194,7 @@ const COMPLIANCE_RULES: ComplianceRule[] = [
     requirement: 'SL-2 — Secure Communication (FR 4)',
     evaluate: snap => ({
       compliant: snap.tlsEnforced,
-      evidence: [snap.tlsEnforced ? '✓ TLS enforced on connections' : '✗ Unencrypted communication detected'],
+      evidence: [snap.tlsEnforced ? 'Met: TLS enforced on connections' : 'Not met: Unencrypted communication detected'],
     }),
   },
   {
@@ -203,7 +203,7 @@ const COMPLIANCE_RULES: ComplianceRule[] = [
     requirement: 'SL-2 — Auditable Events (FR 6)',
     evaluate: snap => ({
       compliant: snap.auditLoggingActive,
-      evidence: [snap.auditLoggingActive ? '✓ Event logging is active' : '✗ Audit logging not active'],
+      evidence: [snap.auditLoggingActive ? 'Met: Event logging is active' : 'Not met: Audit logging not active'],
     }),
   },
   // ── NIST CSF ────────────────────────────────────────────────────────────────
@@ -214,8 +214,8 @@ const COMPLIANCE_RULES: ComplianceRule[] = [
     evaluate: snap => ({
       compliant: snap.rbacConfigured && snap.auditLoggingActive,
       evidence: [
-        snap.rbacConfigured ? '✓ Asset access controls defined' : '✗ Asset management incomplete',
-        snap.auditLoggingActive ? '✓ Asset activity is logged' : '✗ Asset logging inactive',
+        snap.rbacConfigured ? 'Met: Asset access controls defined' : 'Not met: Asset management incomplete',
+        snap.auditLoggingActive ? 'Met: Asset activity is logged' : 'Not met: Asset logging inactive',
       ],
     }),
   },
@@ -227,7 +227,7 @@ const COMPLIANCE_RULES: ComplianceRule[] = [
       compliant: snap.mfaEnforcementRate >= 0.7 && snap.rbacConfigured,
       evidence: [
         `MFA rate: ${(snap.mfaEnforcementRate * 100).toFixed(0)}%`,
-        snap.rbacConfigured ? '✓ Access control active' : '✗ Access control missing',
+        snap.rbacConfigured ? 'Met: Access control active' : 'Not met: Access control missing',
       ],
     }),
   },
@@ -238,7 +238,7 @@ const COMPLIANCE_RULES: ComplianceRule[] = [
     evaluate: snap => ({
       compliant: snap.auditLoggingActive && snap.unresolvedHighAlerts < 5,
       evidence: [
-        snap.auditLoggingActive ? '✓ Event detection active' : '✗ Event detection inactive',
+        snap.auditLoggingActive ? 'Met: Event detection active' : 'Not met: Event detection inactive',
         `Unresolved high+ alerts: ${snap.unresolvedHighAlerts} (threshold: 5)`,
       ],
     }),
@@ -259,7 +259,7 @@ const COMPLIANCE_RULES: ComplianceRule[] = [
     requirement: 'Art. 32 — Security of Processing (encryption)',
     evaluate: snap => ({
       compliant: snap.encryptionActive,
-      evidence: [snap.encryptionActive ? '✓ Personal data is encrypted at rest' : '✗ Encryption not verified'],
+      evidence: [snap.encryptionActive ? 'Met: Personal data is encrypted at rest' : 'Not met: Encryption not verified'],
     }),
   },
   {
@@ -268,7 +268,7 @@ const COMPLIANCE_RULES: ComplianceRule[] = [
     requirement: 'Art. 30 — Records of Processing Activities',
     evaluate: snap => ({
       compliant: snap.auditLoggingActive,
-      evidence: [snap.auditLoggingActive ? '✓ Processing activities logged' : '✗ No processing log found'],
+      evidence: [snap.auditLoggingActive ? 'Met: Processing activities logged' : 'Not met: No processing log found'],
     }),
   },
   // ── HIPAA ────────────────────────────────────────────────────────────────────
@@ -279,7 +279,7 @@ const COMPLIANCE_RULES: ComplianceRule[] = [
     evaluate: snap => ({
       compliant: snap.rbacConfigured && snap.mfaEnforcementRate >= 0.9,
       evidence: [
-        snap.rbacConfigured ? '✓ Access controls in place' : '✗ No access controls',
+        snap.rbacConfigured ? 'Met: Access controls in place' : 'Not met: No access controls',
         `MFA rate: ${(snap.mfaEnforcementRate * 100).toFixed(0)}% (required ≥90%)`,
       ],
     }),
@@ -290,7 +290,7 @@ const COMPLIANCE_RULES: ComplianceRule[] = [
     requirement: '§164.312(b) — Audit Controls',
     evaluate: snap => ({
       compliant: snap.auditLoggingActive,
-      evidence: [snap.auditLoggingActive ? '✓ Audit controls active' : '✗ Audit controls missing'],
+      evidence: [snap.auditLoggingActive ? 'Met: Audit controls active' : 'Not met: Audit controls missing'],
     }),
   },
 ]

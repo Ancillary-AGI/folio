@@ -223,12 +223,12 @@ export default function AgentAssistant({ onCalls }: AgentAssistantProps) {
         }
         if ('success' in result) {
           const convergence = result.convergenceInfo as { converged?: boolean } | undefined
-          summary += `\n• Simulation: ${result.success ? '✓ solved' : `✗ ${String(result.error ?? 'failed')}`}` +
+          summary += `\n• Simulation: ${result.success ? 'solved' : `failed — ${String(result.error ?? 'unknown error')}`}` +
             `${convergence ? convergence.converged ? ' · converged' : ' · did not converge' : ''}`
         }
         if ('shippable' in result) {
           const violations = Array.isArray(result.violations) ? result.violations.length : 0
-          summary += `\n• DRC: ${result.shippable ? '✓ shippable' : `✗ ${violations} violation(s)`}`
+          summary += `\n• DRC: ${result.shippable ? 'shippable' : `not shippable — ${violations} violation(s)`}`
         }
         if ('traces' in result) summary += `\n• Route: ${String(result.traces)} trace(s) placed`
         if ('files' in result) summary += `\n• Fab package: ${String(result.files)} file(s) prepared`

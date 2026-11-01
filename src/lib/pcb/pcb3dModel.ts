@@ -395,8 +395,18 @@ function createMaskReliefTexture(): THREE.Texture | null {
   }
   if (!context) return null
   const image = context.createImageData(128, 128)
+  // Deterministic grain: the same board must render identically on every reload
+  // and device, so the mask cannot depend on Math.random().
+  let seed = 0x9e3779b9
+  const noise = (): number => {
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = seed
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
   for (let index = 0; index < image.data.length; index += 4) {
-    const value = 118 + Math.round(Math.random() * 38)
+    const value = 118 + Math.round(noise() * 38)
     image.data[index] = value
     image.data[index + 1] = value
     image.data[index + 2] = value

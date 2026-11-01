@@ -21,6 +21,7 @@ import {
   Shield,
   Trash2,
   Wrench,
+  X,
 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { useProjectStore } from '../../stores/useProjectStore'
@@ -145,7 +146,7 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
               aria-label="Close agent panel"
               className="text-muted-foreground hover:text-foreground"
             >
-              ✕
+              <X className="w-3.5 h-3.5" />
             </Button>
           )}
         </div>
@@ -195,8 +196,8 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
                   onClick={() => setVerification(null)}
                   className="ml-auto text-muted-foreground hover:text-foreground"
                 >
-                  ✕
-                </button>
+              <X className="w-3.5 h-3.5" />
+            </button>
               </div>
               {[...verification.errors, ...verification.warnings].slice(0, 4).map((issue, index) => (
                 <p

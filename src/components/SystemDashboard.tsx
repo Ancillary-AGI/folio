@@ -414,8 +414,11 @@ export const SystemDashboard: React.FC = () => {
                       {c.status === 'not_applicable' ? (
                         <span className="text-muted-foreground" title="Not applicable">—</span>
                       ) : (
-                        <span className={c.status === 'compliant' ? 'text-success' : 'text-destructive'}>
-                          {c.status === 'compliant' ? '✓' : '✗'}
+                        <span className={`inline-flex items-center ${c.status === 'compliant' ? 'text-success' : 'text-destructive'}`}>
+                          {c.status === 'compliant'
+                            ? <CheckCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                            : <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />}
+                          <span className="sr-only">{c.status === 'compliant' ? 'Compliant' : 'Not compliant'}</span>
                         </span>
                       )}
                     </div>

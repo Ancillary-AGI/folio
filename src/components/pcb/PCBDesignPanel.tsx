@@ -1866,7 +1866,7 @@ function PCBCanvas({
         ) : null}
       </svg>
 
-      <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-overlay/70 px-2 py-1 text-xs text-overlay-foreground">
+      <div className="pointer-events-none absolute bottom-2 left-2 rounded-lg bg-overlay/75 px-2.5 py-1 text-xs text-overlay-foreground shadow-lg backdrop-blur-md">
         {boardWidth} × {boardHeight} mm &nbsp;|&nbsp; Layer: {selectedLayer?.name ?? selectedLayerId} &nbsp;|&nbsp; {zoom.toFixed(1)}×
         &nbsp;|&nbsp; <span ref={cursorRef} data-testid="pcb-cursor-readout" />
         {snapGridMm} mm grid
@@ -1882,8 +1882,8 @@ function PCBCanvas({
       </div>
 
       {draft ? (
-        <div className="absolute bottom-10 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded border border-border bg-overlay/90 px-2 py-1 text-[11px] text-overlay-foreground">
-          <span>
+        <div className="absolute bottom-10 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border/60 bg-overlay/85 px-2 py-1 text-[11px] text-overlay-foreground shadow-lg backdrop-blur-md">
+          <span className="pl-1.5">
             {draft.points.length} pt{draft.points.length === 1 ? '' : 's'} · {draft.netName || 'no net'}
           </span>
           <Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={finishDraft}>
@@ -1895,20 +1895,20 @@ function PCBCanvas({
         </div>
       ) : null}
 
-      <div className="absolute right-2 top-2 flex gap-1">
-        <Button variant="outline" size="icon" className="h-6 w-6" aria-label="Zoom in" title="Zoom in" onClick={() => changeZoom(1.25)}>
+      <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-full border border-border/60 bg-surface/90 p-0.5 shadow-lg backdrop-blur-md">
+        <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Zoom in" title="Zoom in" onClick={() => changeZoom(1.25)}>
           <ZoomIn className="h-3 w-3" />
         </Button>
-        <Button variant="outline" size="icon" className="h-6 w-6" aria-label="Zoom out" title="Zoom out" onClick={() => changeZoom(1 / 1.25)}>
+        <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Zoom out" title="Zoom out" onClick={() => changeZoom(1 / 1.25)}>
           <ZoomOut className="h-3 w-3" />
         </Button>
-        <Button variant="outline" size="icon" className="h-6 w-6" aria-label="Fit board" title="Fit board" onClick={resetView}>
+        <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Fit board" title="Fit board" onClick={resetView}>
           <Maximize2 className="h-3 w-3" />
         </Button>
       </div>
 
       {scene && scene.warnings.length > 0 ? (
-        <div className="pointer-events-none absolute bottom-2 right-2 rounded bg-destructive/85 px-2 py-1 text-[11px] text-destructive-foreground">
+        <div className="pointer-events-none absolute bottom-2 right-2 rounded-full bg-destructive/90 px-2.5 py-1 text-[11px] text-destructive-foreground shadow-lg">
           {scene.warnings.length} placement warning{scene.warnings.length === 1 ? '' : 's'}
         </div>
       ) : null}
@@ -2171,6 +2171,38 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
     () => netClassRules(allNetNames, netClasses, netAssignments),
     [allNetNames, netClasses, netAssignments],
   )
+  /*
+   * Copper belongs to a net, and a net is only real on this board while some
+   * land carries it. Tracks and vias left behind after their parts go are
+   * floating copper that DRC cannot judge, so name them. Copper is measured
+   * against the lands the board actually has: a layout that arrived without a
+   * sheet — a demo board or a reopened session — offers no land model, so its
+   * net names prove nothing and stay unjudged.
+   */
+  const netsWithLands = useMemo(() => {
+    const names = new Set<string>()
+    for (const pad of routerPads) {
+      if (pad.netId) names.add(pad.netId)
+    }
+    return names
+  }, [routerPads])
+  /** True for named copper whose net has no land left on this board. */
+  const isOrphanCopper = useCallback(
+    (netName: string) => netsWithLands.size > 0 && netName !== '' && !netsWithLands.has(netName),
+    [netsWithLands],
+  )
+  const orphanCopper = useMemo(() => {
+    let traceCount = 0
+    let viaCount = 0
+    for (const trace of traces) {
+      if (isOrphanCopper(trace.netName)) traceCount += 1
+    }
+    for (const via of vias) {
+      if (isOrphanCopper(via.netName)) viaCount += 1
+    }
+    return { traceCount, viaCount }
+  }, [traces, vias, isOrphanCopper])
+
   /** Width a manual route commits for this net; untouched copper keeps its own. */
   const traceWidthForNet = useCallback(
     (netName: string) => (netName ? (classRules.widths[netName] ?? MANUAL_TRACE_WIDTH_MM) : MANUAL_TRACE_WIDTH_MM),
@@ -2656,6 +2688,17 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
     setSelectedCopper(null)
     invalidateChecks()
   }, [applyBoardEdits, invalidateChecks])
+
+  /** Remove every track and via whose net has no land left on the board. */
+  const ripUpOrphanCopper = useCallback(() => {
+    applyBoardEdits((current) => ({
+      ...current,
+      traces: current.traces.filter((trace) => !isOrphanCopper(trace.netName)),
+      vias: current.vias.filter((via) => !isOrphanCopper(via.netName)),
+    }))
+    setSelectedCopper(null)
+    invalidateChecks()
+  }, [applyBoardEdits, invalidateChecks, isOrphanCopper])
 
   const updateNetClass = useCallback((
     classId: string,
@@ -3700,6 +3743,25 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                   <div role="status" className="mx-1 flex items-start gap-2 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-xs text-warning">
                     <AlertTriangle className="mt-0.5 h-3 w-3 flex-shrink-0" />
                     Parts moved after routing — existing copper no longer matches every pad. Re-route before running DRC or exporting.
+                  </div>
+                ) : null}
+                {orphanCopper.traceCount + orphanCopper.viaCount > 0 ? (
+                  <div role="status" className="mx-1 flex items-start gap-2 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-xs text-warning">
+                    <AlertTriangle className="mt-0.5 h-3 w-3 flex-shrink-0" />
+                    <span className="flex-1">
+                      {orphanCopper.traceCount} track(s) and {orphanCopper.viaCount} via(s) name a net
+                      that no land on this board carries — their parts left, the copper stayed.
+                      DRC cannot judge copper that connects nothing.
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={ripUpOrphanCopper}
+                      aria-label="Rip up orphan copper"
+                      className="h-6 flex-shrink-0 px-2 text-[11px]"
+                    >
+                      Rip up
+                    </Button>
                   </div>
                 ) : null}
                 <div className="flex-1 min-h-0">

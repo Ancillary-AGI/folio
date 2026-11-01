@@ -305,6 +305,81 @@ describe('PCBDesignPanel', () => {
     expect(boardSvg.querySelector('[data-trace-net="GND"]')).not.toBeNull()
   })
 
+  it('names copper whose net lost every land on the board and rips it up as one undo', () => {
+    // The sheet lost the GHOST parts but their copper stayed on the board.
+    useProjectStore.setState({
+      pcbLayout: {
+        widthMm: 100,
+        heightMm: 80,
+        thicknessMm: 1.6,
+        layers: [{ id: 'top-cu', name: 'Top Copper', kind: 'copper', color: '#cc0000' }],
+        traces: [
+          { id: 'trace-live', net: 'GND', layerId: 'top-cu', widthMm: 0.2, points: [{ x: 10, y: 10 }, { x: 60, y: 45 }] },
+          { id: 'trace-ghost', net: 'GHOST', layerId: 'top-cu', widthMm: 0.2, points: [{ x: 5, y: 5 }, { x: 25, y: 5 }] },
+        ],
+        vias: [
+          { id: 'via-live', net: 'GND', x: 40, y: 40, padDiameterMm: 0.6, drillDiameterMm: 0.3 },
+          { id: 'via-ghost', net: 'GHOST', x: 30, y: 30, padDiameterMm: 0.6, drillDiameterMm: 0.3 },
+        ],
+        components: [],
+      },
+    })
+    render(
+      <PCBDesignPanel
+        onClose={vi.fn()}
+        components={[partAt('r1', 10, 10), partAt('r2', 60, 45)]}
+        wires={[
+          pinNet('GND', 'w1', [
+            { componentId: 'r1', pinId: '1' },
+            { componentId: 'r2', pinId: '1' },
+          ]),
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('Traces: 2 | Vias: 2')).toBeInTheDocument()
+    expect(screen.getByText(/1 track\(s\) and 1 via\(s\) name a net that no land on this board carries/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rip up orphan copper' }))
+    const boardSvg = document.querySelector('svg[aria-label^="PCB layout"]') as SVGSVGElement
+    expect(screen.getByText('Traces: 1 | Vias: 1')).toBeInTheDocument()
+    expect(boardSvg.querySelector('[data-trace-net="GHOST"]')).toBeNull()
+    expect(boardSvg.querySelector('[data-via-net="GHOST"]')).toBeNull()
+    expect(boardSvg.querySelector('[data-trace-net="GND"]')).not.toBeNull()
+    expect(boardSvg.querySelector('[data-via-net="GND"]')).not.toBeNull()
+    // Nothing is orphaned now, so the notice retires itself.
+    expect(screen.queryByText(/name a net that no land on this board carries/)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(screen.getByText('Traces: 2 | Vias: 2')).toBeInTheDocument()
+    expect(boardSvg.querySelector('[data-trace-net="GHOST"]')).not.toBeNull()
+    expect(screen.getByText(/1 track\(s\) and 1 via\(s\) name a net that no land on this board carries/)).toBeInTheDocument()
+  })
+
+  it('leaves a board that arrived without a sheet unjudged', () => {
+    // A demo layout or a reopened session carries copper but no schematic. The
+    // panel has no land model to compare it against, so it must not claim the
+    // copper connects nothing.
+    useProjectStore.setState({
+      pcbLayout: {
+        widthMm: 100,
+        heightMm: 80,
+        thicknessMm: 1.6,
+        layers: [{ id: 'top-cu', name: 'Top Copper', kind: 'copper', color: '#cc0000' }],
+        traces: [
+          { id: 'trace-ghost', net: 'GHOST', layerId: 'top-cu', widthMm: 0.2, points: [{ x: 5, y: 5 }, { x: 25, y: 5 }] },
+        ],
+        vias: [],
+        components: [],
+      },
+    })
+    render(<PCBDesignPanel onClose={vi.fn()} />)
+
+    expect(screen.getByText('Traces: 1 | Vias: 0')).toBeInTheDocument()
+    expect(screen.queryByText(/name a net that no land on this board carries/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Rip up orphan copper' })).not.toBeInTheDocument()
+  })
+
   it('recomputes the stackup when a dielectric is edited, and restores the template', () => {
     render(<PCBDesignPanel onClose={vi.fn()} />)
     openTab('Advanced')

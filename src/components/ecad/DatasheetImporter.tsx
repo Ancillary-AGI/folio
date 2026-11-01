@@ -16,7 +16,7 @@
  */
 
 import { useState, useRef, useMemo } from 'react'
-import { Upload, FileText, Link, Plus, CheckCircle, AlertCircle, Cpu, Zap } from 'lucide-react'
+import { Upload, FileText, Link, Plus, CheckCircle, AlertCircle, Cpu, Zap, X } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
@@ -219,7 +219,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
           <h2 className="text-sm font-semibold">Import Component from Datasheet</h2>
         </div>
         {onClose && (
-          <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close datasheet importer" className="text-muted-foreground hover:text-foreground">✕</Button>
+          <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close datasheet importer" className="text-muted-foreground hover:text-foreground"><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
         )}
       </div>
 

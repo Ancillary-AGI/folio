@@ -402,7 +402,7 @@ export function createUnavailableCloudTransport(reason: string): CloudAgentTrans
   }
 }
 
-/** Pick a cloud transport from environment configuration, or an honest stub. */
+/** Pick a cloud transport from environment configuration, or report honestly that none is configured. */
 export function cloudAgentTransportFromEnv(
   env: EnvBag = import.meta.env as unknown as EnvBag,
   fetchImpl?: typeof fetch,

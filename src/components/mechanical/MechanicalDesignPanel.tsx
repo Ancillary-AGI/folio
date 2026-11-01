@@ -1105,7 +1105,7 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
     <div className="flex h-full w-full flex-col overflow-hidden bg-background">
       <div className="flex h-full w-full flex-col overflow-hidden bg-card lg:flex-row">
         {/* 3D viewport */}
-        <div className="relative min-h-0 min-w-0 flex-1">
+        <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
           <ThreeCanvas
             components={viewComponents}
             view={view}

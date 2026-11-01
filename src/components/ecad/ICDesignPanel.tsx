@@ -16,7 +16,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { lazy, Suspense } from 'react'
-import { Cpu, Layers, Package, Download, Play, RefreshCw, ChevronRight, CheckCircle, AlertCircle, BarChart3 } from 'lucide-react'
+import { Cpu, Layers, Package, Download, Play, RefreshCw, ChevronRight, CheckCircle, AlertCircle, BarChart3, X } from 'lucide-react'
 import { Button } from '../ui/button'
 import { useDemoRequest } from '../workspace/useDemoRequest'
 import { synthesize, planFloorplan, generatePackageDescription, PACKAGE_TYPES, exportGDSII, type SynthesisResult, type FloorplanResult, type ChipPackage } from '../../lib/ic/icFlowAdapter'
@@ -521,7 +521,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
           <Cpu size={16} className="text-chart-4" />
           <h2 className="text-sm font-semibold">IC Design — SkyWater SKY130</h2>
         </div>
-        {onClose && <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close IC design panel" className="text-muted-foreground">✕</Button>}
+        {onClose && <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close IC design panel" className="text-muted-foreground"><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>}
       </div>
 
       {/* Flow tabs */}

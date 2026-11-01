@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Line } from '@react-three/drei';
 import * as THREE from 'three';
+import { X } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
@@ -9,7 +10,7 @@ import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Slider } from '../ui/slider';
 import { Badge } from '../ui/badge';
-import { advancedRobotics, Mechanism, Joint, Trajectory, KinematicsResult, DynamicsResult } from '../../lib/robotics/advancedRobotics';
+import { advancedRobotics, Mechanism, Joint, Trajectory, DynamicsResult } from '../../lib/robotics/advancedRobotics';
 import {
   describeMechanism,
   exportMechanismStep,
@@ -128,7 +129,6 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
   const [trajectory, setTrajectory] = useState<Trajectory | null>(null);
   const [plannedMove, setPlannedMove] = useState<{ start: number[]; target: number[] } | null>(null);
   const [showWorkspace, setShowWorkspace] = useState(false);
-  const [kinematicsResult, setKinematicsResult] = useState<KinematicsResult | null>(null);
   const [dynamicsResult, setDynamicsResult] = useState<DynamicsResult | null>(null);
   const [runMessage, setRunMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   /** Findings from the last refused STEP export; empty when the last export succeeded. */
@@ -211,6 +211,10 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
     loadMechanisms();
     setSelectedMechanism(mechanism);
     initializeJointAngles(mechanism);
+    // The planar arm sweeps the x-y plane only, and its ±90° elbow keeps a
+    // 0.156 m inner radius, so aim the target inside that annulus: a demo whose
+    // first IK press cannot solve is not a demo.
+    setTargetPosition({ x: 0.18, y: 0.11, z: 0 });
     const demo = buildDemoArm();
     setRunMessage({ kind: demo.export.ok ? 'ok' : 'error', text: demo.verdict });
   };
@@ -222,7 +226,6 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
 
     const joints = Array.from(selectedMechanism.joints.values());
     const result = advancedRobotics.forwardKinematics(joints, jointAngles);
-    setKinematicsResult(result);
 
     // Report the tool point (base + end-effector offset), not the last joint frame.
     const pose = advancedRobotics.endEffectorPose(selectedMechanism, jointAngles);
@@ -248,7 +251,8 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
 
     if (result.success) {
       setJointAngles(result.jointAngles);
-      // A new pose invalidates any move planned from the previous one.
+      // A new pose invalidates dynamics and any move planned from the previous one.
+      setDynamicsResult(null);
       setPlannedMove(null);
       setTrajectory(null);
       const joints = Array.from(selectedMechanism.joints.values());
@@ -257,7 +261,18 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
         text: `IK solved: ${result.jointAngles.map((angle, index) => formatJointValue(joints[index], angle)).join(', ')}`,
       });
     } else {
-      setRunMessage({ kind: 'error', text: result.error ?? 'Inverse kinematics failed.' });
+      // Say how far short the solver fell, not only that it failed: a target
+      // outside the workspace and one that merely needs more iterations are
+      // fixed differently, and only the distance tells them apart.
+      const reached = advancedRobotics.endEffectorPose(selectedMechanism, result.jointAngles);
+      setRunMessage({
+        kind: 'error',
+        text: reached
+          ? `${result.error ?? 'Inverse kinematics failed'} — the tool stops ${(
+              reached.position.distanceTo(target)
+            ).toFixed(3)} m short of (${target.x.toFixed(3)}, ${target.y.toFixed(3)}, ${target.z.toFixed(3)}).`
+          : result.error ?? 'Inverse kinematics failed.',
+      });
     }
   };
 
@@ -525,10 +540,16 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
     const newAngles = [...jointAngles];
     newAngles[jointIndex] = angle;
     setJointAngles(newAngles);
-    // Editing the pose invalidates a move planned from the previous one.
+    // Editing the pose invalidates dynamics and any move planned from the previous one.
+    setDynamicsResult(null);
     setPlannedMove(null);
     setTrajectory(null);
   };
+
+  const livePose = selectedMechanism
+    ? advancedRobotics.endEffectorPose(selectedMechanism, jointAngles)
+    : null;
+  const liveJoints = selectedMechanism ? Array.from(selectedMechanism.joints.values()) : [];
 
   return (
     <>
@@ -539,7 +560,7 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
           <h2 className="text-lg font-semibold">Advanced Robotics</h2>
           {onClose && (
             <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close robotics panel" title="Close robotics panel">
-              ✕
+              <X className="w-3.5 h-3.5" />
             </Button>
           )}
         </div>
@@ -733,7 +754,7 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
         </Card>
 
         {/* Results */}
-        {(runMessage || kinematicsResult?.success || dynamicsResult || trajectory) && (
+        {(runMessage || livePose || dynamicsResult || trajectory) && (
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm">Results</CardTitle>
@@ -744,29 +765,20 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
                   {runMessage.text}
                 </p>
               )}
-              {kinematicsResult?.success && kinematicsResult.positions.length > 0 && (
+              {livePose && (
                 <div className="space-y-1">
                   <div className="flex justify-between">
-                    <span>End effector</span>
+                    <span>Current pose</span>
                     <span className="font-mono">
-                      {(() => {
-                        const pose = selectedMechanism
-                          ? advancedRobotics.endEffectorPose(selectedMechanism, kinematicsResult.jointAngles)
-                          : null;
-                        const p = pose?.position ?? kinematicsResult.positions[kinematicsResult.positions.length - 1];
-                        return `(${p.x.toFixed(3)}, ${p.y.toFixed(3)}, ${p.z.toFixed(3)})`;
-                      })()}
+                      {`(${livePose.position.x.toFixed(3)}, ${livePose.position.y.toFixed(3)}, ${livePose.position.z.toFixed(3)})`}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Joints</span>
                     <span className="font-mono">
-                      {(() => {
-                        const joints = selectedMechanism ? Array.from(selectedMechanism.joints.values()) : [];
-                        return kinematicsResult.jointAngles
-                          .map((value, index) => formatJointValue(joints[index], value))
-                          .join(' ');
-                      })()}
+                      {jointAngles
+                        .map((value, index) => formatJointValue(liveJoints[index], value))
+                        .join(' ')}
                     </span>
                   </div>
                 </div>

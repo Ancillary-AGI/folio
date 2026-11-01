@@ -643,7 +643,7 @@ export default function ThreeCanvas({
   }
 
   return (
-    <div className={`relative h-full min-h-64 w-full overflow-hidden bg-canvas ${className}`}>
+    <div className={`relative h-full min-h-0 w-full overflow-hidden bg-canvas ${className}`}>
       <canvas ref={canvasRef} className="block h-full w-full" aria-label="Mechanical 3D viewport" />
       <input
         ref={fileInputRef}

@@ -19,7 +19,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react'
-import { Download, Search, Filter, Edit3, Save, X, AlertTriangle, Package } from 'lucide-react'
+import { Download, Search, Filter, Edit3, Save, X, AlertTriangle, Package, ArrowUp, ArrowDown } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Badge } from '../ui/badge'
@@ -314,7 +314,14 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
 
   const ColHeader: React.FC<{ label: string; sk: SortKey }> = ({ label, sk }) => (
     <th className="text-left p-2 text-xs font-medium text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap" onClick={() => handleSort(sk)}>
-      {label}{sortKey === sk ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortKey === sk && (
+          sortDir === 'asc'
+            ? <ArrowUp className="h-3 w-3" aria-hidden="true" />
+            : <ArrowDown className="h-3 w-3" aria-hidden="true" />
+        )}
+      </span>
     </th>
   )
 
