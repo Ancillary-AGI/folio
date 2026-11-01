@@ -235,7 +235,7 @@ export default function HelpCenter({
                     setQuery('')
                     searchRef.current?.focus()
                   }}
-                  className={`flex h-7 items-center gap-1.5 rounded-sm border px-2.5 text-[11px] font-medium transition-colors ${
+                  className={`flex h-7 shrink-0 grow basis-auto items-center justify-center gap-1.5 rounded-sm border px-2.5 text-[11px] font-medium transition-colors ${
                     active
                       ? 'border-primary bg-primary text-primary-foreground'
                       : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'

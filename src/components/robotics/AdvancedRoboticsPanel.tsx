@@ -706,16 +706,15 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
             </Button>
 
             <div className="space-y-2 rounded-md border border-border p-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs">Clearance obstacle</Label>
+              <label className="flex cursor-pointer items-center justify-between text-xs">
+                <span>Clearance obstacle</span>
                 <input
                   type="checkbox"
                   checked={clearanceEnabled}
                   onChange={(e) => setClearanceEnabled(e.target.checked)}
-                  aria-label="Enable clearance obstacle"
                   className="rounded"
                 />
-              </div>
+              </label>
               {clearanceEnabled && (
                 <div className="grid grid-cols-4 gap-1">
                   {(['x', 'y', 'z', 'size'] as const).map((key) => (

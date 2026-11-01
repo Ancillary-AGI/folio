@@ -424,7 +424,13 @@
   border reads as a double line; borderless controls keep the offset ring, where
   the gap is what keeps the indicator legible over filled chrome. High contrast
   turns the halo solid rather than off, and forced colours hands focus back to
-  the OS — so no appearance can lose the keyboard indicator.
+  the OS — so no appearance can lose the keyboard indicator. Target size is
+  floored the same way, centrally rather than panel by panel: buttons, tabs,
+  links, fields and `<summary>` cannot render under 24px on either axis (WCAG
+  2.5.8), native check boxes stay native but grow to a 20px box inside a 24px
+  label row, and the editor tool rail scrolls instead of shrinking its 36px
+  buttons — a squeezed rail used to print the shortcut keycap across the icon it
+  labelled.
 - **Units & behavior**: metric/imperial, animation toggle, autosave interval,
   onboarding replay
 - **Guided tour**: thirteen-step first-run walkthrough with an animated spotlight —
@@ -439,7 +445,9 @@
   counting the steps actually opened.
   The final step hands off to the limits register instead of a completion screen.
 - **Accessibility**: keyboard-operable toolbars; every icon-only button must have
-  an accessible name, enforced by `npm run a11y:buttons` in CI
+  an accessible name, enforced by `npm run a11y:buttons` in CI, and `npm run
+  a11y:contract` additionally pins the 24px target floor and the scrolling tool
+  rail, because both were measured defects that a type checker cannot see
 - **Language selector**: preference stored; English strings only today [partial]
 
 ## Help, Guides & Tutorials [done]

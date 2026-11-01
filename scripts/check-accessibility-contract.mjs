@@ -2,9 +2,9 @@
  * Accessibility contract guard: fails (exit 1) when the shell stops providing
  * the reach features the help centre claims for it.
  *
- * These are the invariants that a screen reader or a keyboard depends on and
- * that a type checker cannot see, because they live in a stylesheet, in one
- * anchor tag, or in the choice of element. Each check is a fact about the
+ * These are the invariants that a screen reader, a keyboard or a pointer depends
+ * on and that a type checker cannot see, because they live in a stylesheet, in
+ * one anchor tag, or in the choice of element. Each check is a fact about the
  * source, not a rendering claim.
  *
  * Run via: npm run a11y:contract  (also enforced in `npm run verify`)
@@ -77,6 +77,25 @@ check(bareSwitches.length === 0, `role="switch" without aria-checked reads as a 
 
 // 5. A document with no language is read in the wrong one.
 check(/<html[^>]*\blang=/.test(read('index.html')), 'index.html must declare a language on <html>.')
+
+// 6. Pointer targets are big enough to hit, and the tool rail scrolls instead
+//    of squashing. Both were measured defects (21px chart buttons; a rail that
+//    rendered every 32px tool at 16px on a short window), so they are pinned.
+const targetFloor = css.match(/button,\s*\[role='button'\][^{]*\{[^}]*\}/)
+check(
+  targetFloor && /min-height:\s*1\.5rem/.test(targetFloor[0]) && /min-width:\s*1\.5rem/.test(targetFloor[0]),
+  'src/index.css must floor every pointer target at 24px (WCAG 2.5.8 target size minimum).'
+)
+const railBox = css.match(/\.cad-rail\s*\{[^}]*\}/)
+check(
+  railBox && /overflow-y-auto/.test(railBox[0]),
+  'The tool rail must scroll when it is shorter than its buttons, never compress them.'
+)
+const railButton = css.match(/\.cad-rail-btn\s*\{[^}]*\}/)
+check(
+  railButton && /flex-shrink-0/.test(railButton[0]),
+  '.cad-rail-btn must refuse to shrink; a squeezed tool button puts its keycap across the icon.'
+)
 
 if (failures.length > 0) {
   console.error('Accessibility contract violated:')

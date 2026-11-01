@@ -193,6 +193,21 @@
   input[type='checkbox'],
   input[type='radio'] {
     accent-color: hsl(var(--primary));
+    /*
+     * A 13px check box is a paint, not a target. Growing the box to 20px and the
+     * label row that wraps it to 24px gives WCAG 2.5.8 without replacing the
+     * native control, which is the one thing a custom checkbox reliably gets
+     * wrong: indeterminate state, forced colours, and assistive-tech semantics.
+     */
+    inline-size: 1.25rem;
+    block-size: 1.25rem;
+    flex-shrink: 0;
+  }
+
+  label:has(> input[type='checkbox']),
+  label:has(> input[type='radio']) {
+    min-height: 1.5rem;
+    align-items: center;
   }
 
   ::selection {
@@ -206,6 +221,26 @@
   textarea,
   button {
     color: inherit;
+  }
+
+  /*
+   * WCAG 2.5.8 (target size minimum): a pointer target is at least 24×24 CSS px.
+   * Dense CAD chrome is full of `py-0.5 text-[11px]` controls — Zoom in, Reset
+   * view, a stackup field — and each measured 21px tall until this floor existed.
+   * It is set here rather than panel by panel so a control cannot ship too small
+   * just by forgetting a utility; a panel's own padding and height still apply
+   * underneath the floor. Checkboxes and radios are excluded because stretching
+   * the paint is not the same as widening the hit area.
+   */
+  button,
+  [role='button'],
+  [role='tab'],
+  summary,
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    min-width: 1.5rem;
+    min-height: 1.5rem;
   }
 
   ::placeholder {
@@ -472,14 +507,28 @@
     }
   }
 
+  /*
+   * The rail is a shelf of fixed-size targets. Without `overflow-y` a short
+   * window squeezed all fifteen buttons from 32px to 16px to make them fit —
+   * flex-shrink is on by default — and the shortcut keycap, which is pinned to
+   * the corner of the button, ended up printed across the icon. So the rail
+   * scrolls and its buttons never yield. The scrollbar stays hidden because a
+   * visible one would narrow the content box and shift every icon off the
+   * rail's centre line; wheel and trackpad still scroll.
+   */
   .cad-rail {
-    @apply flex w-11 flex-shrink-0 flex-col items-center gap-1 border-r border-border bg-surface py-2 text-surface-foreground;
+    @apply flex w-12 flex-shrink-0 flex-col items-center gap-1 overflow-y-auto overscroll-contain border-r border-border bg-surface py-2 text-surface-foreground;
+    scrollbar-width: none;
     /* Casts onto the sheet, so the rail reads as a shelf above it. */
     box-shadow: 2px 0 10px -6px hsl(var(--shadow-color) / 0.65);
   }
 
+  .cad-rail::-webkit-scrollbar {
+    display: none;
+  }
+
   .cad-rail-btn {
-    @apply relative flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,box-shadow] duration-150 hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+    @apply relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,box-shadow] duration-150 hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
   }
 
   .cad-rail-btn-active {
@@ -487,9 +536,13 @@
     box-shadow: 0 3px 12px -4px hsl(var(--primary) / var(--control-glow));
   }
 
-  /* Mono shortcut badge pinned in a rail button's corner (V, D, G, F…). */
+  /*
+   * Mono shortcut badge (V, D, G, F…). It is parked outside the icon's box, not
+   * across its corner: a 16px icon centred in a 36px button owns x∈[10,26], so
+   * the keycap starts clear of it.
+   */
   .cad-rail-key {
-    @apply pointer-events-none absolute bottom-0 right-0.5 font-mono text-[8px] font-semibold leading-none text-muted-foreground;
+    @apply pointer-events-none absolute bottom-1 right-1.5 font-mono text-[8px] font-semibold leading-none text-muted-foreground;
   }
 
   .cad-rail-btn-active .cad-rail-key {
