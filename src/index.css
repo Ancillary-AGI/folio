@@ -878,6 +878,90 @@
   }
 }
 
+/*
+ * ── Code editor ──────────────────────────────────────────────────────────
+ * The surface is a real <textarea> — so caret, selection, IME, paste and the
+ * `getByLabelText`/`fireEvent.change` contracts of every existing panel keep
+ * working — with a painted backdrop underneath it. The textarea's own glyphs
+ * are transparent and the backdrop carries the colour, which means both must
+ * share `.code-metrics` down to the last pixel: that pair is the whole
+ * alignment story. Colours come from the `--syntax-*` tokens declared in
+ * `src/lib/theme/tokens.ts` and contracted in `theme.test.ts`.
+ */
+@layer components {
+  .code-metrics {
+    font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+    font-size: 12px;
+    line-height: 20px;
+    letter-spacing: 0;
+    tab-size: 4;
+    white-space: pre;
+    word-break: normal;
+    overflow-wrap: normal;
+  }
+
+  .code-input {
+    color: transparent;
+    caret-color: hsl(var(--foreground));
+    background: transparent;
+    resize: none;
+  }
+
+  .code-input::selection {
+    background: hsl(var(--selection) / 0.32);
+  }
+
+  /*
+   * One edge, on the frame: the textarea sits inside a panel that already
+   * draws a border, and the utilities-layer rule above would ring the text box
+   * itself a second time. Same trick as `.cad-search` — the frame takes the
+   * edge through `:focus-within`, the inner control paints nothing.
+   */
+  .code-frame:focus-within {
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .code-input:focus-visible {
+    outline: none;
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  .code-backdrop {
+    pointer-events: none;
+  }
+
+  /* The line the caret is on, painted under the text. */
+  .code-active-line {
+    background: hsl(var(--accent) / 0.45);
+  }
+
+  /* A ghost completion: offered, not yet accepted. */
+  .code-ghost {
+    color: hsl(var(--muted-foreground));
+    opacity: 0.7;
+  }
+
+  .code-match {
+    background: hsl(var(--selection) / 0.28);
+    border-radius: 2px;
+  }
+
+  .code-match-active {
+    background: hsl(var(--warning) / 0.5);
+    box-shadow: 0 0 0 1px hsl(var(--warning));
+  }
+
+  /* Both halves of the bracket pair the caret is inside. */
+  .code-bracket {
+    background: hsl(var(--accent));
+    border-radius: 2px;
+    font-weight: 600;
+  }
+}
+
+
 @layer utilities {
   /*
    * One-edge focus contract for controls that already draw a border — and it

@@ -378,6 +378,24 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
   },
 ] as const
 
+/**
+ * Keys a surface owns while it has focus, so the workbench dispatcher never
+ * sees them and they cannot be rebound. Listed here to keep the shortcut
+ * sheet complete: `src/components/editor/CodeEditor.tsx` implements each one.
+ */
+export const EDITOR_KEYS = [
+  { keys: ['Ctrl / ⌘', 'F'], action: 'Open find, with replace', where: 'Code editor' },
+  { keys: ['Ctrl / ⌘', '/'], action: 'Comment or uncomment the line', where: 'Code editor' },
+  { keys: ['Tab'], action: 'Accept the highlighted completion, or indent', where: 'Code editor' },
+  { keys: ['Shift', 'Tab'], action: 'Outdent the line or the selected block', where: 'Code editor' },
+  { keys: ['Enter'], action: 'Accept the completion, or open a new indented line', where: 'Code editor' },
+  { keys: ['Esc'], action: 'Close completions, then the find bar', where: 'Code editor' },
+  { keys: ['Home'], action: 'First character of the line, then column one', where: 'Code editor' },
+  { keys: ['↑', '↓'], action: 'Walk completions, then walk find matches', where: 'Code editor' },
+  { keys: ['(', '[', '{'], action: 'Insert the pair, or wrap the selection in it', where: 'Code editor' },
+  { keys: ['"', "'"], action: 'Pair a quote, or step over one already typed', where: 'Code editor' },
+] as const
+
 export const SHORTCUTS_BY_ID: ReadonlyMap<string, ShortcutDefinition> = new Map(
   SHORTCUTS.map((definition) => [definition.id, definition]),
 )

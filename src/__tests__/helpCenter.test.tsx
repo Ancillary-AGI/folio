@@ -62,6 +62,8 @@ describe('help center', () => {
     fireEvent.click(screen.getByRole('tab', { name: /shortcuts/i }))
     expect(screen.getAllByText('Open help and tutorials')).toHaveLength(2)
     expect(screen.getByText('Close the open dialog or guide')).toBeInTheDocument()
+    expect(screen.getByText('Inside a code surface')).toBeInTheDocument()
+    expect(screen.getByText('Accept the highlighted completion, or indent')).toBeInTheDocument()
   })
 
   it('states what the shell does for access, and what it does not', () => {

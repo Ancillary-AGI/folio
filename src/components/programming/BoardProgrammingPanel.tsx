@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { describeError } from '../../lib/utils';
+import { CodeEditor } from '../editor/CodeEditor';
 import { 
   Play, 
   Upload, 
@@ -479,34 +480,13 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
           </div>
 
           <div className="flex min-h-0 flex-1 gap-0 p-4">
-            <div
-              aria-hidden="true"
-              className="cad-code-gutter select-none overflow-hidden rounded-l-md border border-r-0 border-input bg-muted/40 px-2 py-4 text-right font-mono text-xs leading-6 text-muted-foreground"
-            >
-              {code.split('\n').map((_, i) => (
-                <div key={i}>{i + 1}</div>
-              ))}
-            </div>
-            <textarea
+            <CodeEditor
               value={code}
-              onChange={(e) => handleCodeChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Tab') {
-                  e.preventDefault();
-                  const el = e.currentTarget;
-                  const start = el.selectionStart;
-                  const end = el.selectionEnd;
-                  handleCodeChange(code.slice(0, start) + '  ' + code.slice(end));
-                  requestAnimationFrame(() => {
-                    el.selectionStart = el.selectionEnd = start + 2;
-                  });
-                }
-              }}
-              wrap="off"
-              className="cad-code-area max-h-72 min-h-56 w-full flex-1 resize-y overflow-auto sm:min-h-72 rounded-r-md border border-input bg-background p-4 font-mono text-sm leading-6 text-foreground"
-              placeholder="Enter your Arduino code here..."
-              spellCheck={false}
-              aria-label="Firmware source code"
+              onChange={handleCodeChange}
+              language="c"
+              ariaLabel="Firmware source code"
+              placeholder="void setup() / void loop()"
+              className="min-h-56 flex-1 sm:min-h-72"
             />
           </div>
 

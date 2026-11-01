@@ -17,6 +17,7 @@ import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { Input } from '../ui/input'
+import { CodeEditor } from '../editor/CodeEditor'
 import { describeError } from '../../lib/utils'
 import { companionBridge, type FlashProgress } from '../../lib/programming/companionBridge'
 import { flashPlan, parseMbr, type FlashChunk, type MbrPartition } from '../../lib/programming/imageFlasher'
@@ -491,13 +492,14 @@ export default function PiImagingPanel({ onClose }: PiImagingPanelProps) {
 
               <label className="block">
                 <span className="text-muted-foreground">Serial console output</span>
-                <textarea
+                <CodeEditor
                   value={consoleOutput}
-                  onChange={(event) => setConsoleOutput(event.target.value)}
-                  aria-label="Serial console output"
-                  className="mt-1 h-28 w-full rounded-md border border-input bg-background p-2 font-mono text-xs"
+                  onChange={setConsoleOutput}
+                  ariaLabel="Serial console output"
+                  language="text"
                   placeholder="Paste the UART log captured after power-on"
-                  spellCheck={false}
+                  className="mt-1 h-28"
+                  status={false}
                 />
               </label>
 

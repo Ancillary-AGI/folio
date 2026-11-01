@@ -16,6 +16,7 @@ import { parseVerilogModule } from '../../lib/fpga/verilogSubset'
 import { parseVhdl } from '../../lib/fpga/vhdlSubset'
 import { simulateDigital, valueAt, type DigitalNetlist, type LogicValue } from '../../lib/simulation/digitalLogic'
 import { synthesize } from '../../lib/ic/icFlowAdapter'
+import { CodeEditor } from '../editor/CodeEditor'
 import { fpgaDesignFlow, FPGA_DEVICES } from '../../lib/fpga/fpgaDesignFlow'
 import { useDemoRequest } from '../workspace/useDemoRequest'
 import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign'
@@ -131,7 +132,6 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
   const [activeTarget, setActiveTarget] = useState('simulate')
   const [driveInputs, setDriveInputs] = useState(saved?.driveInputs !== false)
   const [loading, setLoading] = useState(false)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   usePublishDomainDesign('hdl', { language, code, driveInputs }, (next) => {
@@ -260,16 +260,6 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
     reader.readAsText(file)
   }
 
-  const handleTabKey = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== 'Tab') return
-    event.preventDefault()
-    const element = event.currentTarget
-    const start = element.selectionStart
-    const end = element.selectionEnd
-    updateCode(code.slice(0, start) + '  ' + code.slice(end))
-    requestAnimationFrame(() => { element.selectionStart = element.selectionEnd = start + 2 })
-  }
-
   return (
     <div className="flex flex-col h-full bg-background text-foreground">
       {/* Toolbar */}
@@ -346,23 +336,13 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
       {/* Main split: code editor | output */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
         <div className="relative min-h-0 flex-1 overflow-hidden">
-          <div className="absolute left-0 top-0 bottom-0 w-8 bg-canvas border-r border-border overflow-hidden pointer-events-none">
-            <div className="py-2 text-right pr-1">
-              {code.split('\n').map((_, index) => (
-                <div key={index} className="text-muted-foreground text-xs leading-5">{index + 1}</div>
-              ))}
-            </div>
-          </div>
-          <textarea
-            ref={textareaRef}
-            className="absolute inset-0 pl-10 pr-2 py-2 bg-background text-foreground text-xs font-mono leading-5 resize-none outline-none w-full h-full"
+          <CodeEditor
             value={code}
-            onChange={event => updateCode(event.target.value)}
-            onKeyDown={handleTabKey}
-            spellCheck={false}
-            autoComplete="off"
-            autoCorrect="off"
-            aria-label="HDL source"
+            onChange={updateCode}
+            language={language}
+            ariaLabel="HDL source"
+            placeholder="module half_adder (…)"
+            className="h-full rounded-none border-0"
           />
         </div>
 

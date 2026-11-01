@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { RotateCcw, Undo2 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { useShortcutStore } from '../../stores/useShortcutStore'
+import { EDITOR_KEYS } from '../../lib/keymap/shortcuts'
 import {
   SHORTCUTS,
   allConflicts,
@@ -42,6 +43,10 @@ export default function ShortcutEditor({ query, platform }: ShortcutEditorProps)
 
   const terms = useMemo(() => query.toLowerCase().split(/\s+/).filter(Boolean), [query])
   const conflicts = useMemo(() => allConflicts(overrides), [overrides])
+  const editorRows = useMemo(
+    () => EDITOR_KEYS.filter((row) => matchesTerms(terms, `${row.action} ${row.where} ${row.keys.join(' ')}`)),
+    [terms],
+  )
 
   const rows = useMemo(
     () =>
@@ -171,6 +176,29 @@ export default function ShortcutEditor({ query, platform }: ShortcutEditorProps)
           })}
         </tbody>
       </table>
+      <section className="space-y-2">
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+          Inside a code surface
+        </h3>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          The editor owns these while a code field has focus, so they are listed
+          but not rebindable.
+        </p>
+        <ul className="divide-y divide-border rounded-md border border-border">
+          {editorRows.map((row) => (
+            <li key={row.action} className="flex flex-wrap items-center gap-2 px-3 py-1.5 text-[11px]">
+              <span className="flex items-center gap-1">
+                {row.keys.map((key) => (
+                  <kbd key={key} className="cad-kbd">{key}</kbd>
+                ))}
+              </span>
+              <span className="text-foreground">{row.action}</span>
+              <span className="ml-auto text-muted-foreground">{row.where}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
       {rows.length === 0 && (
         <p className="py-8 text-center text-sm text-muted-foreground">No shortcut matches “{query}”.</p>
       )}

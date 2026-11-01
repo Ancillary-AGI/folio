@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, type ChangeEvent } from 'react'
 import { Play, Download, Zap, BarChart3, X, AlertCircle, Info } from 'lucide-react'
 import { Button } from '../ui/button'
+import { CodeEditor } from '../editor/CodeEditor'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { RangeControl } from '../ui/range-control'
 import TraceChart, { type TraceRow, type TraceSeries } from '../charts/TraceChart'
@@ -1221,13 +1222,14 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
             A transistor or diode uses the card named by its Model/Part/Type property; a value typed on
             the symbol still wins over the card. Unsupported parameters are reported, never guessed.
           </p>
-          <textarea
-            aria-label="SPICE model cards"
+          <CodeEditor
+            ariaLabel="SPICE model cards"
             value={modelDeck}
-            onChange={(event) => setModelDeck(event.target.value)}
-            spellCheck={false}
+            onChange={setModelDeck}
+            language="spice"
             placeholder={'.model 2N3904 NPN (IS=1E-14 BF=300 VAF=100)'}
-            className="h-24 w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-xs"
+            className="h-32"
+            status={false}
           />
           {modelLibrary ? (
             <div className="mt-2 space-y-1 text-xs leading-relaxed">
@@ -1363,16 +1365,17 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
             .include/.lib files and F/H sources are named in the errors rather than silently
             approximated.
           </p>
-          <textarea
-            aria-label="SPICE deck"
+          <CodeEditor
+            ariaLabel="SPICE deck"
             value={spiceDeckText}
-            onChange={(event) => {
-              setSpiceDeckText(event.target.value)
+            onChange={(value) => {
+              setSpiceDeckText(value)
               setDeckStatus(null)
               setDeckError(null)
             }}
             placeholder={'* divider\nV1 in 0 10\nR1 in out 1k\nR2 out 0 1k\n.op\n.end'}
-            className="mb-2 h-28 w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-xs"
+            language="spice"
+            className="mb-2 h-40"
           />
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <label htmlFor="spice-deck-file" className="text-xs text-muted-foreground">
@@ -1431,12 +1434,14 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
         {/* Bench correlation (Giant 4): paste SIGNAL,x,value lines, verdict vs the tolerance envelope. */}
         <div className="rounded-md border border-border bg-muted/50 p-3">
           <h4 className="mb-1 text-xs font-medium text-card-foreground">Bench correlation</h4>
-          <textarea
-            aria-label="Bench samples (SIGNAL,x,value per line)"
+          <CodeEditor
+            ariaLabel="Bench samples (SIGNAL,x,value per line)"
             value={benchInput}
-            onChange={(event) => setBenchInput(event.target.value)}
+            onChange={setBenchInput}
             placeholder={'V(OUT),0,2.5'}
-            className="mb-2 h-16 w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-xs"
+            language="text"
+            className="mb-2 h-24"
+            status={false}
           />
           <Button onClick={handleCorrelateBench} variant="outline" size="sm">
             Correlate bench samples
@@ -1453,12 +1458,12 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
             <span className="font-mono">FF id D|T|JK|SR clock=n q=n qbar=n [D=n|T=n] [delay=d]</span>,{' '}
             <span className="font-mono">CLOCK id out=n period=p</span>, <span className="font-mono">SET n 0|1|X|Z</span>, <span className="font-mono">RUN until=t</span>.
           </p>
-          <textarea
-            aria-label="Digital netlist"
+          <CodeEditor
+            ariaLabel="Digital netlist"
             value={digitalDeck}
-            onChange={(event) => setDigitalDeck(event.target.value)}
-            spellCheck={false}
-            className="mb-2 h-28 w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-xs"
+            onChange={setDigitalDeck}
+            language="netlist"
+            className="mb-2 h-32"
           />
           <Button onClick={handleRunDigital} variant="outline" size="sm">
             Run digital timing
@@ -1490,12 +1495,13 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
               <span className="font-mono">digitalNet=analogNet</span>, or threshold an analog net back
               into logic with <span className="font-mono">analogNet&gt;digitalNet</span>. One coupling per line.
             </p>
-            <textarea
-              aria-label="Mixed-signal couplings"
+            <CodeEditor
+              ariaLabel="Mixed-signal couplings"
               value={mixedCoupling}
-              onChange={(event) => setMixedCoupling(event.target.value)}
-              spellCheck={false}
-              className="mb-2 h-16 w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-xs"
+              onChange={setMixedCoupling}
+              language="text"
+              className="mb-2 h-24"
+              status={false}
             />
             <div className="flex flex-wrap items-end gap-2">
               <label className="text-xs text-muted-foreground">

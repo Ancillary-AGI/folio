@@ -18,6 +18,7 @@
 import { useState, useRef, useMemo } from 'react'
 import { Upload, FileText, Link, Plus, CheckCircle, AlertCircle, Cpu, Zap, X } from 'lucide-react'
 import { Button } from '../ui/button'
+import { CodeEditor } from '../editor/CodeEditor'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import {
@@ -260,11 +261,14 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
 
             <div>
               <Label className="text-xs text-muted-foreground mb-1 block">Datasheet text</Label>
-              <textarea
-                className="w-full h-48 bg-card text-foreground text-xs font-mono p-2 rounded border border-border resize-none"
-                placeholder="Paste datasheet text here — pinout tables, electrical specs, package info..."
+              <CodeEditor
+                ariaLabel="Datasheet text"
                 value={rawText}
-                onChange={e => setRawText(e.target.value)}
+                onChange={setRawText}
+                language="text"
+                placeholder="Paste datasheet text here — pinout tables, electrical specs, package info…"
+                className="h-48"
+                status={false}
               />
             </div>
 

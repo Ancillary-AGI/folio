@@ -3,6 +3,7 @@ import { FPGA_DEVICES, fpgaDesignFlow } from '../../lib/fpga/fpgaDesignFlow';
 import { buildDemoHdl, DEMO_VERILOG, DEMO_VHDL } from '../../lib/demo/demoHdl';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { CodeEditor } from '../editor/CodeEditor';
 import { Badge } from '../ui/badge';
 import { useDemoRequest } from '../workspace/useDemoRequest';
 import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign';
@@ -86,7 +87,14 @@ export default function FPGADesignPanel() {
               ))}
             </select>
             <label htmlFor="fpga-source" className="text-xs font-medium text-muted-foreground">HDL source</label>
-            <textarea id="fpga-source" className="w-full h-56 font-mono text-xs border rounded-md p-2 bg-background" value={source} onChange={(e) => setSource(e.target.value)} />
+            <CodeEditor
+              id="fpga-source"
+              value={source}
+              onChange={setSource}
+              language={language}
+              ariaLabel="HDL source"
+              className="h-56"
+            />
             <div className="grid grid-cols-2 gap-2">
               <Button variant="outline" onClick={() => loadDemo('verilog')}>Load Verilog demo</Button>
               <Button variant="outline" onClick={() => loadDemo('vhdl')}>Load VHDL demo</Button>

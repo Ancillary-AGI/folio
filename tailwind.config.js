@@ -99,6 +99,22 @@ export default {
          * so panels resolve these from the active theme at render time rather
          * than relying on `var()` inside a presentation attribute.
          */
+        /*
+         * Syntax roles. `src/components/editor/CodeEditor.tsx` colours a deck or
+         * a module with these, and `SYNTAX_TOKEN_NAMES` in tokens.ts contracts
+         * every one of them against both code surfaces.
+         */
+        syntax: {
+          keyword: "hsl(var(--syntax-keyword))",
+          type: "hsl(var(--syntax-type))",
+          string: "hsl(var(--syntax-string))",
+          number: "hsl(var(--syntax-number))",
+          comment: "hsl(var(--syntax-comment))",
+          operator: "hsl(var(--syntax-operator))",
+          preproc: "hsl(var(--syntax-preproc))",
+          builtin: "hsl(var(--syntax-builtin))",
+        },
+
         chart: {
           1: "hsl(var(--chart-1))",
           2: "hsl(var(--chart-2))",

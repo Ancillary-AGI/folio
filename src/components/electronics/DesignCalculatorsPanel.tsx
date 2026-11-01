@@ -12,6 +12,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { Input } from '../ui/input'
 import { Badge } from '../ui/badge'
+import { CodeEditor } from '../editor/CodeEditor'
 import { describeError } from '../../lib/utils'
 import {
   CHIP_PACKAGES,
@@ -731,13 +732,14 @@ export default function DesignCalculatorsPanel() {
           </SelectField>
           <label className="block text-xs">
             <span className="text-muted-foreground">Measured oven trace (time s, temperature °C — one pair per line)</span>
-            <textarea
+            <CodeEditor
               value={reflowText}
-              onChange={(event) => setReflowText(event.target.value)}
-              aria-label="Measured reflow profile samples"
-              className="mt-1 h-28 w-full rounded-md border border-input bg-background p-2 font-mono text-xs"
-              spellCheck={false}
+              onChange={setReflowText}
+              ariaLabel="Measured reflow profile samples"
+              language="text"
               placeholder={'Paste the trace your oven or profiler logged, e.g.\n0,25\n30,100\n…'}
+              className="mt-1 h-28"
+              status={false}
             />
           </label>
           <div className="space-y-1">

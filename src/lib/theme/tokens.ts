@@ -117,6 +117,18 @@ const light: ThemeTokens = {
   '--chart-4': '275 62% 44%',
   '--chart-5': '196 90% 30%',
   '--chart-6': '340 74% 40%',
+
+  /* Syntax roles for the code editor (src/components/editor/CodeEditor.tsx).
+     One hue per thing a reader distinguishes while scanning a deck or a
+     module; the contrast contract proves each against both code surfaces. */
+  '--syntax-keyword': '266 70% 38%',
+  '--syntax-type': '199 90% 28%',
+  '--syntax-string': '152 72% 27%',
+  '--syntax-number': '32 88% 32%',
+  '--syntax-comment': '215 20% 38%',
+  '--syntax-operator': '215 20% 30%',
+  '--syntax-preproc': '340 74% 34%',
+  '--syntax-builtin': '196 90% 30%',
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -197,6 +209,18 @@ const dark: ThemeTokens = {
   '--chart-4': '271 88% 78%',
   '--chart-5': '190 90% 68%',
   '--chart-6': '338 86% 74%',
+
+  /* Syntax roles for the code editor (src/components/editor/CodeEditor.tsx).
+     One hue per thing a reader distinguishes while scanning a deck or a
+     module; the contrast contract proves each against both code surfaces. */
+  '--syntax-keyword': '271 88% 78%',
+  '--syntax-type': '190 90% 70%',
+  '--syntax-string': '158 70% 62%',
+  '--syntax-number': '35 96% 66%',
+  '--syntax-comment': '215 24% 74%',
+  '--syntax-operator': '214 32% 74%',
+  '--syntax-preproc': '338 86% 74%',
+  '--syntax-builtin': '213 94% 74%',
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -240,6 +264,18 @@ const professional: ThemeTokens = {
   '--chart-4': '267 77% 76%',
   '--chart-5': '190 90% 68%',
   '--chart-6': '338 86% 74%',
+
+  /* Syntax roles for the code editor (src/components/editor/CodeEditor.tsx).
+     One hue per thing a reader distinguishes while scanning a deck or a
+     module; the contrast contract proves each against both code surfaces. */
+  '--syntax-keyword': '267 77% 76%',
+  '--syntax-type': '186 82% 66%',
+  '--syntax-string': '154 62% 60%',
+  '--syntax-number': '35 96% 66%',
+  '--syntax-comment': '202 20% 76%',
+  '--syntax-operator': '197 24% 77%',
+  '--syntax-preproc': '338 86% 74%',
+  '--syntax-builtin': '190 90% 68%',
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -312,6 +348,18 @@ const highContrast: ThemeTokens = {
   '--chart-4': '275 100% 82%',
   '--chart-5': '190 100% 72%',
   '--chart-6': '330 100% 78%',
+
+  /* Syntax roles for the code editor (src/components/editor/CodeEditor.tsx).
+     One hue per thing a reader distinguishes while scanning a deck or a
+     module; the contrast contract proves each against both code surfaces. */
+  '--syntax-keyword': '275 100% 82%',
+  '--syntax-type': '190 100% 72%',
+  '--syntax-string': '140 90% 70%',
+  '--syntax-number': '45 100% 68%',
+  '--syntax-comment': '0 0% 93%',
+  '--syntax-operator': '0 0% 100%',
+  '--syntax-preproc': '330 100% 78%',
+  '--syntax-builtin': '180 100% 76%',
 }
 
 export const THEMES: Readonly<Record<ThemeId, ThemeTokens>> = {
@@ -351,6 +399,18 @@ export const CHART_TOKEN_NAMES: readonly string[] = Object.freeze([
   '--chart-4',
   '--chart-5',
   '--chart-6',
+])
+
+/** Syntax role token names, in the order the editor and tests read them. */
+export const SYNTAX_TOKEN_NAMES: readonly string[] = Object.freeze([
+  '--syntax-keyword',
+  '--syntax-type',
+  '--syntax-string',
+  '--syntax-number',
+  '--syntax-comment',
+  '--syntax-operator',
+  '--syntax-preproc',
+  '--syntax-builtin',
 ])
 
 /**
@@ -543,6 +603,20 @@ export const CONTRAST_CONTRACT: readonly ContrastRequirement[] = [
     background: '--canvas',
     min: UI,
     rationale: `${token} trace on a plot`,
+  })),
+  // Code surfaces paint on both the shell background and the sheet, so every
+  // syntax role is contracted against each.
+  ...SYNTAX_TOKEN_NAMES.map((token) => ({
+    foreground: token,
+    background: '--background',
+    min: BODY,
+    rationale: `${token} code text on the shell`,
+  })),
+  ...SYNTAX_TOKEN_NAMES.map((token) => ({
+    foreground: token,
+    background: '--canvas',
+    min: BODY,
+    rationale: `${token} code text on the sheet`,
   })),
 ]
 
