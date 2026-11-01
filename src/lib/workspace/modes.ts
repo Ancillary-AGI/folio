@@ -67,3 +67,10 @@ export const WORKSPACE_MODE_META: Readonly<Record<WorkspaceMode, WorkspaceModeMe
 export function groupForMode(mode: WorkspaceMode): WorkspaceModeMeta['group'] {
   return WORKSPACE_MODE_META[mode].group
 }
+
+/** How many workspaces each family actually ships — derived, never hand-typed. */
+export const MODE_COUNT_BY_GROUP: Readonly<Record<WorkspaceGroupId, number>> =
+  WORKSPACE_GROUPS.reduce(
+    (acc, group) => ({ ...acc, [group.id]: MODES.filter((mode) => mode.group === group.id).length }),
+    {} as Record<WorkspaceGroupId, number>,
+  )

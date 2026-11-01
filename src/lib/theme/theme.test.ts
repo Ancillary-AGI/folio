@@ -140,6 +140,34 @@ describe('shell geometry', () => {
     // Focus indicators are not decoration and stay untouched by either alpha.
     expect(css).toMatch(/:focus-visible\s*\{[^}]*ring-ring/)
   })
+
+  /*
+   * A control that already draws a border must not get a second ring painted
+   * outside it. `ring-offset-*` is exactly that: a seam of page background
+   * between the element's own edge and the focus ring, which reads as a double
+   * border. It recurs because every stock field primitive ships with one, so
+   * this pins both halves — the contract in the base layer, and the absence of
+   * the override in the primitives that used to carry it.
+   */
+  it('gives a bordered control one focus edge instead of two', () => {
+    const singleEdge = css.match(/input:focus-visible,[^}]*\}/)
+    expect(singleEdge, 'the base layer must carry the one-edge focus contract').not.toBeNull()
+    expect(singleEdge![0]).toContain('var(--focus-halo)')
+    expect(singleEdge![0]).toContain('border-color: hsl(var(--ring))')
+    expect(singleEdge![0]).not.toMatch(/ring-offset/)
+
+    for (const file of [
+      'src/components/ui/input.tsx',
+      'src/components/ui/select.tsx',
+      'src/components/AuthForm.tsx',
+      'src/components/ProjectManager.tsx',
+    ]) {
+      const source = readFileSync(resolve(process.cwd(), file), 'utf8')
+      expect(source, `${file} must not paint an offset ring outside its own border`).not.toMatch(
+        /ring-offset-\d/,
+      )
+    }
+  })
 })
 
 describe('pre-paint bootstrap', () => {

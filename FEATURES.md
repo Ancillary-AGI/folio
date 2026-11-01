@@ -418,8 +418,13 @@
   `--control-glow` are alphas, not colours: light drops the panel edge to zero
   (a white sheet has nothing to catch a highlight) and high-contrast drops both
   the edge and the accent halo, which removes sheen and glow without touching a
-  hue or a contrast ratio. Focus indicators are not decoration and are not
-  switched off by either.
+  hue or a contrast ratio. Focus is one contract, not one per control: a control
+  that draws its own border turns that border to the accent and blooms a flush
+  halo (`--focus-halo`) from it, because an offset ring painted *outside* a live
+  border reads as a double line; borderless controls keep the offset ring, where
+  the gap is what keeps the indicator legible over filled chrome. High contrast
+  turns the halo solid rather than off, and forced colours hands focus back to
+  the OS — so no appearance can lose the keyboard indicator.
 - **Units & behavior**: metric/imperial, animation toggle, autosave interval,
   onboarding replay
 - **Guided tour**: thirteen-step first-run walkthrough with an animated spotlight —

@@ -42,22 +42,29 @@
    * `tokens.ts`, where the contrast tests can see them. An appearance with no
    * room for decoration (high contrast) turns both off instead of inheriting a
    * dark shell's assumptions.
+   *
+   * `--focus-halo` is the third alpha but not decoration: it is the strength of
+   * the ring around a focused field, so an appearance that flattens the others
+   * turns this one *up*, never off.
    */
   :root {
     --radius: 0.625rem;
     --panel-edge: 0.09;
     --control-glow: 0.45;
+    --focus-halo: 0.3;
   }
 
   /* A white sheet has nothing to catch a highlight from; keep only depth. */
   [data-theme='light'] {
     --panel-edge: 0;
     --control-glow: 0.3;
+    --focus-halo: 0.38;
   }
 
   [data-theme='high-contrast'] {
     --panel-edge: 0;
     --control-glow: 0;
+    --focus-halo: 1;
   }
 
   * {
@@ -134,6 +141,25 @@
   /* Focus is always visible, never suppressed, and uses the themed ring. */
   :focus-visible {
     @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /*
+   * A control that already draws a border gets exactly one edge on focus. The
+   * offset ring above paints a 2px band of page background *outside* whatever
+   * edge the element has, so on a bordered field the engineer sees border,
+   * seam, ring — a double border. Here the border itself takes the accent and
+   * the halo blooms flush from it. Borderless controls (buttons, tabs, icon
+   * rails) keep the offset ring, where that gap is the thing that keeps the
+   * indicator legible over filled chrome.
+   */
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  [role='combobox']:focus-visible,
+  [contenteditable='true']:focus-visible {
+    outline: none;
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
   }
 
   /*
@@ -384,7 +410,7 @@
    * numeric readouts. Token-backed only — no colour values here.
    */
   .cad-tab {
-    @apply inline-flex h-7 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-md border-b-2 border-b-transparent px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground transition-[background-color,color,box-shadow] duration-150 hover:bg-accent hover:text-foreground;
+    @apply inline-flex h-7 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-md border-b-2 border-b-transparent px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground transition-[background-color,color,border-color,box-shadow] duration-150 hover:bg-accent hover:text-foreground;
   }
 
   /* The family hue runs through its tabs: the icon carries it quietly all the
@@ -581,11 +607,13 @@
     @apply h-[22px] min-w-0 rounded-md border border-border/70 bg-background px-1.5 font-mono text-[11px] text-foreground outline-none transition-[border-color,background-color] hover:border-border;
   }
 
-  /* A live field tints as well as re-drawing its edge. The shell's focus ring is
-   * left alone — it is the keyboard indicator the a11y contract counts on — so
-   * this is the mouse-visible "you are editing this row" cue. */
+  /* A live field tints as well as re-drawing its edge, and carries the same flush
+   * halo the base focus contract paints — one edge, one glow, never a second
+   * ring outside the border. Declared here so a mouse click and a keyboard tab
+   * land on the identical treatment. */
   .cad-field:focus {
     @apply border-ring bg-accent/40;
+    box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
   }
 
   .cad-field:disabled {

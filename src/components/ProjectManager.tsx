@@ -5,7 +5,9 @@ import { vcsService } from '../lib/vcs/vcsService'
 import { backupService } from '../lib/backup/backupService'
 import { Button } from './ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
-import { Plus, FolderOpen, Calendar, History, RotateCw, Search, Trash2, ArrowRight } from 'lucide-react'
+import { Plus, FolderOpen, Calendar, History, RotateCw, Search, Trash2, ArrowRight, X } from 'lucide-react'
+import { WORKSPACE_GROUPS, MODE_COUNT_BY_GROUP } from '../lib/workspace/modes'
+import { groupAccent } from '../lib/workspace/accents'
 
 interface ProjectManagerProps {
   onSelectProject: (project: Project) => void
@@ -109,20 +111,37 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
   return (
     <div className="mx-auto max-w-6xl p-4 sm:p-6">
       <div className="mb-8">
-        <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">Project library</p>
-        <h1 className="mb-2 text-2xl font-bold text-foreground sm:text-3xl">Your Projects</h1>
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">Project library</p>
+        <h1 className="mb-2 text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Your Projects</h1>
         <p className="max-w-2xl text-muted-foreground">
           {offlineMode
             ? 'Schematic, PCB, mechanical, robotics and firmware state for every project is kept together.'
             : 'Projects are stored in your cloud workspace; version history and backups are kept with each project.'}
         </p>
-        <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Supported disciplines">
-          {['Schematic', 'PCB', '3D preview', 'Simulation', 'Mechanical', 'HDL / IC', 'Robotics', 'Operations'].map((discipline) => (
+        {/*
+         * The families come from the same registry that drives the workspace tab
+         * strip, and each count is derived from it, so a workspace cannot ship in
+         * the CAD and go missing from here. The hue is decorative — the label and
+         * the count carry the meaning.
+         */}
+        <ul className="mt-5 flex flex-wrap gap-2" aria-label="Engineering families">
+          {WORKSPACE_GROUPS.map((family) => (
             <li
-              key={discipline}
-              className="rounded-sm border border-border bg-surface px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
+              key={family.id}
+              title={family.description}
+              className="flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium"
+              style={{
+                backgroundColor: `hsl(${groupAccent(family.id)} / 0.10)`,
+                borderColor: `hsl(${groupAccent(family.id)} / 0.30)`,
+              }}
             >
-              {discipline}
+              <span
+                aria-hidden="true"
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: `hsl(${groupAccent(family.id)})` }}
+              />
+              <span className="text-foreground">{family.label}</span>
+              <span className="font-mono tabular-nums text-muted-foreground">{MODE_COUNT_BY_GROUP[family.id]}</span>
             </li>
           ))}
         </ul>
@@ -144,21 +163,35 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
         </div>
       )}
 
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative min-w-0 flex-1">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <input
             type="text"
-            placeholder="Search projects..."
+            placeholder="Search projects by name or description"
             aria-label="Search projects"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full rounded-lg border border-border bg-background py-2 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-primary"
+            className="h-12 w-full rounded-xl border border-border bg-surface pl-11 pr-24 text-[15px] text-foreground placeholder:text-muted-foreground"
           />
+          {searchTerm ? (
+            <button
+              type="button"
+              onClick={() => setSearchTerm('')}
+              aria-label="Clear project search"
+              className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
+          {/* The field says what it filtered, so the count is never a guess. */}
+          <span className="pointer-events-none absolute right-12 top-1/2 -translate-y-1/2 font-mono text-xs tabular-nums text-muted-foreground">
+            {searchTerm ? `${filteredProjects.length}/${projects.length}` : ''}
+          </span>
         </div>
-        
-        <Button onClick={onNewProject} className="flex flex-shrink-0 items-center gap-2">
-          <Plus className="w-4 h-4" />
+
+        <Button onClick={onNewProject} className="h-12 flex-shrink-0 gap-2 rounded-xl px-5 text-sm font-semibold">
+          <Plus className="h-4 w-4" />
           New Project
         </Button>
       </div>
@@ -210,7 +243,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
             return (
             <Card
               key={project.id}
-              className="cursor-pointer transition-all hover:border-primary/40 hover:shadow-lg"
+              className="cursor-pointer overflow-hidden rounded-xl border-border/70 transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:border-primary/50 hover:shadow-xl active:translate-y-0 active:shadow-md"
               onClick={() => onSelectProject(project)}
             >
               <CardHeader className="pb-3">

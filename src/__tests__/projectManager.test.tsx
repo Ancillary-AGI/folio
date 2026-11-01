@@ -69,17 +69,27 @@ describe('ProjectManager (offline)', () => {
     expect(await screen.findByText('Oscilloscope Frontend')).toBeInTheDocument()
     expect(screen.getByText('Robot Arm Controller')).toBeInTheDocument()
 
-    const search = screen.getByPlaceholderText('Search projects...')
+    const search = screen.getByRole('textbox', { name: 'Search projects' })
     fireEvent.change(search, { target: { value: 'oscillo' } })
     expect(screen.getByText('Oscilloscope Frontend')).toBeInTheDocument()
     expect(screen.queryByText('Robot Arm Controller')).not.toBeInTheDocument()
+    // The field reports how much of the library the current term matched.
+    expect(screen.getByText('1/2')).toBeInTheDocument()
 
+    // A term that matches nothing is stated, not silently shown as an empty grid.
     fireEvent.change(search, { target: { value: 'no-such-project' } })
     expect(screen.getByText('No projects found')).toBeInTheDocument()
+    expect(screen.getByText('0/2')).toBeInTheDocument()
     // Empty-filtered state must not offer the "Create Project" shortcut
     expect(
       screen.queryByRole('button', { name: 'Create Project' })
     ).not.toBeInTheDocument()
+
+    // Clearing the search is a named control, and it restores the whole list.
+    fireEvent.click(screen.getByRole('button', { name: 'Clear project search' }))
+    expect(screen.getByRole('textbox', { name: 'Search projects' })).toHaveValue('')
+    expect(screen.getByText('Robot Arm Controller')).toBeInTheDocument()
+    expect(screen.queryByText('1/2')).not.toBeInTheDocument()
   })
 
   it('selects a project on card click without triggering delete', async () => {

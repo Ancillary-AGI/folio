@@ -503,7 +503,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                 }
               }}
               wrap="off"
-              className="cad-code-area max-h-72 min-h-56 w-full flex-1 resize-y overflow-auto sm:min-h-72 rounded-r-md border border-input bg-background p-4 font-mono text-sm leading-6 text-foreground focus:border-transparent focus:ring-2 focus:ring-ring"
+              className="cad-code-area max-h-72 min-h-56 w-full flex-1 resize-y overflow-auto sm:min-h-72 rounded-r-md border border-input bg-background p-4 font-mono text-sm leading-6 text-foreground"
               placeholder="Enter your Arduino code here..."
               spellCheck={false}
               aria-label="Firmware source code"

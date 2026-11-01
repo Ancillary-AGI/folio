@@ -259,7 +259,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
             <div>
               <Label className="text-xs text-muted-foreground mb-1 block">Datasheet text</Label>
               <textarea
-                className="w-full h-48 bg-card text-foreground text-xs font-mono p-2 rounded border border-border focus:border-primary resize-none outline-none"
+                className="w-full h-48 bg-card text-foreground text-xs font-mono p-2 rounded border border-border resize-none"
                 placeholder="Paste datasheet text here — pinout tables, electrical specs, package info..."
                 value={rawText}
                 onChange={e => setRawText(e.target.value)}
