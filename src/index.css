@@ -415,6 +415,13 @@
     @apply inline-flex h-full flex-shrink-0 items-center gap-1.5 whitespace-nowrap border-r border-border px-3 text-[10px] uppercase tracking-[0.08em];
   }
 
+  /* Which cell ends the bar depends on the viewport — the optional ones are
+   * `hidden sm:`/`lg:` — so the trailing seam is taken off by position rather
+   * than by a `border-r-0` that would land on the wrong cell. */
+  .status-bar > .status-segment:last-child {
+    @apply border-r-0;
+  }
+
   .modal-scrim {
     @apply fixed inset-0 z-50 flex items-center justify-center bg-overlay/75 p-4 backdrop-blur-md;
   }

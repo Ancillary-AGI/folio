@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, useEffect, useMemo, useRef, useCallback } fro
 import {
   FolderOpen, Menu, Bot, BarChart3, Settings, Package, Users,
   Download, Image, FileText, List, Lock, LogOut, Mic, MicOff,
-  Shield, Bell, RefreshCw, History, RotateCcw, Moon, Sun, AlertCircle, FlaskConical, Search,
+  Shield, RefreshCw, History, RotateCcw, Moon, Sun, AlertCircle, FlaskConical, Search,
   MoreHorizontal, ShieldCheck, ShieldAlert, HelpCircle, X,
 } from 'lucide-react'
 import { Button } from './components/ui/button'
@@ -1992,9 +1992,6 @@ function App() {
             <FlaskConical className="h-3 w-3" /> DEMOS <span className="cad-kbd ml-1">{DEMO_SHORTCUT_LABEL}</span>
           </button>
         </HoverHelp>
-        <span className="status-segment hidden border-r-0 lg:inline-flex">
-          <Bell className="w-3 h-3" aria-hidden="true" />
-        </span>
       </footer>
 
       {/* Canvas ref for UserPresence */}
