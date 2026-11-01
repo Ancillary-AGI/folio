@@ -251,7 +251,8 @@ function parseWaveform(component: Component): SourceWaveform | undefined {
       per,
     }
   }
-  if (shape.includes('sine') || shape.includes('sin(')) {
+  /* SPICE spells the sine generator both `SIN` and `SINE`. */
+  if (shape.includes('sine') || /\bsin\b/.test(shape)) {
     const va = parseSpiceValue(pickParameter(component.parameters, 'va'), `${component.name} sine amplitude (va)`)
     const freq = parseSpiceValue(pickParameter(component.parameters, 'freq'), `${component.name} sine frequency (freq)`)
     if (!(freq > 0)) throw new Error(`${component.name} sine frequency (freq) must be > 0.`)
@@ -1150,7 +1151,7 @@ export function validateBehavioralProbes(
   return null
 }
 
-const BEHAVIORAL_CONSTANTS: Readonly<Record<string, number>> = {
+export const BEHAVIORAL_CONSTANTS: Readonly<Record<string, number>> = {
   pi: Math.PI,
   e: Math.E,
 }

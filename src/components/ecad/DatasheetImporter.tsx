@@ -169,7 +169,9 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
     const parsed = parseSpiceModelLibrary(entry.spiceText)
     if (parsed.models.size === 0) {
       setVendorPick(null)
-      setError(`${entry.name}: no parsable .model card here (${parsed.errors.join(' ') || 'subcircuit-only text'}). Its SPICE text can still be pasted into the Simulation model deck.`)
+      setError(
+        `${entry.name}: no parsable .model card here (${parsed.errors.join(' ') || 'subcircuit-only text'}). Its SPICE text is a .subckt — paste it into the Simulation SPICE deck box, which flattens it for X instances.`,
+      )
       return
     }
     setVendorPick({ name: entry.name, text: entry.spiceText, cards: Array.from(parsed.models.keys()) })

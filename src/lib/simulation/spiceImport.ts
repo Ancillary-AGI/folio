@@ -8,16 +8,30 @@
  *
  * Supported elements: R, C, L, V, I, D, Q, M, J, E, G, B, S, W (with explicit
  * parameters), T and K. Supported cards: `.model`, `.op`, `.dc`, `.tran`, `.ac`,
- * `.noise`, `.temp`, `.options`, `.end` and `.title`. Subcircuits (`X`),
- * current-controlled sources (F/H), parameter expressions (`.param`), external
- * includes (`.include`/`.lib`) and file-based `.ic`/`.nodeset` are reported
- * unsupported — this engine has no hierarchy or file resolution, and pretending
- * otherwise would simulate a different circuit.
+ * `.noise`, `.temp`, `.options`, `.end` and `.title`.
+ *
+ * Hierarchy is flattened at import: `.subckt`/`.ends` definitions (nested ones
+ * included) become instance-qualified parts and nets, `X` cards expand into
+ * them, `.param`/`.func` and `{…}` expressions are evaluated — globally, per
+ * subcircuit and per instance — and a `.model` card declared inside a
+ * subcircuit is kept private to it. Current-controlled sources (F/H) and
+ * external includes (`.include`/`.lib`) stay refused: the first needs a
+ * controlling branch the solver does not stamp, the second needs a file system
+ * a browser tab does not have. Either way the deck is refused rather than
+ * simulated as a different circuit.
  */
 
-import { parseSpiceValue } from './devices'
+import { isGroundNode, parseSpiceValue } from './devices'
 import { parseSpiceModelLibrary, type SpiceModelCard } from './modelLibrary'
-import { buildCircuitModel } from './circuitModel'
+import { BEHAVIORAL_FUNCTIONS, buildCircuitModel } from './circuitModel'
+import {
+  childSpiceScope,
+  createSpiceScope,
+  defineSpiceFunc,
+  defineSpiceParam,
+  substituteBraces,
+  type SpiceScope,
+} from './spiceExpression'
 import type { CircuitNetlist, Component, SimulationParameters } from './spiceEngine'
 
 export interface SpiceDeckImport {
@@ -47,15 +61,15 @@ const ELEMENT_MINIMUM_TOKENS: Readonly<Record<string, number>> = {
   G: 5,
   F: 5,
   H: 5,
-  B: 5,
+  B: 4,
   S: 5,
   W: 5,
   T: 5,
   K: 4,
-  X: 2,
+  X: 3,
 }
 
-const SUPPORTED_ELEMENT = /^[RCLVIDQMJEGBHSTKW]$/i
+const SUPPORTED_ELEMENT = /^[RCLVIDQMJEGBHSTKWXFH]$/i
 
 /** Strip a `;`/`$` comment that is not inside quotes; full-line `*` is handled earlier. */
 function stripInlineComment(line: string): string {
@@ -75,7 +89,13 @@ function stripInlineComment(line: string): string {
   return line
 }
 
-/** Split on whitespace while keeping `FUNC(a b c)` together. */
+/**
+ * Split on whitespace while keeping `FUNC(a b c)` and `{gain * 1k}` together.
+ *
+ * Braces are a single token because a parameter expression is one value: an
+ * expression written across spaces must reach the evaluator whole, or
+ * `.tran {tstop / 10}` would read as four cards.
+ */
 function tokenize(statement: string): string[] {
   const tokens: string[] = []
   let current = ''
@@ -92,12 +112,12 @@ function tokenize(statement: string): string[] {
       current += character
       continue
     }
-    if (character === '(') {
+    if (character === '(' || character === '{') {
       depth += 1
       current += character
       continue
     }
-    if (character === ')') {
+    if (character === ')' || character === '}') {
       depth = Math.max(0, depth - 1)
       current += character
       continue
@@ -119,7 +139,7 @@ function looksLikeElement(statement: string): boolean {
   const tokens = tokenize(statement)
   if (tokens.length === 0) return false
   const prefix = tokens[0][0]?.toUpperCase() ?? ''
-  if (!SUPPORTED_ELEMENT.test(prefix) && prefix !== 'F' && prefix !== 'H' && prefix !== 'X') return false
+  if (!SUPPORTED_ELEMENT.test(prefix)) return false
   return tokens.length >= (ELEMENT_MINIMUM_TOKENS[prefix] ?? Number.POSITIVE_INFINITY)
 }
 
@@ -349,11 +369,478 @@ function positionalTokens(tokens: string[], start: number): { positional: string
   return { positional, named }
 }
 
+/** Separator between instance path and net/designator: `X1:U2:OUT`. */
+const NAME_SEPARATOR = ':'
+
+/** A deck deeper than this is a runaway definition, not a design. */
+const MAX_HIERARCHY_DEPTH = 24
+
+/**
+ * Directives that are legal inside a `.subckt` in a real deck but meaningless
+ * once the instance has been flattened into the netlist. They are reported and
+ * dropped; an analysis card in the same place is refused instead, because
+ * pretending it applied to a subcircuit would run a different simulation.
+ */
+const SUBCKT_LOCAL_DIRECTIVES = new Set([
+  '.ic',
+  '.nodeset',
+  '.save',
+  '.probe',
+  '.print',
+  '.plot',
+  '.backanno',
+  '.options',
+  '.temp',
+  '.global',
+])
+
+interface ParamCard {
+  name: string
+  expr: string
+}
+
+interface FuncCard extends ParamCard {
+  args: string[]
+}
+
+interface SubcktDefinition {
+  /** Name as written, used to qualify nets and to talk to the user. */
+  name: string
+  key: string
+  line: number
+  ports: string[]
+  portIndex: Map<string, number>
+  cards: LogicalStatement[]
+  params: ParamCard[]
+  funcs: FuncCard[]
+  /** Upper-cased `.model` names declared inside, shadowing a global card. */
+  modelNames: Set<string>
+  /** A duplicate or unreadable definition: consume its body, report it once. */
+  discarded: boolean
+}
+
+interface InstanceCall {
+  name: string
+  nodes: string[]
+  definition: string
+  params: ParamCard[]
+  line: number
+}
+
+/** Everything one level of expansion needs to know about the level above it. */
+interface ExpansionContext {
+  path: string
+  scope: SpiceScope
+  models: Map<string, string>
+  stack: string[]
+}
+
+/** Strip the braces or quotes SPICE allows around a parameter value. */
+function unwrapValue(text: string): string {
+  const trimmed = text.trim()
+  const braced = /^\{([\s\S]*)\}$/.exec(trimmed)
+  const inner = (braced ? braced[1] : trimmed).trim()
+  return /^["']([\s\S]*)["']$/.exec(inner)?.[1].trim() ?? inner
+}
+
+/**
+ * Read the name/value pairs of a `.param` card.
+ *
+ * Both spellings a deck uses are accepted: `.param a=1 b=2` and the paired
+ * `.param a 1 b 2`. Values stay as expression text — an instance can override a
+ * parameter a local `.param` refers to, so the arithmetic has to wait until the
+ * scope of each expansion is known.
+ */
+function readParamCards(statement: LogicalStatement, errors: string[]): ParamCard[] {
+  const tokens = tokenize(statement.text).slice(1)
+  const cards: ParamCard[] = []
+  for (let index = 0; index < tokens.length; index += 1) {
+    const named = splitKeyValue(tokens[index])
+    if (named) {
+      cards.push({ name: named.key, expr: unwrapValue(named.value) })
+      continue
+    }
+    const key = tokens[index]
+    const value = tokens[index + 1]
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && value !== undefined) {
+      cards.push({ name: key.toLowerCase(), expr: unwrapValue(value) })
+      index += 1
+      continue
+    }
+    errors.push(`Line ${statement.line}: .param entry "${key}" needs a name and a value.`)
+  }
+  if (cards.length === 0) errors.push(`Line ${statement.line}: .param declares no parameter.`)
+  return cards
+}
+
+function readFuncCard(statement: LogicalStatement, errors: string[]): FuncCard | null {
+  const match = /^\.func\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*=\s*([\s\S]+)$/i.exec(statement.text.trim())
+  if (!match) {
+    errors.push(`Line ${statement.line}: .func needs the form ".func name(a b)={expression}".`)
+    return null
+  }
+  const args = match[2]
+    .split(/[,\s]+/)
+    .filter((entry) => entry.length > 0)
+    .map((entry) => entry.toLowerCase())
+  if (new Set(args).size !== args.length) {
+    errors.push(`Line ${statement.line}: .func ${match[1]}() repeats an argument name.`)
+    return null
+  }
+  return { name: match[1].toLowerCase(), args, expr: unwrapValue(match[3]) }
+}
+
+/** Split an `X` card into its nodes, the subcircuit it names and its parameters. */
+function readInstanceCall(tokens: string[], line: number, errors: string[]): InstanceCall | null {
+  const name = tokens[0]
+  const positional: string[] = []
+  const params: ParamCard[] = []
+  for (const token of tokens.slice(1)) {
+    const named = splitKeyValue(token)
+    if (named) params.push({ name: named.key, expr: unwrapValue(named.value) })
+    else positional.push(token)
+  }
+  if (positional.length < 2) {
+    errors.push(`Line ${line}: ${name}: an X card needs at least one node and a subcircuit name ("X1 in out BUF").`)
+    return null
+  }
+  return { name, nodes: positional.slice(0, -1), definition: positional[positional.length - 1], params, line }
+}
+
+function readSubcktHeader(tokens: string[], line: number, errors: string[]): SubcktDefinition {
+  const name = tokens[1]
+  const definition: SubcktDefinition = {
+    name: name ?? '<unnamed>',
+    key: (name ?? '').toUpperCase(),
+    line,
+    ports: tokens.slice(2),
+    portIndex: new Map<string, number>(),
+    cards: [],
+    params: [],
+    funcs: [],
+    modelNames: new Set<string>(),
+    discarded: name === undefined,
+  }
+  if (name === undefined) {
+    errors.push(`Line ${line}: .subckt needs a name.`)
+    return definition
+  }
+  definition.ports.forEach((port, at) => {
+    const key = port.toUpperCase()
+    if (definition.portIndex.has(key)) {
+      errors.push(`Line ${line}: .subckt ${name} lists port "${port}" twice.`)
+      definition.discarded = true
+      return
+    }
+    definition.portIndex.set(key, at)
+  })
+  return definition
+}
+
+interface DeckPass {
+  topLevel: LogicalStatement[]
+  definitions: Map<string, SubcktDefinition>
+  /** Local `.model` cards, renamed to `SUBCKT:CARD` so one card serves every instance. */
+  localModelCards: string[]
+}
+
+/**
+ * Cut the deck into top-level cards and `.subckt` definitions.
+ *
+ * Nesting is tracked with a stack, so a subcircuit defined inside another is
+ * hoisted to deck level — the way ngspice treats it, and what lets two parents
+ * share one child definition. A `.model` card inside a subcircuit belongs to
+ * that subcircuit, so it is renamed rather than left to collide with a sibling
+ * instance of the same part.
+ */
+function collectSubcircuits(statements: LogicalStatement[], errors: string[], warnings: string[]): DeckPass {
+  const topLevel: LogicalStatement[] = []
+  const definitions = new Map<string, SubcktDefinition>()
+  const localModelCards: string[] = []
+  const open: SubcktDefinition[] = []
+
+  for (const statement of statements) {
+    const tokens = tokenize(statement.text)
+    const directive = (tokens[0] ?? '').toLowerCase()
+    const line = statement.line
+
+    if (directive === '.subckt') {
+      const definition = readSubcktHeader(tokens, line, errors)
+      const existing = definitions.get(definition.key)
+      if (definition.discarded) {
+        open.push(definition)
+        continue
+      }
+      if (existing) {
+        errors.push(`Line ${line}: .subckt ${definition.name} is defined twice (also on line ${existing.line}).`)
+        definition.discarded = true
+      } else {
+        definitions.set(definition.key, definition)
+      }
+      open.push(definition)
+      continue
+    }
+
+    if (directive === '.ends') {
+      const closed = open.pop()
+      if (closed === undefined) {
+        errors.push(`Line ${line}: .ends has no matching .subckt.`)
+        continue
+      }
+      const named = tokens[1]
+      if (named !== undefined && named.toUpperCase() !== closed.key) {
+        errors.push(`Line ${line}: .ends ${named} does not close the .subckt ${closed.name} opened on line ${closed.line}.`)
+      }
+      continue
+    }
+
+    if (open.length === 0) {
+      topLevel.push(statement)
+      continue
+    }
+
+    /*
+     * `.end` finishes the deck wherever it appears, so it is not a card of the
+     * subcircuit it happens to sit in — the unclosed definition is what the
+     * deck actually got wrong.
+     */
+    if (directive === '.end') continue
+
+    const owner = open[open.length - 1]
+    if (owner.discarded) continue
+
+    if (directive === '.model') {
+      const match = /^\.model\s+([^\s]+)(.*)$/i.exec(statement.text)
+      if (match) {
+        owner.modelNames.add(match[1].toUpperCase())
+        localModelCards.push(`.model ${owner.name}${NAME_SEPARATOR}${match[1]}${match[2]}`)
+        continue
+      }
+    }
+
+    if (directive === '.param') {
+      owner.params.push(...readParamCards(statement, errors))
+      continue
+    }
+
+    if (directive === '.func') {
+      const card = readFuncCard(statement, errors)
+      if (card) owner.funcs.push(card)
+      continue
+    }
+
+    if (!statement.text.startsWith('.')) {
+      owner.cards.push(statement)
+      continue
+    }
+
+    if (SUBCKT_LOCAL_DIRECTIVES.has(directive)) {
+      warnings.push(
+        `Line ${line}: ${directive} inside subcircuit ${owner.name} has no effect once the instance is flattened.`,
+      )
+      continue
+    }
+    errors.push(`Line ${line}: ${directive} is not allowed inside subcircuit ${owner.name}; keep analysis cards at deck level.`)
+  }
+
+  for (const unclosed of open) {
+    errors.push(`Line ${unclosed.line}: .subckt ${unclosed.name} is never closed by .ends.`)
+  }
+  return { topLevel, definitions, localModelCards }
+}
+
+/** A body net becomes the caller's net at a port, or a unique net inside the instance. */
+function mapBodyNode(node: string, definition: SubcktDefinition, callerNodes: string[], path: string): string {
+  const port = definition.portIndex.get(node.toUpperCase())
+  if (port !== undefined) return callerNodes[port]
+  if (isGroundNode(node)) return node
+  return `${path}${NAME_SEPARATOR}${node}`
+}
+
+/**
+ * Rename the `V(net)` / `I(source)` probes inside a B-source expression.
+ *
+ * A behavioural source is the one card whose references hide in an expression
+ * string, so flattening has to reach inside it — otherwise the subcircuit's
+ * private net would be read as a top-level one that does not exist.
+ */
+function rewriteProbeRefs(
+  expression: string,
+  resolveNode: (node: string) => string,
+  resolveSource: (name: string) => string,
+): string {
+  return expression.replace(/\b([VI])\(([^()]*)\)/gi, (whole, kind: string, inner: string) => {
+    const parts = inner
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0)
+    if (parts.length === 0) return whole
+    const resolver = kind.toUpperCase() === 'I' ? resolveSource : resolveNode
+    return `${kind.toUpperCase()}(${parts.map(resolver).join(',')})`
+  })
+}
+
+/** Give one flattened part its instance-qualified designator, nets and references. */
+function qualifyComponent(
+  component: Component,
+  definition: SubcktDefinition,
+  callerNodes: string[],
+  path: string,
+  models: ReadonlyMap<string, string>,
+): Component {
+  const resolveNode = (node: string): string => mapBodyNode(node, definition, callerNodes, path)
+  const parameters = { ...component.parameters }
+  const localName = (reference: string): string => `${path}${NAME_SEPARATOR}${reference}`
+
+  if (typeof parameters.model === 'string') {
+    const qualified = models.get(parameters.model.toUpperCase())
+    if (qualified !== undefined) parameters.model = qualified
+  }
+  if (component.type === 'mutual') {
+    for (const key of ['l1', 'l2']) {
+      if (typeof parameters[key] === 'string') parameters[key] = localName(parameters[key] as string)
+    }
+  }
+  if (component.type === 'current_switch' && typeof parameters.control === 'string') {
+    parameters.control = localName(parameters.control)
+  }
+  if (component.type === 'behavioral_source') {
+    for (const key of ['v', 'i']) {
+      if (typeof parameters[key] === 'string') {
+        parameters[key] = rewriteProbeRefs(parameters[key] as string, resolveNode, localName)
+      }
+    }
+  }
+
+  return {
+    type: component.type,
+    name: localName(component.name),
+    nodes: component.nodes.map(resolveNode),
+    parameters,
+  }
+}
+
+const qualifyMessage = (message: string, instance: string): string =>
+  message.replace(/^Line (\d+): /, `Line $1: ${instance}: `)
+
+/**
+ * Expand one `X` instance into the parts, nets and cards it stands for.
+ *
+ * The subcircuit body is parsed with its own local designators and nets, then
+ * every name that leaves it is prefixed with the instance path, so two
+ * instances of one part do not collide. Ports take the caller's net, an
+ * internal net becomes `PATH:NET`, and a net the body calls ground stays
+ * ground because the solver already unifies ground by name.
+ */
+function flattenInstance(builder: DeckBuilder, call: InstanceCall, context: ExpansionContext): void {
+  const definition = builder.hierarchy.get(call.definition.toUpperCase())
+  if (definition === undefined) {
+    builder.errors.push(
+      `Line ${call.line}: ${call.name}: "${call.definition}" is not a subcircuit defined in this deck and is not a .model card.`,
+    )
+    return
+  }
+  if (context.stack.includes(definition.key)) {
+    builder.errors.push(
+      `Line ${call.line}: ${call.name} expands to ${definition.name}, which is already on the path ${[...context.stack, definition.name].join(' → ')}.`,
+    )
+    return
+  }
+  if (context.stack.length >= MAX_HIERARCHY_DEPTH) {
+    builder.errors.push(`Line ${call.line}: ${call.name} nests subcircuits more than ${MAX_HIERARCHY_DEPTH} deep.`)
+    return
+  }
+  if (call.nodes.length !== definition.ports.length) {
+    builder.errors.push(
+      `Line ${call.line}: ${call.name} connects ${call.nodes.length} node(s) to ${definition.name}, which has ${definition.ports.length} port(s): ${definition.ports.join(' ')}.`,
+    )
+    return
+  }
+
+  const path = context.path === '' ? call.name : `${context.path}${NAME_SEPARATOR}${call.name}`
+  const scope = childSpiceScope(context.scope)
+  for (const card of definition.params) defineSpiceParam(scope, card.name, card.expr)
+  for (const card of call.params) {
+    const known =
+      definition.params.some((entry) => entry.name === card.name) ||
+      context.scope.params.has(card.name) ||
+      definition.funcs.some((entry) => entry.name === card.name)
+    if (!known) {
+      builder.warnings.push(
+        `Line ${call.line}: ${call.name}: ${card.name}= has no matching .param in ${definition.name} and was ignored.`,
+      )
+      continue
+    }
+    defineSpiceParam(scope, card.name, card.expr)
+  }
+  for (const card of definition.funcs) defineSpiceFunc(scope, card.name, card.args, card.expr)
+
+  const models = new Map(context.models)
+  for (const local of definition.modelNames) models.set(local, `${definition.name}${NAME_SEPARATOR}${local}`)
+
+  const inner: ExpansionContext = { path, scope, models, stack: [...context.stack, definition.key] }
+  const local: DeckBuilder = {
+    components: [],
+    warnings: [],
+    errors: [],
+    usedNames: new Set<string>(),
+    hierarchy: builder.hierarchy,
+  }
+  const originLine = new Map<Component, number>()
+
+  for (const card of definition.cards) {
+    const text = expandBraces(builder, card.text, scope, `Line ${card.line}: ${path}`)
+    if (text === null) continue
+    const tokens = tokenize(text)
+    if ((tokens[0]?.[0] ?? '').toUpperCase() === 'X') {
+      const nested = readInstanceCall(tokens, card.line, local.errors)
+      // A nested cell expands straight into the deck: its components and
+      // messages already carry this path, so staging them in `local` would
+      // prefix them twice. Its node names are written in this definition's
+      // private vocabulary, so they must be translated before the inner cell
+      // uses them as caller nets.
+      if (nested)
+        flattenInstance(
+          builder,
+          { ...nested, nodes: nested.nodes.map((node) => mapBodyNode(node, definition, call.nodes, path)) },
+          inner,
+        )
+      continue
+    }
+    const before = local.components.length
+    parseElement(local, { tokens, line: card.line })
+    for (const component of local.components.slice(before)) originLine.set(component, card.line)
+  }
+
+  for (const component of local.components) {
+    addComponent(
+      builder,
+      qualifyComponent(component, definition, call.nodes, path, models),
+      originLine.get(component) ?? definition.line,
+    )
+  }
+  local.errors.forEach((message) => builder.errors.push(qualifyMessage(message, path)))
+  local.warnings.forEach((message) => builder.warnings.push(qualifyMessage(message, path)))
+}
+
+/** Evaluate `{…}` groups in one card; a failure is a deck error, never a zero. */
+function expandBraces(builder: DeckBuilder, text: string, scope: SpiceScope, label: string): string | null {
+  try {
+    return substituteBraces(text, scope, label)
+  } catch (error) {
+    builder.errors.push(error instanceof Error ? error.message : `${label}: the parameter expression is invalid.`)
+    return null
+  }
+}
+
+
 interface DeckBuilder {
   components: Component[]
   warnings: string[]
   errors: string[]
   usedNames: Set<string>
+  /** `.subckt` definitions, shared by every level of expansion. */
+  hierarchy: Map<string, SubcktDefinition>
 }
 
 function addComponent(builder: DeckBuilder, component: Component, line: number): void {
@@ -521,8 +1008,8 @@ function parseElement(builder: DeckBuilder, statement: Positional): void {
     }
 
     case 'B': {
-      if (!requireTokens(5, 'a B card "name out+ out- V=expression"')) return
-      const { positional, named } = positionalTokens(tokens, 5)
+      if (!requireTokens(4, 'a B card "name out+ out- V=expression"')) return
+      const { positional, named } = positionalTokens(tokens, 3)
       if (positional.length > 0) {
         fail(`${name}: the behavioural expression must be written as V=… or I=….`)
         return
@@ -598,10 +1085,6 @@ function parseElement(builder: DeckBuilder, statement: Positional): void {
       )
       return
     }
-
-    case 'X':
-      fail(`${name}: subcircuits are not supported (this engine has no hierarchy). Expand the X instance or use a .model card.`)
-      return
 
     case 'F':
     case 'H':
@@ -733,26 +1216,12 @@ function parseAnalysis(
       return
     }
 
-    case '.model':
-      // Collected before this function runs; nothing to do here.
-      return
-
     case '.end':
       return
 
     case '.include':
     case '.lib':
       fail(`${directive} cannot be resolved: this browser import has no external file access.`)
-      return
-
-    case '.subckt':
-    case '.ends':
-      fail(`${directive}: subcircuits are not supported (this engine has no hierarchy).`)
-      return
-
-    case '.param':
-    case '.func':
-      fail(`${directive}: parameter expressions are not evaluated; substitute the value.`)
       return
 
     case '.ic':
@@ -857,48 +1326,100 @@ export function parseSpiceDeck(source: string): SpiceDeckImport {
   }
 
   /*
-   * `.model` cards may appear anywhere. Collect them first so a device card can
-   * reference one declared later in the deck, as SPICE allows.
+   * Subcircuits are lifted out before anything else: an `X` card only means
+   * something once its definition is known, and a `.model` card written inside
+   * a subcircuit belongs to that subcircuit — left at deck level it would be
+   * overwritten by the next instance of the same part.
    */
-  for (const statement of statements) {
-    if (/^\.model\b/i.test(statement.text)) modelStatements.push(statement.text)
-  }
+  const { topLevel, definitions, localModelCards } = collectSubcircuits(statements, errors, warnings)
+  modelStatements.push(...localModelCards)
 
+  /*
+   * `.param`/`.func` cards are read during this pass, so one deck line can use a
+   * parameter defined anywhere else in the deck — SPICE does not order them.
+   */
+  const globalScope = createSpiceScope()
   const builder: DeckBuilder = {
     components,
     warnings,
     errors,
     usedNames: new Set<string>(),
+    hierarchy: definitions,
   }
+  const deck: ExpansionContext = { path: '', scope: globalScope, models: new Map(), stack: [] }
 
   let globalTemperature: number | undefined
 
-  for (const statement of statements) {
+  /*
+   * Pass one: global parameters. A value is expression text, so a `.param` that
+   * reads another `.param` resolves in pass two, after the whole deck is known.
+   */
+  for (const statement of topLevel) {
+    const directive = (tokenize(statement.text)[0] ?? '').toLowerCase()
+    if (directive === '.param') {
+      for (const card of readParamCards(statement, errors)) defineSpiceParam(globalScope, card.name, card.expr)
+    } else if (directive === '.func') {
+      const card = readFuncCard(statement, errors)
+      if (!card) continue
+      if (card.name in BEHAVIORAL_FUNCTIONS) {
+        warnings.push(`Line ${statement.line}: .func ${card.name}() is shadowed by the built-in function of the same name.`)
+        continue
+      }
+      defineSpiceFunc(globalScope, card.name, card.args, card.expr)
+    }
+  }
+
+  /*
+   * Pass two: cards. Every line is brace-resolved against the scope that owns
+   * it before the element parser sees it, so the parser only ever reads plain
+   * numbers and never has to know a parameter existed.
+   */
+  for (const statement of topLevel) {
+    const label = `Line ${statement.line}`
     if (statement.text.startsWith('.')) {
-      const tokens = tokenize(statement.text)
-      const directive = tokens[0].toLowerCase()
+      const raw = tokenize(statement.text)
+      const directive = (raw[0] ?? '').toLowerCase()
       if (directive === '.options') {
         applyOptions(options, statement, warnings)
         continue
       }
       if (directive === '.title') {
-        title = tokens.slice(1).join(' ').trim() || title
+        title = raw.slice(1).join(' ').trim() || title
         continue
       }
+      if (directive === '.param' || directive === '.func') continue
       if (directive === '.temp') {
         try {
-          globalTemperature = number(tokens[1], 'temperature')
+          globalTemperature = number(raw[1], 'temperature')
         } catch (error) {
-          errors.push(
-            `Line ${statement.line}: ${error instanceof Error ? error.message : '.temp is invalid.'}`,
-          )
+          errors.push(`${label}: ${error instanceof Error ? error.message : '.temp is invalid.'}`)
         }
         continue
       }
-      parseAnalysis(statement, analyses, errors, warnings)
+      const resolved = expandBraces(builder, statement.text, globalScope, label)
+      if (resolved === null) continue
+      /*
+       * `.model` cards may appear anywhere, so they are gathered here and parsed
+       * once the whole deck has been read: a device may reference a card
+       * declared later, as SPICE allows.
+       */
+      if (directive === '.model') {
+        modelStatements.push(resolved)
+        continue
+      }
+      parseAnalysis({ text: resolved, line: statement.line }, analyses, errors, warnings)
       continue
     }
-    parseElement(builder, { tokens: tokenize(statement.text), line: statement.line })
+
+    const tokens = tokenize(statement.text)
+    if ((tokens[0]?.[0] ?? '').toUpperCase() === 'X') {
+      const call = readInstanceCall(tokens, statement.line, errors)
+      if (call) flattenInstance(builder, call, deck)
+      continue
+    }
+    const resolved = expandBraces(builder, statement.text, globalScope, `${label}: ${tokens[0] ?? ''}`)
+    if (resolved === null) continue
+    parseElement(builder, { tokens: tokenize(resolved), line: statement.line })
   }
 
   const models: Record<string, SpiceModelCard> = {}

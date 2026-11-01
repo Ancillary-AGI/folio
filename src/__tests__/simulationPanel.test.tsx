@@ -294,6 +294,39 @@ describe('SimulationPanel', () => {
     expect(screen.getByRole('button', { name: 'Run simulation' })).toBeDisabled()
   })
 
+  it('flattens a .subckt deck into instance-qualified devices and solves it', async () => {
+    const canned: SimulationResult = {
+      success: true,
+      nodes: [],
+      waveforms: [],
+      operatingPoint: {},
+      convergenceInfo: { iterations: 1, converged: true },
+      analysis: 'dc',
+    }
+    const simulate = vi.spyOn(spiceEngine, 'simulate').mockResolvedValue(canned)
+    render(<SimulationPanel onClose={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('SPICE deck'), {
+      target: {
+        value: `* divider cell
+.subckt div a b
+Rtop a b 1k
+.ends
+Vin in 0 3
+X1 in 0 div
+.op
+.end
+`,
+      },
+    })
+    expect(screen.getByText(/2 devices/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Solve deck' }))
+    await waitFor(() => expect(simulate).toHaveBeenCalledTimes(1))
+    expect(simulate.mock.calls[0][0].components.map((component) => component.name)).toEqual(['Vin', 'X1:Rtop'])
+    expect(await screen.findByRole('status')).toHaveTextContent(/2 devices/)
+  })
+
   it('reports solver failures in an alert without recording the run', async () => {
     seedSheet([place('R1', makeSymbol())])
     vi.spyOn(spiceEngine, 'simulate').mockRejectedValue(new Error('singular matrix at R1'))

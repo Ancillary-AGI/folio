@@ -178,7 +178,7 @@ R2 out 0 1k
     })
   })
 
-  it('refuses a deck with subcircuits instead of dropping the instance', () => {
+  it('flattens a subcircuit instance rather than dropping it', () => {
     const imported = parseSpiceDeck(`* hierarchy
 .subckt div a b
 R1 a b 1k
@@ -188,8 +188,8 @@ V1 in 0 1
 .op
 .end
 `)
-    expect(imported.errors.join(' ')).toMatch(/subcircuits are not supported/)
-    expect(imported.netlist.components.map((component) => component.name)).not.toContain('X1')
+    expect(imported.errors).toEqual([])
+    expect(imported.netlist.components.map((component) => component.name)).toEqual(['X1:R1', 'V1'])
   })
 
   it('names every unsupported construct it refuses', () => {
@@ -201,9 +201,12 @@ V1 in 0 1
 
     const cccs = parseSpiceDeck('* f\nV1 in 0 1\nR1 in 0 1k\nF1 0 in V1 2\n.op\n.end\n')
     expect(cccs.errors.join(' ')).toMatch(/current-controlled sources/)
+  })
 
-    const param = parseSpiceDeck('* param\n.param r=1k\nV1 in 0 1\nR1 in 0 {r}\n.op\n.end\n')
-    expect(param.errors.join(' ')).toMatch(/parameter expressions are not evaluated/)
+  it('evaluates a .param expression before parsing the element card', () => {
+    const imported = parseSpiceDeck('* param\n.param r=1k\nV1 in 0 1\nR1 in 0 {r}\n.op\n.end\n')
+    expect(imported.errors).toEqual([])
+    expect(imported.netlist.components.find((component) => component.name === 'R1')?.parameters.value).toBe('1000')
   })
 
   it('round-trips the exported deck back into the same circuit', () => {

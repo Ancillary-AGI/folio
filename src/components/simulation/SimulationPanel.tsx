@@ -1246,7 +1246,9 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
               ))}
               {modelLibrary.unsupported.map((entry) => (
                 <p key={entry} className="text-warning">
-                  Not imported: {entry} — use a .model card, not a subcircuit or include file.
+                  Not imported: {entry} — this box reads .model cards only. A .subckt
+                  flattens at import in the SPICE deck below; an .include/.lib path has
+                  no file system to read here.
                 </p>
               ))}
             </div>
@@ -1355,9 +1357,11 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
           <h4 className="mb-1 text-xs font-medium text-card-foreground">SPICE deck import</h4>
           <p className="mb-2 text-xs leading-relaxed text-muted-foreground">
             Paste or load a SPICE deck and solve it on this engine. The importer reads linear and
-            semiconductor elements, PULSE/SIN/EXP/SFFM/PWL sources, .model cards and
-            .op/.dc/.tran/.ac/.noise analyses. Subcircuits, .include/.lib files, .param expressions
-            and F/H sources are named in the errors rather than silently approximated.
+            semiconductor elements, PULSE/SIN/EXP/SFFM/PWL sources, .model cards, .subckt
+            definitions with X instances (each one flattened to its own nets, with .param and
+            .func expressions evaluated first) and .op/.dc/.tran/.ac/.noise analyses.
+            .include/.lib files and F/H sources are named in the errors rather than silently
+            approximated.
           </p>
           <textarea
             aria-label="SPICE deck"

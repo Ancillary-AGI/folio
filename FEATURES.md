@@ -71,10 +71,15 @@
 - **Netlists and decks**: SPICE deck export; import of SPICE decks (`.cir`, `.sp`,
   `.ckt`) covering R/C/L/V/I/D/Q/M/J/E/G/B/S/W/T/K elements, PULSE/SIN/EXP/SFFM/PWL
   sources, `.model` cards and `.op`/`.dc`/`.tran`/`.ac`/`.noise` cards, solved on the
-  same engine as the drawn sheet. Subcircuits, `.include`/`.lib`, `.param`
-  expressions and F/H sources are refused by name, with the offending line
-  reported; a deck with several analysis cards solves the first and says which
-  cards it did not run.
+  same engine as the drawn sheet. `.subckt` definitions flatten at import — every
+  `X` instance gets its own nets and instance-qualified designators (`X1:Rtop`), a
+  card declared inside the definition is shared by all its instances, and `.param`
+  and `.func` expressions (including `{…}` braces, arithmetic, comparisons and
+  the same function set `B` sources use) are evaluated before the card is parsed,
+  with the global → definition → instance-parameter scoping SPICE defines.
+  `.include`/`.lib` files and F/H sources are refused by name, with the offending
+  line reported; a deck with several analysis cards solves the first and says
+  which cards it did not run.
 - **Waveforms**: charts with probes, measurements, and playback
 - **Chart interaction**: drag to zoom a window, shift-drag to pan, wheel to zoom
   under the pointer, click to pin a cursor, `+`/`-`/arrows/`R` from the keyboard.
