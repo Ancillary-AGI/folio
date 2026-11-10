@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
-  OPERATOR_STORAGE_KEY, operatorClient, resolveOperator, signInOperator, signOutOperator,
+  OPERATOR_STORAGE_KEY, _resetOperatorClientForTesting, operatorClient, resolveOperator, signInOperator, signOutOperator,
 } from './operatorSession'
 
 /*
@@ -60,6 +60,7 @@ const ownerRow = { id: 'op-1', email: 'ops@folio.team', display_name: 'Ada Ops',
 
 beforeEach(() => {
   localStorage.clear()
+  _resetOperatorClientForTesting()
   createClient.mockReset()
   createClient.mockReturnValue({ auth: {}, from: vi.fn() })
 })

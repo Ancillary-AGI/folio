@@ -380,7 +380,7 @@ export default function TraceChart({
   }
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-1" role="figure" aria-label={ariaLabel}>
       <div className="relative" style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={MARGIN}>

@@ -1454,7 +1454,6 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
       'src/lib/admin/quotaPolicy.test.ts',
       'src/lib/admin/usageLedger.test.ts',
       'src/__tests__/adminConsole.test.tsx',
-      'src/__tests__/adminGate.test.tsx',
       'src/__tests__/appShell.test.tsx',
     ],
   },

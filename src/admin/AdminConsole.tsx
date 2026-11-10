@@ -849,7 +849,7 @@ export default function AdminConsole({ operator, api, onSignOut }: AdminConsoleP
                 {filteredEvents.length === 0 && (
                   <div className="p-6">
                     <EmptyState
-                      title={usageError ? 'Usage could not be read' : 'No events in this window'}
+                      title="No events in this window"
                       detail={usageError ? usageError : 'Events arrive as accounts open workspaces, commit designs, export and run solvers.'}
                     />
                   </div>
@@ -1033,7 +1033,7 @@ export default function AdminConsole({ operator, api, onSignOut }: AdminConsoleP
                 {audit.length === 0 && (
                   <div className="p-6">
                     <EmptyState
-                      title={auditError ? 'The audit trail could not be read' : 'No operator actions recorded yet'}
+                      title="No operator actions recorded yet"
                       detail={auditError ? auditError : 'Role changes, suspensions and policy edits appear here as they happen.'}
                     />
                   </div>

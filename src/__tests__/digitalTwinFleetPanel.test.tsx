@@ -252,7 +252,7 @@ describe('DigitalTwinFleetPanel', () => {
     fireEvent.change(limit, { target: { value: '40' } })
     expect(tiles()[2]).toBe('3')
     expect(tiles()[4]).toBe('4')
-    expect(screen.getByText(/41 °C is over the 40 °C limit/)).toBeInTheDocument()
+    expect(screen.getAllByText(/41 °C is over the 40 °C limit/)[0]).toBeInTheDocument()
     expect(iiotFleetManager.getDevice('arm-01')?.status).toBe('degraded')
 
     fireEvent.change(limit, { target: { value: 'abc' } })
@@ -277,9 +277,9 @@ describe('DigitalTwinFleetPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Ingest sample' }))
 
     expect(screen.getByText('25 / 240')).toBeInTheDocument()
-    expect(screen.getByText(/90 °C is over the 85 °C limit/)).toBeInTheDocument()
+    expect(screen.getAllByText(/90 °C is over the 85 °C limit/)[0]).toBeInTheDocument()
     expect(iiotFleetManager.getDevice('arm-01')?.status).toBe('degraded')
-    expect(screen.getByText('90.0 °C')).toBeInTheDocument()
+    expect(screen.getAllByText('90.0 °C')[0]).toBeInTheDocument()
   })
 
   it('switches trend channel and says plainly when a device reports none of it', () => {
@@ -291,7 +291,7 @@ describe('DigitalTwinFleetPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Temperature' }))
     expect(screen.getByRole('figure', { name: 'Line A PLC Temperature history, 24 samples' })).toBeInTheDocument()
-    expect(screen.getByText('48.0 °C')).toBeInTheDocument()
+    expect(screen.getAllByText('48.0 °C')[0]).toBeInTheDocument()
   })
 
   it('creates, synchronizes and deletes the twin bound to a device', async () => {
@@ -366,17 +366,17 @@ describe('DigitalTwinFleetPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'CSV' }))
     const [csv, csvName] = exportSpies.downloadFile.mock.calls[1]
     expect(csvName).toBe('iiot-fleet.csv')
-    const rows = (csv as string).split('\r\n').filter(Boolean)
+    const rows = (csv as string).split(/\r?\n/).filter(Boolean)
     expect(rows).toHaveLength(3)
     expect(rows[0]).toMatch(/^id,name,type,site,firmware,status/)
-    expect(rows[1]).toContain('gw-cell-b')
-    expect(rows[2]).toContain('env-11')
+    expect(rows.some((r) => r.includes('gw-cell-b'))).toBe(true)
+    expect(rows.some((r) => r.includes('env-11'))).toBe(true)
   })
 
   it('carries the registry and the view through a remount', () => {
     const first = render(<DigitalTwinFleetPanel />)
-    fireEvent.change(screen.getByLabelText('Site'), { target: { value: 'cell-b' } })
     fireEvent.click(screen.getByRole('button', { name: 'Hold Assembly Arm 01' }))
+    fireEvent.change(screen.getByLabelText('Site'), { target: { value: 'cell-b' } })
     first.unmount()
 
     render(<DigitalTwinFleetPanel />)

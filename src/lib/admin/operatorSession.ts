@@ -31,6 +31,10 @@ export interface OperatorResolution {
 
 let client: SupabaseClient | null = null
 
+export function _resetOperatorClientForTesting(): void {
+  client = null
+}
+
 /** Null when this build has no managed deployment to govern. */
 export function operatorClient(): SupabaseClient | null {
   if (!isSupabaseConfigured) return null
