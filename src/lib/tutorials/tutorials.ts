@@ -355,6 +355,52 @@ export const TUTORIALS: readonly Tutorial[] = [
       },
     ],
   },
+  {
+    id: 'biology-across-scales',
+    title: 'Biology: a beating ventricle down to a reaction mechanism',
+    summary: 'Start on the doubled-afterload beat, read the pressure–volume loop it costs, then walk the scale ladder down to an enzyme mechanism and a gene circuit and see what each run is checked against.',
+    demoId: 'biology-afterload',
+    modes: ['biology'],
+    minutes: 12,
+    steps: [
+      {
+        title: 'Read the loop before the numbers',
+        do: 'Open Biology and read the trace under the dials — it opens on the pressure–volume loop of the last whole beat.',
+        see: 'The loop sits between an end-systolic and an end-diastolic line drawn from the elastances and unstressed volume the model declares. Stroke volume, ejection fraction and stroke work above it are measured off that traced cycle, so the enclosed loop area and the work readout have to agree.',
+        mode: 'biology',
+      },
+      {
+        title: 'Ask what the load costs',
+        do: 'Press Sweep the filling pressure.',
+        see: 'The same heart re-beat at six filling pressures around the dial you set, each cycle measured on its own. The rising slope is Frank–Starling behaviour coming out of the solve. The filling pressure is still an input: this model has no venous return, so it cannot produce one.',
+        mode: 'biology',
+      },
+      {
+        title: 'Compare an integrated mechanism with the formula',
+        do: 'Press Reset inputs, then take the scale rail to Molecule.',
+        see: 'The rail loads the enzyme mechanism and integrates E + S ⇄ ES → E + P step by step. Structural checks report the conserved moieties carried through the run; below that, the Michaelis–Menten Km, Vmax and initial rate are computed from the same rate constants the integrator used, so the difference between the two rates is the size of the steady-state assumption.',
+        mode: 'biology',
+      },
+      {
+        title: 'Move one rate constant and watch both columns',
+        do: 'Raise the binding k+ dial.',
+        see: 'The closed form is read off the scaled network, so it moves with the dial instead of staying pinned to the preset. The trace, the conservation residuals and the two rates all re-solve for the network you just changed.',
+        mode: 'biology',
+      },
+      {
+        title: 'Push a design until it stops holding still',
+        do: 'Take the rail to Cell, load Repressilator (3-cycle), then press Scan cooperativity.',
+        see: 'The circuit is re-solved at each Hill multiplier and the largest real eigenvalue at its steady state is plotted. Where that crosses zero the design stops settling. The gaps are the settings where it oscillates: an oscillating circuit has no steady state to linearise about, so the margin is withheld rather than guessed.',
+        mode: 'biology',
+      },
+      {
+        title: 'Read what the workspace will not claim',
+        do: 'Open Capabilities and limits and filter to the biology records.',
+        see: 'The method and the tests behind each scale, and what it leaves out: squid parameters with no temperature term, one isopotential compartment rather than a cell with geometry, a lumped single chamber rather than a four-chamber circulation, fitting buckets rather than organs.',
+        mode: 'biology',
+      },
+    ],
+  },
 ] as const
 
 const TUTORIAL_BY_ID = new Map(TUTORIALS.map((tutorial) => [tutorial.id, tutorial]))

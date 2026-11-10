@@ -6,9 +6,14 @@ import { Button } from './ui/button'
 import { writeOnboardingStep } from '../lib/onboarding/onboardingStorage'
 import { CAPABILITY_RECORDS } from '../lib/workspace/limitsRegistry'
 import {
+  chapterForStep,
+  chapterStepIndices,
   clampOnboardingStep,
+  ONBOARDING_CHAPTERS,
   ONBOARDING_STEPS,
+  stepPositionInChapter,
 } from '../lib/onboarding/onboardingSteps'
+import { WORKSPACE_MODE_META } from '../lib/workspace/modes'
 import { computeTourLayout, computeTourCaret, type TourCaret, type TourRect } from '../lib/onboarding/tourLayout'
 
 /**
@@ -94,6 +99,10 @@ export default function OnboardingTour({
   const dialogRef = useRef<HTMLDivElement>(null)
   const activeIndex = useMemo(() => clampOnboardingStep(stepIndex), [stepIndex])
   const step = ONBOARDING_STEPS[activeIndex]
+  const { chapter, ordinal: chapterOrdinal } = chapterForStep(activeIndex)
+  const chapterPosition = stepPositionInChapter(activeIndex)
+  const nextStep = ONBOARDING_STEPS[activeIndex + 1]
+  const nextChapter = nextStep ? chapterForStep(activeIndex + 1) : null
   const isLast = activeIndex === ONBOARDING_STEPS.length - 1
   const showSampleAction = step.action === 'load-sample-circuit'
   const showLimitsAction = step.action === 'open-limits'
@@ -104,14 +113,34 @@ export default function OnboardingTour({
   // Respect the app-level motion preference as well as the OS setting.
   const animations = useAppStore((state) => state.settings.animations)
   const motionClass = animations ? 'duration-500 ease-out motion-reduce:transition-none' : ''
+  /*
+   * Travelling between workspaces is the one moment the tour asks the user to
+   * re-orient, so the destination is named while the shell swaps panels. The
+   * cue is keyed by a serial: revisiting a mode replays it instead of silently
+   * looking like nothing happened.
+   */
+  const [travel, setTravel] = useState<{ id: number; chapter: string; workspace: string } | null>(null)
+  const lastMode = useRef(useAppStore.getState().workspaceMode)
+  const travelSerial = useRef(0)
 
   useEffect(() => {
+    const previousMode = lastMode.current
+    lastMode.current = step.mode
     useAppStore.getState().setWorkspaceMode(step.mode)
     // A step can only point at the library once it is on screen; revealing it
     // here is less surprising than a coach mark that silently loses its target.
     if (step.target === 'component-library') useAppStore.setState({ sidebarOpen: true })
     writeOnboardingStep(activeIndex)
-  }, [step.mode, step.target, activeIndex])
+    if (!animations || previousMode === step.mode) return
+    travelSerial.current += 1
+    setTravel({
+      id: travelSerial.current,
+      chapter: `${chapterOrdinal} · ${chapter.label}`,
+      workspace: WORKSPACE_MODE_META[step.mode].label,
+    })
+    const timer = window.setTimeout(() => setTravel(null), 1000)
+    return () => window.clearTimeout(timer)
+  }, [step.mode, step.target, activeIndex, animations, chapterOrdinal, chapter.label])
 
   /*
    * Targets can mount after the card (lazy workspace chunks, a mode the step
@@ -348,6 +377,23 @@ export default function OnboardingTour({
         />
       )}
 
+      {/* Inter-workspace travel: the shell swaps panels underneath while this
+        * names where the guide just arrived. Pointer-transparent, because the
+        * card and the target stay usable during the 1 s cue. */}
+      {travel && (
+        <div key={travel.id} aria-hidden="true" className="pointer-events-none fixed inset-0 motion-reduce:hidden">
+          <div className="tour-travel-sweep absolute inset-0" />
+          <div className="absolute inset-x-0 top-20 flex justify-center px-4">
+            <div className="tour-travel-chip flex items-center gap-2.5 rounded-full border border-primary/40 bg-surface/95 px-4 py-2 shadow-2xl backdrop-blur">
+              <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Now entering</span>
+              <span className="text-xs font-semibold text-card-foreground">{travel.chapter}</span>
+              <span className="h-3 w-px bg-border" />
+              <span className="text-xs font-semibold text-primary">{travel.workspace}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {layout.spotlight && (
         <div
           aria-hidden="true"
@@ -413,8 +459,14 @@ export default function OnboardingTour({
               <StepIcon className="h-5 w-5" />
             </span>
             <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Guided tour</p>
-              <p className="truncate text-sm font-semibold text-surface-foreground">Step {activeIndex + 1} of {ONBOARDING_STEPS.length}</p>
+              <p className="truncate text-[11px] font-medium text-muted-foreground">
+                <span className="text-primary">Chapter {chapterOrdinal} of {ONBOARDING_CHAPTERS.length}</span>
+                <span aria-hidden="true"> · </span>{chapter.label}
+              </p>
+              <p className="truncate text-sm font-semibold text-surface-foreground">
+                Step {chapterPosition.position} of {chapterPosition.size} in this chapter
+                <span className="font-normal text-muted-foreground"> · {activeIndex + 1}/{ONBOARDING_STEPS.length} overall</span>
+              </p>
             </div>
           </div>
           <div className="flex flex-shrink-0 items-center gap-3">
@@ -428,7 +480,7 @@ export default function OnboardingTour({
             >
               <div className={`h-full bg-primary ${animations ? 'transition-[width] duration-300 motion-reduce:transition-none' : ''}`} style={{ width: `${((activeIndex + 1) / ONBOARDING_STEPS.length) * 100}%` }} />
             </div>
-            <Button variant="ghost" size="icon" onClick={() => exit('dismissed')} aria-label="Close the guide">
+            <Button variant="ghost" size="icon" onClick={() => exit('dismissed')} aria-label="Close the guide" title="Leave the guide. What you have already done stays done.">
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -455,7 +507,7 @@ export default function OnboardingTour({
                * and the spotlight keeps its space. The body is keyed per step, so
                * every new step starts folded again. */
               <details className={`group mt-4 ${riseClass}`} style={riseDelay(200)}>
-                <summary className="flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground">
+                <summary className="flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground">
                   <ChevronDown
                     className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none"
                     aria-hidden="true"
@@ -466,7 +518,7 @@ export default function OnboardingTour({
               </details>
             ) : (
               <>
-                <h3 className={`mt-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${riseClass}`} style={riseDelay(200)}>In this stage</h3>
+                <h3 className={`mt-4 text-[11px] font-medium text-muted-foreground ${riseClass}`} style={riseDelay(200)}>In this stage</h3>
                 {stageChecklist}
               </>
             )}
@@ -496,33 +548,68 @@ export default function OnboardingTour({
                 </Button>
               </div>
             )}
+            {nextStep && (
+              <div
+                className={`mt-4 flex items-start gap-2.5 rounded-md border border-border bg-surface/60 px-3 py-2 ${riseClass}`}
+                style={riseDelay(440)}
+              >
+                <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+                <div className="min-w-0">
+                  <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                    {nextStep.chapter !== step.chapter && nextChapter
+                      ? `Next chapter · ${nextChapter.chapter.label}`
+                      : 'Next in this chapter'}
+                  </p>
+                  <p className="truncate text-xs font-medium text-card-foreground">{nextStep.title}</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-        {/* Step rail: every visited step stays reachable, and the current one
-          * widens so position in the tour is readable without counting. */}
-        <div className="flex flex-shrink-0 items-center justify-center gap-1.5 border-t border-border bg-surface/60 px-4 py-2.5">
-          {ONBOARDING_STEPS.map((entry, index) => {
-            const state = index < activeIndex ? 'done' : index === activeIndex ? 'current' : 'todo'
+        {/* Step rail: grouped by chapter, so progress reads as a story rather
+          * than a row of thirteen anonymous dots. Every step stays one click
+          * away, and the current one widens within its chapter group. */}
+        <div className="flex flex-shrink-0 flex-wrap items-center justify-center gap-x-2.5 gap-y-2 border-t border-border bg-surface/60 px-4 py-2.5">
+          {ONBOARDING_CHAPTERS.map((chapterEntry) => {
+            const indices = chapterStepIndices(chapterEntry.id)
+            if (indices.length === 0) return null
+            const activeChapter = step.chapter === chapterEntry.id
             return (
-              <button
-                key={entry.id}
-                type="button"
-                onClick={() => goTo(index)}
-                aria-current={state === 'current' ? 'step' : undefined}
-                aria-label={
-                  state === 'current'
-                    ? `Current step: ${entry.title}`
-                    : `${state === 'done' ? 'Reviewed' : 'Upcoming'} step ${index + 1}: ${entry.title}`
-                }
-                title={entry.title}
-                className={`tour-step-dot h-1.5 rounded-full border border-transparent ${
-                  state === 'current'
-                    ? 'w-7 bg-primary'
-                    : state === 'done'
-                      ? 'w-3.5 bg-primary/45 hover:bg-primary/70'
-                      : 'w-3.5 bg-muted hover:bg-border'
+              <div
+                key={chapterEntry.id}
+                role="group"
+                aria-label={`${chapterEntry.label} chapter`}
+                title={chapterEntry.promise}
+                className={`flex items-center gap-1 border-l border-border pl-2.5 first:border-l-0 first:pl-0 ${
+                  activeChapter ? '' : 'opacity-75 hover:opacity-100'
                 }`}
-              />
+              >
+                {indices.map((index) => {
+                  const entry = ONBOARDING_STEPS[index]
+                  const state = index < activeIndex ? 'done' : index === activeIndex ? 'current' : 'todo'
+                  return (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      onClick={() => goTo(index)}
+                      aria-current={state === 'current' ? 'step' : undefined}
+                      aria-label={
+                        state === 'current'
+                          ? `Current step: ${entry.title}`
+                          : `${state === 'done' ? 'Reviewed' : 'Upcoming'} step ${index + 1}: ${entry.title}`
+                      }
+                      title={`${chapterEntry.label}: ${entry.title}`}
+                      className={`tour-step-dot h-1.5 rounded-full border border-transparent ${
+                        state === 'current'
+                          ? 'w-7 bg-primary'
+                          : state === 'done'
+                            ? 'w-3.5 bg-primary/45 hover:bg-primary/70'
+                            : 'w-3.5 bg-muted hover:bg-border'
+                      }`}
+                    />
+                  )
+                })}
+              </div>
             )
           })}
         </div>

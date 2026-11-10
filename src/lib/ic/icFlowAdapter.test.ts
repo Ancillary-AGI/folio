@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { exportGDSII, planFloorplan, synthesize } from './icFlowAdapter'
 import { SKY130_CELLS, type StandardCellKind } from './standardCellLibrary'
+import { expandVerilogPorts, parseVerilogModule } from '../fpga/verilogSubset'
+import { ACC_CPU_VERILOG } from '../fpga/accCpu'
+import { FIR_DSP_VERILOG } from '../fpga/firDsp'
 import type { DigitalNetlist, GateType } from '../simulation/digitalLogic'
 
 /**
@@ -124,6 +127,86 @@ describe('synthesize', () => {
     )
     expect(module.primaryInputs).toEqual(['a', 'b'])
     expect(module.primaryOutputs).toEqual(['n1'])
+  })
+
+  it('maps a D flip-flop to the DFF cell and derives Q-bar with one inverter', () => {
+    const netlist: DigitalNetlist = {
+      gates: [
+        { id: 'g1', type: 'AND', inputs: ['a', 'b'], output: 'd', delay: 1 },
+        { id: 'g2', type: 'BUF', inputs: ['q'], output: 'feedback', delay: 1 },
+      ],
+      flipFlops: [
+        { id: 'ff1', type: 'D', clock: 'clk', edge: 'rising', delay: 1, inputs: { D: 'd' }, q: 'q', qbar: 'qb' },
+      ],
+      initialValues: { q: 0 },
+    }
+    // A flop in the feedback path is a legal sequential loop, not a combinational one.
+    const module = synthesize(netlist, [
+      { name: 'a', direction: 'input' },
+      { name: 'b', direction: 'input' },
+      { name: 'clk', direction: 'input' },
+      { name: 'q', direction: 'output' },
+    ])
+    const kinds = module.instances.map((instance) => instance.cell.kind)
+    expect(kinds).toContain('DFF')
+    expect(kinds.filter((kind) => kind === 'INV')).toHaveLength(1)
+    expect(module.metrics.criticalPathDelayPs).toBeGreaterThan(0)
+  })
+
+  it('emits a tie cell when a netlist reads a constant', () => {
+    const module = synthesize({
+      gates: [{ id: 'g1', type: 'AND', inputs: ['__vdd', 'a'], output: 'y', delay: 0 }],
+      initialValues: { __vdd: 1 },
+    })
+    const kinds = module.instances.map((instance) => instance.cell.kind)
+    expect(kinds).toContain('TIEHI')
+    expect(module.primaryInputs).toEqual(['a'])
+  })
+
+  it('maps the 8-bit accumulator CPU to DFFs and carries it through floorplan and GDSII', () => {
+    const elab = parseVerilogModule(ACC_CPU_VERILOG)
+    const result = synthesize(elab.netlist, expandVerilogPorts(elab.ports))
+    const kinds = result.instances.map((instance) => instance.cell.kind)
+
+    expect(kinds.filter((kind) => kind === 'DFF')).toHaveLength(8)
+    expect(result.primaryInputs.sort()).toEqual(
+      ['clk', 'op[0]', 'op[1]', 'operand[0]', 'operand[1]', 'operand[2]', 'operand[3]',
+       'operand[4]', 'operand[5]', 'operand[6]', 'operand[7]', 'rst'].sort(),
+    )
+    expect(result.primaryOutputs.sort()).toEqual(
+      ['acc[0]', 'acc[1]', 'acc[2]', 'acc[3]', 'acc[4]', 'acc[5]', 'acc[6]', 'acc[7]', 'zero'].sort(),
+    )
+    expect(result.cells).toHaveLength(result.instances.length)
+    expect(result.totalArea).toBeGreaterThan(0)
+    expect(result.criticalPathPs).toBeGreaterThan(0)
+
+    const floorplan = planFloorplan(result)
+    const gds = exportGDSII(result, floorplan)
+    expect(gds.binary.byteLength).toBeGreaterThan(0)
+    expect(gds.text).toContain(`Cells: ${result.instances.length}`)
+    expect(gds.text).toContain(`Polygons: ${result.instances.length}`)
+  })
+
+  it('maps the FIR DSP datapath to 24 DFFs and carries it through layout', () => {
+    const elab = parseVerilogModule(FIR_DSP_VERILOG)
+    const result = synthesize(elab.netlist, expandVerilogPorts(elab.ports))
+    const kinds = result.instances.map((instance) => instance.cell.kind)
+
+    expect(kinds.filter((kind) => kind === 'DFF')).toHaveLength(24)
+    expect(result.primaryInputs.sort()).toEqual(
+      ['clk', 'rst', ...Array.from({ length: 8 }, (_, i) => `sample[${i}]`)].sort(),
+    )
+    expect(result.primaryOutputs.sort()).toEqual(
+      Array.from({ length: 12 }, (_, i) => `y[${i}]`).sort(),
+    )
+    expect(result.instances.length).toBeGreaterThan(80)
+    expect(result.totalArea).toBeGreaterThan(0)
+    expect(result.criticalPathPs).toBeGreaterThan(0)
+
+    const floorplan = planFloorplan(result)
+    const gds = exportGDSII(result, floorplan)
+    expect(gds.text).toContain(`Cells: ${result.instances.length}`)
+    expect(gds.text).toContain(`Polygons: ${result.instances.length}`)
   })
 
   it('exports one GDS polygon per synthesized cell, not a truncated sample', () => {

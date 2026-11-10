@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, RotateCw, Lock, Eye, EyeOff } from "lucide-react";
+import { X, RotateCw, Lock, Eye, EyeOff, ArrowUpRight } from "lucide-react";
 import { Button } from "./ui/button";
 
 interface ComponentInstance {
@@ -9,6 +9,17 @@ interface ComponentInstance {
     name: string;
     category: string;
     pins: Array<{ id: string; name: string; type: string }>;
+    /**
+     * Where the symbol came from, when the library row knows: a designer
+     * selects a part on the sheet and wants the orderable number and the paper
+     * behind its pinout without going back to the dock.
+     */
+    source?: {
+      manufacturer?: string;
+      partNumber?: string;
+      package?: string;
+      datasheetUrl?: string;
+    } | null;
   };
   properties: Record<string, string | number | boolean>;
   x: number;
@@ -18,10 +29,21 @@ interface ComponentInstance {
   visible?: boolean;
 }
 
+interface PinNetRef {
+  name: string | null;
+  wireId: string;
+}
+
 interface PropertiesPanelProps {
   component: ComponentInstance | null;
   onUpdate: (id: string, properties: Record<string, string | number | boolean>) => void;
   onClose: () => void;
+  /**
+   * Where each pin lands, keyed by pin id. A designer reading a pinout wants the
+   * net, not just the pad name; the row probes across to the net inspector.
+   */
+  pinNets?: Record<string, PinNetRef>;
+  onSelectPinNet?: (pinId: string) => void;
 }
 
 /**
@@ -39,7 +61,7 @@ const RESERVED_KEYS = new Set(['x', 'y', 'rotation', 'locked', 'visible']);
 /** Stable stand-in for "nothing selected" so the reload effect has a fixed identity. */
 const NO_PROPERTIES: Record<string, string | number | boolean> = {}
 
-export default function PropertiesPanel({ component, onUpdate, onClose }: PropertiesPanelProps) {
+export default function PropertiesPanel({ component, onUpdate, onClose, pinNets, onSelectPinNet }: PropertiesPanelProps) {
   // The workspace rebuilds its `component` prop on every render, so the staged
   // editor reloads from the values it mirrors rather than the prop's identity:
   // switching a canvas tool mid-edit used to roll the un-applied edits back and
@@ -169,6 +191,13 @@ export default function PropertiesPanel({ component, onUpdate, onClose }: Proper
       .replace(/([A-Z])/g, " $1")
       .replace(/^./, (str) => str.toUpperCase())
       .trim();
+
+  const source = component.component.source ?? null;
+  const partNumber = source?.partNumber ?? null;
+  const sourceLine = [partNumber, source?.manufacturer].filter(Boolean).join(" · ");
+  const sourceTitle = [partNumber, source?.package, source?.manufacturer].filter(Boolean).join(" · ");
+  const datasheetUrl = source?.datasheetUrl ?? null;
+
   return (
     <aside className="cad-inspector" aria-label="Properties inspector">
       {/* Palette title: refdes, part type, dirty state, close */}
@@ -223,6 +252,25 @@ export default function PropertiesPanel({ component, onUpdate, onClose }: Proper
           <span className="cad-prop-label">Category</span>
           <span className="cad-prop-value">{component.component.category}</span>
         </div>
+        {sourceLine ? (
+          <div className="cad-prop-row">
+            <span className="cad-prop-label">Order as</span>
+            <span className="cad-prop-value truncate" title={sourceTitle}>{sourceLine}</span>
+          </div>
+        ) : null}
+        {datasheetUrl ? (
+          <div className="cad-prop-row">
+            <span className="cad-prop-label">Datasheet</span>
+            <a
+              className="truncate text-[11px] text-primary underline-offset-2 hover:underline"
+              href={datasheetUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {partNumber ?? 'Open the pin table'}
+            </a>
+          </div>
+        ) : null}
         <div className="cad-prop-row">
           <span className="cad-prop-label">Lock</span>
           <label className="flex min-w-0 items-center gap-1.5">
@@ -236,7 +284,7 @@ export default function PropertiesPanel({ component, onUpdate, onClose }: Proper
               className="h-3 w-3 accent-primary"
             />
             <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
-            <span className="truncate text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
+            <span className="truncate text-[11px] text-muted-foreground">
               {isLocked ? 'Locked' : 'Free'}
             </span>
           </label>
@@ -258,7 +306,7 @@ export default function PropertiesPanel({ component, onUpdate, onClose }: Proper
             ) : (
               <EyeOff className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
             )}
-            <span className="truncate text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
+            <span className="truncate text-[11px] text-muted-foreground">
               {isVisible ? 'Shown' : 'Hidden'}
             </span>
           </label>
@@ -413,19 +461,59 @@ export default function PropertiesPanel({ component, onUpdate, onClose }: Proper
               </span>
             </div>
             <div className="max-h-44 overflow-y-auto scrollbar-thin">
-              {component.component.pins.map((pin, index) => (
-                <div key={pin.id} className="cad-prop-row">
-                  <span className="cad-prop-value" title={pin.name}>
-                    <span className="text-muted-foreground">
-                      {String(index + 1).padStart(2, '0')}
-                    </span>{' '}
-                    {pin.name}
-                  </span>
-                  <span className="truncate text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
-                    {pin.type}
-                  </span>
-                </div>
-              ))}
+              {component.component.pins.map((pin, index) => {
+                const net = pinNets?.[pin.id];
+                const wired = Boolean(net && onSelectPinNet);
+                const netLabel = net ? net.name ?? 'unnamed' : 'unwired';
+                return (
+                  <button
+                    key={pin.id}
+                    type="button"
+                    className="cad-prop-row group w-full border-x-0 text-left transition-colors enabled:hover:bg-accent/60 focus-visible:bg-accent/60 focus-visible:shadow-[inset_0_0_0_1px_hsl(var(--ring))] focus-visible:outline-none disabled:cursor-default"
+                    onClick={() => onSelectPinNet?.(pin.id)}
+                    disabled={!wired}
+                    title={
+                      wired
+                        ? `${pin.name} · ${pin.type} · on ${netLabel} — open the net`
+                        : `${pin.name} · ${pin.type} · not connected`
+                    }
+                    aria-label={wired ? `Open net ${netLabel} from pin ${pin.name}` : undefined}
+                  >
+                    <span className="cad-prop-value" title={pin.name}>
+                      <span className="text-muted-foreground">
+                        {String(index + 1).padStart(2, '0')}
+                      </span>{' '}
+                      {pin.name}
+                    </span>
+                    <span className="flex min-w-0 items-center justify-end gap-1.5">
+                      <span className="min-w-0 truncate text-[10px] text-muted-foreground">
+                        {pin.type}
+                      </span>
+                      {net ? (
+                        <span
+                          className={`cad-chip min-w-0 px-1.5 text-[10px] ${
+                            net.name
+                              ? 'border-primary/40 bg-primary/10 text-primary'
+                              : 'italic'
+                          }`}
+                        >
+                          <span className="truncate">{netLabel}</span>
+                        </span>
+                      ) : (
+                        <span className="flex-shrink-0 text-[10px] text-muted-foreground/70">
+                          unwired
+                        </span>
+                      )}
+                      {wired && (
+                        <ArrowUpRight
+                          className="h-3 w-3 flex-shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                          aria-hidden
+                        />
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </>
         )}
@@ -433,7 +521,7 @@ export default function PropertiesPanel({ component, onUpdate, onClose }: Proper
 
       {/* Footer: staging state + commit */}
       <div className="flex h-9 flex-shrink-0 items-center justify-between gap-2 border-t border-border bg-surface px-2">
-        <span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+        <span className="text-[11px] text-muted-foreground">
           {hasUnsavedChanges ? 'Modified' : 'In sync'}
         </span>
         <div className="flex items-center gap-1.5">

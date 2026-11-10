@@ -38,13 +38,15 @@ import AutopilotWorkspace from './agent/AutopilotWorkspace'
 import AgentAssistant from './agent/AgentAssistant'
 import AgentToolCatalog from './agent/AgentToolCatalog'
 import JobRunnerPanel from './agent/JobRunnerPanel'
+import ModelSettingsPanel from './agent/ModelSettingsPanel'
 import { useDemoRequest } from '../workspace/useDemoRequest'
 
-type AgentTab = 'autopilot' | 'assistant' | 'tools' | 'jobs' | 'audit'
+type AgentTab = 'autopilot' | 'assistant' | 'models' | 'tools' | 'jobs' | 'audit'
 
 const TABS: ReadonlyArray<{ id: AgentTab; label: string }> = [
   { id: 'autopilot', label: 'Autopilot' },
   { id: 'assistant', label: 'Assistant' },
+  { id: 'models', label: 'Models' },
   { id: 'tools', label: 'Tools' },
   { id: 'jobs', label: 'Always-on' },
   { id: 'audit', label: 'Audit' },
@@ -108,7 +110,7 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
           <Bot size={16} className="text-primary" />
           <span className="text-sm font-semibold">Engineering Agent</span>
           <span
-            className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-xs text-muted-foreground"
+            className="cad-chip"
             title={cloud.configured
               ? `Cloud runner: ${cloud.baseUrl}`
               : 'In-process runner only — always-on jobs need the server-side runner documented in docs/AGENT_CLOUD.md'}
@@ -145,7 +147,7 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
               onClick={onClose}
               aria-label="Close agent panel"
               className="text-muted-foreground hover:text-foreground"
-            >
+              title="Close the agent panel. Changes it already made to the design stay made.">
               <X className="w-3.5 h-3.5" />
             </Button>
           )}
@@ -229,7 +231,17 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
         hidden={tab !== 'assistant'}
         className={tab === 'assistant' ? 'flex min-h-0 flex-1 flex-col' : undefined}
       >
-        <AgentAssistant onCalls={setAuditTrail} />
+        <AgentAssistant onCalls={setAuditTrail} onOpenModels={() => selectTab('models')} />
+      </div>
+
+      <div
+        role="tabpanel"
+        id="agent-panel-models"
+        aria-labelledby="agent-tab-models"
+        hidden={tab !== 'models'}
+        className={tab === 'models' ? 'flex min-h-0 flex-1 flex-col' : undefined}
+      >
+        <ModelSettingsPanel />
       </div>
 
       <div
@@ -261,7 +273,7 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
       >
         <section className="mb-3 rounded-lg border border-border bg-card p-3" aria-labelledby="calls-heading">
           <div className="mb-1 flex items-center justify-between">
-            <h3 id="calls-heading" className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 id="calls-heading" className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               <Wrench size={13} /> Tool calls
             </h3>
             {auditTrail.length > 0 && (
@@ -305,7 +317,7 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
 
         <section className="rounded-lg border border-border bg-card p-3" aria-labelledby="sessions-heading">
           <div className="mb-1 flex items-center justify-between">
-            <h3 id="sessions-heading" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 id="sessions-heading" className="text-xs font-medium text-muted-foreground">
               Saved sessions ({sessions.length})
             </h3>
             <Button
@@ -343,7 +355,7 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
                       className="h-6 px-1.5 text-muted-foreground hover:text-destructive"
                       onClick={() => removeSession(session.id)}
                       aria-label={`Delete session ${session.title}`}
-                    >
+                      title="Delete this session and its transcript from the panel history.">
                       <Trash2 size={11} />
                     </Button>
                   </div>

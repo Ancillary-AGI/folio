@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../lib/marketplace/marketplaceService', () => ({
   marketplaceService: {
     registerPackage: (entry: { id: string } & FakePackage) => {
-      if (entry.id === 'kicad-import') throw new Error('manifest rejected: unknown permission "fs:write"')
+      if (entry.id === 'assembly-export') throw new Error('manifest rejected: unknown permission "fs:write"')
       mocks.packages.set(entry.id, entry)
     },
     getPackage: (id: string) => mocks.packages.get(id),
@@ -40,16 +40,19 @@ vi.mock('../lib/marketplace/marketplaceService', () => ({
 // Imported after the fake is in place, so the module-scope seed uses it.
 const { default: PluginMarketplace } = await import('../components/ecad/PluginMarketplace')
 
-/* The name span sits two levels inside its card row, so climb ancestors until
- * one of them contains the row's action button. */
+/* A featured package renders its name twice — in the featured strip and in the
+ * listing row — so look at every match and take the one whose card carries the
+ * Install control. */
 const installButton = (pluginName: string): HTMLButtonElement => {
-  let node: HTMLElement | null = screen.getByText(pluginName).parentElement
-  while (node && !node.querySelector('button')) node = node.parentElement
-  const button = node?.querySelector('button')
-  if (!(button instanceof HTMLButtonElement)) {
-    throw new Error(`"${pluginName}" has no Install control in its row`)
+  for (const name of screen.getAllByText(pluginName)) {
+    let node: HTMLElement | null = name.parentElement
+    while (node && !Array.from(node.querySelectorAll('button')).some((b) => /install/i.test(b.textContent ?? ''))) {
+      node = node.parentElement
+    }
+    const button = node && Array.from(node.querySelectorAll('button')).find((b) => /install/i.test(b.textContent ?? ''))
+    if (button instanceof HTMLButtonElement) return button
   }
-  return button
+  throw new Error(`"${pluginName}" has no Install control in its row`)
 }
 
 describe('PluginMarketplace registry seeding', () => {
@@ -57,18 +60,18 @@ describe('PluginMarketplace registry seeding', () => {
     render(<PluginMarketplace onClose={() => {}} />)
 
     const alert = screen.getByRole('alert')
-    expect(alert.textContent).toContain('KiCad Project Import')
+    expect(alert.textContent).toContain('Assembly Package Export')
     expect(alert.textContent).toContain('manifest rejected: unknown permission "fs:write"')
     // The refusal is contained: the sibling packages still registered, and the
     // panel renders around the failure instead of blanking.
     expect(mocks.packages.has('klayout-drc')).toBe(true)
-    expect(installButton('KiCad Project Import').textContent).toContain('Install')
+    expect(installButton('Assembly Package Export').textContent).toContain('Install')
   })
 
   it('reports the refusal when the affected Install button is pressed', () => {
     render(<PluginMarketplace onClose={() => {}} />)
 
-    fireEvent.click(installButton('KiCad Project Import'))
+    fireEvent.click(installButton('Assembly Package Export'))
 
     expect(
       screen.getAllByRole('alert').some((node) => /not in the local registry/.test(node.textContent ?? '')),

@@ -1,30 +1,36 @@
 /**
- * Workspace usage ledger for the administration console.
+ * Device-side usage ledger for the workbench.
  *
  * The ledger is deliberately small and boring: append-only events, a hard cap,
- * and aggregation that is deterministic for a given clock. It records what the
- * workbench actually did in this workspace (workspace opens, demos, projects,
- * commits, exports). It is not an analytics pipeline and never leaves the
- * deployment; cloud-wide usage lives in `usage_events` (see the admin migration).
+ * and aggregation that is deterministic for a given clock. It records what this
+ * browser actually did (workspace opens, demos, projects, commits, exports) and
+ * `usageRecorder` mirrors each event into the deployment's `usage_events` table,
+ * which is what the operator console reports on. The aggregations here are pure
+ * functions over events, so the console reuses them on deployment rows instead
+ * of keeping a second, divergent implementation.
  */
 
 export const USAGE_STORAGE_KEY = 'folio.usage.v1'
 export const USAGE_EVENT_CAP = 5000
 
-export type UsageKind =
-  | 'workspace.open'
-  | 'demo.load'
-  | 'project.create'
-  | 'project.open'
-  | 'vcs.commit'
-  | 'export.run'
-  | 'simulation.run'
-  | 'agent.run'
+/** One list, so the recorder, the console's filters and the schema cannot drift. */
+export const USAGE_KINDS = [
+  'workspace.open',
+  'demo.load',
+  'project.create',
+  'project.open',
+  'vcs.commit',
+  'export.run',
+  'simulation.run',
+  'agent.run',
   /** The engineer reached the last step and finished or took the hand-off. */
-  | 'onboarding.complete'
+  'onboarding.complete',
   /** The guide was closed or skipped before the last step. */
-  | 'onboarding.exit'
-  | 'admin.open'
+  'onboarding.exit',
+  'admin.open',
+] as const
+
+export type UsageKind = (typeof USAGE_KINDS)[number]
 
 export interface UsageEvent {
   id: string
@@ -143,7 +149,7 @@ export function getUsageEvents(): readonly UsageEvent[] {
 /**
  * True when the ledger is being written to durable browser storage. A blocked
  * or full store leaves the in-memory ledger usable for this session only, and
- * the administration console labels that state instead of implying durability.
+ * the workbench labels that state instead of implying durability.
  */
 export function isUsageLedgerPersistent(): boolean {
   return typeof localStorage !== 'undefined' && !persistenceFailed
@@ -154,7 +160,7 @@ export function subscribeUsage(listener: () => void): () => void {
   return () => listeners.delete(listener)
 }
 
-/** Tests and the admin reset action; production code never calls this silently. */
+/** Tests reset the module singleton between cases; production code never calls this. */
 export function resetUsageLedger(): void {
   cache = []
   cacheLoaded = true
@@ -224,6 +230,47 @@ export function summarizeUsage(events: readonly UsageEvent[], days: number, now 
       .map(([date, count]) => ({ date, count }))
       .sort((a, b) => a.date.localeCompare(b.date)),
   }
+}
+
+/** What one account did inside the window the console is showing. */
+export interface AccountUsage {
+  user: string
+  events: number
+  /** Most recent event; an account with no events has no entry at all. */
+  lastAt: number
+  topKind: UsageKind
+  kinds: Array<{ kind: UsageKind; count: number }>
+}
+
+/**
+ * Roll a window of events up per account, for the People table.
+ *
+ * The directory knows who exists; only the ledger knows who actually works
+ * here. Keying the rollup by account is what lets an administrator sort a
+ * list of names by use instead of by alphabet — and an account with no events
+ * is absent rather than zero-filled, so the table can say "no activity"
+ * instead of implying it measured something it did not.
+ */
+export function usageByAccount(events: readonly UsageEvent[]): Map<string, AccountUsage> {
+  const rows = new Map<string, { events: number; lastAt: number; kinds: Map<UsageKind, number> }>()
+  for (const event of events) {
+    const row = rows.get(event.user)
+    if (row) {
+      row.events += 1
+      row.lastAt = Math.max(row.lastAt, event.at)
+      row.kinds.set(event.kind, (row.kinds.get(event.kind) ?? 0) + 1)
+    } else {
+      rows.set(event.user, { events: 1, lastAt: event.at, kinds: new Map([[event.kind, 1]]) })
+    }
+  }
+  const usage = new Map<string, AccountUsage>()
+  for (const [user, row] of rows) {
+    const kinds = [...row.kinds.entries()]
+      .map(([kind, count]) => ({ kind, count }))
+      .sort((a, b) => b.count - a.count || a.kind.localeCompare(b.kind))
+    usage.set(user, { user, events: row.events, lastAt: row.lastAt, topKind: kinds[0].kind, kinds })
+  }
+  return usage
 }
 
 export function countUsage(

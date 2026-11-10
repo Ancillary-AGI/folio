@@ -182,6 +182,21 @@ describe('buildPcbScene', () => {
     expect(scene.components[0].bodyWidthMm).toBe(2)
   })
 
+  it('lays copper for a datasheet package the library does not hand-build', () => {
+    // The catalog ships ISO7741 in SOIC-16 and the board has never held that
+    // pattern. Without the generated family it arrives as a padless blob and the
+    // router has nowhere to land it; with it, every pin gets a land.
+    const scene = buildPcbScene({
+      ...BASE,
+      components: [{
+        id: 'u7', reference: 'U7', footprint: 'SOIC-16', category: 'interface', x: 50, y: 40, pinCount: 16,
+      }],
+    })
+    expect(scene.warnings.filter((warning) => warning.code === 'unknown-footprint')).toEqual([])
+    expect(scene.components[0].pads).toHaveLength(16)
+    expect(scene.components[0].bodyWidthMm).toBeGreaterThan(3)
+  })
+
   it('flags components outside the outline', () => {
     const scene = buildPcbScene({
       ...BASE,

@@ -138,7 +138,7 @@ export default function CollaborativePanel({ onClose }: CollaborativePanelProps)
   return <Card className="flex h-full flex-col rounded-none border-y-0 border-r-0">
     <CardHeader className="flex flex-row items-center justify-between border-b border-border py-3">
       <CardTitle className="flex items-center gap-2 text-sm"><Users className="h-4 w-4" />Collaboration</CardTitle>
-      <div className="flex gap-1"><Button variant="ghost" size="icon" onClick={refresh} aria-label="Refresh collaboration"><RefreshCw className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={onClose} aria-label="Close collaboration"><X className="h-4 w-4" /></Button></div>
+      <div className="flex gap-1"><Button variant="ghost" size="icon" onClick={refresh} aria-label="Refresh collaboration" title="Re-read the collaborator list and who is online right now."><RefreshCw className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={onClose} aria-label="Close collaboration" title="Close the collaboration dock. Sharing settings you saved stay."><X className="h-4 w-4" /></Button></div>
     </CardHeader>
     <CardContent className="flex-1 space-y-5 overflow-y-auto p-4">
       <div
@@ -161,7 +161,7 @@ export default function CollaborativePanel({ onClose }: CollaborativePanelProps)
       </div>
 
       <section className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Shared projects</h3>
+        <h3 className="text-xs font-medium text-muted-foreground">Shared projects</h3>
         {projects.length > 0 && (
           <select
             aria-label="Shared project"
@@ -189,7 +189,7 @@ export default function CollaborativePanel({ onClose }: CollaborativePanelProps)
 
       {selectedProject && (
         <section className="space-y-2">
-          <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             <Share2 className="h-3.5 w-3.5" />Sharing — {selectedProject.name}
           </h3>
           <div className="flex flex-wrap gap-1">
@@ -198,7 +198,7 @@ export default function CollaborativePanel({ onClose }: CollaborativePanelProps)
               return (
                 <span
                   key={permission}
-                  className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${allowed ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground line-through'}`}
+                  className={`rounded px-1.5 py-0.5 text-[11px] ${allowed ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground line-through'}`}
                 >
                   {permission}
                 </span>
@@ -226,6 +226,7 @@ export default function CollaborativePanel({ onClose }: CollaborativePanelProps)
                   aria-label={`Remove ${collaborator.user.email}`}
                   disabled={!canManage || collaborator.role === 'owner'}
                   onClick={() => removeCollaborator(collaborator.user.id)}
+                  title="Take this account off the project so it can no longer open it."
                 >
                   <Trash2 className="h-3 w-3" />
                 </Button>
@@ -256,8 +257,8 @@ export default function CollaborativePanel({ onClose }: CollaborativePanelProps)
         </section>
       )}
 
-      <section><h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Participants ({users.length})</h3><div className="space-y-2">{users.length ? users.map(user => <div key={user.id} className="flex items-center gap-2 rounded-md border border-border p-2"><span className="cad-swatch h-2.5 w-2.5 rounded-full" style={{ backgroundColor: user.color }} /><span className="min-w-0 flex-1 truncate text-sm">{user.name}</span><span className="text-xs text-muted-foreground">{user.isActive ? 'Active' : 'Away'}</span></div>) : <p className="text-sm text-muted-foreground">Open a project to start a collaboration session.</p>}</div></section>
-      <section><h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Recent design operations</h3><div className="space-y-2">{operations.length ? operations.map(operation => <div key={operation.id} className="rounded-md border border-border p-2"><p className="text-xs font-medium">{operation.type.replace(/_/g, ' ')}</p><p className="mt-1 text-xs text-muted-foreground">{new Date(operation.timestamp).toLocaleTimeString()}</p></div>) : <p className="text-sm text-muted-foreground">Operations will appear here as collaborators edit the design.</p>}</div></section>
+      <section><h3 className="mb-2 text-xs font-medium text-muted-foreground">Participants ({users.length})</h3><div className="space-y-2">{users.length ? users.map(user => <div key={user.id} className="flex items-center gap-2 rounded-md border border-border p-2"><span className="cad-swatch h-2.5 w-2.5 rounded-full" style={{ backgroundColor: user.color }} /><span className="min-w-0 flex-1 truncate text-sm">{user.name}</span><span className="text-xs text-muted-foreground">{user.isActive ? 'Active' : 'Away'}</span></div>) : <p className="text-sm text-muted-foreground">Open a project to start a collaboration session.</p>}</div></section>
+      <section><h3 className="mb-2 text-xs font-medium text-muted-foreground">Recent design operations</h3><div className="space-y-2">{operations.length ? operations.map(operation => <div key={operation.id} className="rounded-md border border-border p-2"><p className="text-xs font-medium">{operation.type.replace(/_/g, ' ')}</p><p className="mt-1 text-xs text-muted-foreground">{new Date(operation.timestamp).toLocaleTimeString()}</p></div>) : <p className="text-sm text-muted-foreground">Operations will appear here as collaborators edit the design.</p>}</div></section>
     </CardContent>
   </Card>
 }

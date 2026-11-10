@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useProjectStore } from '../../stores/useProjectStore'
+import { standardComponents } from '../componentLibrary'
 import {
   connectPartsFromText,
   libraryPartForText,
   placeComponentFromText,
+  TYPE_ALIASES,
 } from './designActions'
 
 const resetSheet = () => {
@@ -19,6 +21,31 @@ describe('libraryPartForText', () => {
     expect(libraryPartForText('add an op amp')).toBe('Op-Amp')
     expect(libraryPartForText('drop a ground')).toBe('Ground')
     expect(libraryPartForText('something exotic')).toBeNull()
+  })
+
+  it('resolves silicon phrases to datasheet parts, not invented stand-ins', () => {
+    expect(libraryPartForText('place an arduino')).toBe('ATmega328P-PU AVR 8-bit microcontroller')
+    expect(libraryPartForText('add a wifi module')).toBe('ESP32-WROOM-32 WiFi + Bluetooth module')
+    expect(libraryPartForText('drop an eeprom')).toBe('24LC256 256Kbit I2C EEPROM')
+  })
+
+  it('names a library part for every alias it offers', () => {
+    // Read the whole table, not a hand-written sample: a spoken word that
+    // resolves to nothing in the library would place nothing, and a word that
+    // resolves to an invented part is worse still.
+    expect(TYPE_ALIASES.length).toBeGreaterThan(20)
+    for (const [aliases, name] of TYPE_ALIASES) {
+      expect(
+        standardComponents.some((part) => part.name === name),
+        `the library has no part named "${name}"`,
+      ).toBe(true)
+      for (const alias of aliases) {
+        // The phrase is singularised before matching, so an alias ending in "s"
+        // is a row nobody can ever speak.
+        expect(alias, `"${alias}" can never match a singularised token`).not.toMatch(/s$/)
+        expect(libraryPartForText(`place a ${alias}`), `no part for "${alias}"`).toBe(name)
+      }
+    }
   })
 })
 
@@ -54,7 +81,7 @@ describe('placeComponentFromText', () => {
   })
 
   it('refuses an unknown part and leaves the sheet untouched', () => {
-    const result = placeComponentFromText('place a graviton flux drive')
+    const result = placeComponentFromText('place a zorinium zx-1')
     expect(result.applied).toBe(false)
     expect(result.detail).toContain('could not tell')
     expect(useProjectStore.getState().components).toHaveLength(0)

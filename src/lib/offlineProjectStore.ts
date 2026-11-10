@@ -55,6 +55,22 @@ export const offlineProjectStore = {
     return project
   },
 
+  /**
+   * Rename in place. Returns the stored project, or undefined when the id is not
+   * in the workspace, so the caller can tell a rejected rename from a saved one.
+   */
+  rename(projectId: string, name: string): OfflineProject | undefined {
+    const trimmed = name.trim()
+    if (!trimmed) return undefined
+    const updated = readProjects().map((project) =>
+      project.id === projectId
+        ? { ...project, name: trimmed, updated_at: new Date().toISOString() }
+        : project
+    )
+    writeProjects(updated)
+    return updated.find((project) => project.id === projectId)
+  },
+
   saveCanvas(projectId: string, canvasData: Record<string, unknown>): void {
     writeProjects(readProjects().map((project) =>
       project.id === projectId

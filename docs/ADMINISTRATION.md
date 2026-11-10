@@ -1,19 +1,29 @@
-# Administration and governance
+# Admin console and governance
 
-Verified against the working tree on 2026-10-28.
+Verified against the working tree on 2026-11-03.
 
-The administration console is a separate surface from the multi-domain CAD
-workspace. It lives at `/admin` (header shield button, or the More menu on narrow
-screens) and answers three questions: **who can use this deployment**, **what did
-they use**, and **what limits apply**. It is intentionally not a CAD mode, so it
-opens with or without a project loaded.
+The admin console is the surface for the people who administer a Folio
+deployment: who is allowed in, what each account did in the multi-domain
+workbench, and what that costs against the role policy. It is a separate surface
+from the CAD workspace, lives at `/admin`, and is openable only by typing that
+address — there is no button for it anywhere in the app. That is deliberate:
+governing an installation is not a design action, so no launcher or project
+header carries a control an engineer would only ever mistake for one. Access is
+still gated by role, and the console opens with or without a project loaded.
+
+The sections are those questions, in order, on a left rail: **People** (who is
+here, what each account did, and what can be done to them), **Usage** (the
+ledger behind those counts), **Quotas** (the policy each role lives under),
+**Audit trail** (what the console itself did), **Environment** (what this
+deployment can honestly govern). It opens on People; there is no overview tab of
+numbers that the sections below already state.
 
 ## What is implemented
 
 | Capability | Standalone mode (no Supabase vars) | Cloud mode (Supabase configured) |
 | --- | --- | --- |
 | Access check | Workspace administrator, always allowed | `profiles.role` is owner/admin and `status = active` |
-| People list | One administrator | `profiles` rows, newest sign-ups included |
+| People list | One administrator, plus what this device recorded for them | `profiles` rows, each with its own ledger rollup |
 | Role changes | Not applicable (one administrator) | Admin update, audited |
 | Suspend/restore | Not applicable | Admin update; self-suspension refused |
 | Invitations | Not applicable | **Not shipped** — needs a service-role server function |
@@ -61,11 +71,16 @@ Properties:
 - Backdated events are preserved, not collapsed.
 - Fully local: no analytics service, no third-party call.
 - If the browser refuses `localStorage` (blocked or full), events stay in memory
-  for the session and the Usage and Environment tabs say the ledger is not
+  for the session and the Usage and Environment sections say the ledger is not
   durable instead of implying it survives the tab.
-- The Usage tab offers 7/14/30/90-day windows, a kind filter, CSV export, a daily
-  chart, per-workspace and per-user totals, and a two-step "clear this device's
-  ledger" action.
+- The Usage section offers 7/14/30/90-day windows, a kind filter, CSV export, a
+  daily chart, per-workspace and per-user totals, and a two-step "clear this
+  device's ledger" action.
+- The People section reads the **same window** of the same ledger: one rollup per
+  account (`usageByAccount`) gives its event count, busiest action and last
+  action, and expanding a row lists that account's most recent events. A count in
+  People can therefore never disagree with the Usage table, and both fall silent
+  ("No recorded activity") rather than inventing a number.
 - Clearing is a **whole-ledger** action: the confirmation names the total number
   of stored events, not just the rows visible in the current window. Audit events
   are kept, and the clear itself is written to the audit trail.
@@ -155,17 +170,21 @@ Guards:
 ## Verification
 
 - `src/lib/admin/usageLedger.test.ts` — dedupe, backdated events, cap,
-  aggregation, malformed storage, and refused reads/writes reported as
-  non-durable rather than silently lost.
+  aggregation, the per-account rollup the People section is built on, malformed
+  storage, and refused reads/writes reported as non-durable rather than silently
+  lost.
 - `src/lib/admin/quotaPolicy.test.ts` — defaults, parsing, persistence,
   enforcement decisions, status thresholds.
 - `src/lib/admin/adminService.test.ts` — offline/cloud access resolution, missing
   schema, self-demotion guard, audit records, capability labels.
-- `src/__tests__/adminConsole.test.tsx` — overview, people, usage, quota save,
-  invalid limits, environment, back navigation, CSV download, whole-ledger clear
-  scope, unavailable storage estimate and the non-durable ledger warning.
+- `src/__tests__/adminConsole.test.tsx` — the console opening on the account
+  directory, one account's recorded activity expanded from the ledger, directory
+  search by name or email, invitations being labelled cloud-only, usage rows and
+  the kind filter, quota save, invalid limits, environment, back navigation, CSV
+  download, whole-ledger clear scope, unavailable storage estimate and the
+  non-durable ledger warning.
 - `src/__tests__/adminMirrorError.test.tsx` — a failed `usage_events` mirror is
-  reported in the Usage tab instead of looking like a successful sync.
+  reported in the Usage section instead of looking like a successful sync.
 - `src/__tests__/appShell.test.tsx` — `/admin` deep link, return to projects,
   launcher overlays, and workbench shortcuts being ignored on `/admin`.
 - `src/stores/routing.test.ts` — `/admin` is recognised without becoming a

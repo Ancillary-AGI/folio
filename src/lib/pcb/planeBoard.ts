@@ -152,12 +152,15 @@ export function categoryOf(footprint: string): string {
  * routes are the real copper.
  */
 export function toPlacedComponent(part: PlaneBoardPart): PlacedComponent {
-  const pins = Array.from({ length: resolveFootprint(part.footprint)?.pads.length ?? 0 }, (_, index) => ({
-    id: String(index + 1),
-    x: 0,
-    y: 0,
-    name: String(index + 1),
-  }))
+  const pins = Array.from(
+    { length: resolveFootprint(part.footprint, undefined, part.nets.length)?.pads.length ?? 0 },
+    (_, index) => ({
+      id: String(index + 1),
+      x: 0,
+      y: 0,
+      name: String(index + 1),
+    }),
+  )
   return {
     id: part.ref,
     componentId: `plane-board-${part.footprint}`,
@@ -201,7 +204,7 @@ export function netsFromParts(
 export function landMarksOf(parts: PlaneBoardPart[]): PlaneBoardLand[] {
   const marks: PlaneBoardLand[] = []
   for (const part of parts) {
-    const footprint = resolveFootprint(part.footprint)
+    const footprint = resolveFootprint(part.footprint, undefined, part.nets.length)
     if (!footprint) continue
     const radians = ((part.rotationDeg ?? 0) * Math.PI) / 180
     const cos = Math.cos(radians)

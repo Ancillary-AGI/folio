@@ -100,6 +100,12 @@ function mapGates(netlist: DigitalNetlist): GatePrimitive[] {
     usedNets.add(gate.output)
     for (const input of gate.inputs) usedNets.add(input)
   }
+  for (const ff of netlist.flipFlops ?? []) {
+    usedNets.add(ff.q)
+    usedNets.add(ff.qbar)
+    usedNets.add(ff.clock)
+    for (const input of Object.values(ff.inputs)) usedNets.add(input)
+  }
 
   let serial = 0
   const freshNet = (): string => {
@@ -175,6 +181,28 @@ function mapGates(netlist: DigitalNetlist): GatePrimitive[] {
     }
   }
 
+  /*
+   * Clocked registers. The library's DFF exposes Q only, so Q-bar is derived
+   * with one inverter rather than being invented as a cell pin. The inverter
+   * keeps Q-bar available to any logic that reads it, at the cost of one cell
+   * per register bit — visible in area, which is the honest accounting.
+   */
+  for (const ff of netlist.flipFlops ?? []) {
+    if (ff.type !== 'D') {
+      throw new Error(`Only D flip-flops can be mapped to SKY130; ${ff.id} is ${ff.type}`)
+    }
+    const d = ff.inputs.D
+    if (!d) throw new Error(`Flip-flop ${ff.id} has no D input`)
+    addCell('DFF', [d, ff.clock], ff.q)
+    addCell('INV', [ff.q], ff.qbar)
+  }
+
+  /* Constants are nets, not cells: the parser records them in initialValues
+   * and gate inputs, so synthesize them as the library's tie cells. */
+  const consumed = new Set(primitives.flatMap((primitive) => Object.values(primitive.inputs)))
+  if (consumed.has('__vdd')) primitives.unshift({ id: 'TIE1', kind: 'TIEHI', inputs: {}, outputs: { HI: '__vdd' } })
+  if (consumed.has('__gnd')) primitives.unshift({ id: 'TIE0', kind: 'TIELO', inputs: {}, outputs: { LO: '__gnd' } })
+
   return primitives
 }
 
@@ -196,8 +224,9 @@ export function synthesize(netlist: DigitalNetlist, ports?: PortDirection[]): Sy
   } else {
     const driven = new Set(netlist.gates.map((gate) => gate.output))
     const consumed = new Set(netlist.gates.flatMap((gate) => gate.inputs))
-    primaryInputs = [...consumed].filter((net) => !driven.has(net))
-    primaryOutputs = [...driven].filter((net) => !consumed.has(net))
+    const constant = (net: string): boolean => net === '__vdd' || net === '__gnd'
+    primaryInputs = [...consumed].filter((net) => !driven.has(net) && !constant(net))
+    primaryOutputs = [...driven].filter((net) => !consumed.has(net) && !constant(net))
   }
 
   const blank = {

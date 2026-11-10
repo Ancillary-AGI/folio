@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import { Component, Project, Schematic } from '../lib/supabase'
 import { generateId } from '../lib/utils'
+import { useAppStore } from './useAppStore'
 import type { PcbSceneInput } from '../lib/pcb/pcbScene'
 import {
   createDefaultMechanicalParts,
@@ -143,6 +144,10 @@ let componentCounter = 1
 /** Monotonic per-process suffix for simulation-run ids (no Math.random). */
 let simRunSeq = 0
 
+/** Bounds on the user-set undo depth: enough to be useful, not enough to be a leak. */
+const UNDO_DEPTH_MIN = 20
+const UNDO_DEPTH_MAX = 500
+
 export const useProjectStore = create<ProjectState>()(
   devtools((set, get) => {
     const undoStack: Array<{ components: CanvasComponent[]; wires: CanvasWire[] }> = []
@@ -157,7 +162,14 @@ export const useProjectStore = create<ProjectState>()(
     })
     const pushUndo = () => {
       undoStack.push(takeSnapshot())
-      if (undoStack.length > 50) undoStack.shift()
+      /*
+       * The cap is a preference, because a fixed 50 is not enough for a long
+       * drafting session: the earliest edits used to fall off the stack with
+       * nothing on screen saying so. Clamped either way, since every snapshot is
+       * a whole sheet and a hundred-megabyte history would be its own failure.
+       */
+      const depth = Math.min(UNDO_DEPTH_MAX, Math.max(UNDO_DEPTH_MIN, useAppStore.getState().settings.historyDepth))
+      while (undoStack.length > depth) undoStack.shift()
       redoStack.length = 0
     }
     return {

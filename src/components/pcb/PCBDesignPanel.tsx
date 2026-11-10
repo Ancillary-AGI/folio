@@ -783,7 +783,13 @@ function PCBCanvas({
     return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null
   }
 
-  const snapToGrid = (point: Point): Point => snapBoardPoint(point, snapGridMm)
+  /*
+   * The board grid is an aid, not a rule: with the app-wide "snap to grid"
+   * switched off the cursor lands where it was pointed. Read at call time so a
+   * change in Settings takes effect on the next click, not on the next reload.
+   */
+  const snapToGrid = (point: Point): Point =>
+    useAppStore.getState().settings.snapToGrid ? snapBoardPoint(point, snapGridMm) : point
 
   /** A point just off the outline lands on the edge instead of in the void. */
   const onBoard = (point: Point): Point => snapToGrid({
@@ -1494,6 +1500,11 @@ function PCBCanvas({
             const padsAlongX = localPads.length === 2
               && Math.abs(localPads[1].x - localPads[0].x) >= Math.abs(localPads[1].z - localPads[0].z)
             const gap = 0.2
+            /* A package needs its pin-1 mark when the body has an orientation a
+             * two-terminal part does not: more than two pads, or a keyed housing.
+             * Keyed off the pad count, not the category, so an op-amp dropped from
+             * the library is marked the same as a logic IC. */
+            const multiLead = component.category === 'connector' || localPads.length > 2
             // Cathode band sits at the cathode (pad 2) end of the package,
             // not across the middle of the body.
             const cathodeX = (localPads[1]?.x ?? 0) >= 0 ? width * 0.28 : -width * 0.28
@@ -1565,7 +1576,7 @@ function PCBCanvas({
                     y={-depth / 2}
                     width={width}
                     height={depth}
-                    rx={component.category === 'ic' || component.category === 'connector' ? 0.18 : 0.08}
+                    rx={multiLead ? 0.18 : 0.08}
                     fill={component.color}
                     stroke={selected ? '#38bdf8' : '#0c0e10'}
                     strokeWidth={selected ? 0.24 : 0.1}
@@ -1585,7 +1596,7 @@ function PCBCanvas({
                   />
                 ) : null}
 
-                {component.category === 'ic' || component.category === 'connector' ? (
+                {multiLead ? (
                   <>
                     <rect
                       x={-width / 2 - gap}
@@ -1882,33 +1893,29 @@ function PCBCanvas({
       </div>
 
       {draft ? (
-        <div className="absolute bottom-10 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border/60 bg-overlay/85 px-2 py-1 text-[11px] text-overlay-foreground shadow-lg backdrop-blur-md">
+        <div className="absolute bottom-10 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-border/60 bg-overlay/85 px-2 py-1 text-[11px] text-overlay-foreground shadow-lg backdrop-blur-md">
           <span className="pl-1.5">
             {draft.points.length} pt{draft.points.length === 1 ? '' : 's'} · {draft.netName || 'no net'}
           </span>
-          <Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={finishDraft}>
-            Finish trace
-          </Button>
-          <Button size="sm" variant="ghost" className="h-6 text-[11px]" onClick={cancelDraft}>
-            Cancel
-          </Button>
+          <button type="button" className="cad-ctl" onClick={finishDraft}>Finish trace</button>
+          <button type="button" className="cad-ctl" onClick={cancelDraft}>Cancel</button>
         </div>
       ) : null}
 
-      <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-full border border-border/60 bg-surface/90 p-0.5 shadow-lg backdrop-blur-md">
-        <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Zoom in" title="Zoom in" onClick={() => changeZoom(1.25)}>
-          <ZoomIn className="h-3 w-3" />
-        </Button>
-        <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Zoom out" title="Zoom out" onClick={() => changeZoom(1 / 1.25)}>
-          <ZoomOut className="h-3 w-3" />
-        </Button>
-        <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Fit board" title="Fit board" onClick={resetView}>
-          <Maximize2 className="h-3 w-3" />
-        </Button>
+      <div className="absolute right-2 top-2 flex items-center gap-1 rounded-lg border border-border/60 bg-surface/90 p-1 shadow-lg backdrop-blur-md">
+        <button type="button" className="cad-ctl cad-ctl--icon" aria-label="Zoom in" title="Zoom in" onClick={() => changeZoom(1.25)}>
+          <ZoomIn />
+        </button>
+        <button type="button" className="cad-ctl cad-ctl--icon" aria-label="Zoom out" title="Zoom out" onClick={() => changeZoom(1 / 1.25)}>
+          <ZoomOut />
+        </button>
+        <button type="button" className="cad-ctl cad-ctl--icon" aria-label="Fit board" title="Fit board" onClick={resetView}>
+          <Maximize2 />
+        </button>
       </div>
 
       {scene && scene.warnings.length > 0 ? (
-        <div className="pointer-events-none absolute bottom-2 right-2 rounded-full bg-destructive/90 px-2.5 py-1 text-[11px] text-destructive-foreground shadow-lg">
+        <div className="cad-chip cad-chip--alert pointer-events-none absolute bottom-2 right-2 border-destructive/60 bg-destructive/90 text-destructive-foreground">
           {scene.warnings.length} placement warning{scene.warnings.length === 1 ? '' : 's'}
         </div>
       ) : null}
@@ -3060,6 +3067,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
         reference: component.reference,
         footprint: String(component.properties.footprint ?? component.component.name),
         category: typeof component.component.category === 'string' ? component.component.category : undefined,
+        pinCount: component.component.pins.length,
         x: component.position.x,
         y: component.position.y,
         rotationDeg: component.rotation,
@@ -3535,7 +3543,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                 <span className="hidden sm:inline">Preview 3D</span>
               </Button>
             )}
-            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close PCB panel"><X className="w-4 h-4" /></Button>
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close PCB panel" title="Leave the board editor; closing writes nothing to the design."><X className="w-4 h-4" /></Button>
           </div>
         </div>
 
@@ -3559,7 +3567,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
           >
             {BOARD_TOOL_GROUPS.map((group) => (
               <div key={group.title} role="group" aria-label={group.title}>
-                <p className={`mb-1 hidden px-1 text-[10px] font-semibold uppercase tracking-wider lg:block ${group.tone}`}>
+                <p className={`mb-1 hidden px-1 text-[11px] font-semiboldr lg:block ${group.tone}`}>
                   {group.title}
                 </p>
                 <div className="flex flex-col gap-1">
@@ -3591,7 +3599,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                 icon rail: three abreast at 40px of content would put each target
                 under the 24px floor. */}
             <div role="group" aria-label="Part edits">
-              <p className="mb-1 hidden px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground lg:block">
+              <p className="mb-1 hidden px-1 text-[11px] font-semiboldr text-muted-foreground lg:block">
                 Part
               </p>
               <div className="grid grid-cols-1 gap-1 lg:grid-cols-3">
@@ -3626,7 +3634,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
             </div>
 
             <div role="group" aria-label="History">
-              <p className="mb-1 hidden px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground lg:block">
+              <p className="mb-1 hidden px-1 text-[11px] font-semiboldr text-muted-foreground lg:block">
                 History
               </p>
               <div className="grid grid-cols-1 gap-1 lg:grid-cols-2">
@@ -3652,7 +3660,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
             </div>
 
             <div className="mt-auto hidden rounded-md border border-border bg-muted/40 p-2 lg:block">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="text-[11px] font-semiboldr text-muted-foreground">
                 Active tool
               </p>
               <p className="mt-0.5 text-xs font-semibold text-foreground">{activeToolMeta.label}</p>
@@ -3663,14 +3671,13 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
           {/* Centre: Canvas + tabs */}
           <div className="flex-1 flex flex-col min-w-0 min-h-0">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0">
-              {/* Seven analysis tabs will not fit side by side on a narrow
-                  sheet, and a grid column is happy to clip a label to prove it.
-                  Content-sized triggers in a horizontally scrollable strip keep
-                  every name whole; `justify-start` is load-bearing because a
-                  centred flex row overflows at the *left*, which no scrollbar
-                  can reach. Height is 36px so the 28px triggers fill the strip's
-                  content box instead of poking two pixels past its padding. */}
-              <TabsList className="mx-2 mt-2 flex h-9 w-auto flex-nowrap items-stretch justify-start gap-1 overflow-x-auto scrollbar-none text-xs">
+              {/* The seven analysis tabs take the width they are given and spill
+                  onto a second line on a narrow sheet. Scrolling them sideways was
+                  worse: a hidden rail leaves no cue that an analysis exists, and
+                  the strip is wide enough on any normal window that the scroll
+                  never appeared anyway. `justify-start` still matters — a centred
+                  flex row overflows at the *left*, which no scrollbar can reach. */}
+              <TabsList className="mx-2 mt-2 flex h-auto w-auto flex-wrap items-center justify-start gap-1 text-xs">
                 <TabsTrigger value="canvas" className="h-7 shrink-0 px-3 text-xs">Canvas</TabsTrigger>
                 <TabsTrigger value="drc" className="h-7 shrink-0 px-3 text-xs">DRC</TabsTrigger>
                 <TabsTrigger value="emc" className="h-7 shrink-0 px-3 text-xs">EMC</TabsTrigger>
@@ -4205,7 +4212,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                                 const value = Number(event.target.value)
                                 if (Number.isFinite(value) && value > 0) updateStackupLayer(index, { thickness: value })
                               }}
-                              className="w-14 rounded border border-border bg-background px-1 py-0.5 text-[11px]"
+                              className="w-14 rounded border border-input bg-background px-1 py-0.5 text-[11px]"
                             />
                             <span className="text-[10px] text-muted-foreground">mm</span>
                             <input
@@ -4219,7 +4226,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                                 const value = Number(event.target.value)
                                 if (Number.isFinite(value) && value >= 1) updateStackupLayer(index, { er: value })
                               }}
-                              className="w-14 rounded border border-border bg-background px-1 py-0.5 text-[11px]"
+                              className="w-14 rounded border border-input bg-background px-1 py-0.5 text-[11px]"
                             />
                             <span className="text-[10px] text-muted-foreground">εr</span>
                           </div>
@@ -4236,7 +4243,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                                 const value = Number(event.target.value)
                                 if (Number.isFinite(value) && value > 0) updateStackupLayer(index, { thickness: value })
                               }}
-                              className="w-14 rounded border border-border bg-background px-1 py-0.5 text-[11px]"
+                              className="w-14 rounded border border-input bg-background px-1 py-0.5 text-[11px]"
                             />
                             <span className="text-[10px] text-muted-foreground">oz</span>
                             {layer.net ? <span className="text-[10px] text-muted-foreground">· {layer.net}</span> : null}
@@ -4597,16 +4604,16 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                             <div className="cad-swatch w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: layer.color }} />
                             <span>{layer.name}</span>
                           </div>
-                          <Button variant="ghost" size="icon" className="h-5 w-5" onClick={e => { e.stopPropagation(); toggleLayerVisibility(layer.id) }} aria-label={layer.visible ? `Hide ${layer.name}` : `Show ${layer.name}`}>
+                          <Button variant="ghost" size="icon" className="h-5 w-5" onClick={e => { e.stopPropagation(); toggleLayerVisibility(layer.id) }} aria-label={layer.visible ? `Hide ${layer.name}` : `Show ${layer.name}`} title="Show or hide this layer in the board view.">
                             {layer.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3 opacity-40" />}
                           </Button>
                         </div>
                         {innerFilm !== undefined ? (
                           <div className="flex items-center gap-1.5 pl-1.5">
-                            <label htmlFor={`plane-net-${layer.id}`} className="text-[10px] uppercase tracking-wide text-muted-foreground">Pour</label>
+                            <label htmlFor={`plane-net-${layer.id}`} className="text-[11px] text-muted-foreground">Pour</label>
                             <select
                               id={`plane-net-${layer.id}`}
-                              className="min-w-0 flex-1 rounded border border-border bg-background px-1.5 py-0.5 text-[11px]"
+                              className="min-w-0 flex-1 rounded border border-input bg-background px-1.5 py-0.5 text-[11px]"
                               value={layer.net ?? ''}
                               onClick={e => e.stopPropagation()}
                               onChange={e => setLayerPlaneNet(layer.id, e.target.value)}
@@ -4664,7 +4671,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                           <span className="text-muted-foreground">{members} net{members === 1 ? '' : 's'}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <label htmlFor={`class-width-${entry.id}`} className="text-[10px] uppercase tracking-wide text-muted-foreground">Width</label>
+                          <label htmlFor={`class-width-${entry.id}`} className="text-[11px] text-muted-foreground">Width</label>
                           <input
                             id={`class-width-${entry.id}`}
                             aria-label={`${entry.name} trace width in millimetres`}
@@ -4677,9 +4684,9 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                               const value = Number(event.target.value)
                               if (Number.isFinite(value) && value > 0) updateNetClass(entry.id, { traceWidthMm: value })
                             }}
-                            className="w-16 rounded border border-border bg-background px-1.5 py-0.5 text-[11px]"
+                            className="w-16 rounded border border-input bg-background px-1.5 py-0.5 text-[11px]"
                           />
-                          <label htmlFor={`class-clearance-${entry.id}`} className="text-[10px] uppercase tracking-wide text-muted-foreground">Clear</label>
+                          <label htmlFor={`class-clearance-${entry.id}`} className="text-[11px] text-muted-foreground">Clear</label>
                           <input
                             id={`class-clearance-${entry.id}`}
                             aria-label={`${entry.name} clearance in millimetres`}
@@ -4692,7 +4699,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                               const value = Number(event.target.value)
                               if (Number.isFinite(value) && value > 0) updateNetClass(entry.id, { clearanceMm: value })
                             }}
-                            className="w-16 rounded border border-border bg-background px-1.5 py-0.5 text-[11px]"
+                            className="w-16 rounded border border-input bg-background px-1.5 py-0.5 text-[11px]"
                           />
                           <span className="text-[10px] text-muted-foreground">mm</span>
                         </div>
@@ -4704,7 +4711,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                           onChange={(event) => updateNetClass(entry.id, {
                             patterns: event.target.value.split(',').map((pattern) => pattern.trim()).filter(Boolean),
                           })}
-                          className="w-full rounded border border-border bg-background px-1.5 py-0.5 text-[10px]"
+                          className="w-full rounded border border-input bg-background px-1.5 py-0.5 text-[10px]"
                         />
                       </div>
                     )
@@ -4729,7 +4736,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                               aria-label={`Class for ${name}`}
                               value={netAssignments[name] ?? ''}
                               onChange={(event) => assignNetToClass(name, event.target.value)}
-                              className="w-24 shrink-0 rounded border border-border bg-background px-1 py-0.5 text-[10px]"
+                              className="w-24 shrink-0 rounded border border-input bg-background px-1 py-0.5 text-[10px]"
                             >
                               <option value="">Auto — {effective?.name ?? 'none'}</option>
                               {netClasses.map((entry) => (

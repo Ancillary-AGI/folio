@@ -26,7 +26,7 @@
  * Only the lines in view are rendered, so a multi-thousand-line deck scrolls as
  * cheaply as a ten-line one.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useImperativeHandle } from 'react'
 import { ArrowDown, ArrowUp, CaseSensitive, Replace, Search, X } from 'lucide-react'
 import { Button } from '../ui/button'
 import { cn } from '../../lib/utils'
@@ -58,9 +58,17 @@ import {
   type CursorState,
 } from '../../lib/editor/edits'
 import { decorateLine, decorationsForLine, type Decoration } from '../../lib/editor/pieces'
+import { usePreferenceValue } from '../../lib/settings/usePreference'
 
-/** Must match `.code-metrics` in index.css: the geometry below derives from it. */
-const LINE_HEIGHT = 20
+/**
+ * The base pair must match `.code-metrics` in index.css: the geometry below
+ * derives from it. The font size is a setting, so the line height is its
+ * multiple — the backdrop rows, the gutter and the textarea all take the same
+ * number, and the CSS takes it as a custom property from the frame.
+ */
+const BASE_FONT_SIZE = 12
+const LINE_HEIGHT_RATIO = 20 / BASE_FONT_SIZE
+const lineHeightFor = (fontSize: number) => Math.round(fontSize * LINE_HEIGHT_RATIO)
 const PADDING_X = 8
 const PADDING_Y = 8
 const GUTTER_WIDTH = 48
@@ -107,6 +115,20 @@ export interface CodeEditorProps {
   onKeyDown?: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void
 }
 
+/**
+ * What a host panel can ask the editor to do without owning its caret.
+ *
+ * The library dock and the agent both drop or generate text that belongs where
+ * the cursor is, not at the end of the buffer, so the editor takes the request
+ * and applies it through its own commit path — same undo, same selection, same
+ * completion dismissal as typing would.
+ */
+export interface CodeEditorHandle {
+  /** Replace the selection (or insert at the caret) and focus the buffer. */
+  insertAtCaret: (text: string) => void
+  focus: () => void
+}
+
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 const wrapIndex = (value: number, length: number) => (length <= 0 ? 0 : (value + length) % length)
 
@@ -124,7 +146,7 @@ const TOKEN_CLASS: Record<Exclude<TokenKind, 'identifier'>, string> = {
 const tokenClass = (kind: TokenKind | null): string | undefined =>
   kind === null || kind === 'identifier' ? undefined : TOKEN_CLASS[kind]
 
-export function CodeEditor({
+export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function CodeEditor({
   value,
   onChange,
   language,
@@ -132,7 +154,7 @@ export function CodeEditor({
   placeholder,
   className,
   bodyClassName,
-  lineNumbers = true,
+  lineNumbers,
   status = true,
   readOnly = false,
   spellCheck = false,
@@ -141,8 +163,31 @@ export function CodeEditor({
   dataTour,
   onBlur,
   onKeyDown,
-}: CodeEditorProps) {
+}: CodeEditorProps, ref) {
+  /*
+   * Typing aids are preferences, not per-call decisions: a buffer in the firmware
+   * panel and a deck in the simulation panel behave the same way, because the
+   * user asked them to. A host can still force the gutter off for a one-line
+   * field, which is why `lineNumbers` overrides the preference when given.
+   */
+  const fontSize = usePreferenceValue('editorFontSize')
+  const suggestionsEnabled = usePreferenceValue('editorSuggestions')
+  const autoCloseBrackets = usePreferenceValue('editorAutoCloseBrackets')
+  const autoIndent = usePreferenceValue('editorAutoIndent')
+  const gutterFromPreference = usePreferenceValue('editorLineNumbers')
+  const activeLineHighlight = usePreferenceValue('editorActiveLine')
+  const showGutter = lineNumbers ?? gutterFromPreference
+  const LINE_HEIGHT = lineHeightFor(fontSize)
   const spec = LANGUAGE_SPECS[language]
+  const tabSize = usePreferenceValue('editorTabSize')
+  /*
+   * The indent unit is the one thing the language table gets to say about
+   * typing, and it is the user's call, not the grammar's: a SPICE deck and a
+   * Verilog module both want whatever the person editing them uses. Overriding
+   * here rather than in `languages.ts` keeps the tables pure data that the
+   * tokenizer tests can pin.
+   */
+  const specWithIndent = useMemo(() => ({ ...spec, tabText: ' '.repeat(tabSize) }), [spec, tabSize])
   const listId = id ? `${id}-completions` : `${ariaLabel.replace(/[^a-zA-Z0-9]+/g, '')}-completions`
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
@@ -247,7 +292,11 @@ export function CodeEditor({
 
   /* ── Completions ─────────────────────────────────────────────────────────── */
   const refreshCompletions = useCallback((nextValue: string, caretStart: number) => {
-    if (readOnly) return
+    // Off means nothing appears at the caret that the user did not type.
+    if (readOnly || !suggestionsEnabled) {
+      closeCompletion()
+      return
+    }
     const { prefix, start } = wordPrefixAt(nextValue, caretStart)
     if (prefix.length < 2 || !/^[A-Za-z_$.]/.test(prefix)) {
       closeCompletion()
@@ -261,7 +310,7 @@ export function CodeEditor({
     const best = items[0]
     setCompletion({ from: start, prefix, items, active: 0 })
     setGhost(best.length > prefix.length ? best.slice(prefix.length) : null)
-  }, [closeCompletion, readOnly, vocabulary])
+  }, [closeCompletion, readOnly, suggestionsEnabled, vocabulary])
 
   const acceptCompletion = useCallback((word: string, from: number) => {
     const node = textareaRef.current
@@ -285,6 +334,20 @@ export function CodeEditor({
     if (node) node.focus({ preventScroll: true })
   }, [])
 
+  const insertAtCaret = useCallback(
+    (text: string) => {
+      const node = textareaRef.current
+      if (!node || readOnly || text === '') return
+      const state: CursorState = { value, start: node.selectionStart, end: node.selectionEnd }
+      closeCompletion()
+      commit(replaceRange(state, state.start, state.end, text))
+      focusEditor()
+    },
+    [closeCompletion, commit, focusEditor, readOnly, value],
+  )
+
+  useImperativeHandle(ref, () => ({ insertAtCaret, focus: focusEditor }), [insertAtCaret, focusEditor])
+
   const jumpToMatch = useCallback((delta: number, offsets: number[], length: number) => {
     if (offsets.length === 0 || !find) return
     const nextIndex = clamp(find.index + delta, 0, offsets.length - 1)
@@ -299,7 +362,7 @@ export function CodeEditor({
     readScroll()
     setCaret({ start: offset, end: offset + length })
     if (!wasFocused) frameRef.current?.querySelector<HTMLInputElement>('[data-find-input]')?.focus()
-  }, [find, focusEditor, readScroll, value])
+  }, [find, focusEditor, LINE_HEIGHT, readScroll, value])
 
   const replaceMatches = useCallback((query: string, replacement: string, all: boolean) => {
     if (!query) return
@@ -358,7 +421,7 @@ export function CodeEditor({
           return
         }
         if (readOnly) return
-        commit(event.shiftKey ? outdentSelection(state, spec) : indentSelection(state, spec))
+        commit(event.shiftKey ? outdentSelection(state, specWithIndent) : indentSelection(state, specWithIndent))
         return
       }
       case 'Enter': {
@@ -375,12 +438,14 @@ export function CodeEditor({
         if (readOnly) return
         event.preventDefault()
         closeCompletion()
-        commit(insertNewline(state, spec))
+        // With auto-indent off, Enter does exactly what a plain textarea does:
+        // a newline and nothing else, no copied column, no extra step.
+        commit(autoIndent ? insertNewline(state, specWithIndent) : replaceRange(state, state.start, state.end, '\n'))
         return
       }
       case 'Backspace': {
         if (readOnly) return
-        const pair = backspacePair(state, spec)
+        const pair = autoCloseBrackets ? backspacePair(state, spec) : null
         if (pair) {
           event.preventDefault()
           closeCompletion()
@@ -426,7 +491,7 @@ export function CodeEditor({
         break
     }
 
-    if (readOnly || event.key.length !== 1) return
+    if (readOnly || event.key.length !== 1 || !autoCloseBrackets) return
 
     if (OPENERS.has(event.key) || spec.quotes.includes(event.key)) {
       event.preventDefault()
@@ -473,7 +538,7 @@ export function CodeEditor({
 
   const position = positionOf(value, caret.start)
   const selectedCharacters = caret.end - caret.start
-  const gutterPad = lineNumbers ? GUTTER_WIDTH : 0
+  const gutterPad = showGutter ? GUTTER_WIDTH : 0
   const caretColumn = caret.start - lineStarts[caretLine]
   const popupLeft = clamp(gutterPad + PADDING_X + caretColumn * charWidth.current - scroll.left, 4, Math.max(4, viewport.width - POPUP_WIDTH - 4))
   const below = PADDING_Y + (caretLine + 1) * LINE_HEIGHT - scroll.top
@@ -485,6 +550,9 @@ export function CodeEditor({
       ref={frameRef}
       className={cn('code-frame relative flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-background', className)}
       data-editor-language={language}
+      // The painted backdrop, the gutter and the transparent textarea all read
+      // these two, so a font size from Settings moves the three of them together.
+      style={{ '--cad-editor-font': `${fontSize}px`, '--cad-editor-line': `${LINE_HEIGHT}px` } as React.CSSProperties}
     >
       <span ref={measureRef} aria-hidden="true" className="code-metrics pointer-events-none absolute -top-[9999px] -left-[9999px]">
         00000000
@@ -510,13 +578,15 @@ export function CodeEditor({
       )}
 
       <div className={cn('relative min-h-0 flex-1 overflow-hidden', bodyClassName)}>
-        <div
-          aria-hidden="true"
-          className="code-active-line pointer-events-none absolute left-0 right-0"
-          style={{ top: PADDING_Y + caretLine * LINE_HEIGHT - scroll.top, height: LINE_HEIGHT }}
-        />
+        {activeLineHighlight && (
+          <div
+            aria-hidden="true"
+            className="code-active-line pointer-events-none absolute left-0 right-0"
+            style={{ top: PADDING_Y + caretLine * LINE_HEIGHT - scroll.top, height: LINE_HEIGHT }}
+          />
+        )}
 
-        {lineNumbers && (
+        {showGutter && (
           <div
             data-code-gutter
             className="pointer-events-none absolute bottom-0 left-0 top-0 z-10 w-12 overflow-hidden border-r border-border bg-canvas"
@@ -616,7 +686,7 @@ export function CodeEditor({
             style={{ left: popupLeft, top: popupTop }}
             onMouseDown={event => event.preventDefault()}
           >
-            <li role="presentation" className="px-2 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+            <li role="presentation" className="px-2 pb-1 text-[11px] text-muted-foreground">
               {spec.label} words and names in this buffer
             </li>
             {completion.items.map((item, index) => (
@@ -665,7 +735,7 @@ export function CodeEditor({
       )}
     </div>
   )
-}
+})
 
 function lineEnd(value: string, from: number): number {
   const index = value.indexOf('\n', from)
@@ -692,7 +762,7 @@ function FindBar({
   const [replacement, setReplacement] = useState('')
   return (
     <div className="flex flex-shrink-0 flex-wrap items-center gap-1 border-b border-border bg-surface px-2 py-1.5">
-      <label className="cad-search flex h-7 min-w-0 flex-1 items-center gap-2 rounded-sm border border-border bg-background px-2 sm:max-w-56">
+      <label className="cad-search flex h-7 min-w-0 flex-1 items-center gap-2 rounded-sm border border-input bg-background px-2 sm:max-w-56">
         <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="sr-only">Find</span>
         <input
@@ -718,7 +788,7 @@ function FindBar({
           {query ? (total > 0 ? `${index}/${total}` : 'no match') : ''}
         </span>
       </label>
-      <label className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-sm border border-border bg-background px-2 sm:max-w-56">
+      <label className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-sm border border-input bg-background px-2 sm:max-w-56">
         <Replace className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="sr-only">Replace with</span>
         <input
@@ -737,22 +807,22 @@ function FindBar({
         onClick={onCase}
         aria-label={caseSensitive ? 'Matching case' : 'Ignoring case'}
         aria-pressed={caseSensitive}
-      >
+        title="Match upper and lower case exactly, or ignore it.">
         <CaseSensitive className="h-3.5 w-3.5" />
       </Button>
-      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onPrevious} aria-label="Previous match" disabled={total === 0}>
+      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onPrevious} aria-label="Previous match" disabled={total === 0} title="Jump to the match above the cursor.">
         <ArrowUp className="h-3.5 w-3.5" />
       </Button>
-      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onNext} aria-label="Next match" disabled={total === 0}>
+      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onNext} aria-label="Next match" disabled={total === 0} title="Jump to the match below the cursor.">
         <ArrowDown className="h-3.5 w-3.5" />
       </Button>
-      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onReplace(replacement)} aria-label="Replace match" disabled={total === 0}>
+      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onReplace(replacement)} aria-label="Replace match" disabled={total === 0} title="Replace the current match with the text in the replace box.">
         <Replace className="h-3.5 w-3.5" />
       </Button>
       <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={() => onReplaceAll(replacement)} disabled={total === 0}>
         Replace all
       </Button>
-      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={onClose} aria-label="Close find bar">
+      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={onClose} aria-label="Close find bar" title="Close the find bar; the file is left as it is.">
         <X className="h-3.5 w-3.5" />
       </Button>
     </div>

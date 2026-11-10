@@ -217,7 +217,7 @@ export default function HelpCenter({
           {/* The filter belongs to the whole dialog, so it lives in the header
            * beside the close control. In the old toolbar row it shared a flex
            * line with a wrapping tab strip and painted over the tabs. */}
-          <label className="cad-search flex h-8 w-36 flex-shrink-0 items-center gap-2 rounded-md border border-border bg-background px-2 sm:w-56">
+          <label className="cad-search flex h-8 w-36 flex-shrink-0 items-center gap-2 rounded-md border border-input bg-background px-2 sm:w-56">
             <Search className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
             <input
               ref={searchRef}
@@ -229,15 +229,16 @@ export default function HelpCenter({
               className="h-full w-full min-w-0 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
-          <Button variant="ghost" size="icon" aria-label="Close help" onClick={onClose}>
+          <Button variant="ghost" size="icon" aria-label="Close help" onClick={onClose} title="Close the help centre and go back to the workspace.">
             <X className="h-4 w-4" />
           </Button>
         </div>
 
-        {/* One line, scrolled rather than wrapped: a wrapped tab strip is what
-         * used to stack the four sections into a column and waste the row. */}
+        {/* The tabs carry four short names, so they use the width they are given
+            and spill onto a second line on a narrow window rather than scrolling
+            a section out of reach. */}
         <div
-          className="scrollbar-none flex flex-shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-4 py-2"
+          className="flex flex-wrap items-center gap-1 border-b border-border px-4 py-2"
           role="tablist"
           aria-label="Help sections"
         >
@@ -286,15 +287,15 @@ export default function HelpCenter({
                       <li key={tutorial.id} className="flex">
                         <article className="flex min-w-0 flex-1 flex-col rounded-lg border border-border bg-card p-3 transition-colors hover:border-primary/50">
                           <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                            <span className="flex items-center gap-1 text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+                            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                               <Clock className="h-3 w-3" aria-hidden="true" />
                               {tutorial.minutes} min
                             </span>
-                            <span className="text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+                            <span className="text-[10px] text-muted-foreground">
                               {tutorial.steps.length} steps
                             </span>
                             {progress && (progress.completed || progress.step > 0) && (
-                              <span className={`flex items-center gap-1 text-[9px] uppercase tracking-[0.1em] ${progress.completed ? 'text-success' : 'text-primary'}`}>
+                              <span className={`flex items-center gap-1 text-[10px] ${progress.completed ? 'text-success' : 'text-primary'}`}>
                                 {progress.completed && <CheckCircle2 className="h-3 w-3" aria-hidden="true" />}
                                 {describeTutorialProgress(tutorial, progress)}
                               </span>
@@ -304,7 +305,7 @@ export default function HelpCenter({
                           <p className="mt-1 flex-1 text-[11px] leading-relaxed text-muted-foreground">{tutorial.summary}</p>
                           <div className="mt-2 flex flex-wrap gap-1">
                             {tutorial.modes.map((mode) => (
-                              <span key={mode} className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground">
+                              <span key={mode} className="rounded-sm bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                                 {WORKSPACE_MODE_META[mode].label}
                               </span>
                             ))}
@@ -338,7 +339,7 @@ export default function HelpCenter({
                 if (modes.length === 0) return null
                 return (
                   <section key={group.id} aria-label={group.label}>
-                    <h3 className="mb-2 flex items-baseline gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    <h3 className="mb-2 flex items-baseline gap-2 text-[11px] font-medium text-muted-foreground">
                       {group.label}
                       <span className="font-normal normal-case tracking-normal text-muted-foreground/80">{group.description}</span>
                     </h3>
@@ -355,13 +356,13 @@ export default function HelpCenter({
                               <div className="flex items-center gap-1.5">
                                 <p className="text-[12px] font-semibold text-foreground">{mode.label}</p>
                                 {isCurrent && (
-                                  <span className="rounded-sm bg-primary/15 px-1 py-0.5 text-[8px] font-semibold uppercase tracking-[0.08em] text-primary">
+                                  <span className="rounded-sm bg-primary/15 px-1 py-0.5 text-[10px] font-medium text-primary">
                                     Current
                                   </span>
                                 )}
                               </div>
                               <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">{mode.description}</p>
-                              <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground">
+                              <p className="mt-1 font-mono text-[10px] text-muted-foreground">
                                 {capabilityCount(mode.id)} capability record{capabilityCount(mode.id) === 1 ? '' : 's'}
                                 {demos > 0 ? ` · ${demos} demo${demos === 1 ? '' : 's'}` : ''}
                               </p>
@@ -398,7 +399,7 @@ export default function HelpCenter({
               )}
               {controls.map((section) => (
                 <section key={section.group} aria-label={`${section.group} controls`}>
-                  <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  <h3 className="mb-1.5 text-[11px] font-medium text-muted-foreground">
                     {section.group === 'rail' ? 'Editor rail' : section.group === 'header' ? 'Application header' : 'Workspace navigation'}
                   </h3>
                   <ul className="divide-y divide-border rounded-md border border-border bg-card">
@@ -416,7 +417,7 @@ export default function HelpCenter({
               ))}
               {accessNotes.length > 0 && (
                 <section aria-label="Access and reach">
-                  <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  <h3 className="mb-1.5 text-[11px] font-medium text-muted-foreground">
                     Access and reach
                   </h3>
                   <ul className="divide-y divide-border rounded-md border border-border bg-card">

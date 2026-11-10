@@ -139,7 +139,7 @@ describe('PCBDesignPanel', () => {
     // The panel adopts a stored routed layout on mount, so each test starts
     // from a clean board rather than inheriting the previous test's copper.
     useProjectStore.setState({ components: [], wires: [], pcbLayout: null })
-    useAppStore.setState({ selectedComponents: [], selectedWires: [] })
+    useAppStore.setState({ selectedComponents: [] })
   })
 
   afterEach(() => {

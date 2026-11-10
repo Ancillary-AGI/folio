@@ -1,3 +1,5 @@
+import { compareHilOutputs, type HilChannelVerdict, type HilPayload, type HilRig } from '../hil/hilRig';
+
 export interface BoardDefinition {
   id: string;
   name: string;
@@ -1101,14 +1103,14 @@ export class ArduinoIDEIntegration {
     }
   }
 
-  static async runHILTest(session: HILTestSession): Promise<HILTestSummary> {
+  static async runHILTest(session: HILTestSession, rig?: HilRig): Promise<HILTestSummary> {
     session.status = 'running';
 
     try {
       const results: HILTestResult[] = [];
 
       for (const testCase of session.config.testCases) {
-        const result = await this.executeHILTestCase(testCase);
+        const result = await this.executeHILTestCase(testCase, rig);
         results.push(result);
         session.results.push(result);
       }
@@ -1189,21 +1191,22 @@ export class ArduinoIDEIntegration {
     }
   }
 
-  private static async executeHILTestCase(testCase: HILTestCase): Promise<HILTestResult> {
+  private static async executeHILTestCase(testCase: HILTestCase, rig?: HilRig): Promise<HILTestResult> {
     const startTime = Date.now();
 
     try {
       // Apply test inputs
-      await this.applyTestInputs(testCase.inputs);
+      await this.applyTestInputs(testCase.inputs, rig);
 
       // Wait for system response
       await new Promise(resolve => setTimeout(resolve, testCase.settlingTime || 100));
 
       // Measure outputs
-      const measuredOutputs = await this.measureOutputs(testCase.expectedOutputs);
+      const measuredOutputs = await this.measureOutputs(testCase.expectedOutputs, rig);
 
       // Validate results
-      const passed = this.validateTestResults(measuredOutputs, testCase.expectedOutputs, testCase.tolerances);
+      const verdicts = compareHilOutputs(measuredOutputs, testCase.expectedOutputs, testCase.tolerances);
+      const passed = verdicts.every(verdict => verdict.ok);
 
       return {
         testCaseId: testCase.id,
@@ -1211,6 +1214,7 @@ export class ArduinoIDEIntegration {
         inputs: testCase.inputs,
         expectedOutputs: testCase.expectedOutputs,
         measuredOutputs,
+        verdicts,
         duration: Date.now() - startTime,
         timestamp: Date.now()
       };
@@ -1221,6 +1225,7 @@ export class ArduinoIDEIntegration {
         inputs: testCase.inputs,
         expectedOutputs: testCase.expectedOutputs,
         measuredOutputs: {},
+        verdicts: compareHilOutputs({}, testCase.expectedOutputs, testCase.tolerances),
         duration: Date.now() - startTime,
         timestamp: Date.now(),
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -1228,58 +1233,23 @@ export class ArduinoIDEIntegration {
     }
   }
 
-  private static async applyTestInputs(inputs: Record<string, unknown>): Promise<void> {
+  private static async applyTestInputs(inputs: HilPayload, rig?: HilRig): Promise<void> {
+    if (rig) {
+      await rig.apply(inputs);
+      return;
+    }
     // No drive hardware is attached: fail closed instead of logging
     // "Setting pin…" lines that imply actuation happened.
     void inputs;
     throw new Error('HIL stimulus requires connected hardware. No drive interface is attached.');
   }
 
-  private static async measureOutputs(expectedOutputs: Record<string, unknown>): Promise<Record<string, unknown>> {
+  private static async measureOutputs(expectedOutputs: HilPayload, rig?: HilRig): Promise<HilPayload> {
+    if (rig) return rig.measure(expectedOutputs);
     // No measurement hardware is attached in the browser: report the absence
     // explicitly so HIL verdicts are "cannot measure", never a coin flip.
     void expectedOutputs;
     throw new Error('HIL measurement requires connected hardware. No measurement interface is attached.');
-  }
-
-  private static validateTestResults(measured: Record<string, unknown>, expected: Record<string, unknown>, tolerances: Record<string, unknown> = {}): boolean {
-    // Validate digital outputs
-    if (expected.digital && typeof expected.digital === 'object') {
-      const expectedDigital = expected.digital as Record<string, boolean>;
-      const measuredDigital = measured.digital as Record<string, boolean> | undefined;
-      if (!measuredDigital) return false;
-      
-      for (const [pin, expectedValue] of Object.entries(expectedDigital)) {
-        const measuredValue = measuredDigital[pin];
-        if (measuredValue !== expectedValue) {
-          return false;
-        }
-      }
-    }
-
-    // Validate analog outputs
-    if (expected.analog && typeof expected.analog === 'object') {
-      const expectedAnalog = expected.analog as Record<string, number>;
-      const measuredAnalog = measured.analog as Record<string, number> | undefined;
-      if (!measuredAnalog) return false;
-      
-      const tolerancesAnalog = tolerances.analog as Record<string, number> | undefined;
-      
-      for (const [channel, expectedValue] of Object.entries(expectedAnalog)) {
-        const measuredValue = measuredAnalog[channel];
-        if (typeof measuredValue !== 'number' || typeof expectedValue !== 'number') {
-          return false;
-        }
-        const tolerance = tolerancesAnalog?.[channel] ?? 0.1; // Default 10% tolerance
-        if (Math.abs(measuredValue - expectedValue) > tolerance) {
-          return false;
-        }
-      }
-    }
-
-    // Additional validations for CAN, SPI, I2C, UART can be added here
-
-    return true;
   }
 }
 
@@ -1339,6 +1309,8 @@ export interface HILTestResult {
   inputs: HILTestCase['inputs'];
   expectedOutputs: HILTestCase['expectedOutputs'];
   measuredOutputs: Record<string, unknown>;
+  /** Per-channel comparison, so a verdict can be explained rather than just coloured. */
+  verdicts?: HilChannelVerdict[];
   duration: number;
   timestamp: number;
   error?: string;

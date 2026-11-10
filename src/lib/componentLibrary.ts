@@ -8,14 +8,14 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
     is_standard: true,
     symbol_data: {
       width: 80,
-      height: 30,
+      height: 40,
       paths: [
-        'M 0,15 L 15,15 L 20,5 L 30,25 L 40,5 L 50,25 L 60,5 L 65,15 L 80,15'
+        'M 0,20 L 15,20 L 20,10 L 30,30 L 40,10 L 50,30 L 60,10 L 65,20 L 80,20'
       ]
     },
     pins: [
-      { id: 'p1', name: '1', x: 0, y: 15, type: 'passive' },
-      { id: 'p2', name: '2', x: 80, y: 15, type: 'passive' }
+      { id: 'p1', name: '1', x: 0, y: 20, type: 'passive' },
+      { id: 'p2', name: '2', x: 80, y: 20, type: 'passive' }
     ],
     default_properties: {
       value: '10k',
@@ -53,14 +53,14 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
     is_standard: true,
     symbol_data: {
       width: 80,
-      height: 30,
+      height: 40,
       paths: [
-        'M 0,15 L 10,15 A 5,10 0 0,1 20,15 A 5,10 0 0,1 30,15 A 5,10 0 0,1 40,15 A 5,10 0 0,1 50,15 A 5,10 0 0,1 60,15 A 5,10 0 0,1 70,15 L 80,15'
+        'M 0,20 L 10,20 A 5,10 0 0,1 20,20 A 5,10 0 0,1 30,20 A 5,10 0 0,1 40,20 A 5,10 0 0,1 50,20 A 5,10 0 0,1 60,20 A 5,10 0 0,1 70,20 L 80,20'
       ]
     },
     pins: [
-      { id: 'p1', name: '1', x: 0, y: 15, type: 'passive' },
-      { id: 'p2', name: '2', x: 80, y: 15, type: 'passive' }
+      { id: 'p1', name: '1', x: 0, y: 20, type: 'passive' },
+      { id: 'p2', name: '2', x: 80, y: 20, type: 'passive' }
     ],
     default_properties: {
       value: '10uH',
@@ -110,16 +110,16 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       width: 140,
       height: 60,
       paths: [
-        'M 0,15 L 140,15',
-        'M 0,45 L 140,45',
-        'M 10,27 L 130,27'
+        'M 0,20 L 140,20',
+        'M 0,40 L 140,40',
+        'M 10,30 L 130,30'
       ]
     },
     pins: [
-      { id: 'p1', name: '1+', x: 0, y: 15, type: 'input' },
-      { id: 'n1', name: '1-', x: 0, y: 45, type: 'input' },
-      { id: 'p2', name: '2+', x: 140, y: 15, type: 'output' },
-      { id: 'n2', name: '2-', x: 140, y: 45, type: 'output' }
+      { id: 'p1', name: '1+', x: 0, y: 20, type: 'input' },
+      { id: 'n1', name: '1-', x: 0, y: 40, type: 'input' },
+      { id: 'p2', name: '2+', x: 140, y: 20, type: 'output' },
+      { id: 'n2', name: '2-', x: 140, y: 40, type: 'output' }
     ],
     default_properties: {
       z0: '50',
@@ -186,15 +186,15 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       paths: [
         'M 0,30 L 20,30',
         'M 20,10 L 20,50',
-        'M 20,20 L 45,5 L 60,5',
-        'M 20,40 L 45,55 L 60,55',
-        'M 38,48 L 45,55 L 38,55'
+        'M 20,20 L 45,10 L 60,10',
+        'M 20,40 L 45,50 L 60,50',
+        'M 38,43 L 45,50 L 38,50'
       ]
     },
     pins: [
-      { id: 'collector', name: 'C', x: 60, y: 5, type: 'output' },
+      { id: 'collector', name: 'C', x: 60, y: 10, type: 'output' },
       { id: 'base', name: 'B', x: 0, y: 30, type: 'input' },
-      { id: 'emitter', name: 'E', x: 60, y: 55, type: 'output' }
+      { id: 'emitter', name: 'E', x: 60, y: 50, type: 'output' }
     ],
     default_properties: {
       type: '2N2222',
@@ -212,15 +212,15 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       paths: [
         'M 0,30 L 20,30',
         'M 20,10 L 20,50',
-        'M 20,20 L 45,5 L 60,5',
-        'M 20,40 L 45,55 L 60,55',
-        'M 27,20 L 20,20 L 20,27'
+        'M 20,20 L 45,10 L 60,10',
+        'M 20,40 L 45,50 L 60,50',
+        'M 38,17 L 45,10 L 38,10'
       ]
     },
     pins: [
-      { id: 'collector', name: 'C', x: 60, y: 55, type: 'output' },
+      { id: 'collector', name: 'C', x: 60, y: 50, type: 'output' },
       { id: 'base', name: 'B', x: 0, y: 30, type: 'input' },
-      { id: 'emitter', name: 'E', x: 60, y: 5, type: 'output' }
+      { id: 'emitter', name: 'E', x: 60, y: 10, type: 'output' }
     ],
     default_properties: {
       type: '2N2907',
@@ -238,18 +238,18 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       paths: [
         'M 0,30 L 25,30',
         'M 25,10 L 25,50',
-        'M 30,15 L 30,25',
-        'M 30,32 L 30,42',
-        'M 30,20 L 50,20 L 50,5 L 70,5',
-        'M 30,37 L 50,37 L 50,55 L 70,55',
-        'M 50,37 L 50,20',
-        'M 43,37 L 50,44 L 57,37'
+        'M 30,10 L 30,25',
+        'M 30,35 L 30,50',
+        'M 30,20 L 50,20 L 50,10 L 70,10',
+        'M 30,40 L 50,40 L 50,50 L 70,50',
+        'M 50,40 L 50,20',
+        'M 43,40 L 50,47 L 57,40'
       ]
     },
     pins: [
-      { id: 'drain', name: 'D', x: 70, y: 5, type: 'output' },
+      { id: 'drain', name: 'D', x: 70, y: 10, type: 'output' },
       { id: 'gate', name: 'G', x: 0, y: 30, type: 'input' },
-      { id: 'source', name: 'S', x: 70, y: 55, type: 'output' }
+      { id: 'source', name: 'S', x: 70, y: 50, type: 'output' }
     ],
     default_properties: {
       type: 'IRF540',
@@ -267,18 +267,18 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       paths: [
         'M 0,30 L 25,30',
         'M 25,10 L 25,50',
-        'M 30,15 L 30,25',
-        'M 30,32 L 30,42',
-        'M 30,20 L 50,20 L 50,5 L 70,5',
-        'M 30,37 L 50,37 L 50,55 L 70,55',
-        'M 50,37 L 50,20',
+        'M 30,10 L 30,25',
+        'M 30,35 L 30,50',
+        'M 30,20 L 50,20 L 50,10 L 70,10',
+        'M 30,40 L 50,40 L 50,50 L 70,50',
+        'M 50,40 L 50,20',
         'M 43,20 L 50,13 L 57,20'
       ]
     },
     pins: [
-      { id: 'drain', name: 'D', x: 70, y: 55, type: 'output' },
+      { id: 'drain', name: 'D', x: 70, y: 50, type: 'output' },
       { id: 'gate', name: 'G', x: 0, y: 30, type: 'input' },
-      { id: 'source', name: 'S', x: 70, y: 5, type: 'output' }
+      { id: 'source', name: 'S', x: 70, y: 10, type: 'output' }
     ],
     default_properties: {
       type: 'IRF9540',
@@ -296,20 +296,22 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       paths: [
         'M 0,30 L 25,30',
         'M 25,10 L 25,50',
-        'M 30,15 L 30,25',
-        'M 30,32 L 30,42',
-        'M 30,20 L 50,20 L 50,5 L 70,5',
-        'M 30,37 L 50,37 L 50,55 L 70,55',
-        'M 50,37 L 50,20',
-        'M 43,37 L 50,44 L 57,37',
-        'M 34,15 L 34,25',
-        'M 38,15 L 38,25'
+        'M 30,10 L 30,25',
+        'M 30,35 L 30,50',
+        'M 34,10 L 34,25',
+        'M 34,35 L 34,50',
+        'M 38,10 L 38,25',
+        'M 38,35 L 38,50',
+        'M 38,20 L 50,20 L 50,10 L 70,10',
+        'M 38,40 L 50,40 L 50,50 L 70,50',
+        'M 50,40 L 50,20',
+        'M 43,40 L 50,47 L 57,40'
       ]
     },
     pins: [
-      { id: 'drain', name: 'D', x: 70, y: 5, type: 'output' },
+      { id: 'drain', name: 'D', x: 70, y: 10, type: 'output' },
       { id: 'gate', name: 'G', x: 0, y: 30, type: 'input' },
-      { id: 'source', name: 'S', x: 70, y: 55, type: 'output' }
+      { id: 'source', name: 'S', x: 70, y: 50, type: 'output' }
     ],
     default_properties: {
       type: 'FINFET-N',
@@ -334,20 +336,20 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       paths: [
         'M 0,30 L 25,30',
         'M 25,10 L 25,50',
-        'M 30,15 L 30,25',
-        'M 30,32 L 30,42',
-        'M 30,20 L 50,20 L 50,5 L 70,5',
-        'M 30,37 L 50,37 L 50,55 L 70,55',
-        'M 50,37 L 50,20',
-        'M 43,37 L 50,44 L 57,37',
-        'M 24,18 L 34,18',
-        'M 24,42 L 34,42'
+        'M 30,10 L 30,25',
+        'M 30,35 L 30,50',
+        'M 27,15 L 36,15',
+        'M 27,45 L 36,45',
+        'M 30,20 L 50,20 L 50,10 L 70,10',
+        'M 30,40 L 50,40 L 50,50 L 70,50',
+        'M 50,40 L 50,20',
+        'M 43,40 L 50,47 L 57,40'
       ]
     },
     pins: [
-      { id: 'drain', name: 'D', x: 70, y: 5, type: 'output' },
+      { id: 'drain', name: 'D', x: 70, y: 10, type: 'output' },
       { id: 'gate', name: 'G', x: 0, y: 30, type: 'input' },
-      { id: 'source', name: 'S', x: 70, y: 55, type: 'output' }
+      { id: 'source', name: 'S', x: 70, y: 50, type: 'output' }
     ],
     default_properties: {
       type: 'GAN-HEMT-N',
@@ -371,17 +373,17 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       paths: [
         'M 0,30 L 25,30',
         'M 25,10 L 25,50',
-        'M 30,15 L 30,45',
-        'M 30,20 L 50,20 L 50,5 L 70,5',
-        'M 30,37 L 50,37 L 50,55 L 70,55',
-        'M 50,37 L 50,20',
-        'M 22,27 L 30,30 L 22,33',
+        'M 30,10 L 30,50',
+        'M 30,20 L 50,20 L 50,10 L 70,10',
+        'M 30,40 L 50,40 L 50,50 L 70,50',
+        'M 50,40 L 50,20',
+        'M 20,25 L 28,30 L 20,35',
       ],
     },
     pins: [
-      { id: 'drain', name: 'D', x: 70, y: 5, type: 'output' },
+      { id: 'drain', name: 'D', x: 70, y: 10, type: 'output' },
       { id: 'gate', name: 'G', x: 0, y: 30, type: 'input' },
-      { id: 'source', name: 'S', x: 70, y: 55, type: 'output' },
+      { id: 'source', name: 'S', x: 70, y: 50, type: 'output' },
     ],
     default_properties: {
       type: '2N3819',
@@ -399,17 +401,17 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       paths: [
         'M 0,30 L 25,30',
         'M 25,10 L 25,50',
-        'M 30,15 L 30,45',
-        'M 30,20 L 50,20 L 50,5 L 70,5',
-        'M 30,37 L 50,37 L 50,55 L 70,55',
-        'M 50,37 L 50,20',
-        'M 38,27 L 30,30 L 38,33',
+        'M 30,10 L 30,50',
+        'M 30,20 L 50,20 L 50,10 L 70,10',
+        'M 30,40 L 50,40 L 50,50 L 70,50',
+        'M 50,40 L 50,20',
+        'M 40,25 L 32,30 L 40,35',
       ],
     },
     pins: [
-      { id: 'drain', name: 'D', x: 70, y: 55, type: 'output' },
+      { id: 'drain', name: 'D', x: 70, y: 50, type: 'output' },
       { id: 'gate', name: 'G', x: 0, y: 30, type: 'input' },
-      { id: 'source', name: 'S', x: 70, y: 5, type: 'output' },
+      { id: 'source', name: 'S', x: 70, y: 10, type: 'output' },
     ],
     default_properties: {
       type: 'PJFET',
@@ -605,22 +607,23 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
     name: 'Voltage-Controlled Switch',
     is_standard: true,
     symbol_data: {
-      width: 70,
-      height: 50,
+      width: 80,
+      height: 60,
       paths: [
-        'M 0,15 L 20,15 L 45,30',
-        'M 20,15 A 4,4 0 1,1 20,15.1',
-        'M 45,30 L 70,30',
-        'M 25,50 L 25,35',
-        'M 45,50 L 45,35',
-        'M 25,35 L 45,35',
+        'M 0,20 L 20,20',
+        'M 17,20 A 3,3 0 1,0 23,20 A 3,3 0 1,0 17,20 Z',
+        'M 20,20 L 58,10',
+        'M 60,20 L 80,20',
+        'M 57,20 A 3,3 0 1,0 63,20 A 3,3 0 1,0 57,20 Z',
+        'M 30,60 L 30,40 L 50,40 L 50,60',
+        'M 40,40 L 40,24',
       ],
     },
     pins: [
-      { id: 'positive', name: '1', x: 0, y: 15, type: 'passive' },
-      { id: 'negative', name: '2', x: 70, y: 30, type: 'passive' },
-      { id: 'control_pos', name: '+', x: 25, y: 50, type: 'input' },
-      { id: 'control_neg', name: '-', x: 45, y: 50, type: 'input' },
+      { id: 'positive', name: '1', x: 0, y: 20, type: 'passive' },
+      { id: 'negative', name: '2', x: 80, y: 20, type: 'passive' },
+      { id: 'control_pos', name: '+', x: 30, y: 60, type: 'input' },
+      { id: 'control_neg', name: '-', x: 50, y: 60, type: 'input' },
     ],
     default_properties: {
       type: 'SW',
@@ -635,18 +638,22 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
     name: 'Current-Controlled Switch',
     is_standard: true,
     symbol_data: {
-      width: 70,
-      height: 50,
+      width: 80,
+      height: 60,
       paths: [
-        'M 0,15 L 20,15 L 45,30',
-        'M 20,15 A 4,4 0 1,1 20,15.1',
-        'M 45,30 L 70,30',
-        'M 30,50 L 30,40 L 40,40 L 40,50',
+        'M 0,20 L 20,20',
+        'M 17,20 A 3,3 0 1,0 23,20 A 3,3 0 1,0 17,20 Z',
+        'M 20,20 L 58,10',
+        'M 60,20 L 80,20',
+        'M 57,20 A 3,3 0 1,0 63,20 A 3,3 0 1,0 57,20 Z',
+        'M 26,36 L 54,36 L 54,52 L 26,52 Z',
+        'M 30,44 L 50,44',
+        'M 46,40 L 50,44 L 46,48',
       ],
     },
     pins: [
-      { id: 'positive', name: '1', x: 0, y: 15, type: 'passive' },
-      { id: 'negative', name: '2', x: 70, y: 30, type: 'passive' },
+      { id: 'positive', name: '1', x: 0, y: 20, type: 'passive' },
+      { id: 'negative', name: '2', x: 80, y: 20, type: 'passive' },
     ],
     default_properties: {
       type: 'CSW',
@@ -662,18 +669,18 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
     name: 'Behavioral Source',
     is_standard: true,
     symbol_data: {
-      width: 70,
+      width: 60,
       height: 60,
       paths: [
-        'M 35,0 L 35,15',
-        'M 35,30 A 15,15 0 1,1 35,30',
-        'M 35,45 L 35,60',
-        'M 24,26 L 28,34 L 32,26 L 36,34 L 40,26 L 44,34',
+        'M 30,0 L 30,15',
+        'M 30,15 A 15,15 0 1,1 30,45 A 15,15 0 1,1 30,15 Z',
+        'M 30,45 L 30,60',
+        'M 18,34 L 22,26 L 26,34 L 30,26 L 34,34 L 38,26 L 42,34',
       ],
     },
     pins: [
-      { id: 'positive', name: '+', x: 35, y: 0, type: 'power' },
-      { id: 'negative', name: '-', x: 35, y: 60, type: 'ground' },
+      { id: 'positive', name: '+', x: 30, y: 0, type: 'power' },
+      { id: 'negative', name: '-', x: 30, y: 60, type: 'ground' },
     ],
     default_properties: {
       type: 'B',
@@ -688,15 +695,20 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       width: 80,
       height: 80,
       paths: [
-        'M 10,10 L 10,70 L 70,40 Z',
-        'M 20,25 L 30,25',
-        'M 20,55 L 30,55',
-        'M 25,50 L 25,60'
+        'M 20,10 L 20,70 L 70,40 Z',
+        'M 0,20 L 20,20',
+        'M 0,60 L 20,60',
+        'M 70,40 L 80,40',
+        'M 24,20 L 32,20',
+        'M 28,16 L 28,24',
+        'M 24,60 L 32,60',
+        'M 40,0 L 40,22',
+        'M 40,58 L 40,80'
       ]
     },
     pins: [
-      { id: 'in_pos', name: '+', x: 0, y: 25, type: 'input' },
-      { id: 'in_neg', name: '-', x: 0, y: 55, type: 'input' },
+      { id: 'in_pos', name: '+', x: 0, y: 20, type: 'input' },
+      { id: 'in_neg', name: '-', x: 0, y: 60, type: 'input' },
       { id: 'out', name: 'OUT', x: 80, y: 40, type: 'output' },
       { id: 'vcc', name: 'V+', x: 40, y: 0, type: 'power' },
       { id: 'vee', name: 'V-', x: 40, y: 80, type: 'power' }
@@ -722,7 +734,10 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       width: 80,
       height: 60,
       paths: [
-        'M 10,10 L 10,50 L 40,50 A 20,20 0 0,0 40,10 Z'
+        'M 10,10 L 10,50 L 40,50 A 20,20 0 0,0 40,10 Z',
+        'M 0,20 L 10,20',
+        'M 0,40 L 10,40',
+        'M 60,30 L 80,30'
       ]
     },
     pins: [
@@ -743,7 +758,10 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       width: 80,
       height: 60,
       paths: [
-        'M 10,10 Q 30,30 10,50 Q 40,30 70,30 Q 40,30 10,10'
+        'M 10,10 Q 30,30 10,50 Q 40,30 70,30 Q 40,30 10,10',
+        'M 0,20 L 20,20',
+        'M 0,40 L 20,40',
+        'M 70,30 L 80,30'
       ]
     },
     pins: [
@@ -765,7 +783,9 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       height: 40,
       paths: [
         'M 10,5 L 10,35 L 55,20 Z',
-        'M 55,20 A 5,5 0 1,1 55,20.1'
+        'M 55,20 A 5,5 0 1,0 65,20 A 5,5 0 1,0 55,20 Z',
+        'M 0,20 L 10,20',
+        'M 65,20 L 70,20'
       ]
     },
     pins: [
@@ -782,114 +802,27 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
     name: 'Terminal',
     is_standard: true,
     symbol_data: {
-      width: 30,
-      height: 30,
+      width: 40,
+      height: 40,
       paths: [
-        'M 15,15 A 10,10 0 1,1 15,15.1',
-        'M 10,15 L 20,15',
-        'M 15,10 L 15,20'
+        'M 10,20 A 10,10 0 1,1 30,20 A 10,10 0 1,1 10,20 Z',
+        'M 30,20 L 40,20',
+        'M 15,20 L 25,20',
+        'M 20,15 L 20,25'
       ]
     },
     pins: [
-      { id: 'pin', name: '1', x: 30, y: 15, type: 'passive' }
+      { id: 'pin', name: '1', x: 40, y: 20, type: 'passive' }
     ],
     default_properties: {
       type: 'test_point'
     }
   },
   
-  // Microcontrollers and Processors
-  {
-    category: 'microcontroller',
-    name: 'Arduino Uno',
-    is_standard: true,
-    symbol_data: {
-      width: 120,
-      height: 80,
-      paths: [
-        'M 10,10 L 110,10 L 110,70 L 10,70 Z',
-        'M 20,20 L 100,20',
-        'M 20,30 L 100,30',
-        'M 20,40 L 100,40',
-        'M 20,50 L 100,50'
-      ]
-    },
-    pins: [
-      { id: 'vcc', name: 'VCC', x: 0, y: 20, type: 'power' },
-      { id: 'gnd', name: 'GND', x: 0, y: 60, type: 'ground' },
-      { id: 'd0', name: 'D0', x: 120, y: 20, type: 'io' },
-      { id: 'd1', name: 'D1', x: 120, y: 30, type: 'io' },
-      { id: 'd2', name: 'D2', x: 120, y: 40, type: 'io' },
-      { id: 'd3', name: 'D3', x: 120, y: 50, type: 'io' },
-      { id: 'a0', name: 'A0', x: 60, y: 0, type: 'input' },
-      { id: 'a1', name: 'A1', x: 70, y: 0, type: 'input' }
-    ],
-    default_properties: {
-      voltage: '5V',
-      frequency: '16MHz',
-      flash: '32KB',
-      ram: '2KB'
-    }
-  },
-  
-  // Sensors
-  {
-    category: 'sensor',
-    name: 'Temperature Sensor',
-    is_standard: true,
-    symbol_data: {
-      width: 60,
-      height: 60,
-      paths: [
-        'M 20,10 L 40,10 L 40,50 L 20,50 Z',
-        'M 30,15 L 30,45',
-        'M 25,20 L 35,20',
-        'M 25,25 L 35,25',
-        'M 25,30 L 35,30'
-      ]
-    },
-    pins: [
-      { id: 'vcc', name: 'VCC', x: 0, y: 20, type: 'power' },
-      { id: 'gnd', name: 'GND', x: 0, y: 40, type: 'ground' },
-      { id: 'out', name: 'OUT', x: 60, y: 30, type: 'output' }
-    ],
-    default_properties: {
-      type: 'LM35',
-      range: '-55°C to 150°C',
-      accuracy: '±0.5°C'
-    }
-  },
-  
-  // Communication
-  {
-    category: 'communication',
-    name: 'WiFi Module',
-    is_standard: true,
-    symbol_data: {
-      width: 80,
-      height: 60,
-      paths: [
-        'M 10,10 L 70,10 L 70,50 L 10,50 Z',
-        'M 20,20 L 60,20',
-        'M 25,25 L 55,25',
-        'M 30,30 L 50,30',
-        'M 35,35 L 45,35'
-      ]
-    },
-    pins: [
-      { id: 'vcc', name: 'VCC', x: 0, y: 20, type: 'power' },
-      { id: 'gnd', name: 'GND', x: 0, y: 40, type: 'ground' },
-      { id: 'tx', name: 'TX', x: 80, y: 20, type: 'output' },
-      { id: 'rx', name: 'RX', x: 80, y: 30, type: 'input' },
-      { id: 'rst', name: 'RST', x: 80, y: 40, type: 'input' }
-    ],
-    default_properties: {
-      type: 'ESP8266',
-      frequency: '2.4GHz',
-      protocols: 'WiFi 802.11 b/g/n'
-    }
-  },
-  
+  // Microcontrollers come from the datasheet catalog below: a board-level name
+  // with four invented GPIO pins cannot carry a design, but the silicon on it
+  // can, with every pin numbered the way the datasheet numbers it.
+
   // Power Management
   {
     category: 'power',
@@ -897,16 +830,20 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
     is_standard: true,
     symbol_data: {
       width: 80,
-      height: 50,
+      height: 60,
       paths: [
-        'M 10,10 L 70,10 L 70,40 L 10,40 Z',
-        'M 40,15 L 40,35'
+        'M 10,10 L 70,10 L 70,50 L 10,50 Z',
+        'M 0,30 L 10,30',
+        'M 70,30 L 80,30',
+        'M 40,50 L 40,60',
+        'M 40,18 L 40,40',
+        'M 34,34 L 40,40 L 46,34'
       ]
     },
     pins: [
-      { id: 'vin', name: 'VIN', x: 0, y: 25, type: 'power' },
-      { id: 'vout', name: 'VOUT', x: 80, y: 25, type: 'power' },
-      { id: 'gnd', name: 'GND', x: 40, y: 50, type: 'ground' }
+      { id: 'vin', name: 'VIN', x: 0, y: 30, type: 'power' },
+      { id: 'vout', name: 'VOUT', x: 80, y: 30, type: 'power' },
+      { id: 'gnd', name: 'GND', x: 40, y: 60, type: 'ground' }
     ],
     default_properties: {
       type: 'LM7805',
@@ -916,69 +853,10 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
     }
   },
   
-  // Memory
-  {
-    category: 'memory',
-    name: 'EEPROM',
-    is_standard: true,
-    symbol_data: {
-      width: 80,
-      height: 60,
-      paths: [
-        'M 10,10 L 70,10 L 70,50 L 10,50 Z',
-        'M 20,20 L 60,20',
-        'M 20,30 L 60,30',
-        'M 20,40 L 60,40'
-      ]
-    },
-    pins: [
-      { id: 'vcc', name: 'VCC', x: 0, y: 15, type: 'power' },
-      { id: 'gnd', name: 'GND', x: 0, y: 45, type: 'ground' },
-      { id: 'sda', name: 'SDA', x: 80, y: 20, type: 'io' },
-      { id: 'scl', name: 'SCL', x: 80, y: 30, type: 'input' },
-      { id: 'wp', name: 'WP', x: 80, y: 40, type: 'input' }
-    ],
-    default_properties: {
-      type: '24LC256',
-      capacity: '256Kbit',
-      interface: 'I2C'
-    }
-  },
-  
-  // Displays
-  {
-    category: 'display',
-    name: 'LCD Display',
-    is_standard: true,
-    symbol_data: {
-      width: 100,
-      height: 60,
-      paths: [
-        'M 10,10 L 90,10 L 90,50 L 10,50 Z',
-        'M 15,15 L 85,15 L 85,45 L 15,45 Z',
-        'M 20,20 L 80,20',
-        'M 20,25 L 80,25',
-        'M 20,30 L 80,30',
-        'M 20,35 L 80,35'
-      ]
-    },
-    pins: [
-      { id: 'vss', name: 'VSS', x: 0, y: 15, type: 'ground' },
-      { id: 'vdd', name: 'VDD', x: 0, y: 25, type: 'power' },
-      { id: 'v0', name: 'V0', x: 0, y: 35, type: 'input' },
-      { id: 'rs', name: 'RS', x: 0, y: 45, type: 'input' },
-      { id: 'e', name: 'E', x: 100, y: 15, type: 'input' },
-      { id: 'd4', name: 'D4', x: 100, y: 25, type: 'input' },
-      { id: 'd5', name: 'D5', x: 100, y: 35, type: 'input' },
-      { id: 'd6', name: 'D6', x: 100, y: 45, type: 'input' }
-    ],
-    default_properties: {
-      type: '16x2 Character',
-      interface: 'Parallel',
-      voltage: '5V'
-    }
-  },
-  
+  // Memory and displays come from the datasheet catalog: `24LC256 256Kbit I2C
+  // EEPROM` carries all eight pins, and a five-pin stand-in for it would only
+  // teach the designer to draw a part that cannot be bought.
+
   // Motors and Actuators
   {
     category: 'actuator',
@@ -989,9 +867,12 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       height: 60,
       paths: [
         'M 15,15 L 45,15 L 45,45 L 15,45 Z',
-        'M 30,30 A 10,10 0 1,1 30,30.1',
+        'M 20,30 A 10,10 0 1,0 40,30 A 10,10 0 1,0 20,30 Z',
         'M 30,20 L 30,40',
-        'M 20,30 L 40,30'
+        'M 20,30 L 40,30',
+        'M 0,20 L 15,20',
+        'M 0,40 L 15,40',
+        'M 45,30 L 60,30'
       ]
     },
     pins: [
@@ -1013,17 +894,19 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
     name: 'Crystal Oscillator',
     is_standard: true,
     symbol_data: {
-      width: 50,
-      height: 30,
+      width: 60,
+      height: 40,
       paths: [
-        'M 15,5 L 15,25',
-        'M 35,5 L 35,25',
-        'M 20,10 L 30,10 L 30,20 L 20,20 Z'
+        'M 0,20 L 10,20',
+        'M 10,8 L 10,32',
+        'M 16,6 L 44,6 L 44,34 L 16,34 Z',
+        'M 50,8 L 50,32',
+        'M 50,20 L 60,20'
       ]
     },
     pins: [
-      { id: 'p1', name: '1', x: 0, y: 15, type: 'passive' },
-      { id: 'p2', name: '2', x: 50, y: 15, type: 'passive' }
+      { id: 'p1', name: '1', x: 0, y: 20, type: 'passive' },
+      { id: 'p2', name: '2', x: 60, y: 20, type: 'passive' }
     ],
     default_properties: {
       frequency: '16MHz',
@@ -1089,16 +972,17 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
     name: 'Test Point',
     is_standard: true,
     symbol_data: {
-      width: 20,
+      width: 30,
       height: 20,
       paths: [
-        'M 10,10 A 8,8 0 1,1 10,10.1',
+        'M 2,10 A 8,8 0 1,0 18,10 A 8,8 0 1,0 2,10 Z',
         'M 5,10 L 15,10',
-        'M 10,5 L 10,15'
+        'M 10,5 L 10,15',
+        'M 18,10 L 30,10'
       ]
     },
     pins: [
-      { id: 'tp', name: 'TP', x: 20, y: 10, type: 'passive' }
+      { id: 'tp', name: 'TP', x: 30, y: 10, type: 'passive' }
     ],
     default_properties: {
       type: 'SMD',

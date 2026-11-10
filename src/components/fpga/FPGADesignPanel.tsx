@@ -1,12 +1,16 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { FPGA_DEVICES, fpgaDesignFlow } from '../../lib/fpga/fpgaDesignFlow';
 import { buildDemoHdl, DEMO_VERILOG, DEMO_VHDL } from '../../lib/demo/demoHdl';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { CodeEditor } from '../editor/CodeEditor';
+import { CodeEditor, type CodeEditorHandle } from '../editor/CodeEditor';
 import { Badge } from '../ui/badge';
 import { useDemoRequest } from '../workspace/useDemoRequest';
 import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign';
+import { useDomainLibraryZone } from '../../lib/library/useDomainLibraryZone';
+import { snippetVerdict } from '../../lib/library/snippetVerdict';
+import LibraryDropNote from '../library/LibraryDropNote';
+import type { LibraryItem } from '../../lib/library/types';
 
 type FpgaLanguage = 'verilog' | 'vhdl';
 
@@ -56,6 +60,24 @@ export default function FPGADesignPanel() {
   useDemoRequest('fpga-verilog', () => loadDemo('verilog'));
   useDemoRequest('fpga-vhdl', () => loadDemo('vhdl'));
 
+  /*
+   * The dock offers the same HDL rows the HDL editor takes, because this box
+   * elaborates the same two languages. A row from another language is refused
+   * before it lands, since source the flow cannot synthesise is a broken design
+   * waiting to be generated.
+   */
+  const sourceRef = useRef<CodeEditorHandle>(null);
+  const placeSnippetRow = useCallback((item: LibraryItem) => {
+    if (item.kind !== 'snippet') return;
+    sourceRef.current?.insertAtCaret(item.payload.text);
+    setLog(`"${item.name}" inserted at the caret.`);
+  }, []);
+  const sourceZone = useDomainLibraryZone({
+    accepts: snippetVerdict([language], 'this FPGA source'),
+    as: 'the source',
+    onPlace: placeSnippetRow,
+  });
+
   const generateManifest = () => {
     const manifest = fpgaDesignFlow.generateManifest(result);
     if (!manifest) {
@@ -87,14 +109,18 @@ export default function FPGADesignPanel() {
               ))}
             </select>
             <label htmlFor="fpga-source" className="text-xs font-medium text-muted-foreground">HDL source</label>
-            <CodeEditor
-              id="fpga-source"
-              value={source}
-              onChange={setSource}
-              language={language}
-              ariaLabel="HDL source"
-              className="h-56"
-            />
+            <div className="cad-dropzone relative" role="group" aria-label="FPGA HDL source — drop an HDL block here" {...sourceZone.zoneProps}>
+              <CodeEditor
+                ref={sourceRef}
+                id="fpga-source"
+                value={source}
+                onChange={setSource}
+                language={language}
+                ariaLabel="HDL source"
+                className="h-56"
+              />
+              <LibraryDropNote zone={sourceZone} surface="the source" className="mt-1" />
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <Button variant="outline" onClick={() => loadDemo('verilog')}>Load Verilog demo</Button>
               <Button variant="outline" onClick={() => loadDemo('vhdl')}>Load VHDL demo</Button>

@@ -124,7 +124,7 @@ export default function LimitsDialog({ open, onClose, currentMode = null }: Limi
           {/* The filter belongs to the whole dialog, so it sits in the header
            * beside the close control instead of sharing a flex line with the
            * wrapping family strip below — where it used to paint over it. */}
-          <label className="cad-search flex h-8 w-36 flex-shrink-0 items-center gap-2 rounded-md border border-border bg-background px-2 sm:w-56">
+          <label className="cad-search flex h-8 w-36 flex-shrink-0 items-center gap-2 rounded-md border border-input bg-background px-2 sm:w-56">
             <Search className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
             <span className="sr-only">Search capabilities</span>
             <input
@@ -136,15 +136,16 @@ export default function LimitsDialog({ open, onClose, currentMode = null }: Limi
               className="h-full w-full min-w-0 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
-          <Button variant="ghost" size="icon" aria-label="Close capabilities and limits" onClick={onClose}>
+          <Button variant="ghost" size="icon" aria-label="Close capabilities and limits" onClick={onClose} title="Close the register of what this app proves and what it refuses to model.">
             <X className="h-4 w-4" />
           </Button>
         </div>
 
         <div className="flex flex-shrink-0 items-center gap-2 border-b border-border px-4 py-2">
-          {/* One line, scrolled instead of wrapped: a wrapped strip stacks the
-           * families into a column and wastes the rest of the row. */}
-          <div className="scrollbar-none flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" role="group" aria-label="Capability families">
+          {/* The family names are long enough to overrun any dialog, so the strip
+           * uses the full width and wraps onto more lines instead of scrolling a
+           * family out of reach. */}
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1" role="group" aria-label="Capability families">
             {CAPABILITY_FILTERS.map((entry) => (
               <button
                 key={entry}
@@ -163,7 +164,7 @@ export default function LimitsDialog({ open, onClose, currentMode = null }: Limi
             ))}
           </div>
           {currentMode && (
-            <label className="flex h-7 flex-shrink-0 items-center gap-1.5 rounded-sm border border-border bg-background px-2 text-[11px] text-muted-foreground">
+            <label className="flex h-7 flex-shrink-0 items-center gap-1.5 rounded-sm border border-input bg-background px-2 text-[11px] text-muted-foreground">
               <input
                 type="checkbox"
                 checked={modeOnly}
@@ -189,7 +190,7 @@ export default function LimitsDialog({ open, onClose, currentMode = null }: Limi
               {grouped.map(({ family, records }) => (
                 <section key={family.id} aria-labelledby={`limits-group-${family.id}`}>
                   <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
-                    <h3 id={`limits-group-${family.id}`} className="text-[11px] font-semibold uppercase tracking-[0.08em] text-primary">
+                    <h3 id={`limits-group-${family.id}`} className="text-[11px] font-medium text-primary">
                       {family.label}
                     </h3>
                     <p className="text-[11px] text-muted-foreground">{family.description}</p>
@@ -237,16 +238,16 @@ export default function LimitsDialog({ open, onClose, currentMode = null }: Limi
                             <div id={`limits-${record.id}-body`} className="flex flex-col gap-3 px-3 pb-3 pt-1">
                               <dl className="flex flex-col gap-2">
                                 <div>
-                                  <dt className="text-[10px] font-semibold uppercase tracking-[0.08em] text-success">Computes</dt>
+                                  <dt className="text-[11px] font-medium text-success">Computes</dt>
                                   <dd className="text-[11.5px] leading-relaxed text-foreground">{record.computes}</dd>
                                 </div>
                                 <div>
-                                  <dt className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Method</dt>
+                                  <dt className="text-[11px] font-medium text-muted-foreground">Method</dt>
                                   <dd className="text-[11.5px] leading-relaxed text-muted-foreground">{record.method}</dd>
                                 </div>
                               </dl>
                               <div className="rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2">
-                                <h4 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-warning">Not covered</h4>
+                                <h4 className="text-[11px] font-medium text-warning">Not covered</h4>
                                 <ul className="mt-1 flex flex-col gap-1">
                                   {record.notCovered.map((line) => (
                                     <li key={line} className="flex gap-1.5 text-[11.5px] leading-relaxed text-foreground">
@@ -257,7 +258,7 @@ export default function LimitsDialog({ open, onClose, currentMode = null }: Limi
                                 </ul>
                               </div>
                               <div>
-                                <h4 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                                <h4 className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
                                   <FileCheck2 className="h-3 w-3" aria-hidden="true" />
                                   Pinned by {record.validatedBy.length} test file{record.validatedBy.length === 1 ? '' : 's'}
                                 </h4>

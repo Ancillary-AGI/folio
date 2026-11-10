@@ -51,9 +51,10 @@ describe('committing recognised ink', () => {
     const placed = result.components[0]
     expect(placed.component.name).toBe('Resistor')
     expect(placed.reference).toBe('R1')
-    // Centre the 80×30 symbol on the ink at (100, 50), then snap to 10.
+    // Centre the 80×40 symbol on the ink at (100, 50), then snap to 10: the
+    // origin sits half a size away, so (60, 30) — and its pin line lands on y=50.
     expect(placed.x).toBe(60)
-    expect(placed.y).toBe(40)
+    expect(placed.y).toBe(30)
     expect(placed.properties.value).toBe('10k')
     expect(placed.id).not.toBe(result.components[0].componentId)
   })
@@ -104,7 +105,9 @@ describe('committing recognised ink', () => {
 
     expect(result.wires).toHaveLength(1)
     const [wire] = result.wires
-    expect(wire.points[0]).toEqual({ x: 140, y: 55 })
+    // The far pin of that part is at (140, 50), so the end drawn at y=55 grid-
+    // snaps to 60 and is then pulled onto the real pin rather than left floating.
+    expect(wire.points[0]).toEqual({ x: 140, y: 50 })
     expect(wire.connectedPins).toHaveLength(1)
     expect(wire.connectedPins[0]).toEqual({ componentId: result.components[0].id, pinId: 'p2' })
   })
@@ -172,14 +175,14 @@ describe('committing recognised ink', () => {
   it('reports an unrecognised library part instead of placing a wrong one', () => {
     const result = commitSketch(
       recognition({
-        symbols: [symbol({ templateId: 'resistor', libraryName: 'Flux Capacitor', label: 'Resistor' })],
+        symbols: [symbol({ templateId: 'resistor', libraryName: 'Unknown Vendor', label: 'Resistor' })],
       }),
       { library, gridSize: 10 },
     )
 
     expect(result.components).toHaveLength(0)
     expect(result.unmatched).toEqual(['Resistor'])
-    expect(result.warnings.join(' ')).toContain('Flux Capacitor')
+    expect(result.warnings.join(' ')).toContain('Unknown Vendor')
     expect(result.warnings.join(' ')).toContain('no parts were placed')
   })
 
@@ -196,21 +199,23 @@ describe('committing recognised ink', () => {
   })
 
   it('reads a drawn resistor and wire end to end', () => {
+    // Drawn the way the library symbol is: leads on the pin line (y=20 of an
+    // 80×40 body), zigzag swinging ±10 around it, wire leaving the far pin.
     const resistor = [
-      { x: 0, y: 15 },
-      { x: 15, y: 15 },
-      { x: 20, y: 5 },
-      { x: 30, y: 25 },
-      { x: 40, y: 5 },
-      { x: 50, y: 25 },
-      { x: 60, y: 5 },
-      { x: 65, y: 15 },
-      { x: 80, y: 15 },
+      { x: 0, y: 20 },
+      { x: 15, y: 20 },
+      { x: 20, y: 10 },
+      { x: 30, y: 30 },
+      { x: 40, y: 10 },
+      { x: 50, y: 30 },
+      { x: 60, y: 10 },
+      { x: 65, y: 20 },
+      { x: 80, y: 20 },
     ]
     const wire = [
-      { x: 80, y: 15 },
-      { x: 120, y: 15 },
-      { x: 160, y: 15 },
+      { x: 80, y: 20 },
+      { x: 120, y: 20 },
+      { x: 160, y: 20 },
     ]
     const read = recognizeSketch([{ points: resistor }, { points: wire }])
     expect(read.symbols[0]?.templateId).toBe('resistor')

@@ -148,6 +148,9 @@ export function synthesizeGates(
       if (color.has(driverName)) continue;
       const driverInstance = instanceByName.get(driverName);
       if (!driverInstance) continue;
+      /* A register output is a sequential boundary, not a combinational edge:
+       * legal feedback through a flop must not be reported as a loop. */
+      if (driverInstance.cell.kind === 'DFF') continue;
       color.set(driverName, 1);
       stack.push({ instance: driverInstance, inputs: inputNets(driverInstance), cursor: 0 });
     }
@@ -175,6 +178,17 @@ export function synthesizeGates(
   for (const inPin of primaryInputs) {
     arrivalTimesPs.set(inPin, 0); // Primary inputs arrive at t=0
   }
+  /* Register outputs are time-zero launch points for the combinational cone
+   * between flops. The clock-to-Q delay belongs to the clock period budget, and
+   * the path into D is reported separately below. */
+  for (const inst of instances) {
+    if (inst.cell.kind !== 'DFF') continue;
+    for (const pin of inst.cell.pins) {
+      if (pin.direction === 'output' && inst.connections[pin.name]) {
+        arrivalTimesPs.set(inst.connections[pin.name], 0);
+      }
+    }
+  }
 
   // Iterate to propagate delays until convergence (DAG)
   let updated = true;
@@ -186,6 +200,9 @@ export function synthesizeGates(
     iterations += 1;
 
     for (const inst of instances) {
+      // A flip-flop's Q is a launch point, not a combinational stage; its D
+      // path is measured below as the worst register-to-register arrival.
+      if (inst.cell.kind === 'DFF') continue;
       // Find latest arrival time of inputs
       let maxInputTime = 0;
       let latestInput: string | undefined;
@@ -292,8 +309,8 @@ export function synthesizeGates(
     metrics: {
       gateCount: instances.length,
       totalCellAreaUm2: Number(totalArea.toFixed(2)),
-      totalLeakagePowerUw: Number(leakageUw.toFixed(4)),
-      estimatedDynamicPowerMwAt100Mhz: Number(dynPowerMw.toFixed(4)),
+      totalLeakagePowerUw: Number(leakageUw.toPrecision(4)),
+      estimatedDynamicPowerMwAt100Mhz: Number(dynPowerMw.toPrecision(4)),
       criticalPathDelayPs: Math.round(maxPathDelayPs),
       maxOperatingFreqMhz: Math.round(maxFreqMhz),
       criticalPath,

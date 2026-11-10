@@ -1,7 +1,10 @@
 import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
-import { normalizeThemePreference } from '../lib/theme/themeController'
 import type { ThemePreference } from '../lib/theme/tokens'
+import type { LibraryItem } from '../lib/library/types'
+import type { ShadingMode } from '../lib/3d/outline'
+import type { TransientIntegration } from '../lib/simulation/stamping'
+import { DEFAULT_SETTINGS, coerceSetting, normalizeSettings } from '../lib/settings/registry'
 
 export type WorkspaceMode =
   | 'schematic'
@@ -10,6 +13,8 @@ export type WorkspaceMode =
   | 'machines'
   | 'grid'
   | 'mechanical'
+  | 'structures'
+  | 'biology'
   | 'pcb'
   | 'rf'
   | 'convert'
@@ -34,34 +39,110 @@ export type WorkspaceMode =
 export interface AppSettings {
   /** `system` follows the OS; every other value is an explicit user choice. */
   theme: ThemePreference
+  /** When false the shell applies `.reduce-motion` and suppresses transitions. */
+  animations: boolean
+  /**
+   * The ambient light field behind the shell. Off removes it entirely — the
+   * chrome bars go solid again instead of blurring an empty background.
+   */
+  ambientLight: boolean
+
+  // Drafting canvas
   gridSize: number
   snapToGrid: boolean
   showGrid: boolean
   showRulers: boolean
-  /** When false the shell applies `.reduce-motion` and suppresses transitions. */
-  animations: boolean
+  /** Net-name labels drawn on the sheet; off leaves only copper and parts. */
+  showNetLabels: boolean
+  /**
+   * Edit states the undo history keeps. The store used to clip at a hardcoded 50,
+   * which a long routing session quietly outgrew — the first hour of edits becomes
+   * unrecoverable and nothing says so.
+   */
+  historyDepth: number
+
+  // 3D viewport
+  /** Solid shading, or the crease wire with a ghost of the surface behind it. */
+  shadingMode: ShadingMode
+  viewerShadows: boolean
+  viewerGrid: boolean
+  /** Device-pixel multiple the 3D renderer is capped at. */
+  viewerPixelRatio: number
+  /** Body exaggeration of placed parts in the board preview, 1 being true size. */
+  viewerPartScale: number
+
+  // Code editor
+  editorFontSize: number
+  editorLineNumbers: boolean
+  /** The ghost text and completion popup. Off means typing is yours alone. */
+  editorSuggestions: boolean
+  editorAutoCloseBrackets: boolean
+  editorAutoIndent: boolean
+  /** Spaces a Tab or an auto-indent inserts, in every code buffer. */
+  editorTabSize: number
+  /** Tint the row the caret sits on. */
+  editorActiveLine: boolean
+
+  // Board rules
+  /** Copper width the autorouter draws and DRC measures, in millimetres. */
+  boardTraceWidthMm: number
+  /** Copper-to-copper spacing the router keeps and DRC demands. */
+  boardClearanceMm: number
+  /** Finished drill of a signal via; the pad is built around this. */
+  boardViaDrillMm: number
+  boardViaPadMm: number
+
+  // Simulation
+  /** Temperature a run starts at when the deck states none. */
+  simTemperatureC: number
+  /** Transient window a new run is opened with, in microseconds. */
+  simTransientStopUs: number
+  simTransientStepUs: number
+  /** Integration rule a transient run defaults to. */
+  simIntegrationMethod: TransientIntegration
+  /** Frequency samples per decade for an AC or noise sweep. */
+  simPointsPerDecade: number
+
+  // 3D framing
+  /** Vertical field of view of every 3D camera, in degrees. */
+  cameraFovDeg: number
+
+  // Export
+  /** Pixel multiple of a PNG sheet export. */
+  imageExportScale: number
+  /** Gerber coordinate unit at the output boundary. */
+  gerberUnits: 'mm' | 'in'
+  /** Paper the engineering drawing is laid out on. */
+  drawingPaperSize: 'A4' | 'A3' | 'Letter'
+
+  // Saving
   autoSave: boolean
   autoSaveInterval: number
-  language: string
-  units: 'metric' | 'imperial'
 }
 
 export interface ViewportState {
   zoom: number
   pan: { x: number; y: number }
-  canvasSize: { width: number; height: number }
 }
+
+export type NetSelection = { name: string } | { wireId: string }
 
 export interface AppState {
   // Settings
   settings: AppSettings
+  /**
+   * Live-apply write. There is no draft and no Save button: the value a control
+   * shows is the value the app uses, and it is clamped to its registry range on
+   * the way in, so a stale or hand-edited stored number cannot reach a renderer.
+   */
   updateSettings: (settings: Partial<AppSettings>) => void
+  /** Back to the registry defaults — the listed keys, or every key when omitted. */
+  resetSettings: (keys?: Array<keyof AppSettings>) => void
   
   // Viewport
   viewport: ViewportState
   setZoom: (zoom: number) => void
   setPan: (pan: { x: number; y: number }) => void
-  setCanvasSize: (size: { width: number; height: number }) => void
   
   workspaceMode: WorkspaceMode
   setWorkspaceMode: (mode: WorkspaceMode) => void
@@ -71,75 +152,86 @@ export interface AppState {
   requestDemo: (request: string | null) => void
   clearDemoRequest: () => void
 
+  /**
+   * The library row armed by a click in the dock. A panel whose drop zone takes
+   * that kind places it; leaving the workspace disarms it.
+   */
+  armedLibraryItem: LibraryItem | null
+  setArmedLibraryItem: (item: LibraryItem | null) => void
+
   // UI State
   sidebarOpen: boolean
-  propertiesPanelOpen: boolean
   simulationPanelOpen: boolean
   aiChatOpen: boolean
-  componentLibraryOpen: boolean
   
   toggleSidebar: () => void
-  togglePropertiesPanel: () => void
   toggleSimulationPanel: () => void
   toggleAiChat: () => void
-  toggleComponentLibrary: () => void
   
-  // Tool State
-  activeTool: 'select' | 'wire' | 'delete' | 'measure' | 'text' | 'sketch'
-  setActiveTool: (tool: 'select' | 'wire' | 'delete' | 'measure' | 'text' | 'sketch') => void
+  // Tool State. These four are the sheet tools the rail actually offers; the
+  // board has its own tool set in the PCB panel and does not live here.
+  activeTool: 'select' | 'wire' | 'delete' | 'sketch'
+  setActiveTool: (tool: 'select' | 'wire' | 'delete' | 'sketch') => void
   
-  // Selection
+  // Selection: the ids of the components the sheet currently holds. The board's
+  // cross-probe, the inspector and the status-bar count all read this one list.
   selectedComponents: string[]
-  selectedWires: string[]
   setSelectedComponents: (ids: string[]) => void
-  setSelectedWires: (ids: string[]) => void
+  /**
+   * The net under the cursor. A named net spans every wire segment and pin with
+   * that name; an unnamed wire falls back to its own id. Parts and nets share
+   * one cursor — choosing either replaces the other.
+   */
+  selectedNet: NetSelection | null
+  selectNet: (target: NetSelection) => void
   clearSelection: () => void
-  
-  // Clipboard
-  clipboard: Record<string, unknown>[]
-  copy: (items: Record<string, unknown>[]) => void
-  paste: () => Record<string, unknown>[]
-  
-  // Undo/Redo
-  history: Record<string, unknown>[]
-  historyIndex: number
-  pushHistory: (state: Record<string, unknown>) => void
-  undo: () => void
-  redo: () => void
-  canUndo: () => boolean
-  canRedo: () => boolean
-}
 
-const defaultSettings: AppSettings = {
-  // Dark is the CAD-oriented first-run default; System remains an explicit choice.
-  theme: 'dark',
-  gridSize: 10,
-  snapToGrid: true,
-  showGrid: true,
-  showRulers: true,
-  animations: true,
-  autoSave: true,
-  autoSaveInterval: 30000, // 30 seconds
-  language: 'en',
-  units: 'metric'
+  /**
+   * One-shot "bring this part under the viewport". The sheet owns the geometry,
+   * so it consumes the request once it has a measured stage. Sending it through
+   * the store rather than a window event keeps a palette row working even when
+   * the same click is what mounts the sheet.
+   */
+  focusRequest: { id: string; nonce: number } | null
+  requestComponentFocus: (id: string) => void
+  consumeComponentFocus: (nonce: number) => void
+
+  /** The same one-shot framing, for a net's wire run instead of a part. */
+  netFocusRequest: { name: string; nonce: number } | null
+  requestNetFocus: (name: string) => void
+  consumeNetFocus: (nonce: number) => void
 }
 
 const defaultViewport: ViewportState = {
   zoom: 1,
-  pan: { x: 0, y: 0 },
-  canvasSize: { width: 2000, height: 1500 }
+  pan: { x: 0, y: 0 }
 }
+
+/* Each request gets a new token so asking twice for the same part still moves
+ * the viewport, and a consumer cannot clear a newer request by accident. */
+let focusNonce = 0
 
 export const useAppStore = create<AppState>()(
   devtools(
     persist(
-      (set, get) => ({
+      (set) => ({
         // Settings
-        settings: defaultSettings,
+        settings: DEFAULT_SETTINGS,
         updateSettings: (newSettings) =>
-          set((state) => ({
-            settings: { ...state.settings, ...newSettings }
-          })),
+          set((state) => {
+            const patch: Record<string, unknown> = {}
+            for (const key of Object.keys(newSettings) as Array<keyof AppSettings>) {
+              patch[key] = coerceSetting(key, newSettings[key])
+            }
+            return { settings: { ...state.settings, ...patch } as AppSettings }
+          }),
+        resetSettings: (keys) =>
+          set((state) => {
+            if (!keys) return { settings: { ...DEFAULT_SETTINGS } }
+            const patch: Record<string, unknown> = {}
+            for (const key of keys) patch[key] = DEFAULT_SETTINGS[key]
+            return { settings: { ...state.settings, ...patch } as AppSettings }
+          }),
         
         // Viewport
         viewport: defaultViewport,
@@ -151,76 +243,56 @@ export const useAppStore = create<AppState>()(
           set((state) => ({
             viewport: { ...state.viewport, pan }
           })),
-        setCanvasSize: (canvasSize) =>
-          set((state) => ({
-            viewport: { ...state.viewport, canvasSize }
-          })),
         
         workspaceMode: 'schematic',
-        // A manual mode switch drops any unconsumed demo bootstrap, so a stale
-        // request can never fire in an unrelated workspace later.
-        setWorkspaceMode: (workspaceMode) => set({ workspaceMode, demoRequest: null }),
+        // A manual mode switch drops any unconsumed demo bootstrap and any armed
+        // library row, so neither can fire in an unrelated workspace later.
+        setWorkspaceMode: (workspaceMode) => set({ workspaceMode, demoRequest: null, armedLibraryItem: null }),
 
         demoRequest: null,
         requestDemo: (demoRequest) => set({ demoRequest }),
         clearDemoRequest: () => set({ demoRequest: null }),
 
+        armedLibraryItem: null,
+        setArmedLibraryItem: (armedLibraryItem) => set({ armedLibraryItem }),
+
         // UI State
         sidebarOpen: true,
-        propertiesPanelOpen: false,
         simulationPanelOpen: false,
         aiChatOpen: false,
-        componentLibraryOpen: true,
         
         toggleSidebar: () =>
           set((state) => ({ sidebarOpen: !state.sidebarOpen })),
-        togglePropertiesPanel: () =>
-          set((state) => ({ propertiesPanelOpen: !state.propertiesPanelOpen })),
         toggleSimulationPanel: () =>
           set((state) => ({ simulationPanelOpen: !state.simulationPanelOpen })),
         toggleAiChat: () =>
           set((state) => ({ aiChatOpen: !state.aiChatOpen })),
-        toggleComponentLibrary: () =>
-          set((state) => ({ componentLibraryOpen: !state.componentLibraryOpen })),
-        
+
         // Tool State
         activeTool: 'select',
         setActiveTool: (tool) => set({ activeTool: tool }),
         
-        // Selection
+        // Selection: one cursor at a time, so choosing parts drops the net and
+        // choosing a net drops the parts.
         selectedComponents: [],
-        selectedWires: [],
-        setSelectedComponents: (ids) => set({ selectedComponents: ids }),
-        setSelectedWires: (ids) => set({ selectedWires: ids }),
-        clearSelection: () => set({ selectedComponents: [], selectedWires: [] }),
-        
-        // Clipboard
-        clipboard: [],
-        copy: (items) => set({ clipboard: items }),
-        paste: () => get().clipboard,
-        
-        // Undo/Redo
-        history: [],
-        historyIndex: -1,
-        pushHistory: (state) =>
-          set((current) => {
-            const newHistory = current.history.slice(0, current.historyIndex + 1)
-            newHistory.push(state)
-            return {
-              history: newHistory.slice(-50), // Keep last 50 states
-              historyIndex: Math.min(newHistory.length - 1, 49)
-            }
-          }),
-        undo: () =>
-          set((state) => ({
-            historyIndex: Math.max(0, state.historyIndex - 1)
-          })),
-        redo: () =>
-          set((state) => ({
-            historyIndex: Math.min(state.history.length - 1, state.historyIndex + 1)
-          })),
-        canUndo: () => get().historyIndex > 0,
-        canRedo: () => get().historyIndex < get().history.length - 1,
+        setSelectedComponents: (ids) => set({ selectedComponents: ids, selectedNet: null }),
+        selectedNet: null,
+        selectNet: (target) => set({ selectedNet: target, selectedComponents: [] }),
+        clearSelection: () => set({ selectedComponents: [], selectedNet: null }),
+
+        // Focus request (never persisted)
+        focusRequest: null,
+        requestComponentFocus: (id) => set({ focusRequest: { id, nonce: ++focusNonce } }),
+        consumeComponentFocus: (nonce) =>
+          set((state) =>
+            state.focusRequest?.nonce === nonce ? { focusRequest: null } : {},
+          ),
+        netFocusRequest: null,
+        requestNetFocus: (name) => set({ netFocusRequest: { name, nonce: ++focusNonce } }),
+        consumeNetFocus: (nonce) =>
+          set((state) =>
+            state.netFocusRequest?.nonce === nonce ? { netFocusRequest: null } : {},
+          ),
       }),
       {
         name: 'circuit-cad-app-store',
@@ -228,23 +300,28 @@ export const useAppStore = create<AppState>()(
           settings: state.settings,
           viewport: state.viewport,
           sidebarOpen: state.sidebarOpen,
-          propertiesPanelOpen: state.propertiesPanelOpen,
           simulationPanelOpen: state.simulationPanelOpen,
-          componentLibraryOpen: state.componentLibraryOpen,
         }),
-        /** Normalise values written by earlier releases before they reach the UI. */
+        /**
+         * Rebuild the persisted shape from the keys `partialize` writes, so a
+         * payload from an earlier release cannot smuggle back a piece of state the
+         * store no longer has (the old properties-panel and library-dock toggles,
+         * a cached canvas size) or leave `viewport.canvasSize` stranded.
+         */
         migrate: (persisted) => {
-          const state = persisted as Partial<AppState> | undefined
-          if (!state?.settings) return persisted as AppState
+          const state = persisted as (Partial<AppState> & { viewport?: Partial<ViewportState> }) | undefined
+          if (!state) return undefined as unknown as AppState
           return {
-            ...state,
-            settings: {
-              ...state.settings,
-              theme: normalizeThemePreference(state.settings.theme),
+            settings: state.settings ? normalizeSettings(state.settings) : DEFAULT_SETTINGS,
+            viewport: {
+              zoom: state.viewport?.zoom ?? 1,
+              pan: state.viewport?.pan ?? { x: 0, y: 0 },
             },
+            sidebarOpen: state.sidebarOpen ?? true,
+            simulationPanelOpen: state.simulationPanelOpen ?? false,
           } as AppState
         },
-        version: 2,
+        version: 4,
       }
     )
   )

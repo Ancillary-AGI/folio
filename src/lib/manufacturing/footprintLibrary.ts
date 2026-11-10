@@ -1,4 +1,5 @@
 import { Point } from '../../types';
+import { generatedFootprint, declaresUnpatternedPackage } from './landPattern';
 
 export interface FootprintPad {
   id: string;
@@ -779,17 +780,41 @@ export class FootprintLibrary {
 
 export const footprintLibrary = new FootprintLibrary();
 
-/** Resolution order: exact footprint id, footprint name, then family category. */
-export function resolveFootprint(footprint: string, category?: string): Footprint | undefined {
+/**
+ * Resolution order: exact footprint id, footprint name, the nominal pattern for
+ * the package the string names, then the family category.
+ *
+ * The generated step is what keeps a datasheet part usable: without it a 16-pin
+ * isolator resolves to nothing and reaches the board as a body with no copper
+ * lands, which the router cannot connect and a fabricator cannot read.
+ *
+ * The category step is a last resort for a part whose name says nothing about a
+ * package, and it is only allowed when the land count matches the symbol. A
+ * 16-pin part handed an 8-land SOIC loses eight nets silently, and a board whose
+ * nets have vanished routes into shapes nobody asked for — a warning and no
+ * copper is the better answer. It is also refused for a package this CAD
+ * deliberately does not pattern (a TO-220, a module castellation ring): dressing
+ * a through-hole regulator in an SOT-23's reflow lands is a wrong footprint that
+ * passes a pad-count check.
+ */
+export function resolveFootprint(
+  footprint: string,
+  category?: string,
+  padCount?: number,
+): Footprint | undefined {
   const direct = footprintLibrary.getFootprint(footprint)
   if (direct) return direct
   const byName = footprintLibrary
     .getAllFootprints()
     .find((entry) => entry.name.toLowerCase() === footprint.toLowerCase())
   if (byName) return byName
-  if (category) {
-    const byCategory = footprintLibrary.getFootprintsByCategory(category)
-    if (byCategory.length > 0) return byCategory[0]
+  const generated = generatedFootprint(footprint, padCount)
+  if (generated) return generated
+  if (category && !declaresUnpatternedPackage(footprint)) {
+    const byCategory = footprintLibrary
+      .getFootprintsByCategory(category)
+      .find((entry) => padCount === undefined || entry.pads.length === padCount)
+    if (byCategory) return byCategory
   }
   return undefined
 }

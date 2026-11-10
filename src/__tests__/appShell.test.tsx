@@ -83,10 +83,30 @@ describe('App shell', () => {
     // Offline component library and status-bar landmarks.
     expect(screen.getByRole('complementary', { name: 'Component library' })).toBeInTheDocument()
     expect(screen.getByText('Resistor')).toBeInTheDocument()
-    expect(screen.getByText(/PARTS/)).toBeInTheDocument()
+    expect(within(screen.getByRole('contentinfo', { name: 'Workspace status' })).getByText(/Parts/)).toBeInTheDocument()
 
     // Header chrome: the theme control is present in the IDE too.
     expect(screen.getAllByRole('button', { name: themeToggleName }).length).toBeGreaterThan(0)
+  })
+
+  it('opens a family-tile project in that family\'s first workspace', async () => {
+    render(<App />)
+
+    // The launcher's family tiles are entry points, not a legend: pressing one
+    // creates the project and lands on the workspace that family is built around.
+    // The list has to finish reading before the tiles exist.
+    await screen.findByRole('heading', { name: 'Your Projects' })
+    fireEvent.click(screen.getByRole('button', { name: /^Start a project in the Electrical family/ }))
+
+    await waitFor(() => expect(useAppStore.getState().workspaceMode).toBe('control'))
+    expect(screen.getByRole('button', { name: 'Control' })).toHaveAttribute('aria-current', 'page')
+    expect(useProjectStore.getState().currentProject).not.toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Your Projects' })).not.toBeInTheDocument()
+
+    // And the ledger says which door was used, so the count is not a guess.
+    const created = getUsageEvents().filter((event) => event.kind === 'project.create')
+    expect(created).toHaveLength(1)
+    expect(created[0]?.detail).toMatchObject({ storage: 'local', family: 'electrical' })
   })
 
   it('puts a skip link first in the tab order so keyboard users reach the workspace', async () => {
@@ -175,12 +195,33 @@ describe('App shell', () => {
     )
   })
 
-  it('ignores workbench shortcuts while the administration route is open', async () => {
+  it('opens Settings with the IDE chord and dismisses it with Escape', async () => {
+    render(<App />)
+    await screen.findByRole('button', { name: /create project/i })
+
+    // Ctrl+, is the chord people already know from every editor; it replaces the
+    // overlay that is up rather than stacking a second scrim on it.
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    await screen.findByRole('dialog', { name: 'Command palette' })
+    fireEvent.keyDown(window, { key: ',', ctrlKey: true })
+    const dialog = await screen.findByRole('dialog', { name: 'Settings' }, { timeout: 20000 })
+    expect(within(dialog).getByRole('searchbox', { name: 'Search settings' })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument(),
+    )
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument(),
+    )
+  })
+
+  it('ignores workbench shortcuts while the admin console route is open', async () => {
     window.history.replaceState(null, '', '/admin')
     render(<App />)
     // The console is a lazy chunk; under a full parallel suite run the default
     // 1 s is not enough to fetch and mount it.
-    await screen.findByRole('heading', { name: 'Administration' }, { timeout: 20000 })
+    await screen.findByRole('heading', { name: 'Admin console' }, { timeout: 20000 })
 
     // No workbench overlay is mounted on this route, so honouring the shortcut
     // would only queue hidden open state that appears on the way back.
@@ -195,15 +236,29 @@ describe('App shell', () => {
     expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument()
   })
 
-  it('opens the administration console from a deep link and returns to projects', async () => {
+  it('opens the admin console from a deep link and returns to projects', async () => {
     window.history.replaceState(null, '', '/admin')
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: 'Administration' }, { timeout: 20000 })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Admin console' }, { timeout: 20000 })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Back to projects' }))
 
     expect(await screen.findByRole('button', { name: /create project/i })).toBeInTheDocument()
     expect(window.location.pathname).toBe('/projects')
+  })
+
+  it('keeps governance out of the app chrome entirely', async () => {
+    render(<App />)
+    await screen.findByRole('button', { name: /create project/i })
+
+    /*
+     * `/admin` is the only door. The console used to advertise itself with a
+     * button in the launcher header, and before that a row in the project's
+     * overflow menu; governing accounts is neither of those things, so nothing
+     * the designer sees may name it.
+     */
+    expect(screen.queryByRole('button', { name: /admin/i })).not.toBeInTheDocument()
+    expect(screen.queryByText('Admin console')).not.toBeInTheDocument()
   })
 
   it('keeps firmware, simulation history, and the routed board on save', async () => {
@@ -264,6 +319,9 @@ describe('App shell', () => {
     expect(useProjectStore.getState().pcbLayout).toEqual(layout)
     expect(useProjectStore.getState().liveFrame).toBeNull()
     expect(useProjectStore.getState().isSimulating).toBe(false)
+    // This case mounts the shell twice, and the second mount rebuilds the board
+    // from the restored layout, so it is one of the flows that needs the shell
+    // suite's budget rather than a bare mount's.
   })
 
   it('keeps the bar to the tools used every session and folds the rest into words', async () => {
@@ -280,14 +338,21 @@ describe('App shell', () => {
     // sit here. They are labelled rows in the overflow menu now, and the
     // launcher button at the left of the bar is the only way out of a project.
     expect(within(header).queryByRole('button', { name: /security alerts/i })).not.toBeInTheDocument()
-    expect(within(header).queryByRole('button', { name: 'Administration' })).not.toBeInTheDocument()
+    expect(within(header).queryByRole('button', { name: 'Admin console' })).not.toBeInTheDocument()
     expect(within(header).queryByRole('button', { name: 'Back to Projects' })).not.toBeInTheDocument()
 
     fireEvent.click(within(header).getByRole('button', { name: 'More tools' }))
     const menu = screen.getByRole('menu', { name: 'More tools' })
-    expect(within(menu).getByRole('menuitem', { name: /Security alerts/ })).toBeInTheDocument()
-    expect(within(menu).getByRole('menuitem', { name: 'Administration' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: /Activity log/ })).toBeInTheDocument()
+    // Governance is not a design action. The console lives at `/admin` and no
+    // bar — launcher or workspace — offers a door to it.
+    expect(within(menu).queryByRole('menuitem', { name: 'Admin console' })).not.toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'Back to Projects' })).toBeInTheDocument()
+
+    // Each group is named for what its rows share. "Session" used to head voice
+    // control and two workspace switches, which is not what it means.
+    const groups = within(menu).getAllByRole('group').map((group) => group.getAttribute('aria-label'))
+    expect(groups).toEqual(['Assistant', 'Workspaces', 'Project'])
 
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Simulation workspace' }))
     expect(useAppStore.getState().workspaceMode).toBe('simulation')
@@ -300,7 +365,7 @@ describe('App shell', () => {
     fireEvent.click((await screen.findAllByRole('button', { name: /new project/i }))[0])
 
     expect(await screen.findByRole('complementary', { name: 'Component library' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Close component library' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close the component library dock' }))
     await waitFor(() =>
       expect(screen.queryByRole('complementary', { name: 'Component library' })).not.toBeInTheDocument(),
     )
@@ -316,9 +381,8 @@ describe('App shell', () => {
     expect(await screen.findByRole('button', { name: 'BOM' })).toHaveAttribute('aria-current', 'page')
     expect(window.location.pathname.endsWith('/bom')).toBe(true)
     // Mounting the shell on a deep link also mounts the workspace the link
-    // names, which is the heaviest single render in this file; under a full
-    // parallel suite run its mount alone has taken over 10 s.
-  }, 20000)
+    // names, which is the heaviest single render in this file.
+  })
 
   it('moves between a project and the project list with clean history routes', async () => {
     render(<App />)
@@ -333,11 +397,9 @@ describe('App shell', () => {
     expect(await screen.findByRole('heading', { name: 'Your Projects' })).toBeInTheDocument()
     expect(window.location.pathname).toBe('/projects')
     expect(window.location.hash).toBe('')
-    // Same budget as the deep-link case above: creating a project mounts the
-    // schematic workspace chunk and the project list unmounts it. Measured on a
-    // full parallel suite run this flow exceeded the 10 s default, while the same
-    // file run alone finishes all its cases in 16 s.
-  }, 20000)
+    // Like the deep-link case above: creating a project mounts the schematic
+    // workspace chunk and the project list unmounts it.
+  })
 
   it('opens the guide on first run and can be dismissed', async () => {
     localStorage.removeItem(ONBOARDING_COMPLETED_KEY)
@@ -351,8 +413,8 @@ describe('App shell', () => {
   })
 
   // Settings, the tour and the limits dialog are three lazy chunks plus a
-  // guided restart in one case; the default 10 s is not a budget this flow has
-  // ever reliably fit into on a loaded machine.
+  // guided restart in one case, which is why the waits inside it are budgeted
+  // per chunk rather than left at the 1 s findBy default.
   it('hands the guide over to the limits register instead of stacking them', async () => {
     render(<App />)
     fireEvent.click(screen.getAllByRole('button', { name: /create project/i })[0])
@@ -364,7 +426,7 @@ describe('App shell', () => {
 
     // Reading the register is the point of the last step, so opening it from the
     // status bar must not leave a coach mark hovering over the panel.
-    fireEvent.click(screen.getByRole('button', { name: 'LIMITS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Limits' }))
     // LimitsDialog is a lazy chunk; on a loaded CI box it can take longer than
     // the 1 s default to mount after the tour has already cost its budget.
     expect(
@@ -373,7 +435,10 @@ describe('App shell', () => {
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: /one project/i })).not.toBeInTheDocument(),
     )
-  }, 30000)
+    // The three lazy mounts it waits for cost ~26 s measured alone (jsdom has to
+    // evaluate the whole Settings/Help/Limits graph per test), and the waits above
+    // sum to 35 s, so the 30 s suite default is inside this test's own budget.
+  }, 60_000)
 
   it('restarts the guide from Settings', async () => {
     render(<App />)
@@ -530,11 +595,11 @@ describe('App shell', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Simulation' }))
 
     // SimulationPanel is a lazy chunk and its first mount compiles a large
-    // module graph; allow for a fully loaded CI budget rather than 5 s.
+    // module graph, so the wait below is budgeted per chunk.
     expect(await screen.findByText('Circuit Simulation', {}, { timeout: 20000 })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Simulation' })).toHaveAttribute('aria-current', 'page')
     expect(window.location.pathname.endsWith('/simulation')).toBe(true)
-  }, 30000)
+  })
 
   it('toggles the color theme from the header', async () => {
     render(<App />)
@@ -554,42 +619,44 @@ describe('App shell', () => {
     })
   })
 
+  /* Two content-addressed commits of the demo mainboard plus a restore: the
+   * snapshot is a few thousand parts and wires hashed in jsdom, which measures
+   * 9–13 s depending on how many other suites are running. */
   it('commits two sheet versions and restores the earlier one from the version panel', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
-    try {
-      render(<App />)
-      fireEvent.click((await screen.findAllByRole('button', { name: /new project/i }))[0])
-      await screen.findByTestId('schematic-canvas')
+    render(<App />)
+    fireEvent.click((await screen.findAllByRole('button', { name: /new project/i }))[0])
+    await screen.findByTestId('schematic-canvas')
 
-      const board = buildDemoBoard()
-      useProjectStore.setState({ components: board.components, wires: board.wires })
+    const board = buildDemoBoard()
+    useProjectStore.setState({ components: board.components, wires: board.wires })
 
-      fireEvent.click(screen.getByRole('button', { name: 'Version history' }))
-      fireEvent.change(screen.getByLabelText('Commit message'), { target: { value: 'full rectifier' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Commit' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Version history' }))
+    fireEvent.change(screen.getByLabelText('Commit message'), { target: { value: 'full rectifier' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Commit' }))
 
-      expect(await screen.findByText('full rectifier')).toBeInTheDocument()
+    expect(await screen.findByText('full rectifier')).toBeInTheDocument()
 
-      // Diverge from the committed sheet, then record that state too.
-      const reduced = board.components.slice(0, -1)
-      useProjectStore.setState({ components: reduced })
-      fireEvent.change(screen.getByLabelText('Commit message'), { target: { value: 'missing a part' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Commit' }))
+    // Diverge from the committed sheet, then record that state too.
+    const reduced = board.components.slice(0, -1)
+    useProjectStore.setState({ components: reduced })
+    fireEvent.change(screen.getByLabelText('Commit message'), { target: { value: 'missing a part' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Commit' }))
 
-      expect(await screen.findByText('missing a part')).toBeInTheDocument()
-      expect(useProjectStore.getState().components).toHaveLength(reduced.length)
+    expect(await screen.findByText('missing a part')).toBeInTheDocument()
+    expect(useProjectStore.getState().components).toHaveLength(reduced.length)
 
-      fireEvent.click(screen.getByRole('button', { name: 'Restore full rectifier' }))
+    // The restore is the app's own question now, so the test answers it the way
+    // a person does: ask, then press the button that acts.
+    fireEvent.click(screen.getByRole('button', { name: 'Restore full rectifier' }))
+    const question = await screen.findByRole('dialog', { name: /Restore the commit/i })
+    expect(within(question).getByText(/backup of the current state is taken first/i)).toBeInTheDocument()
+    fireEvent.click(within(question).getByRole('button', { name: 'Restore commit' }))
 
-      await waitFor(() => {
-        expect(useProjectStore.getState().components).toHaveLength(board.components.length)
-      })
-      expect(useProjectStore.getState().components.map((part) => part.reference)).toEqual(
-        board.components.map((part) => part.reference),
-      )
-      expect(confirmSpy).toHaveBeenCalled()
-    } finally {
-      confirmSpy.mockRestore()
-    }
-  })
+    await waitFor(() => {
+      expect(useProjectStore.getState().components).toHaveLength(board.components.length)
+    })
+    expect(useProjectStore.getState().components.map((part) => part.reference)).toEqual(
+      board.components.map((part) => part.reference),
+    )
+  }, 30_000)
 })

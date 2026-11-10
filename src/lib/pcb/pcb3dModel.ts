@@ -9,6 +9,7 @@ import {
   type RibbonPath,
 } from '../3d/prismGeometry'
 import { BOARD_CORNER_MM, type PcbScene, type PcbSceneComponent, type PcbScenePad, type PcbScenePour, type PcbSceneTraceSegment } from './pcbScene'
+import { applyOutlineShading, restoreSolidMaterials, type ShadingMode } from '../3d/outline'
 
 export interface PcbBoardGroupOptions {
   showPCB: boolean
@@ -26,6 +27,12 @@ export interface PcbBoardGroupOptions {
   maskColor?: PcbMaskColor
   /** Surface finish that sets the exposed-copper metal; defaults to ENIG. */
   padFinish?: PcbPadFinish
+  /**
+   * `outline` trades the shaded board for its crease wire, the reading used to
+   * check geometry — a trace under a connector, a via inside a keepout, which
+   * pad a part's body really hides. Default is the shaded solid.
+   */
+  shading?: ShadingMode
 }
 
 export type PcbMaskColor = 'green' | 'blue' | 'red' | 'black' | 'white' | 'purple'
@@ -103,6 +110,31 @@ const SOLDERMASK_MM = 0.025
 const KEEPOUT_DIELECTRIC = '#07351f'
 /** How far a keepaway plug has to stand proud of the plane to cover it cleanly. */
 const KEEPOUT_PROUD_MM = 0.004
+
+/**
+ * The e-CAD catalog's moulded-package groups.
+ *
+ * The dock files an op-amp as `amplifier`, a sensor as `sensor` and a regulator
+ * as `regulator`; each is still a moulded body with leads and a pin-1 end, so the
+ * 3-D builder keys that shape off this list instead of the single word `ic`. A
+ * category absent from it is drawn as whatever generic body its footprint gives.
+ */
+const MOULDED_PACKAGE_CATEGORIES = new Set([
+  'ic',
+  'interface',
+  'amplifier',
+  'converter',
+  'reference',
+  'regulator',
+  'sensor',
+  'microcontroller',
+  'memory',
+  'semiconductor',
+])
+
+function isMouldedPackage(category: string): boolean {
+  return MOULDED_PACKAGE_CATEGORIES.has(category)
+}
 
 /**
  * Shapes shared by every part of the same size.
@@ -242,6 +274,10 @@ function addBuiltMesh(
  * only the group's private shapes, materials and textures are released.
  */
 export function disposePcbGroup(group: THREE.Group): void {
+  // An outline-shaded group parks its real finishes on `userData`, out of reach
+  // of the walk below, so they would outlive the board that made them. Put the
+  // pointers back where the walk can see them first.
+  restoreSolidMaterials(group)
   const released = new Set<THREE.BufferGeometry | THREE.Material>()
   group.traverse((object) => {
     const mesh = object as THREE.Mesh
@@ -551,8 +587,10 @@ function createSilkscreenTexture(scene: PcbScene, side: 'top' | 'bottom'): THREE
     context.translate(cx, cy)
     context.rotate(degToRad(component.rotationYDeg))
 
-    if (component.category === 'ic' || component.category === 'connector') {
-      // Package outline plus the pin-1 chamfer every assembly house expects.
+    if (component.category === 'connector' || component.pads.length > 2) {
+      // Package outline plus the pin-1 chamfer every assembly house expects. A
+      // connector wants it at any pad count; anything else earns it by having
+      // more than two leads, which is when the body has an orientation at all.
       context.strokeRect(-width / 2 - gap, -depth / 2 - gap, width + gap * 2, depth + gap * 2)
       context.beginPath()
       context.arc(-width / 2 - gap / 2, -depth / 2 - gap / 2, mm(0.22), 0, Math.PI * 2)
@@ -828,16 +866,17 @@ function addComponentBody(
   }
 
   if (!chipBuilt) {
-    const boxWidth = component.category === 'ic' ? width * 0.94 : width
-    const boxDepth = component.category === 'ic' ? depth * 0.94 : depth
-    const radius = component.category === 'ic' ? 0.1 : 0.14
+    const moulded = isMouldedPackage(component.category)
+    const boxWidth = moulded ? width * 0.94 : width
+    const boxDepth = moulded ? depth * 0.94 : depth
+    const radius = moulded ? 0.1 : 0.14
     const body = new THREE.Mesh(roundedBox(boxWidth, height, boxDepth, radius), material)
     body.name = `body-${component.id}`
     body.castShadow = true
     model.add(body)
   }
 
-  if (component.category === 'ic') {
+  if (isMouldedPackage(component.category)) {
     const dimple = new THREE.Mesh(
       sphereShape(Math.min(0.22, Math.min(width, depth) * 0.06), false),
       decoMaterial('#050505', 0.35),
@@ -898,7 +937,7 @@ function addComponentBody(
       model.add(pin)
       continue
     }
-    if (component.category === 'ic' || component.category === 'semiconductor') {
+    if (isMouldedPackage(component.category)) {
       const onXSide = Math.abs(local.x) > Math.abs(local.z)
       if (onXSide) {
         const inner = Math.sign(local.x || 1) * (width / 2 - 0.05)
@@ -1246,6 +1285,10 @@ export function buildPcbGroup(scene: PcbScene, options: PcbBoardGroupOptions): T
   }
 
   applyComponentScale(group, options.componentScale ?? 1)
+  // Shading belongs to what the options describe, so a group asked for as an
+  // outline already is one when it is handed over. The viewer swaps the whole
+  // group rather than remembering to paint the replacement.
+  if (options.shading === 'outline') applyOutlineShading(group)
   return group
 }
 

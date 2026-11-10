@@ -573,7 +573,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
       <div className="grid gap-3 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
         <div className="space-y-3">
           <section className="rounded-lg border border-border bg-card p-3" aria-labelledby="goal-heading">
-            <h3 id="goal-heading" className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 id="goal-heading" className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               <Gauge size={13} /> Goal
             </h3>
             <label className="block text-xs text-muted-foreground" htmlFor="agent-goal">
@@ -592,7 +592,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                 Measure
                 <select
                   aria-label="Measure"
-                  className="mt-1 h-8 w-full rounded-md border border-border bg-background px-1 text-xs text-foreground"
+                  className="mt-1 h-8 w-full rounded-md border border-input bg-background px-1 text-xs text-foreground"
                   value={metricKind}
                   onChange={(event) => setMetricKind(event.target.value as 'waveform' | 'margin')}
                 >
@@ -604,7 +604,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                 Direction
                 <select
                   aria-label="Optimisation direction"
-                  className="mt-1 h-8 w-full rounded-md border border-border bg-background px-1 text-xs text-foreground"
+                  className="mt-1 h-8 w-full rounded-md border border-input bg-background px-1 text-xs text-foreground"
                   value={direction}
                   onChange={(event) => setDirection(event.target.value as 'minimize' | 'maximize')}
                 >
@@ -631,7 +631,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                     Statistic
                     <select
                       aria-label="Statistic"
-                      className="mt-1 h-8 w-full rounded-md border border-border bg-background px-1 text-xs text-foreground"
+                      className="mt-1 h-8 w-full rounded-md border border-input bg-background px-1 text-xs text-foreground"
                       value={statistic}
                       onChange={(event) => setStatistic(event.target.value as Statistic)}
                     >
@@ -689,7 +689,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                 Analysis
                 <select
                   aria-label="Analysis"
-                  className="mt-1 h-8 w-full rounded-md border border-border bg-background px-1 text-xs text-foreground"
+                  className="mt-1 h-8 w-full rounded-md border border-input bg-background px-1 text-xs text-foreground"
                   value={analysis}
                   onChange={(event) => setAnalysis(event.target.value as AnalysisKind)}
                 >
@@ -747,7 +747,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
 
           <section className="rounded-lg border border-border bg-card p-3" aria-labelledby="knobs-heading">
             <div className="mb-2 flex items-center justify-between">
-              <h3 id="knobs-heading" className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 id="knobs-heading" className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <SlidersHorizontal size={13} /> Knobs
               </h3>
               <div className="flex gap-1">
@@ -783,7 +783,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                     Property
                     <Input
                       aria-label={`Knob ${index + 1} property`}
-                      className="mt-1 h-7 bg-background font-mono text-xs"
+                      className="mt-1 h-7 bg-background text-xs"
                       value={knob.property}
                       onChange={(event) => updateKnob(knob.key, { property: event.target.value })}
                       placeholder="value"
@@ -793,7 +793,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                     From
                     <Input
                       aria-label={`Knob ${index + 1} from`}
-                      className="mt-1 h-7 bg-background font-mono text-xs"
+                      className="mt-1 h-7 bg-background text-xs tabular-nums"
                       value={knob.from}
                       onChange={(event) => updateKnob(knob.key, { from: event.target.value })}
                       placeholder="2e-6"
@@ -803,7 +803,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                     To
                     <Input
                       aria-label={`Knob ${index + 1} to`}
-                      className="mt-1 h-7 bg-background font-mono text-xs"
+                      className="mt-1 h-7 bg-background text-xs tabular-nums"
                       value={knob.to}
                       onChange={(event) => updateKnob(knob.key, { to: event.target.value })}
                       placeholder="470e-6"
@@ -813,7 +813,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                     Scale
                     <select
                       aria-label={`Knob ${index + 1} scale`}
-                      className="mt-1 h-7 rounded-md border border-border bg-background px-1 text-xs text-foreground"
+                      className="mt-1 h-7 rounded-md border border-input bg-background px-1 text-xs text-foreground"
                       value={knob.scale}
                       onChange={(event) => updateKnob(knob.key, { scale: event.target.value as 'linear' | 'log' })}
                     >
@@ -828,7 +828,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                     aria-label={`Remove knob ${index + 1}`}
                     disabled={knobs.length === 1}
                     onClick={() => setKnobs((current) => current.filter((candidate) => candidate.key !== knob.key))}
-                  >
+                    title="Drop this target from the autopilot goal set.">
                     <Trash2 size={12} />
                   </Button>
                 </div>
@@ -837,7 +837,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
           </section>
 
           <section className="rounded-lg border border-border bg-card p-3" aria-labelledby="guardrails-heading">
-            <h3 id="guardrails-heading" className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 id="guardrails-heading" className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               <CheckCircle2 size={13} /> Guardrails
             </h3>
             <div className="space-y-1.5 text-xs text-muted-foreground">
@@ -905,7 +905,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
           </section>
 
           <section className="rounded-lg border border-border bg-card p-3" aria-labelledby="budget-heading">
-            <h3 id="budget-heading" className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 id="budget-heading" className="mb-2 text-xs font-medium text-muted-foreground">
               Search budget
             </h3>
             <div className="grid grid-cols-2 gap-2">
@@ -967,7 +967,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
           </section>
 
           <section className="rounded-lg border border-border bg-card p-3" aria-labelledby="cloud-heading">
-            <h3 id="cloud-heading" className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 id="cloud-heading" className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               {cloud.configured ? <Cloud size={13} /> : <CloudOff size={13} />} Always-on runner
             </h3>
             {cloud.configured ? (
@@ -997,7 +997,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                   </Button>
                 </div>
                 {cloudJob && (
-                  <p className="font-mono text-xs">
+                  <p className="text-xs">
                     {cloudJob.id} · {cloudJob.state}{cloudJob.message ? ` · ${cloudJob.message}` : ''}
                   </p>
                 )}
@@ -1014,7 +1014,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
         <div className="space-y-3">
           <section className="rounded-lg border border-border bg-card p-2" aria-labelledby="preview-heading">
             <div className="mb-1 flex items-center justify-between px-1">
-              <h3 id="preview-heading" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 id="preview-heading" className="text-xs font-medium text-muted-foreground">
                 {selected ? `Iteration #${selected.iteration} schematic` : 'Current sheet'}
               </h3>
               {selected && (
@@ -1042,7 +1042,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
 
           <section className="rounded-lg border border-border bg-card p-2" aria-labelledby="waveform-heading">
             <div className="mb-1 flex items-center justify-between px-1">
-              <h3 id="waveform-heading" className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 id="waveform-heading" className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <Activity size={13} /> Waveforms
               </h3>
               {selected?.goalMet && (
@@ -1066,7 +1066,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
 
           <section className="rounded-lg border border-border bg-card p-2" aria-labelledby="board-heading">
             <div className="mb-1 flex items-center justify-between gap-2 px-1">
-              <h3 id="board-heading" className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 id="board-heading" className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <CircuitBoard size={13} /> Routed board
               </h3>
               {currentBoard && (
@@ -1092,7 +1092,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
 
           <section className="rounded-lg border border-border bg-card p-2" aria-labelledby="assembly-heading">
             <div className="mb-1 flex items-center justify-between gap-2 px-1">
-              <h3 id="assembly-heading" className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 id="assembly-heading" className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <Box size={13} /> Mechanical assembly
               </h3>
               {currentAssembly && currentAssembly.summary.partCount > 0 && (
@@ -1122,7 +1122,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
 
           {selected?.assessment && (
             <section className="rounded-lg border border-border bg-card p-3" aria-labelledby="margins-heading">
-              <h3 id="margins-heading" className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 id="margins-heading" className="mb-1 text-xs font-medium text-muted-foreground">
                 Ratings at iteration #{selected.iteration}
               </h3>
               <p className="text-xs text-foreground">{selected.assessment.headline}</p>
@@ -1144,7 +1144,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
 
           <section className="rounded-lg border border-border bg-card p-3" aria-labelledby="timeline-heading">
             <div className="mb-1 flex items-center justify-between">
-              <h3 id="timeline-heading" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 id="timeline-heading" className="text-xs font-medium text-muted-foreground">
                 Iterations
               </h3>
               <span className="text-xs text-muted-foreground">{iterations.length} measured</span>

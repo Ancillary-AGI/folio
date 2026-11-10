@@ -7,7 +7,7 @@
  * does not converge or an edit makes the network invalid, the banner says so
  * and the tables are labelled as the last iterate rather than a solution.
  */
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Grid3X3, Plus, Trash2, X } from 'lucide-react'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
@@ -15,6 +15,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { Input } from '../ui/input'
 import { RangeControl } from '../ui/range-control'
 import { useDemoRequest } from '../workspace/useDemoRequest'
+import LibraryDropNote from '../library/LibraryDropNote'
+import { useDomainLibraryZone } from '../../lib/library/useDomainLibraryZone'
+import type { GridElementPayload, LibraryItem } from '../../lib/library/types'
 import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign'
 import { describeError } from '../../lib/utils'
 import {
@@ -226,10 +229,151 @@ function isFeeder(value: unknown): value is RadialFeederInput {
 
 const fmt = (value: number, digits = 1): string => (Number.isFinite(value) ? value.toFixed(digits) : '—')
 
+/* ------------------------------------------------------------------ *
+ * Library dock placement
+ *
+ * A grid row is only useful if dropping it leaves a case the solver can still
+ * run, so each row is parsed here, checked against the live case, and refused
+ * with the reason a load-flow study would give. A dropped bus is also tied to
+ * the network — through cable if it shares the anchor's voltage level, through
+ * a nominal per-unit transformer if it does not — because a bus nothing connects
+ * is an island the solver refuses.
+ * ------------------------------------------------------------------ */
+
+type GridRole = GridElementPayload['role']
+
+type PlacedSurface = 'bus' | 'branch' | 'node'
+
+const ROLE_PHRASE: Record<GridRole, string> = {
+  bus: 'a bus',
+  branch: 'a branch',
+  'feeder-node': 'a feeder node',
+}
+
+const ROLE_TARGET: Record<GridRole, string> = {
+  bus: 'the bus list',
+  branch: 'the branch list',
+  'feeder-node': 'the node list',
+}
+
+/** Cable a dropped bus gets on its own voltage base, matching the + Bus button. */
+function dockLineOhms(baseKv: number): { resistanceOhm: number; reactanceOhm: number } {
+  const zBase = (baseKv * baseKv) / 100
+  return { resistanceOhm: 0.04 * zBase, reactanceOhm: 0.12 * zBase }
+}
+
+/** The series data for a transformer between two voltage levels, on the study base. */
+const DOCK_TRANSFORMER_PU = { resistance: 0.005, reactance: 0.1 }
+
+function quoteList(names: readonly string[]): string {
+  const quoted = names.map((name) => `"${name}"`)
+  if (quoted.length <= 1) return quoted[0] ?? ''
+  return `${quoted.slice(0, -1).join(', ')} and ${quoted[quoted.length - 1]}`
+}
+
+/** A dock row reduced to a bus, or the sentence saying why it is not one. */
+function busRow(item: LibraryItem): { bus: PowerBus } | string {
+  if (item.kind !== 'grid-element') return `${item.name} is not a grid element.`
+  if (item.payload.role !== 'bus') return `${item.name} is ${ROLE_PHRASE[item.payload.role]} — it belongs on ${ROLE_TARGET[item.payload.role]}.`
+  const row = item.payload.bus
+  if (!row) return `${item.name} carries no bus data.`
+  const id = typeof row.id === 'string' ? row.id.trim() : ''
+  if (id === '') return `${item.name} never names its bus, so there would be nothing to call it.`
+  const baseKv = row.baseKv
+  if (typeof baseKv !== 'number' || !Number.isFinite(baseKv) || baseKv <= 0) {
+    return `${item.name} has no base kV, so its per-unit data would have no reference.`
+  }
+  const type = row.type === 'slack' || row.type === 'pv' || row.type === 'pq' ? row.type : 'pq'
+  if ((type === 'slack' || type === 'pv') && !(typeof row.voltageSetpointPu === 'number' && row.voltageSetpointPu > 0)) {
+    return `${item.name} is a ${type.toUpperCase()} bus with no voltage setpoint, which is the one thing that type schedules.`
+  }
+  return { bus: { ...row, id, baseKv, type } }
+}
+
+function branchRow(item: LibraryItem): { branch: Omit<PowerBranch, 'id'> } | string {
+  if (item.kind !== 'grid-element') return `${item.name} is not a grid element.`
+  if (item.payload.role !== 'branch') return `${item.name} is ${ROLE_PHRASE[item.payload.role]} — it belongs on ${ROLE_TARGET[item.payload.role]}.`
+  const row = item.payload.branch
+  if (!row) return `${item.name} carries no branch data.`
+  const from = typeof row.from === 'string' ? row.from.trim() : ''
+  const to = typeof row.to === 'string' ? row.to.trim() : ''
+  if (from === '' || to === '') return `${item.name} does not name both ends, so nothing would be connected.`
+  if (from === to) return `${item.name} would join "${from}" to itself, which is a dead short.`
+  const hasPu = Boolean(row.seriesImpedancePu)
+  const hasOhms = typeof row.resistanceOhm === 'number' || typeof row.reactanceOhm === 'number'
+  if (!hasPu && !hasOhms) return `${item.name} has no series impedance, so it would short its two buses.`
+  return { branch: { ...row, from, to } }
+}
+
+const FEEDER_POWER_KEYS = ['loadKw', 'loadKvar', 'generationKw', 'generationKvar'] as const
+
+function feederNodeRow(
+  item: LibraryItem,
+): { node: FeederNode; section: { resistanceOhm: number; reactanceOhm: number; lengthKm: number } } | string {
+  if (item.kind !== 'grid-element') return `${item.name} is not a grid element.`
+  if (item.payload.role !== 'feeder-node') {
+    return `${item.name} is ${ROLE_PHRASE[item.payload.role]} — it belongs on ${ROLE_TARGET[item.payload.role]}.`
+  }
+  const row = item.payload.feederNode
+  if (!row) return `${item.name} carries no node data.`
+  const id = typeof row.id === 'string' ? row.id.trim() : ''
+  if (id === '') return `${item.name} never names its node.`
+  const section = item.payload.section
+  if (!section) return `${item.name} carries no conductor, so its impedance would have to be invented.`
+  const negative = FEEDER_POWER_KEYS.filter((key) => typeof row[key] === 'number' && (row[key] as number) < 0)
+  if (negative.length > 0) {
+    return `${item.name} schedules a negative ${negative.join(' or ')}; this feeder keeps load and generation as separate positive quantities.`
+  }
+  return { node: { ...row, id }, section }
+}
+
+function busVerdict(item: LibraryItem, buses: readonly PowerBus[]): true | string {
+  const parsed = busRow(item)
+  if (typeof parsed === 'string') return parsed
+  if (buses.some((entry) => entry.id === parsed.bus.id)) {
+    return `A bus named "${parsed.bus.id}" is already in this case, and duplicate bus ids leave the admittance matrix undefined.`
+  }
+  const slack = buses.find((entry) => entry.type === 'slack')
+  if (parsed.bus.type === 'slack' && slack) {
+    return `This case already has a slack bus ("${slack.id}"); a second angle reference makes the network unsolvable.`
+  }
+  return true
+}
+
+function branchVerdict(item: LibraryItem, buses: readonly PowerBus[]): true | string {
+  const parsed = branchRow(item)
+  if (typeof parsed === 'string') return parsed
+  const names = new Set(buses.map((entry) => entry.id))
+  const missing = [parsed.branch.from, parsed.branch.to].filter((name) => !names.has(name))
+  if (missing.length > 0) {
+    return `${item.name} joins ${quoteList(missing)}, ${missing.length > 1 ? 'neither of which is' : 'which is not'} in this case — drop that bus first.`
+  }
+  return true
+}
+
+function feederNodeVerdict(item: LibraryItem, feeder: RadialFeederInput): true | string {
+  const parsed = feederNodeRow(item)
+  if (typeof parsed === 'string') return parsed
+  if (feeder.nodes.some((entry) => entry.id === parsed.node.id)) {
+    return `"${parsed.node.id}" is already on this feeder; two nodes with one name make the radial walk ambiguous.`
+  }
+  return true
+}
+
+/** What the last drop put on the sheet, shown on the card that received it. */
+function PlacedRow({ placed, surface }: { placed: { surface: PlacedSurface; text: string } | null; surface: PlacedSurface }) {
+  if (!placed || placed.surface !== surface) return null
+  return (
+    <p role="status" aria-live="polite" className="rounded-md border border-primary/40 bg-primary/5 px-2 py-1 text-xs text-foreground">
+      {placed.text}
+    </p>
+  )
+}
+
 function Kpi({ label, value, detail }: { label: string; value: string; detail?: string }) {
   return (
     <div className="rounded-md border border-border bg-card p-3">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
       <div className="cad-readout mt-1 text-lg font-semibold">{value}</div>
       {detail && <div className="mt-0.5 text-xs text-muted-foreground">{detail}</div>}
     </div>
@@ -254,6 +398,8 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
   const [feeder, setFeeder] = useState<RadialFeederInput>(() =>
     isFeeder(saved?.feeder) ? cloneFeeder(saved.feeder) : cloneFeeder(URBAN_LV.input),
   )
+  /** What the last dock drop actually changed, shown on the card that took it. */
+  const [placedRow, setPlacedRow] = useState<{ surface: PlacedSurface; text: string } | null>(null)
   usePublishDomainDesign<GridDesign>('grid', {
     tab,
     txCaseId,
@@ -271,6 +417,7 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
     setTxBuses(cloneBuses(entry.buses))
     setTxBranches(cloneBranches(entry.branches))
     setTxScale(1)
+    setPlacedRow(null)
   }
 
   const applyFeederCase = (id: string): void => {
@@ -278,6 +425,7 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
     if (!entry) return
     setFeederCaseId(entry.id)
     setFeeder(cloneFeeder(entry.input))
+    setPlacedRow(null)
   }
 
   useDemoRequest('grid-transmission', () => {
@@ -337,7 +485,6 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
     let suffix = txBuses.length + 1
     while (txBuses.some((bus) => bus.id === `Bus ${suffix}`)) suffix += 1
     const id = `Bus ${suffix}`
-    const zBase = (slackBus.baseKv * slackBus.baseKv) / 100
     setTxBuses([...txBuses, { id, type: 'pq', baseKv: slackBus.baseKv, loadMw: 20, loadMvar: 5 }])
     setTxBranches([
       ...txBranches,
@@ -345,8 +492,7 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
         id: uniqueId('L-new', txBranches.map((branch) => branch.id)),
         from: slackBus.id,
         to: id,
-        resistanceOhm: 0.04 * zBase,
-        reactanceOhm: 0.12 * zBase,
+        ...dockLineOhms(slackBus.baseKv),
         ratingMva: 100,
       },
     ])
@@ -441,6 +587,95 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
     })
   }
 
+  const placeBusRow = useCallback(
+    (item: LibraryItem): void => {
+      const parsed = busRow(item)
+      if (typeof parsed === 'string') return
+      const bus = parsed.bus
+      const anchor = txBuses.find((entry) => entry.type === 'slack') ?? txBuses[0]
+      if (!anchor) {
+        setTxBuses([bus])
+        setPlacedRow({
+          surface: 'bus',
+          text: `${bus.name ?? bus.id} is the case's only bus so far; a study needs a second one and something between them.`,
+        })
+        return
+      }
+      const acrossWindings = anchor.baseKv !== bus.baseKv
+      const id = uniqueId(`L-dock ${anchor.id}→${bus.id}`, txBranches.map((entry) => entry.id))
+      const line = dockLineOhms(bus.baseKv)
+      const tie: PowerBranch = acrossWindings
+        ? { id, from: anchor.id, to: bus.id, seriesImpedancePu: { ...DOCK_TRANSFORMER_PU }, ratingMva: 100 }
+        : { id, from: anchor.id, to: bus.id, ...line, ratingMva: 100 }
+      setTxBuses((current) => [...current, bus])
+      setTxBranches((current) => [...current, tie])
+      setPlacedRow({
+        surface: 'bus',
+        text: acrossWindings
+          ? `${bus.name ?? bus.id} joined to "${anchor.id}" through a nominal ${anchor.baseKv}/${bus.baseKv} kV transformer (${fmt(DOCK_TRANSFORMER_PU.resistance, 3)} + j${fmt(DOCK_TRANSFORMER_PU.reactance, 2)} pu on 100 MVA). Change or delete it in the branch list.`
+          : `${bus.name ?? bus.id} joined to "${anchor.id}" by ${fmt(line.resistanceOhm, 2)} + j${fmt(line.reactanceOhm, 2)} Ω of cable on ${bus.baseKv} kV. Change or delete it in the branch list.`,
+      })
+    },
+    [txBuses, txBranches],
+  )
+
+  const placeBranchRow = useCallback(
+    (item: LibraryItem): void => {
+      const parsed = branchRow(item)
+      if (typeof parsed === 'string') return
+      const { from, to } = parsed.branch
+      const id = uniqueId(`L-dock ${from}→${to}`, txBranches.map((entry) => entry.id))
+      setTxBranches((current) => [...current, { ...parsed.branch, id }])
+      setPlacedRow({ surface: 'branch', text: `${item.name} placed as "${id}" between "${from}" and "${to}".` })
+    },
+    [txBranches],
+  )
+
+  const placeFeederNodeRow = useCallback(
+    (item: LibraryItem): void => {
+      const parsed = feederNodeRow(item)
+      if (typeof parsed === 'string') return
+      const tail = feeder.nodes[feeder.nodes.length - 1]
+      const from = tail ? tail.id : feeder.sourceId
+      const id = uniqueId(`S-dock ${from}→${parsed.node.id}`, feeder.sections.map((entry) => entry.id))
+      setFeeder((current) => ({
+        ...current,
+        nodes: [...current.nodes, parsed.node],
+        sections: [
+          ...current.sections,
+          {
+            id,
+            from,
+            to: parsed.node.id,
+            resistanceOhm: parsed.section.resistanceOhm,
+            reactanceOhm: parsed.section.reactanceOhm,
+          },
+        ],
+      }))
+      setPlacedRow({
+        surface: 'node',
+        text: `${item.name} dropped behind "${from}" on ${fmt(parsed.section.lengthKm * 1000, 0)} m of ${fmt(parsed.section.resistanceOhm, 2)} + j${fmt(parsed.section.reactanceOhm, 2)} Ω.`,
+      })
+    },
+    [feeder],
+  )
+
+  const busZone = useDomainLibraryZone({
+    accepts: (item) => busVerdict(item, txBuses),
+    as: 'the bus list',
+    onPlace: placeBusRow,
+  })
+  const branchZone = useDomainLibraryZone({
+    accepts: (item) => branchVerdict(item, txBuses),
+    as: 'the branch list',
+    onPlace: placeBranchRow,
+  })
+  const nodeZone = useDomainLibraryZone({
+    accepts: (item) => feederNodeVerdict(item, feeder),
+    as: 'the node list',
+    onPlace: placeFeederNodeRow,
+  })
+
   const txResult = transmission.result
   const txWarnings: string[] = []
   if (txResult) {
@@ -476,8 +711,12 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
             <p className="text-sm text-muted-foreground">
               Balanced positive-sequence load flow for transmission networks and radial distribution feeders.
             </p>
+            <p className="text-xs text-muted-foreground">
+              Drag a library row onto the bus, branch or node list to add it to the case being solved; a row that cannot
+              land there says why.
+            </p>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Close power grid" onClick={onClose}>
+          <Button variant="ghost" size="icon" aria-label="Close power grid" onClick={onClose} title="Leave the power-grid study; closing writes nothing to the design.">
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -551,7 +790,7 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="cad-dropzone" {...busZone.zoneProps}>
                 <CardHeader className="flex flex-row items-center justify-between pb-3">
                   <CardTitle className="text-base">Buses</CardTitle>
                   <Button size="sm" variant="outline" onClick={addBus} aria-label="Add bus">
@@ -559,6 +798,8 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
                   </Button>
                 </CardHeader>
                 <CardContent className="space-y-2">
+                  <LibraryDropNote zone={busZone} surface="the bus list" className="cad-drop-note--inline" />
+                  <PlacedRow placed={placedRow} surface="bus" />
                   {txBuses.map((bus, index) => (
                     <div key={bus.id} className="rounded-md border border-border p-2">
                       <div className="flex items-center justify-between gap-2">
@@ -581,7 +822,7 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
                             onClick={() => removeBus(index)}
                             disabled={bus.type === 'slack'}
                             aria-label={`Remove ${bus.id}`}
-                          >
+                            title="Remove this bus from the case. A slack bus is required, so it cannot be removed.">
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
@@ -665,7 +906,7 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="cad-dropzone" {...branchZone.zoneProps}>
                 <CardHeader className="flex flex-row items-center justify-between pb-3">
                   <CardTitle className="text-base">Branches</CardTitle>
                   <Button size="sm" variant="outline" onClick={addBranch} aria-label="Add branch">
@@ -673,6 +914,8 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
                   </Button>
                 </CardHeader>
                 <CardContent className="space-y-2">
+                  <LibraryDropNote zone={branchZone} surface="the branch list" className="cad-drop-note--inline" />
+                  <PlacedRow placed={placedRow} surface="branch" />
                   {txBranches.map((branch, index) => (
                     <div key={branch.id} className="rounded-md border border-border p-2">
                       <div className="flex items-center justify-between gap-2">
@@ -684,7 +927,7 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
                           variant="ghost"
                           onClick={() => setTxBranches((branches) => branches.filter((_, position) => position !== index))}
                           aria-label={`Remove branch ${branch.id}`}
-                        >
+                          title="Remove this transmission branch from the case.">
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -805,7 +1048,7 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
                       <table className="w-full min-w-[560px] text-sm">
                         <caption className="sr-only">Bus voltages, angles and power injections</caption>
                         <thead>
-                          <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+                          <tr className="border-b border-border text-left text-xs text-muted-foreground">
                             <th scope="col" className="py-2 pr-3">Bus</th>
                             <th scope="col" className="py-2 pr-3">Type</th>
                             <th scope="col" className="py-2 pr-3 text-right">V (pu)</th>
@@ -820,7 +1063,7 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
                             <tr key={bus.id} className="border-b border-border/60 last:border-0">
                               <td className="py-1.5 pr-3 font-medium">{bus.id}</td>
                               <td className="py-1.5 pr-3">
-                                <Badge variant={bus.reactiveLimited ? 'destructive' : 'secondary'} className="uppercase">
+                                <Badge variant={bus.reactiveLimited ? 'destructive' : 'secondary'}>
                                   {bus.reactiveLimited ? 'PQ at Q limit' : bus.type}
                                 </Badge>
                               </td>
@@ -844,7 +1087,7 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
                       <table className="w-full min-w-[640px] text-sm">
                         <caption className="sr-only">Branch sending-end and receiving-end power flows</caption>
                         <thead>
-                          <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+                          <tr className="border-b border-border text-left text-xs text-muted-foreground">
                             <th scope="col" className="py-2 pr-3">Branch</th>
                             <th scope="col" className="py-2 pr-3 text-right">P from (MW)</th>
                             <th scope="col" className="py-2 pr-3 text-right">Q from (Mvar)</th>
@@ -969,11 +1212,13 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="cad-dropzone" {...nodeZone.zoneProps}>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Node demand</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
+                  <LibraryDropNote zone={nodeZone} surface="the node list" className="cad-drop-note--inline" />
+                  <PlacedRow placed={placedRow} surface="node" />
                   {feeder.nodes.filter((node) => node.id !== feeder.sourceId).map((node) => {
                     const index = feeder.nodes.findIndex((entry) => entry.id === node.id)
                     return (
@@ -1119,7 +1364,7 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
                       <table className="w-full min-w-[520px] text-sm">
                         <caption className="sr-only">Feeder node voltages and drops</caption>
                         <thead>
-                          <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+                          <tr className="border-b border-border text-left text-xs text-muted-foreground">
                             <th scope="col" className="py-2 pr-3">Node</th>
                             <th scope="col" className="py-2 pr-3 text-right">V phase (V)</th>
                             <th scope="col" className="py-2 pr-3 text-right">V (pu)</th>
@@ -1154,7 +1399,7 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
                       <table className="w-full min-w-[560px] text-sm">
                         <caption className="sr-only">Feeder section currents, losses and voltage drop</caption>
                         <thead>
-                          <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+                          <tr className="border-b border-border text-left text-xs text-muted-foreground">
                             <th scope="col" className="py-2 pr-3">Section</th>
                             <th scope="col" className="py-2 pr-3 text-right">Current (A)</th>
                             <th scope="col" className="py-2 pr-3 text-right">Loss (kW)</th>

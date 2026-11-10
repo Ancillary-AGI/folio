@@ -1445,6 +1445,7 @@ export function buildRouterPads(
     const footprint = resolveFootprint(
       String(comp.properties.footprint ?? comp.component.name),
       typeof comp.component.category === 'string' ? comp.component.category : undefined,
+      comp.component.pins.length,
     )
     const radians = (comp.rotation * Math.PI) / 180
     const cos = Math.cos(radians)

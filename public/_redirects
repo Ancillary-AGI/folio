@@ -1,4 +1,10 @@
 # SPA fallback for Netlify and Cloudflare Pages.
 # Static files (including hashed /assets/*) are served first; only unknown
 # paths reach the app shell. Folio routes are client-side History-API paths.
+#
+# The operator console is a separate document, not a workbench route: /admin
+# must reach admin.html so a designer's bundle never contains it. These rules
+# are ordered — the first match wins.
+/admin /admin.html 200
+/admin/ /admin.html 200
 /* /index.html 200

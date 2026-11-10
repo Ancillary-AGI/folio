@@ -59,7 +59,7 @@ describe('cad tools — agents operate the live sheet', () => {
     await expect(
       tools.invoke('cad.setProperty', { reference: 'C1', property: 'value', value: 'not-a-capacitance' }),
     ).rejects.toThrow(/C1\.value/)
-    await expect(tools.invoke('cad.addPart', { symbol: 'flux capacitor' })).rejects.toThrow(/Unknown symbol/)
+    await expect(tools.invoke('cad.addPart', { symbol: 'zorinium' })).rejects.toThrow(/Unknown symbol/)
     await expect(
       tools.invoke('cad.connect', { from: 'D1.nope', to: 'RLOAD.1' }),
     ).rejects.toThrow(/D1 has no terminal/)

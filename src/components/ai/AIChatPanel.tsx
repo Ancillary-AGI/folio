@@ -232,7 +232,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={clearChat} title="Clear chat" aria-label="Clear chat">
             <Trash2 className="w-3.5 h-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} aria-label="Close assistant">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} aria-label="Close assistant" title="Hide the assistant dock. The transcript is not kept once the dock closes.">
             <X className="w-3.5 h-3.5" />
           </Button>
         </div>
@@ -349,7 +349,8 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
           disabled={!input.trim() || isLoading}
           size="icon"
           className="h-9 w-9 flex-shrink-0"
-         aria-label="Send message">
+          aria-label="Send message"
+          title="Ask about the open design: analysis, part suggestions, optimisation and reliability.">
           <Send className="w-4 h-4" />
         </Button>
       </div>

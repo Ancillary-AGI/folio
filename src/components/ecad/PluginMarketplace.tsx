@@ -41,6 +41,12 @@ export interface BuiltinPluginDescriptor {
   defaultInstalled: boolean
   featured: boolean
   size: string
+  /**
+   * The tool body runs in the desktop companion's native engine, not in this
+   * build. A card without this flag would promise an install that does nothing
+   * a browser user can observe.
+   */
+  companionRequired?: boolean
   tools: Array<{ name: string; description: string }>
 }
 
@@ -57,20 +63,22 @@ const BUILTIN_PLUGINS: BuiltinPluginDescriptor[] = [
     defaultInstalled: false,
     featured: true,
     size: '—',
+    companionRequired: true,
     tools: [{ name: 'Native SPICE run', description: 'Send the current netlist to the companion ngspice daemon.' }],
   },
   {
     id: 'klayout-drc',
     name: 'KLayout DRC',
-    description: 'Run KLayout design rule checks on generated Gerber/GDSII via the companion daemon.',
+    description: 'Run KLayout design rule checks on generated Gerber/GDSII via the companion daemon. Requires the desktop companion.',
     version: '0.8.0',
     author: 'Folio Core',
     category: 'analyzer',
     icon: <Shield size={16} />,
-    tags: ['drc', 'klayout', 'gerber', 'gdsii'],
+    tags: ['drc', 'gerber', 'gdsii'],
     defaultInstalled: false,
     featured: true,
     size: '—',
+    companionRequired: true,
     tools: [{ name: 'Run DRC', description: 'Check the generated Gerber/GDSII against a KLayout rule deck.' }],
   },
   {
@@ -88,23 +96,23 @@ const BUILTIN_PLUGINS: BuiltinPluginDescriptor[] = [
     tools: [{ name: 'Impedance sweep', description: 'Compute microstrip/stripline Z0 and delay for the current stackup.' }],
   },
   {
-    id: 'bom-exporter-jlcpcb',
-    name: 'JLCPCB BOM + CPL Exporter',
-    description: 'Export pick-and-place CPL and LCSC-compatible BOM directly in JLCPCB format.',
+    id: 'assembly-export',
+    name: 'Assembly Package Export',
+    description: 'Write the pick-and-place centroid file and the BOM for the placed board, in the column order assembly houses read.',
     version: '2.1.0',
     author: 'Folio Core',
     category: 'exporter',
     icon: <Download size={16} />,
-    tags: ['bom', 'jlcpcb', 'lcsc', 'fab'],
+    tags: ['bom', 'placement', 'fab'],
     defaultInstalled: true,
     featured: true,
     size: '12 KB',
-    tools: [{ name: 'Export JLCPCB CPL', description: 'Write a pick-and-place CPL and LCSC-ready BOM.' }],
+    tools: [{ name: 'Export centroid and BOM', description: 'Write the placement centroid and bill of materials for the current board.' }],
   },
   {
     id: 'spice-model-importer',
     name: 'SPICE Model Importer',
-    description: 'Drag-and-drop .lib files to import vendor SPICE model libraries. Supports .model and .subckt.',
+    description: 'Paste a model deck and Folio reads its .model and .subckt cards into the device library, with the cards it cannot resolve named in the report.',
     version: '1.0.0',
     author: 'Folio Core',
     category: 'tool',
@@ -113,35 +121,7 @@ const BUILTIN_PLUGINS: BuiltinPluginDescriptor[] = [
     defaultInstalled: true,
     featured: false,
     size: '8 KB',
-    tools: [{ name: 'Import .lib', description: 'Parse vendor .model/.subckt cards into the component library.' }],
-  },
-  {
-    id: 'gerber-viewer',
-    name: 'Gerber Viewer',
-    description: 'In-browser Gerber file viewer with layer toggle, DRC overlay, and 3D preview.',
-    version: '1.5.0',
-    author: 'Folio Core',
-    category: 'tool',
-    icon: <Package size={16} />,
-    tags: ['gerber', 'viewer', 'pcb', '3d'],
-    defaultInstalled: false,
-    featured: false,
-    size: '320 KB',
-    tools: [{ name: 'Open Gerber viewer', description: 'Overlay drill, copper, and mask layers in 3D.' }],
-  },
-  {
-    id: 'kicad-import',
-    name: 'KiCad Project Import',
-    description: 'Import KiCad .kicad_sch and .kicad_pcb projects as Folio schematics and PCB layouts.',
-    version: '1.1.0',
-    author: 'Folio Core',
-    category: 'tool',
-    icon: <Upload size={16} />,
-    tags: ['kicad', 'import', 'schematic', 'pcb'],
-    defaultInstalled: false,
-    featured: false,
-    size: '64 KB',
-    tools: [{ name: 'Import KiCad project', description: 'Convert .kicad_sch and .kicad_pcb into a Folio project.' }],
+    tools: [{ name: 'Parse model deck', description: 'Read .model/.subckt cards into the component library.' }],
   },
 ]
 
@@ -271,16 +251,17 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
   }
 
   /*
-   * Gallery demo: open a real package, show its manifest and declared
-   * permissions, then install it through the same permission-gated service the
-   * Install button uses. Installing here is a registry operation, not a
-   * download; native engines still need the companion daemon.
+   * Gallery demo: open a package whose tool this build actually runs, show its
+   * manifest and declared permissions, then install it through the same
+   * permission-gated service the Install button uses. Installing records the
+   * package and its declared capabilities; it does not execute third-party
+   * code, which this build cannot do.
    */
   const runPermissionsDemo = () => {
     setTab('browse')
     setSearchQuery('')
     setInstallError('')
-    const plugin = BUILTIN_PLUGINS.find((entry) => entry.id === 'kicad-import') ?? BUILTIN_PLUGINS[0]
+    const plugin = BUILTIN_PLUGINS.find((entry) => entry.id === 'impedance-calculator') ?? BUILTIN_PLUGINS[0]
     setSelectedPlugin(plugin)
     try {
       const result = marketplaceService.installPackage(plugin.id)
@@ -354,7 +335,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
           )}
         </div>
         {onClose && (
-          <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close plugin marketplace" className="text-muted-foreground hover:text-foreground"><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
+          <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close plugin marketplace" className="text-muted-foreground hover:text-foreground" title="Close the marketplace. Installed plugins stay installed."><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
         )}
       </div>
 
@@ -379,7 +360,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
           <div className="relative">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
-              className="pl-8 bg-card border-border text-sm h-8"
+              className="pl-8 bg-card border-input text-sm h-8"
               placeholder="Search plugins, exporters, analyzers…"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
@@ -399,14 +380,26 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
                 these will fail until the registry accepts them.
               </p>
             )}
+            {/*
+             * What an install means in this build, said out loud rather than left
+             * in a module comment: the registry records the package and its
+             * declared permissions, and the tool it names runs only in the Folio
+             * engine that implements it. There is no runtime here for a
+             * third-party body, so a card must not read like one.
+             */}
+            <p className="text-xs text-muted-foreground">
+              Installing records the package and checks its declared permissions against the manifest. The tools listed
+              run in Folio&apos;s own engines; this build has no runtime for third-party plugin code, and packages marked
+              below wait on the desktop companion.
+            </p>
             {/* Featured */}
             {!searchQuery && (
               <div className="mb-3">
-                <p className="text-xs text-muted-foreground mb-2 uppercase tracking-wide">Featured</p>
-                <div className="flex gap-2 overflow-x-auto pb-1">
+                <p className="text-xs text-muted-foreground mb-2">Featured</p>
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2">
                   {BUILTIN_PLUGINS.filter(p => p.featured).map(plugin => (
                     <div key={plugin.id}
-                      className="shrink-0 w-40 bg-card rounded-lg p-3 cursor-pointer hover:bg-accent border border-border hover:border-primary transition-all"
+                      className="bg-card rounded-lg p-3 cursor-pointer hover:bg-accent border border-border hover:border-primary transition-all"
                       onClick={() => setSelectedPlugin(plugin)}
                     >
                       <div className="flex items-center gap-1.5 mb-1.5 text-primary">{plugin.icon}
@@ -414,6 +407,9 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
                       </div>
                       <p className="text-sm font-medium text-foreground leading-tight">{plugin.name}</p>
                       <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{plugin.description}</p>
+                      {plugin.companionRequired && (
+                        <p className="mt-1.5 text-[11px] text-warning">Desktop companion required</p>
+                      )}
                       {installedIds.has(plugin.id) ? (
                         <span className="mt-1.5 text-xs text-success flex items-center gap-0.5"><CheckCircle size={10} /> Installed</span>
                       ) : (
@@ -429,7 +425,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
             )}
 
             {/* All plugins */}
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">All Plugins</p>
+            <p className="text-xs text-muted-foreground">All Plugins</p>
             {filteredPlugins.map(plugin => (
               <div key={plugin.id}
                 className="flex items-start gap-3 bg-card rounded-lg p-3 cursor-pointer hover:bg-accent transition-colors"
@@ -440,6 +436,11 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-sm text-foreground">{plugin.name}</span>
                     <span className="text-xs text-muted-foreground">v{plugin.version}</span>
+                    {plugin.companionRequired && (
+                      <span className="text-[11px] rounded border border-warning/50 px-1 py-0.5 text-warning">
+                        Desktop companion
+                      </span>
+                    )}
                     {installedIds.has(plugin.id) && <CheckCircle size={12} className="text-success" />}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{plugin.description}</p>
@@ -453,7 +454,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
                   {installedIds.has(plugin.id) ? (
                     <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive h-7 text-xs"
                       aria-label={`Uninstall ${plugin.name}`}
-                      onClick={e => { e.stopPropagation(); handleUninstall(plugin) }}>
+                      onClick={e => { e.stopPropagation(); handleUninstall(plugin) }} title="Uninstall this plugin and take its tools away from the agent.">
                       <Trash2 size={12} />
                     </Button>
                   ) : (
@@ -469,7 +470,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
             {/* Community listings */}
             {communityItems.length > 0 && (
               <>
-                <p className="text-xs text-muted-foreground uppercase tracking-wide mt-4">Community Designs</p>
+                <p className="text-xs text-muted-foreground mt-4">Community Designs</p>
                 {communityItems.map(item => (
                   <div key={item.id} className="flex items-start gap-3 bg-card rounded-lg p-3">
                     <div className={`p-1.5 rounded ${getCategoryStyle(item.category)} shrink-0`}>
@@ -493,7 +494,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
                       disabled={installedDesignIds.has(item.id)}
                       aria-label={installedDesignIds.has(item.id) ? `${item.title} installed` : `Install ${item.title}`}
                       onClick={() => handleInstallCommunity(item)}
-                    >
+                      title="Add this community design to the ones you have installed.">
                       {installedDesignIds.has(item.id) ? <CheckCircle size={12} /> : <Download size={12} />}
                     </Button>
                   </div>
@@ -523,7 +524,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
                 </div>
                 <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive hover:text-destructive"
                   aria-label={`Uninstall ${plugin.name}`}
-                  onClick={() => handleUninstall(plugin)}>
+                  onClick={() => handleUninstall(plugin)} title="Uninstall this plugin and take its tools away from the agent.">
                   <Trash2 size={12} />
                 </Button>
               </div>
@@ -545,7 +546,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
                 <label className="text-xs text-muted-foreground block mb-1" htmlFor="publish-name">Plugin Name</label>
                 <Input
                   id="publish-name"
-                  className="bg-muted border-border text-sm"
+                  className="bg-muted border-input text-sm"
                   placeholder="My Awesome Plugin"
                   value={draft.name}
                   onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
@@ -555,7 +556,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
                 <label className="text-xs text-muted-foreground block mb-1" htmlFor="publish-category">Category</label>
                 <select
                   id="publish-category"
-                  className="w-full bg-muted border border-border text-sm rounded px-2 py-1.5 text-foreground outline-none"
+                  className="w-full bg-muted border border-input text-sm rounded px-2 py-1.5 text-foreground outline-none"
                   value={draft.category}
                   onChange={(event) => setDraft((prev) => ({ ...prev, category: event.target.value }))}
                 >
@@ -568,7 +569,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
                 <label className="text-xs text-muted-foreground block mb-1" htmlFor="publish-description">Description</label>
                 <textarea
                   id="publish-description"
-                  className="w-full bg-muted border border-border text-sm rounded px-2 py-1.5 text-foreground outline-none resize-none h-20"
+                  className="w-full bg-muted border border-input text-sm rounded px-2 py-1.5 text-foreground outline-none resize-none h-20"
                   placeholder="Describe what your plugin does…"
                   value={draft.description}
                   onChange={(event) => setDraft((prev) => ({ ...prev, description: event.target.value }))}
@@ -578,7 +579,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
                 <label className="text-xs text-muted-foreground block mb-1" htmlFor="publish-entry">Entry Point (JS)</label>
                 <Input
                   id="publish-entry"
-                  className="bg-muted border-border text-sm font-mono"
+                  className="bg-muted border-input text-sm font-mono"
                   placeholder="dist/index.js"
                   value={draft.entry}
                   onChange={(event) => setDraft((prev) => ({ ...prev, entry: event.target.value }))}
@@ -617,18 +618,18 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
                   Tools: {selectedPlugin.tools.map((tool) => tool.name).join(', ')}
                 </p>
               </div>
-              <Button size="sm" variant="ghost" onClick={() => setSelectedPlugin(null)} aria-label="Close plugin details" className="shrink-0 text-muted-foreground"><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedPlugin(null)} aria-label="Close plugin details" className="shrink-0 text-muted-foreground" title="Close this plugin's details and go back to the list."><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
             </div>
 
             {manifest && (
               <div className="mt-3 grid gap-3 border-t border-border pt-3 text-xs md:grid-cols-2">
                 <div>
                   <p className="mb-1 text-muted-foreground">Manifest</p>
-                  <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 font-mono">
-                    <dt className="text-muted-foreground">id</dt><dd className="text-foreground">{manifest.id}</dd>
-                    <dt className="text-muted-foreground">version</dt><dd className="text-foreground">{manifest.version}</dd>
-                    <dt className="text-muted-foreground">api</dt><dd className="text-foreground">{manifest.apiVersion ?? '—'}</dd>
-                    <dt className="text-muted-foreground">entry</dt><dd className="text-foreground">{manifest.entry}</dd>
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+                    <dt className="text-muted-foreground">id</dt><dd className="font-mono text-foreground">{manifest.id}</dd>
+                    <dt className="text-muted-foreground">version</dt><dd className="font-mono text-foreground">{manifest.version}</dd>
+                    <dt className="text-muted-foreground">api</dt><dd className="font-mono text-foreground">{manifest.apiVersion ?? '—'}</dd>
+                    <dt className="text-muted-foreground">entry</dt><dd className="font-mono text-foreground">{manifest.entry}</dd>
                     <dt className="text-muted-foreground">publisher</dt>
                     <dd className="text-foreground">
                       {marketplaceService.getPackage(selectedPlugin.id)?.firstPartyPublisher ? 'first-party' : 'community'}

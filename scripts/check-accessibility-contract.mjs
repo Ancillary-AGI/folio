@@ -86,12 +86,15 @@ check(
   targetFloor && /min-height:\s*1\.5rem/.test(targetFloor[0]) && /min-width:\s*1\.5rem/.test(targetFloor[0]),
   'src/index.css must floor every pointer target at 24px (WCAG 2.5.8 target size minimum).'
 )
-const railBox = css.match(/\.cad-rail\s*\{[^}]*\}/)
+// Anchored to the start of the selector line so a later rule that only *ends*
+// with `.cad-rail` — `[data-aurora='on'] .cad-rail {`, say — cannot be mistaken
+// for the base rail box whose layout this check pins.
+const railBox = css.match(/^\s*\.cad-rail\s*\{[^}]*\}/m)
 check(
   railBox && /overflow-y-auto/.test(railBox[0]),
   'The tool rail must scroll when it is shorter than its buttons, never compress them.'
 )
-const railButton = css.match(/\.cad-rail-btn\s*\{[^}]*\}/)
+const railButton = css.match(/^\s*\.cad-rail-btn\s*\{[^}]*\}/m)
 check(
   railButton && /flex-shrink-0/.test(railButton[0]),
   '.cad-rail-btn must refuse to shrink; a squeezed tool button puts its keycap across the icon.'
@@ -116,6 +119,42 @@ check(
   /min-h-\[180px\]\s+flex-1/.test(pcbPanel),
   'The board drawing must keep a 180px floor; a short window used to squeeze it to zero height.'
 )
+
+// 8. Navigation must not hide behind a sideways scroll. A rail of tabs or grouped
+//    toggles is a wayfinding control: scrolling it sideways puts a whole section
+//    past an edge with nothing to grab, which is how the admin console, the help
+//    centre, the demo gallery and the workspace nav were all shipped. Tables,
+//    code blocks and the status bar may still scroll — they carry content, not
+//    navigation. This reads the attribute pair in the same opening tag, so a rail
+//    that adds `overflow-x-auto` back fails the gate.
+const RAIL_SCROLL = /<[a-zA-Z][a-zA-Z0-9.]*\b[^>]{0,900}?(?:\brole=["'](tablist|group)["'][^>]{0,900}?\bclass(?:Name)?=["'][^"']*overflow-x-auto|class(?:Name)?=["'][^"']*overflow-x-auto[^>]{0,900}?\brole=["'](tablist|group)["'])[^>]*>/gs
+for (const file of sources) {
+  const text = fs.readFileSync(file, 'utf8')
+  const scrollableRails = [...text.matchAll(RAIL_SCROLL)].map((match) => match[0].slice(0, 60).replace(/\s+/g, ' '))
+  check(
+    scrollableRails.length === 0,
+    `${rel(file)} scrolls a navigation rail sideways (${scrollableRails.length ? `e.g. ${scrollableRails[0]}` : ''}). Grouped controls must wrap into the width they are given.`
+  )
+}
+
+// 9. Nothing asks a question in the browser's chrome. `alert()`, `confirm()` and
+//    `prompt()` are unstyleable, unfocusable, untappable-by-design, and freeze
+//    the page while they wait — and a `prompt()` for a passphrase shows the
+//    secret in plain text. The app has its own panels for all three
+//    (`ConfirmDialog`, `SecretDialog`), so a call whose first argument is a
+//    string literal is the browser box coming back.
+const NATIVE_BOX = /\b(?:window\.)?(?:alert|confirm|prompt)\s*\(\s*['"`]/
+for (const file of sources) {
+  const text = fs.readFileSync(file, 'utf8')
+  const lines = text.split('\n')
+  lines.forEach((line, index) => {
+    if (!NATIVE_BOX.test(line)) return
+    check(
+      false,
+      `${rel(file)}:${index + 1} asks the browser instead of the app: ${line.trim().slice(0, 70)} — use ConfirmDialog or SecretDialog.`,
+    )
+  })
+}
 
 if (failures.length > 0) {
   console.error('Accessibility contract violated:')

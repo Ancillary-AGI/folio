@@ -94,6 +94,10 @@ export default {
         "net-label": "hsl(var(--net-label))",
         "ref-label": "hsl(var(--reference-label))",
         "value-label": "hsl(var(--value-label))",
+        // Structural force sign: tension, compression, and a member carrying none.
+        "force-tension": "hsl(var(--force-tension))",
+        "force-compression": "hsl(var(--force-compression))",
+        "force-neutral": "hsl(var(--force-neutral))",
         /*
          * Chart series. Recharts needs literal colour strings for SVG attributes,
          * so panels resolve these from the active theme at render time rather
@@ -182,7 +186,31 @@ export default {
         "pulse-ring": "pulse-ring 1.5s ease-out infinite",
       },
       fontFamily: {
-        mono: ["JetBrains Mono", "Fira Code", "Consolas", "monospace"],
+        // The UI is set in Inter (bundled, variable): one family across labels,
+        // titles, controls and data, so hierarchy comes from size/weight/colour
+        // instead of from switching typefaces.
+        sans: [
+          "InterVariable",
+          "Inter",
+          "Segoe UI Variable Text",
+          "Segoe UI",
+          "system-ui",
+          "-apple-system",
+          "Roboto",
+          "Helvetica Neue",
+          "Arial",
+          "sans-serif",
+        ],
+        // Mono is reserved for code, netlists and keycaps — the places where a
+        // fixed advance is information, not decoration.
+        mono: [
+          "JetBrains Mono",
+          "SFMono-Regular",
+          "Cascadia Mono",
+          "Consolas",
+          "Liberation Mono",
+          "monospace",
+        ],
       },
       spacing: {
         "18": "4.5rem",

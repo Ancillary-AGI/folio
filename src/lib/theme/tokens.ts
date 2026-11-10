@@ -73,8 +73,15 @@ const light: ThemeTokens = {
   '--info-foreground': '0 0% 100%',
 
   // Lines
+  /*
+   * `--border` is a hairline that separates two things already read together;
+   * `--input` is the edge of a control you can press. They used to be the same
+   * colour, which is why a text field looked like a patch of background until it
+   * was focused. The contract below holds the control edge at the 3:1 WCAG 2.2
+   * §1.4.11 boundary, so an empty field is recognisable as a field.
+   */
   '--border': '214 20% 82%',
-  '--input': '214 20% 82%',
+  '--input': '214 18% 52%',
   '--ring': '222 78% 42%',
 
   // Editor sheet (kept deliberately distinct from app chrome)
@@ -100,6 +107,17 @@ const light: ThemeTokens = {
   '--value-label': '215 20% 38%',
   '--canvas-error': '0 72% 42%',
   '--canvas-warning': '32 88% 34%',
+
+  /*
+   * Structural force sign. A truss drawing encodes tension and compression in
+   * the colour of each bar, so the pair has to survive a red/green-deficient
+   * reader: warm orange against cool blue, never red against green. A zero-force
+   * member is deliberately recessive — it carries no information and must not
+   * compete with the bars that do.
+   */
+  '--force-tension': '14 85% 40%',
+  '--force-compression': '215 85% 38%',
+  '--force-neutral': '215 20% 38%',
 
   // Effects
   '--overlay': '222 47% 11%',
@@ -170,7 +188,7 @@ const dark: ThemeTokens = {
 
   // Lines
   '--border': '217 26% 24%',
-  '--input': '217 26% 26%',
+  '--input': '216 24% 47%',
   '--ring': '213 94% 71%',
 
   // Editor sheet — one step darker than `--background`
@@ -196,6 +214,11 @@ const dark: ThemeTokens = {
   '--value-label': '215 24% 74%',
   '--canvas-error': '0 94% 76%',
   '--canvas-warning': '38 96% 72%',
+
+  /* Structural force sign — see the note in the light block. */
+  '--force-tension': '18 92% 62%',
+  '--force-compression': '206 90% 70%',
+  '--force-neutral': '215 24% 62%',
 
   // Effects
   '--overlay': '0 0% 0%',
@@ -242,7 +265,7 @@ const professional: ThemeTokens = {
   '--primary-foreground': '205 44% 8%',
   '--ring': '186 82% 63%',
   '--border': '205 22% 29%',
-  '--input': '205 22% 31%',
+  '--input': '205 22% 47%',
   '--canvas': '205 44% 5%',
   '--grid': '205 26% 15%',
   '--grid-major': '205 20% 27%',
@@ -258,6 +281,11 @@ const professional: ThemeTokens = {
   '--net-label': '196 40% 91%',
   '--reference-label': '202 20% 76%',
   '--value-label': '202 20% 76%',
+
+  /* Structural force sign — see the note in the light block. */
+  '--force-tension': '22 90% 64%',
+  '--force-compression': '224 80% 74%',
+  '--force-neutral': '202 16% 55%',
   '--chart-1': '186 82% 63%',
   '--chart-2': '154 62% 60%',
   '--chart-3': '35 96% 66%',
@@ -337,6 +365,11 @@ const highContrast: ThemeTokens = {
   '--canvas-error': '0 100% 78%',
   '--canvas-warning': '45 100% 72%',
 
+  /* Structural force sign — see the note in the light block. */
+  '--force-tension': '24 100% 74%',
+  '--force-compression': '190 100% 78%',
+  '--force-neutral': '0 0% 60%',
+
   '--overlay': '0 0% 0%',
   '--overlay-foreground': '0 0% 100%',
   '--shadow-color': '0 0% 0%',
@@ -411,6 +444,18 @@ export const SYNTAX_TOKEN_NAMES: readonly string[] = Object.freeze([
   '--syntax-operator',
   '--syntax-preproc',
   '--syntax-builtin',
+])
+
+/**
+ * Structural force-sign token names.
+ *
+ * A truss or frame drawing encodes each bar by the sign of its axial force, so
+ * the three values are a set and the contract checks them as one.
+ */
+export const FORCE_TOKEN_NAMES: readonly string[] = Object.freeze([
+  '--force-tension',
+  '--force-compression',
+  '--force-neutral',
 ])
 
 /**
@@ -518,7 +563,8 @@ export function rgbToHex({ r, g, b }: Rgb): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`
 }
 
-function relativeLuminance({ r, g, b }: Rgb): number {
+/** WCAG relative luminance of an sRGB colour. */
+export function relativeLuminance({ r, g, b }: Rgb): number {
   const linearise = (channel: number): number => {
     const ratio = channel / 255
     return ratio <= 0.04045 ? ratio / 12.92 : ((ratio + 0.055) / 1.055) ** 2.4
@@ -526,13 +572,16 @@ function relativeLuminance({ r, g, b }: Rgb): number {
   return 0.2126 * linearise(r) + 0.7152 * linearise(g) + 0.0722 * linearise(b)
 }
 
+/** WCAG 2.2 contrast ratio between two sRGB colours (order-independent). */
+export function contrastOfRgb(a: Rgb, b: Rgb): number {
+  const lighter = Math.max(relativeLuminance(a), relativeLuminance(b))
+  const darker = Math.min(relativeLuminance(a), relativeLuminance(b))
+  return (lighter + 0.05) / (darker + 0.05)
+}
+
 /** WCAG 2.2 contrast ratio between two HSL triplets (order-independent). */
 export function contrastRatio(foreground: string, background: string): number {
-  const a = relativeLuminance(hslTripletToRgb(foreground))
-  const b = relativeLuminance(hslTripletToRgb(background))
-  const lighter = Math.max(a, b)
-  const darker = Math.min(a, b)
-  return (lighter + 0.05) / (darker + 0.05)
+  return contrastOfRgb(hslTripletToRgb(foreground), hslTripletToRgb(background))
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -597,12 +646,28 @@ export const CONTRAST_CONTRACT: readonly ContrastRequirement[] = [
   { foreground: '--ring', background: '--background', min: UI, rationale: 'Focus ring (WCAG 2.2 §1.4.11)' },
   { foreground: '--border', background: '--background', min: SEPARATOR, rationale: 'Panel separator must be visible' },
   { foreground: '--border', background: '--card', min: SEPARATOR, rationale: 'Card separator must be visible' },
+  /*
+   * A control's edge is not a separator: WCAG 2.2 §1.4.11 requires the boundary
+   * that identifies a field to read at 3:1 against what it sits on. These three
+   * are why `--input` is a separate token instead of a synonym for `--border`.
+   */
+  { foreground: '--input', background: '--background', min: UI, rationale: 'Empty field edge on the app background' },
+  { foreground: '--input', background: '--surface', min: UI, rationale: 'Empty field edge on toolbars and panel headers' },
+  { foreground: '--input', background: '--card', min: UI, rationale: 'Empty field edge inside a card' },
   // Every chart trace must be distinguishable from the plot background.
   ...CHART_TOKEN_NAMES.map((token) => ({
     foreground: token,
     background: '--canvas',
     min: UI,
     rationale: `${token} trace on a plot`,
+  })),
+  // Structural force signs are strokes on a drawing sheet, so they are
+  // contracted against the sheet itself.
+  ...FORCE_TOKEN_NAMES.map((token) => ({
+    foreground: token,
+    background: '--canvas',
+    min: UI,
+    rationale: `${token} bar on a structural drawing`,
   })),
   // Code surfaces paint on both the shell background and the sheet, so every
   // syntax role is contracted against each.

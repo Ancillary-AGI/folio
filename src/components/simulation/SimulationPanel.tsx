@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, type ChangeEvent } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback, type ChangeEvent } from 'react'
 import { Play, Download, Zap, BarChart3, X, AlertCircle, Info } from 'lucide-react'
 import { Button } from '../ui/button'
 import { CodeEditor } from '../editor/CodeEditor'
@@ -29,6 +29,10 @@ import type { AnalogToDigitalProbe, DigitalToAnalogDrive } from '../../lib/simul
 import { playbackDuration, playbackFrame } from '../../lib/simulation/playback'
 import { measureWaveform, waveformsToCsv } from '../../lib/simulation/scopeAnalysis'
 import { useProjectStore } from '../../stores/useProjectStore'
+import { usePreferenceValue } from '../../lib/settings/usePreference'
+import { useDomainLibraryZone } from '../../lib/library/useDomainLibraryZone'
+import LibraryDropNote from '../library/LibraryDropNote'
+import type { LibraryItem } from '../../lib/library/types'
 import type { CanvasComponent, CanvasWire } from '../../stores/useProjectStore'
 import { captureDesignSnapshot, stableStringify } from '../../lib/agents/designSnapshot'
 import { assessDesignMargins, type MarginItem, type MarginStatus } from '../../lib/electronics/designMargins'
@@ -111,7 +115,7 @@ function formatMarginLimit(item: MarginItem): string {
 /**
  * Default scope probes: input-like nets first, then output-like, then the
  * rest — so a transient opens on SRC vs OUT, not on the first
- * alphabetical node. MATLAB-style: the stimulus and the answer, labelled.
+ * alphabetical node. The stimulus and the answer, side by side, labelled.
  */
 function pickDefaultWaveforms(names: string[]): string[] {
   if (names.length === 0) return []
@@ -192,11 +196,34 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
   } | null>(null)
   const [selectedAnalysis, setSelectedAnalysis] = useState<AnalysisType>('transient')
   const [error, setError] = useState<string | null>(null)
-  // Transient opens on a 20 ms window of the demo's 1 kHz source: 20 cycles
-  // at a 20 µs step resolves the waveform (Nyquist) inside the 2000-point
-  // budget. A 1 ms step would sample every zero crossing and alias to a flat
-  // line — the solver warns about that, but the default should not need it.
-  const [parameters, setParameters] = useState<SimulationParameters>({ type: 'transient', stopTime: 20e-3, stepTime: 20e-6 })
+  // What a run starts with lives in Settings, not here: a fresh panel carries no
+  // overrides of its own, so changing the transient window or the integration
+  // rule on the settings page changes the next solve. Editing a box below is the
+  // only thing that makes a run differ from the preference.
+  const [parameters, setParameters] = useState<SimulationParameters>({ type: 'transient' })
+  /*
+   * The preferences a solve falls back to, read live. µs → seconds because the
+   * solver and the form both work in seconds; the settings page says µs because
+   * that is the unit a SPICE user types.
+   */
+  const temperatureC = usePreferenceValue('simTemperatureC')
+  const transientStopUs = usePreferenceValue('simTransientStopUs')
+  const transientStepUs = usePreferenceValue('simTransientStepUs')
+  const integrationMethod = usePreferenceValue('simIntegrationMethod')
+  const pointsPerDecade = usePreferenceValue('simPointsPerDecade')
+  const simDefaults = useMemo(
+    () => ({
+      temperature: temperatureC,
+      // Divide by 1e6 rather than multiply by 1e-6: the multiply leaves a float
+      // artifact that ends up printed in the seconds field (5 µs becomes
+      // 0.0000049999999999999996 on screen). One division rounds once.
+      stopTime: transientStopUs / 1e6,
+      stepTime: transientStepUs / 1e6,
+      integrationMethod,
+      pointsPerDecade,
+    }),
+    [temperatureC, transientStopUs, transientStepUs, integrationMethod, pointsPerDecade],
+  )
   const [selectedWaveforms, setSelectedWaveforms] = useState<string[]>([])
   // Live playback: playhead time + clock. The frame is derived (never
   // stored), so 2D/3D views always agree on the circuit's state.
@@ -264,6 +291,23 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
   )
   const attachModelCards = (netlist: CircuitNetlist): CircuitNetlist =>
     Object.keys(modelCards).length > 0 ? { ...netlist, models: modelCards } : netlist
+
+  /*
+   * The library's model rows are the same vendor cards the design-margin checks
+   * already look up, so a drop puts a published card in front of the solver
+   * rather than a typed guess. Each card goes on its own line: the deck splits
+   * statements on newlines, and two cards on one line is a parse error.
+   */
+  const placeModelCard = useCallback((item: LibraryItem) => {
+    if (item.kind !== 'model-card') return
+    setModelDeck((prev) => `${prev.trim() ? `${prev.replace(/\s+$/, '')}\n` : ''}${item.payload.spiceText}\n`)
+  }, [])
+
+  const modelDeckZone = useDomainLibraryZone({
+    accepts: ['model-card'],
+    as: 'the model deck',
+    onPlace: placeModelCard,
+  })
 
   /**
    * Reference designators on the schematic whose value a sweep can step.
@@ -341,7 +385,10 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
     }
     const runToken = ++runTokenRef.current
     const runAnalysis = selectedAnalysis
-    const runParameters = parameters
+    // Preferences first, then whatever this panel was told differently. A field
+    // the form never touched keeps the number from Settings, so the two surfaces
+    // cannot report different values for the same run.
+    const runParameters: SimulationParameters = { ...simDefaults, ...parameters, type: selectedAnalysis }
     setIsSimulating(true)
     setError(null)
 
@@ -877,7 +924,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
           <BarChart3 className="w-5 h-5 text-success" />
           Circuit Simulation
         </CardTitle>
-        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close simulation panel">
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close simulation panel" title="Leave the simulation workspace. Overrides typed on this panel do not survive it.">
           <X className="w-4 h-4" />
         </Button>
       </CardHeader>
@@ -914,7 +961,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
             <input
               id="sim-temperature"
               type="number"
-              value={parameters.temperature ?? 27}
+              value={parameters.temperature ?? simDefaults.temperature}
               onChange={(event) => handleParameterChange('temperature', Number(event.target.value))}
               className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
             />
@@ -929,7 +976,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
                 <input
                   id="sim-stop"
                   type="number"
-                  value={parameters.stopTime ?? 1e-3}
+                  value={parameters.stopTime ?? simDefaults.stopTime}
                   onChange={(event) => handleParameterChange('stopTime', Number(event.target.value))}
                   className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
                   step="0.000001"
@@ -943,7 +990,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
                 <input
                   id="sim-step"
                   type="number"
-                  value={parameters.stepTime ?? 1e-6}
+                  value={parameters.stepTime ?? simDefaults.stepTime}
                   onChange={(event) => handleParameterChange('stepTime', Number(event.target.value))}
                   className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
                   step="0.0000001"
@@ -956,7 +1003,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
                 </label>
                 <select
                   id="sim-integration"
-                  value={parameters.integrationMethod ?? 'backward-euler'}
+                  value={parameters.integrationMethod ?? simDefaults.integrationMethod}
                   onChange={(event) =>
                     handleParameterChange(
                       'integrationMethod',
@@ -975,7 +1022,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
                   ringing on stiff edges, and backward Euler is the safest default.
                 </p>
               </div>
-              <label className="col-span-2 flex items-center justify-between gap-3 rounded-md border border-border p-2">
+              <label className="col-span-2 flex items-center justify-between gap-3 rounded-md border border-input p-2">
                 <span className="text-sm text-card-foreground">
                   Start from zero stored energy
                   <span className="mt-0.5 block text-xs text-muted-foreground">
@@ -1094,7 +1141,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
                   <input
                     id="sim-ppd"
                     type="number"
-                    value={parameters.pointsPerDecade ?? (selectedAnalysis === 'noise' ? 10 : 20)}
+                    value={parameters.pointsPerDecade ?? simDefaults.pointsPerDecade}
                     onChange={(event) => handleParameterChange('pointsPerDecade', Number(event.target.value))}
                     className="w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground"
                     min="2"
@@ -1215,7 +1262,12 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
           )}
         </div>
         {/* SPICE device models: a supported .model subset that overrides stock cards. */}
-        <div className="rounded-md border border-border bg-muted/50 p-3">
+        <div
+          className="cad-dropzone rounded-md border border-border bg-muted/50 p-3"
+          role="group"
+          aria-label="SPICE model cards — drop a device model here"
+          {...modelDeckZone.zoneProps}
+        >
           <h4 className="mb-1 text-xs font-medium text-card-foreground">Device model cards</h4>
           <p className="mb-2 text-xs leading-relaxed text-muted-foreground">
             Paste SPICE <span className="font-mono">.model</span> cards (NPN, PNP, NMOS, PMOS, NJF, PJF, D).
@@ -1231,6 +1283,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
             className="h-32"
             status={false}
           />
+          <LibraryDropNote zone={modelDeckZone} surface="the model deck" className="mt-2" />
           {modelLibrary ? (
             <div className="mt-2 space-y-1 text-xs leading-relaxed">
               {modelLibrary.models.size > 0 ? (
@@ -1291,7 +1344,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
             type="file"
             accept=".net,.sch,.xml"
             onChange={handleImportNetlist}
-            className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs file:text-foreground"
+            className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded file:border file:border-input file:bg-background file:px-2 file:py-1 file:text-xs file:text-foreground"
           />
           {importedSheets.length > 0 && (
             <ul className="mt-2 space-y-1">
@@ -1386,7 +1439,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
               type="file"
               accept=".cir,.sp,.spice,.ckt"
               onChange={handleLoadDeckFile}
-              className="block text-xs text-muted-foreground file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs file:text-foreground"
+              className="block text-xs text-muted-foreground file:mr-2 file:rounded file:border file:border-input file:bg-background file:px-2 file:py-1 file:text-xs file:text-foreground"
             />
             <Button
               onClick={() => void handleSolveDeck()}
@@ -1771,7 +1824,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
                       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <div className="rounded bg-muted p-2">
                           <div className="text-muted-foreground">Limiting factor</div>
-                          <div className="mt-1 font-mono leading-relaxed">
+                          <div className="mt-1 leading-relaxed">
                             {designMargins.limitingFactor ?? 'No comparable rating declared'}
                           </div>
                         </div>

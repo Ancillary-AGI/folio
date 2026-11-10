@@ -2,16 +2,17 @@ import { lazy, Suspense, useState, useEffect, useMemo, useRef, useCallback } fro
 import {
   FolderOpen, Menu, Bot, BarChart3, Settings, Package, Users,
   Download, Image, FileText, List, Lock, LogOut, Mic, MicOff,
-  Shield, ArrowLeft, History, RotateCcw, Moon, Sun, AlertCircle, FlaskConical, Search,
-  MoreHorizontal, ShieldCheck, ShieldAlert, HelpCircle, X,
+  ArrowLeft, History, RotateCcw, Moon, Sun, AlertCircle, Search,
+  MoreHorizontal, ShieldAlert, ShieldCheck, HelpCircle, X, ScrollText, CloudOff,
+  Cloud, HardDrive,
 } from 'lucide-react'
 import { Button } from './components/ui/button'
 import type { PlacedComponent, Wire, User } from './types'
 import { supabase, isSupabaseConfigured, type Project, type Schematic, type Component } from './lib/supabase'
 import { offlineProjectStore } from './lib/offlineProjectStore'
 import { standardComponents } from './lib/componentLibrary'
-import { buildDemoBoard } from './lib/demo/demoBoard'
-import { isBoardDemoLoad, loadDemoScenario } from './lib/demo/loadDemo'
+import { libraryForMode } from './lib/library/catalog'
+import { isBoardDemoLoad, loadBoardDemo, loadDemoScenario } from './lib/demo/loadDemo'
 import type { DemoScenario } from './lib/demo/demoScenarios'
 import { DEMO_SCENARIOS } from './lib/demo/demoScenarios'
 import { exportToImage, exportToNetlist, exportToJSON, exportToBOM, exportToGerber, downloadFile } from './lib/exportUtils'
@@ -28,11 +29,10 @@ import { backupService, type ProjectBackup } from './lib/backup/backupService'
 import { buildCheckpointPayload } from './lib/backup/checkpoint'
 import { useAppStore, type WorkspaceMode } from './stores/useAppStore'
 import { useShortcutStore } from './stores/useShortcutStore'
+import { useDesignHealthStore } from './stores/useDesignHealthStore'
 import { isEditableTarget, matchesShortcut } from './lib/keymap/shortcuts'
 import {
-  ADMIN_ROUTE,
   currentRoute,
-  isAdminPath,
   navigateTo,
   PROJECTS_ROUTE,
   subscribeToRoute,
@@ -53,22 +53,27 @@ import {
 } from './lib/onboarding/onboardingStorage'
 import DomainWorkspace from './components/workspace/DomainWorkspace'
 import HoverHelp from './components/ui/HoverHelp'
+import ConfirmDialog from './components/ui/ConfirmDialog'
+import SecretDialog from './components/ui/SecretDialog'
+import { useConfirm } from './components/ui/useConfirm'
+import { useSecretPrompt } from './components/ui/useSecretPrompt'
 import type { HelpTab } from './components/help/HelpCenter'
 import type { Tutorial } from './lib/tutorials/tutorials'
 import ProjectManager from './components/ProjectManager'
+import EditableProjectTitle from './components/EditableProjectTitle'
 import AuthForm from './components/AuthForm'
 import FolioLogo, { FolioMark } from './components/brand/FolioLogo'
+import { AuroraField } from './components/brand/AuroraField'
 import VoiceCommandBar from './components/nlp/VoiceCommandBar'
 import { LoadingSpinner } from './components/ui/LoadingSpinner'
 import UserPresence from './components/collaboration/UserPresence'
 import { useTheme } from './lib/theme/useTheme'
-import { describeTheme } from './lib/theme/tokens'
-import { WORKSPACE_MODE_META, groupForMode } from './lib/workspace/modes'
-import { groupAccent } from './lib/workspace/accents'
-import { resolveLocalRole } from './lib/admin/adminService'
-import { checkQuotaCapacity } from './lib/admin/quotaPolicy'
+import { WORKSPACE_GROUPS, WORKSPACE_MODE_META, FIRST_MODE_BY_GROUP, groupForMode, type WorkspaceGroupId } from './lib/workspace/modes'
+import { GROUP_ACCENT_TOKENS, groupAccent } from './lib/workspace/accents'
+import { checkQuotaCapacity, resolveQuotaRole } from './lib/admin/quotaPolicy'
+import { readOwnGovernanceRole, syncQuotaPoliciesFromCloud } from './lib/admin/quotaSync'
 import { countUsage } from './lib/admin/usageLedger'
-import { recordPlatformUsage } from './lib/admin/usageRecorder'
+import { getLastCloudUsageError, recordPlatformUsage, subscribeUsageMirror } from './lib/admin/usageRecorder'
 
 // On-demand panels keep their heavyweight deps (recharts, plugin runtimes)
 // out of the first paint until the user actually opens them.
@@ -79,7 +84,6 @@ const CollaborativePanel = lazy(() => import('./components/collaboration/Collabo
 const SettingsPanel = lazy(() => import('./components/SettingsPanel'))
 const DemoGallery = lazy(() => import('./components/workspace/DemoGallery'))
 const CommandPalette = lazy(() => import('./components/workspace/CommandPalette'))
-const AdminConsole = lazy(() => import('./components/admin/AdminConsole'))
 const LimitsDialog = lazy(() => import('./components/workspace/LimitsDialog'))
 const HelpCenter = lazy(() => import('./components/help/HelpCenter'))
 const TutorialRunner = lazy(() => import('./components/help/TutorialRunner'))
@@ -89,10 +93,6 @@ const panelFallback = (
     <LoadingSpinner size="sm" />
   </div>
 )
-
-/** Shortcut chips must match the platform's modifier keys. */
-const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent)
-const DEMO_SHORTCUT_LABEL = IS_MAC ? '⇧⌘D' : 'Ctrl+Shift+D'
 
 type PcbLayout = ReturnType<typeof useProjectStore.getState>['pcbLayout']
 
@@ -224,12 +224,20 @@ function App() {
   const [vcsStatus, setVcsStatus] = useState('')
   const [backupList, setBackupList] = useState<ProjectBackup[]>([])
   const [showProjectManager, setShowProjectManager] = useState(false)
-  const [showAdmin, setShowAdmin] = useState(false)
   const [notice, setNotice] = useState('')
   const [demoBusy, setDemoBusy] = useState<string | null>(null)
   const [showPluginPanel, setShowPluginPanel] = useState(false)
   const [showDemoGallery, setShowDemoGallery] = useState(false)
   const [showLimits, setShowLimits] = useState(false)
+  /*
+   * The shell asks three questions it used to hand to the browser: load an
+   * example over a sheet that has work on it, restore a commit, restore a
+   * backup. Answering in this app's own panel keeps the consequence in the
+   * sentence instead of a system box, and lets a test click the real buttons.
+   */
+  const { spec: confirmSpec, confirm, resolve: resolveConfirm } = useConfirm()
+  // …and one that takes a secret: the passphrase that seals an export.
+  const { request: secretRequest, ask: askSecret, resolve: resolveSecret } = useSecretPrompt()
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [helpTab, setHelpTab] = useState<HelpTab>('tutorials')
@@ -242,7 +250,14 @@ function App() {
   const [exportStatus, setExportStatus] = useState('')
   const [activeAlertCount, setActiveAlertCount] = useState(0)
   const [activeAlertSummary, setActiveAlertSummary] = useState('')
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  /*
+   * A usage event that never reached the deployment is still in this device's
+   * ledger, but server-side reports and quota checks did not see it. The
+   * designer whose action went uncounted is the person who needs to know, so
+   * the warning lives here rather than in a console they cannot open.
+   */
+  const [usageMirrorError, setUsageMirrorError] = useState('')
+  useEffect(() => subscribeUsageMirror(() => setUsageMirrorError(getLastCloudUsageError() ?? '')), [])
 
   // The right-hand drawer is one slot: opening a tool replaces whatever is there.
   const openPluginPanel = () => {
@@ -255,42 +270,12 @@ function App() {
    * land on the same screen. The open project stays loaded for a quick return. */
   const openProjectManager = () => {
     setShowProjectManager(true)
-    setShowAdmin(false)
     navigateTo(PROJECTS_ROUTE)
-  }
-
-  /* Administration is a sibling route, not a modal: it survives reloads and
-   * Back returns to whichever screen opened it. */
-  const openAdmin = () => {
-    // Overlays are not mounted on the administration route; clear them so a
-    // shortcut pressed just before navigating cannot leave hidden open state.
-    setShowHelp(false)
-    setShowCommandPalette(false)
-    setShowDemoGallery(false)
-    setShowLimits(false)
-    setShowSettings(false)
-    setActiveTutorial(null)
-    setShowAdmin(true)
-    setShowExportMenu(false)
-    setShowVcsMenu(false)
-    setShowMoreMenu(false)
-    navigateTo(ADMIN_ROUTE)
-  }
-
-  const closeAdmin = () => {
-    setShowAdmin(false)
-    const project = useProjectStore.getState().currentProject
-    if (showProjectManager || !project) {
-      navigateTo(PROJECTS_ROUTE)
-      setShowProjectManager(true)
-      return
-    }
-    writeWorkspaceRoute(useAppStore.getState().workspaceMode, project.id)
   }
 
   const simulationQuotaError = (): string | null => {
     if (!user) return 'Sign in to run a simulation.'
-    const decision = checkQuotaCapacity('simulation', resolveLocalRole(user, offlineMode), {
+    const decision = checkQuotaCapacity('simulation', resolveQuotaRole(user, offlineMode), {
       projects: 0,
       exportsToday: 0,
       simulationsToday: countUsage('simulation.run', startOfToday(), user.id),
@@ -308,6 +293,8 @@ function App() {
     settings,
     activeTool,
     selectedComponents,
+    selectedNet,
+    clearSelection,
     simulationPanelOpen,
     aiChatOpen,
     sidebarOpen,
@@ -328,6 +315,36 @@ function App() {
     componentLibrary,
   } = useProjectStore()
 
+  // The schematic workspace runs the rule check and mirrors the result here, so
+  // the status bar can state the design's health without a second pass.
+  const healthResult = useDesignHealthStore((state) => state.result)
+  const healthPanelOpen = useDesignHealthStore((state) => state.panelOpen)
+  const toggleHealthPanel = useDesignHealthStore((state) => state.togglePanel)
+  const healthErrors = healthResult?.summary.errors ?? 0
+  const healthWarnings = healthResult?.summary.warnings ?? 0
+  const healthNotices = healthResult?.summary.info ?? 0
+  const healthTotal = healthResult?.summary.totalViolations ?? 0
+
+  // The sheet's net cursor, mirrored in the status bar: the name is what the
+  // user picked, the count is every distinct pin the run lands on.
+  const selectedNetName = useMemo(() => {
+    if (!selectedNet) return null
+    if ('name' in selectedNet) return selectedNet.name
+    return wires.find((wire) => wire.id === selectedNet.wireId)?.netName || 'Unnamed net'
+  }, [selectedNet, wires])
+  const selectedNetPins = useMemo(() => {
+    if (!selectedNet) return 0
+    if ('name' in selectedNet) {
+      const pins = new Set<string>()
+      for (const wire of wires) {
+        if (wire.netName !== selectedNet.name) continue
+        for (const pin of wire.connectedPins) pins.add(`${pin.componentId}:${pin.pinId}`)
+      }
+      return pins.size
+    }
+    return wires.find((wire) => wire.id === selectedNet.wireId)?.connectedPins.length ?? 0
+  }, [selectedNet, wires])
+
   // Parts imported this session live in the project store; the cloud/offline
   // catalogue is separate App state. The palette shows both, without doubling up
   // on an id when a session import re-uses a catalogue entry.
@@ -337,6 +354,17 @@ function App() {
       ...componentLibrary.filter(extra => !libraryComponents.some(existing => existing.id === extra.id)),
     ],
     [libraryComponents, componentLibrary],
+  )
+
+  /*
+   * The dock is per domain: the sheet takes symbols, mechanical takes ISO parts,
+   * control takes transfer functions, firmware takes code. The header toggle
+   * names what it opens and stands down where a workspace places nothing, so it
+   * is never a dead control.
+   */
+  const workspaceLibraryLabel = useMemo(
+    () => libraryForMode(workspaceMode, paletteComponents)?.label ?? null,
+    [workspaceMode, paletteComponents],
   )
 
   const buildDesignSnapshot = () => {
@@ -359,27 +387,23 @@ function App() {
    * `lib/theme/tokens.ts` onto <html>. App must never touch `documentElement`
    * colours directly — doing so is what produced the mixed light/dark UI.
    */
-  const { preference: themePreference, theme: resolvedTheme, isDark: isDarkTheme, toggle: toggleTheme } = useTheme()
+  const { isDark: isDarkTheme, toggle: toggleTheme } = useTheme()
 
   /* The browser tab doubles as a workspace readout: project, mode, unsaved. */
   useEffect(() => {
-    if (showAdmin) {
-      document.title = 'Administration · Folio'
-      return
-    }
     const mode = WORKSPACE_MODE_META[workspaceMode].label
     document.title = currentProject
       ? `${isDirty ? 'Unsaved — ' : ''}${currentProject.name} — ${mode} · Folio`
       : showProjectManager
         ? 'Projects · Folio'
         : `${mode} · Folio`
-  }, [currentProject, isDirty, showAdmin, showProjectManager, workspaceMode])
+  }, [currentProject, isDirty, showProjectManager, workspaceMode])
 
   /* Opening a workspace is the workbench's most meaningful usage signal. */
   useEffect(() => {
-    if (!user || showAdmin || !currentProject) return
+    if (!user || !currentProject) return
     recordPlatformUsage('workspace.open', user, offlineMode, { mode: workspaceMode })
-  }, [user, offlineMode, showAdmin, currentProject, workspaceMode])
+  }, [user, offlineMode, currentProject, workspaceMode])
 
   // ── Auth ────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -399,6 +423,23 @@ function App() {
     })
     return () => subscription.unsubscribe()
   }, [])
+
+  /*
+   * The workbench pre-checks an action against the policy an operator set, so it
+   * can refuse before spending the designer's time. Both reads are best-effort:
+   * the database enforces the same limits on insert, and a failed read leaves
+   * the shipped defaults in place rather than blocking the workbench.
+   */
+  const userId = user?.id ?? null
+  useEffect(() => {
+    if (!userId || offlineMode) return
+    let alive = true
+    void Promise.all([readOwnGovernanceRole(userId), syncQuotaPoliciesFromCloud()]).then(([role]) => {
+      if (!alive) return
+      setUser((current) => (current && current.id === userId ? { ...current, role } : current))
+    })
+    return () => { alive = false }
+  }, [userId, offlineMode])
 
   const openTour = useCallback((step: number) => {
     tourStepsOpened.current = new Set([step])
@@ -481,6 +522,13 @@ function App() {
 
   useCollaborationPresence(collabUser, currentProject?.id ?? null, !offlineMode, setCollaborativeUsers)
 
+  /* The presence host runs in the header, so it shows the other people only —
+   * an avatar of yourself next to your own name is noise. */
+  const othersPresent = useMemo(
+    () => collaborativeUsers.filter((person) => person.id !== collabUser?.id),
+    [collaborativeUsers, collabUser],
+  )
+
   // ── SIEM monitoring ─────────────────────────────────────────────────────────
   useEffect(() => {
     siemService.startMonitoring()
@@ -526,6 +574,7 @@ function App() {
       void import('./components/help/HelpCenter')
       void import('./components/help/TutorialRunner')
       void import('./components/workspace/CommandPalette')
+      void import('./components/SettingsPanel')
     }
     const idle = (window as Window & { requestIdleCallback?: (callback: () => void) => number }).requestIdleCallback
     if (idle) {
@@ -541,47 +590,50 @@ function App() {
   const shortcutOverrides = useShortcutStore((s) => s.overrides)
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      // Administration is a sibling surface with no workbench overlays mounted;
-      // honouring these keys there would only create invisible open state.
-      if (isAdminPath(window.location.pathname)) return
       const typing = isEditableTarget(event.target)
       // These surfaces share the viewport, so a shortcut replaces whatever is
-      // already open instead of stacking a second modal over it.
+      // already open instead of stacking a second modal over it. A surface that
+      // toggles itself is left out of the sweep, so its own updater still sees
+      // the state the user is in rather than the `false` queued moments before.
+      const closeSiblingOverlays = (keep?: 'palette' | 'gallery') => {
+        setShowHelp(false)
+        if (keep !== 'palette') setShowCommandPalette(false)
+        if (keep !== 'gallery') setShowDemoGallery(false)
+        setShowLimits(false)
+        setShowSettings(false)
+      }
       // F1 always works; `?` is a normal character in netlist and property fields.
       if (
         matchesShortcut(event, 'help.open', shortcutOverrides) ||
         (!typing && matchesShortcut(event, 'help.openQuestion', shortcutOverrides))
       ) {
         event.preventDefault()
-        setShowCommandPalette(false)
-        setShowDemoGallery(false)
-        setShowLimits(false)
+        closeSiblingOverlays()
         setHelpTab('tutorials')
         setShowHelp(true)
         return
       }
       if (matchesShortcut(event, 'palette.open', shortcutOverrides)) {
         event.preventDefault()
-        setShowHelp(false)
-        setShowDemoGallery(false)
-        setShowLimits(false)
+        closeSiblingOverlays('palette')
         setShowCommandPalette((open) => !open)
+        return
+      }
+      if (matchesShortcut(event, 'settings.open', shortcutOverrides)) {
+        event.preventDefault()
+        closeSiblingOverlays()
+        setShowSettings(true)
         return
       }
       if (matchesShortcut(event, 'demos.open', shortcutOverrides)) {
         event.preventDefault()
-        setShowHelp(false)
-        setShowCommandPalette(false)
-        setShowLimits(false)
+        closeSiblingOverlays('gallery')
         setShowDemoGallery((open) => !open)
         return
       }
       if (matchesShortcut(event, 'agents.open', shortcutOverrides)) {
         event.preventDefault()
-        setShowHelp(false)
-        setShowCommandPalette(false)
-        setShowLimits(false)
-        setShowDemoGallery(false)
+        closeSiblingOverlays()
         useAppStore.getState().setWorkspaceMode('agents')
         return
       }
@@ -595,15 +647,44 @@ function App() {
   }, [shortcutOverrides])
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
-  const handleNewProject = async () => {
+  /*
+   * Both create paths end the same way: the design state is cleared, the new
+   * project is put on screen, and — when the launcher's family tile was the one
+   * that asked for it — the workspace opens on that family's first tab instead of
+   * the default one. One function, so the two paths cannot drift apart.
+   */
+  const enterNewProject = (
+    project: Project,
+    canvasData: Record<string, unknown> | null,
+    uid: string,
+    storage: 'local' | 'cloud',
+    family?: WorkspaceGroupId,
+  ) => {
+    useProjectStore.setState({
+      components: [], wires: [], firmwareCode: '', simulationRuns: [], pcbLayout: null,
+      simulationResults: [], isSimulating: false, liveFrame: null, isDirty: false,
+    })
+    setCurrentSchematic(null)
+    setCanvasData(canvasData)
+    useAppStore.getState().setZoom(1)
+    useAppStore.getState().setPan({ x: 0, y: 0 })
+    if (family) useAppStore.getState().setWorkspaceMode(FIRST_MODE_BY_GROUP[family])
+    setCurrentProject(project)
+    setShowProjectManager(false)
+    recordPlatformUsage('project.create', user, offlineMode, { name: project.name, storage, family: family ?? 'default' })
+    siemService.logAuditEvent({ user: uid, action: 'project:create', resource: project.id, details: { name: project.name, family } })
+  }
+
+  const handleNewProject = async (family?: WorkspaceGroupId) => {
     if (!user) return
+    const uid = user.id
     setNotice('')
-    let projectCount = offlineProjectStore.list().filter((entry) => entry.user_id === user.id).length
+    let projectCount = offlineProjectStore.list().filter((entry) => entry.user_id === uid).length
     if (!offlineMode) {
-      const { count } = await supabase.from('projects').select('id', { count: 'exact', head: true }).eq('user_id', user.id)
+      const { count } = await supabase.from('projects').select('id', { count: 'exact', head: true }).eq('user_id', uid)
       projectCount = count ?? 0
     }
-    const quota = checkQuotaCapacity('project', resolveLocalRole(user, offlineMode), {
+    const quota = checkQuotaCapacity('project', resolveQuotaRole(user, offlineMode), {
       projects: projectCount, exportsToday: 0, simulationsToday: 0, storageMb: 0,
     })
     if (!quota.allowed) {
@@ -611,41 +692,19 @@ function App() {
       return
     }
     if (offlineMode) {
-      const project = offlineProjectStore.create(user.id, `New Project ${new Date().toLocaleDateString()}`)
-      useProjectStore.setState({
-        components: [], wires: [], firmwareCode: '', simulationRuns: [], pcbLayout: null,
-        simulationResults: [], isSimulating: false, liveFrame: null, isDirty: false,
-      })
-      setCurrentSchematic(null)
-      setCanvasData(project.canvas_data ?? null)
-      useAppStore.getState().setZoom(1)
-      useAppStore.getState().setPan({ x: 0, y: 0 })
-      setCurrentProject(project)
-      setShowProjectManager(false)
-      recordPlatformUsage('project.create', user, offlineMode, { name: project.name, storage: 'local' })
-      siemService.logAuditEvent({ user: user.id, action: 'project:create', resource: project.id, details: { name: project.name } })
+      const project = offlineProjectStore.create(uid, `New Project ${new Date().toLocaleDateString()}`)
+      enterNewProject(project, project.canvas_data ?? null, uid, 'local', family)
       return
     }
     try {
       const { data, error } = await supabase.from('projects').insert({
-        user_id: user.id,
+        user_id: uid,
         name: `New Project ${new Date().toLocaleDateString()}`,
         description: 'Engineering design project',
       }).select().single()
       if (error) throw error
       await supabase.from('schematics').insert({ project_id: data.id, name: 'Main Schematic', order_index: 0 })
-      useProjectStore.setState({
-        components: [], wires: [], firmwareCode: '', simulationRuns: [], pcbLayout: null,
-        simulationResults: [], isSimulating: false, liveFrame: null, isDirty: false,
-      })
-      setCurrentSchematic(null)
-      setCanvasData(null)
-      useAppStore.getState().setZoom(1)
-      useAppStore.getState().setPan({ x: 0, y: 0 })
-      setCurrentProject(data)
-      setShowProjectManager(false)
-      recordPlatformUsage('project.create', user, offlineMode, { name: data.name, storage: 'cloud' })
-      siemService.logAuditEvent({ user: user.id, action: 'project:create', resource: data.id, details: { name: data.name } })
+      enterNewProject(data, null, uid, 'cloud', family)
     } catch (err) {
       console.error('Error creating project:', err)
     }
@@ -688,9 +747,19 @@ function App() {
     if (showOnboarding) closeOnboarding('dismissed')
   }
 
-  const confirmReplace = (label: string): boolean => {
+  /*
+   * Loading a board over a sheet that has parts on it throws that work away, so
+   * it asks first — in the app's own panel, and only when there is something to
+   * lose. Every caller is a demo or a sample, so the question always names the
+   * thing arriving and the thing leaving.
+   */
+  const confirmReplace = async (label: string): Promise<boolean> => {
     if (useProjectStore.getState().components.length === 0) return true
-    return window.confirm(`Replace the current schematic with the ${label}?`)
+    return confirm({
+      title: `Replace the current schematic with the ${label}?`,
+      detail: `The ${useProjectStore.getState().components.length} parts on the sheet are overwritten by the example. Commit first if you want the current arrangement back.`,
+      confirmLabel: 'Load example',
+    })
   }
 
   const ensureProject = async (): Promise<boolean> => {
@@ -716,7 +785,7 @@ function App() {
   // Gallery / palette entry point: a demo must be savable, and a board demo
   // must never silently overwrite an unsaved schematic.
   const openDemoScenario = async (scenario: DemoScenario): Promise<boolean> => {
-    if (isBoardDemoLoad(scenario.load) && !confirmReplace(scenario.title)) return false
+    if (isBoardDemoLoad(scenario.load) && !(await confirmReplace(scenario.title))) return false
     if (!(await ensureProject())) return false
     await runDemoLoad(scenario)
     recordPlatformUsage('demo.load', user, offlineMode, { scenario: scenario.title })
@@ -758,7 +827,7 @@ function App() {
   }
 
   const handleLoadSampleCircuit = async () => {
-    if (!confirmReplace('5 V divider example')) return
+    if (!(await confirmReplace('5 V divider example'))) return
     if (!(await ensureProject())) return
 
     const resistorDefinition = standardComponents.find(component => component.name === 'Resistor')
@@ -809,10 +878,9 @@ function App() {
   }
 
   const handleLoadDemoBoard = async () => {
-    if (!confirmReplace('tested half-wave rectifier board')) return
+    if (!(await confirmReplace('tested half-wave rectifier board'))) return
     if (!(await ensureProject())) return
-    const board = buildDemoBoard()
-    useProjectStore.setState({ components: board.components, wires: board.wires, isDirty: true })
+    loadBoardDemo('Half-wave rectifier')
     useAppStore.setState({ simulationPanelOpen: true })
     useAppStore.getState().setWorkspaceMode('schematic')
   }
@@ -874,6 +942,49 @@ function App() {
   }
 
   /*
+   * The library owns the project's name, but the shell header and every export
+   * filename read it off the open project, so a rename has to reach the store as
+   * well or the workspace keeps titling files with the name it just discarded.
+   */
+  const handleProjectRenamed = (renamed: Project) => {
+    if (currentProject?.id === renamed.id) setCurrentProject(renamed)
+    if (user) {
+      siemService.logAuditEvent({ user: user.id, action: 'project:rename', resource: renamed.id, details: { name: renamed.name } })
+    }
+  }
+
+  /*
+   * Renaming from the header writes the same row the launcher cards write — the
+   * local store offline, the projects table when the workspace is cloud-owned —
+   * because a title that only moved in the shell would be overwritten by the next
+   * save and would export files under a name nothing else knows.
+   *
+   * It rejects rather than returning a flag: the field keeps the typed text on
+   * screen and shows the reason under it, so a failed rename never looks saved.
+   */
+  const renameCurrentProject = async (nextName: string) => {
+    const project = currentProject
+    if (!project) throw new Error('No project is open to rename.')
+    const trimmed = nextName.trim()
+    if (!trimmed) throw new Error('A project needs a name.')
+
+    if (offlineMode) {
+      const updated = offlineProjectStore.rename(project.id, trimmed)
+      if (!updated) throw new Error('This project is no longer in the workspace, so the name was not saved.')
+      handleProjectRenamed(updated)
+      return
+    }
+
+    const updatedAt = new Date().toISOString()
+    const { error } = await supabase
+      .from('projects')
+      .update({ name: trimmed, updated_at: updatedAt })
+      .eq('id', project.id)
+    if (error) throw new Error(`Could not rename the project: ${error.message}`)
+    handleProjectRenamed({ ...project, name: trimmed, updated_at: updatedAt })
+  }
+
+  /*
    * URL ownership lives in App because App is mounted for every screen: the
    * workspace (and its old hash router) only mounts after a project opens, so
    * a `#/agents` reload landed on the project list before the mode could apply.
@@ -886,12 +997,6 @@ function App() {
 
   useEffect(() => {
     const applyLocation = () => {
-      // Administration is not a workspace; keep it out of parseRoute's modes.
-      if (typeof window !== 'undefined' && isAdminPath(window.location.pathname)) {
-        setShowAdmin(true)
-        return
-      }
-      setShowAdmin(false)
       const route = currentRoute()
       if (route.isProjectList) {
         setShowProjectManager(true)
@@ -939,9 +1044,9 @@ function App() {
    */
   const routeProjectId = currentProject?.id ?? null
   useEffect(() => {
-    if (!routeProjectId || showProjectManager || showAdmin) return
+    if (!routeProjectId || showProjectManager) return
     writeWorkspaceRoute(workspaceMode, routeProjectId)
-  }, [routeProjectId, workspaceMode, showProjectManager, showAdmin])
+  }, [routeProjectId, workspaceMode, showProjectManager])
 
   const handleSave = useCallback(async (data: Record<string, unknown>) => {
     if (!currentProject) return
@@ -979,6 +1084,23 @@ function App() {
   }, [currentProject, offlineMode, markClean, user])
 
   const getCheckpointData = () => buildCheckpointPayload()
+
+  /*
+   * Auto-save, on the interval from Settings. Both halves of the preference are
+   * honoured: the switch and the period, so the timer is rebuilt when either
+   * moves. It fires only while the document is actually dirty — a "save" that
+   * writes an unchanged design is noise that makes people distrust the timer.
+   */
+  const autoSave = settings.autoSave
+  const autoSaveInterval = settings.autoSaveInterval
+  useEffect(() => {
+    if (!autoSave || !currentProject) return
+    const timer = window.setInterval(() => {
+      if (!useProjectStore.getState().isDirty) return
+      void handleSave(buildCheckpointPayload())
+    }, autoSaveInterval)
+    return () => window.clearInterval(timer)
+  }, [autoSave, autoSaveInterval, currentProject, handleSave])
 
   const refreshVcs = () => {
     if (!currentProject) return
@@ -1018,8 +1140,20 @@ function App() {
     }
   }
 
-  const handleVcsCheckout = (commit: VcsCommit) => {
-    if (!currentProject || !window.confirm(`Restore commit “${commit.message}”? Unsaved work is kept in a backup first.`)) return
+  /*
+   * Restoring a commit rewrites the sheet, so the panel says what happens to the
+   * work that is currently unsaved: it is not lost, it goes into a backup taken
+   * first. The question is asked before the backup so declining changes nothing.
+   */
+  const handleVcsCheckout = async (commit: VcsCommit) => {
+    if (!currentProject) return
+    const accepted = await confirm({
+      title: `Restore the commit “${commit.message}”?`,
+      detail:
+        'The sheet, the board and the code go back to what that commit held. Anything you have not committed stays available: a backup of the current state is taken first and appears in the restore list.',
+      confirmLabel: 'Restore commit',
+    })
+    if (!accepted) return
     try {
       backupService.createBackup(currentProject.id, getCheckpointData(), 'Before VCS restore')
     } catch (err) {
@@ -1110,7 +1244,14 @@ function App() {
   }
 
   const restoreCheckpoint = async (checkpoint: ProjectBackup) => {
-    if (!currentProject || !window.confirm(`Restore “${checkpoint.label}”? A safety backup of the current state is created first.`)) return
+    if (!currentProject) return
+    const accepted = await confirm({
+      title: `Restore the backup “${checkpoint.label}”?`,
+      detail:
+        'The sheet goes back to the state saved in that backup. The current state is kept as a new backup first, so this is reversible from the same list.',
+      confirmLabel: 'Restore backup',
+    })
+    if (!accepted) return
 
     const restored = backupService.restore(checkpoint.id, currentProject.id)
     if (!restored || !Array.isArray(restored.components) || !Array.isArray(restored.wires)) {
@@ -1170,7 +1311,7 @@ function App() {
    * it actually exists, so a failed export does not consume the daily allowance. */
   const exportQuotaError = (): string | null => {
     if (!user) return 'Sign in to export a design.'
-    const decision = checkQuotaCapacity('export', resolveLocalRole(user, offlineMode), {
+    const decision = checkQuotaCapacity('export', resolveQuotaRole(user, offlineMode), {
       projects: 0,
       exportsToday: countUsage('export.run', startOfToday(), user.id),
       simulationsToday: 0,
@@ -1189,7 +1330,7 @@ function App() {
     if (!canvas || !currentProject) return
     const quotaError = exportQuotaError()
     if (quotaError) { setNotice(quotaError); setShowExportMenu(false); return }
-    const dataUrl = exportToImage(canvas)
+    const dataUrl = exportToImage(canvas, { resolution: settings.imageExportScale })
     const a = document.createElement('a')
     a.href = dataUrl
     a.download = `${currentProject.name}.png`
@@ -1242,6 +1383,7 @@ function App() {
     const gerber = exportToGerber(
       components.map(c => ({ ...c, position: { x: c.x, y: c.y }, scale: 1 } as unknown as PlacedComponent)),
       wires.map(w => ({ ...w } as unknown as Wire)),
+      { units: settings.gerberUnits, traceWidth: settings.boardTraceWidthMm },
     )
     downloadFile(gerber, `${currentProject.name}.gbr`, 'text/plain')
     finishExport('gerber')
@@ -1259,6 +1401,7 @@ function App() {
     const svg = buildSchematicDrawing(components, wires, {
       title: currentSchematic?.name || currentProject.name,
       projectName: currentProject.name,
+      paperSize: settings.drawingPaperSize,
       notes: ['Crossings without a junction dot are not connected.'],
     })
     downloadFile(svg, `${currentProject.name}_drawing.svg`, 'image/svg+xml')
@@ -1282,9 +1425,11 @@ function App() {
     navigateTo(PROJECTS_ROUTE, { replace: true })
   }
 
-  const themeIcon = isDarkTheme ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />
-  const themeLabel = describeTheme(themePreference, resolvedTheme)
+  const themeIcon = isDarkTheme ? <Sun /> : <Moon />
   const themeToggleLabel = isDarkTheme ? 'Switch to light theme' : 'Switch to dark theme'
+  /* The palette chord is branded per platform rather than always saying Ctrl:
+   * a Mac user reading a Windows keycap learns the wrong gesture. */
+  const commandKey = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.platform) ? '⌘' : 'Ctrl'
 
   const toggleVoice = () => {
     voiceController.toggleListening()
@@ -1302,14 +1447,20 @@ function App() {
   }
 
   /* Everything the bar no longer carries, as words instead of icons. Grouped so
-   * the overflow reads as a menu rather than a list of nine unrelated verbs. */
+   * the overflow reads as a menu rather than a list of nine unrelated verbs, and
+   * each group is named for what its rows have in common. */
   const moreMenuSections = [
     {
-      group: 'Session',
+      group: 'Assistant',
       items: [
         { label: voiceListening ? 'Stop voice control' : 'Start voice control', icon: voiceListening ? MicOff : Mic, action: toggleVoice },
-        { label: activeAlertCount > 0 ? `Security alerts (${activeAlertCount} active)` : 'Security alerts', icon: Shield, action: () => useAppStore.getState().setWorkspaceMode('siem') },
+      ],
+    },
+    {
+      group: 'Workspaces',
+      items: [
         { label: 'Simulation workspace', icon: BarChart3, action: () => useAppStore.getState().setWorkspaceMode('simulation') },
+        { label: activeAlertCount > 0 ? `Activity log (${activeAlertCount} active alert${activeAlertCount === 1 ? '' : 's'})` : 'Activity log', icon: ShieldAlert, action: () => useAppStore.getState().setWorkspaceMode('siem') },
       ],
     },
     {
@@ -1317,7 +1468,6 @@ function App() {
       items: [
         { label: 'Collaboration', icon: Users, action: () => setShowCollaborativePanel(true) },
         { label: 'Plugins', icon: Package, action: openPluginPanel },
-        { label: 'Administration', icon: ShieldCheck, action: openAdmin },
         { label: 'Back to Projects', icon: ArrowLeft, action: backToProjects },
       ],
     },
@@ -1368,8 +1518,23 @@ function App() {
     if (!currentProject) return
     const quotaError = exportQuotaError()
     if (quotaError) { setNotice(quotaError); setShowExportMenu(false); return }
-    const passphrase = window.prompt('Passphrase for the encrypted export (it cannot be recovered):')
-    if (!passphrase) return
+    /*
+     * The passphrase used to come out of `window.prompt()`, which shows a secret
+     * in plain text in a box that belongs to the browser. It is asked for in the
+     * app now: masked field, the rule stated up front, and a decline that
+     * exports nothing.
+     */
+    const passphrase = await askSecret({
+      title: 'Passphrase for the encrypted export',
+      detail:
+        'The design is sealed with this passphrase before it is downloaded. Folio never stores it and cannot recover it — lose it and the file stays sealed.',
+      fieldLabel: 'Passphrase',
+      confirmLabel: 'Seal and export',
+      hint: 'At least 8 characters. Type it somewhere nobody is watching the screen.',
+      minLength: 8,
+    })
+    if (passphrase === null) return
+    setShowExportMenu(false)
     const userId = user?.id ?? 'offline-local'
     const assetId = currentProject.id
     try {
@@ -1403,8 +1568,7 @@ function App() {
   /*
    * Shared overlay stack for the workbench and the project launcher. Both
    * screens advertise the same global shortcuts, so both must mount the
-   * surfaces those shortcuts open; the administration route intentionally
-   * does not.
+   * surfaces those shortcuts open.
    */
   const overlayStack = (
     <Suspense fallback={panelFallback}>
@@ -1432,6 +1596,17 @@ function App() {
             openHelp('shortcuts')
           }}
           onToggleTheme={toggleTheme}
+          onToggleDesignHealth={() => {
+            const health = useDesignHealthStore.getState()
+            if (useAppStore.getState().workspaceMode !== 'schematic') {
+              // Findings are about the sheet, so land where they can be acted on.
+              useAppStore.getState().setWorkspaceMode('schematic')
+              health.setPanelOpen(true)
+            } else {
+              health.setPanelOpen(!health.panelOpen)
+            }
+          }}
+          onOpenSettings={() => setShowSettings(true)}
           onOpenScenario={openDemoScenario}
         />
       )}
@@ -1459,6 +1634,11 @@ function App() {
           onOpenHelp={() => openHelp('tutorials')}
         />
       )}
+
+      {/* Shell-level answer box for the three irreversible actions above. The
+          launcher has its own instance for the one it asks (a delete). */}
+      <ConfirmDialog spec={confirmSpec} onResolve={resolveConfirm} />
+      <SecretDialog request={secretRequest} onResolve={resolveSecret} />
     </Suspense>
   )
 
@@ -1471,47 +1651,48 @@ function App() {
 
   if (!user) return <AuthForm onAuthSuccess={() => {}} />
 
-  if (showAdmin) {
-    return (
-      <Suspense
-        fallback={(
-          <div className="flex min-h-screen items-center justify-center bg-background">
-            <div className="flex flex-col items-center gap-3" role="status" aria-live="polite">
-              <LoadingSpinner size="lg" />
-              <span className="text-muted-foreground">Loading administration…</span>
-            </div>
-          </div>
-        )}
-      >
-        <AdminConsole user={user} offlineMode={offlineMode} onBack={closeAdmin} />
-      </Suspense>
-    )
-  }
-
   if (!currentProject || showProjectManager) {
     return (
-      <div className="flex min-h-screen flex-col bg-background">
-        <header className="app-chrome app-chrome-divider flex flex-shrink-0 items-center justify-between px-6 py-4" data-tour="app-header">
-          <FolioLogo
-            markClassName="h-9 w-9 flex-shrink-0 text-primary"
-            wordmarkClassName="h-[17px] w-auto text-surface-foreground"
-            showTagline
-          />
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={openAdmin} title="Administration" aria-label="Administration">
-              <ShieldCheck className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={toggleTheme} title={themeToggleLabel} aria-label={themeToggleLabel}>{themeIcon}</Button>
-            <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} title="Settings" aria-label="Settings"><Settings className="w-4 h-4" /></Button>
-            {!offlineMode && (
-              <Button variant="ghost" onClick={handleSignOut} className="flex items-center gap-2">
-                <LogOut size={16} />Sign Out
-              </Button>
-            )}
+      <div className="launcher-shell flex min-h-screen flex-col bg-background">
+        <AuroraField />
+        {/* Chrome is full-bleed: the lockup sits on the window's left edge, where
+            every app bar puts a brand, and the actions on the right edge. The
+            launcher's *content* below keeps its own centred column — a bar that
+            marched to the same inner gutter as the cards read as a centred block
+            floating in the header instead of a header. */}
+        <header className="app-chrome app-chrome-divider flex-shrink-0" data-tour="app-header">
+          <div className="flex w-full items-center justify-between gap-3 px-4 py-3 sm:px-5">
+            <FolioLogo
+              markClassName="h-8 w-8 flex-shrink-0 text-primary"
+              wordmarkClassName="h-[15px] w-auto text-surface-foreground"
+              showTagline
+            />
+            <div className="flex flex-shrink-0 items-center gap-2">
+              <HoverHelp topicId="header.theme" placement="bottom">
+                <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label={themeToggleLabel}>{themeIcon}</Button>
+              </HoverHelp>
+              <HoverHelp topicId="header.settings" placement="bottom">
+                <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} aria-label="Settings"><Settings className="h-4 w-4" /></Button>
+              </HoverHelp>
+              {!offlineMode && (
+                <HoverHelp topicId="header.sign-out" placement="bottom">
+                  <Button variant="ghost" onClick={handleSignOut} className="flex items-center gap-2">
+                    <LogOut size={16} />Sign Out
+                  </Button>
+                </HoverHelp>
+              )}
+            </div>
           </div>
         </header>
         <NoticeBanner message={notice} onDismiss={() => setNotice('')} />
-        <ProjectManager onSelectProject={handleSelectProject} onNewProject={handleNewProject} offlineMode={offlineMode} />
+        <ProjectManager
+          onSelectProject={handleSelectProject}
+          onNewProject={handleNewProject}
+          onProjectRenamed={handleProjectRenamed}
+          offlineMode={offlineMode}
+          onOpenDemos={() => setShowDemoGallery(true)}
+          onOpenDemo={(scenario) => { void openDemoScenario(scenario) }}
+        />
         {overlayStack}
         {demoBusyOverlay}
         {showOnboarding && (
@@ -1533,6 +1714,11 @@ function App() {
   // ── Main IDE layout ───────────────────────────────────────────────────────────
   return (
     <div className="app-shell">
+      {/* Scenery, not chrome: the field follows the open workspace family and
+          sits under every bar in the shell. It is aria-hidden and takes no
+          events, so it cannot disturb the tab order below it. */}
+      <AuroraField accentToken={GROUP_ACCENT_TOKENS[groupForMode(workspaceMode)]} />
+
       {/* First focusable thing in the tab order: the header carries dozens of
           repeated controls before the design sheet, so a keyboard user needs one
           keypress to skip past them (WCAG 2.4.1). */}
@@ -1542,36 +1728,55 @@ function App() {
       <header className="app-chrome app-chrome-divider flex min-w-0 flex-shrink-0 items-center justify-between gap-2 px-4 py-2" data-tour="app-header">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <HoverHelp topicId="header.projects" placement="bottom">
-            <Button variant="ghost" size="icon" onClick={openProjectManager} aria-label="Projects">
-              <FolderOpen className="w-4 h-4" />
+            <Button variant="ghost" size="bar-icon" onClick={openProjectManager} aria-label="Projects">
+              <FolderOpen />
             </Button>
           </HoverHelp>
           <HoverHelp topicId="header.library" placement="bottom">
             <Button
-              variant={sidebarOpen ? 'default' : 'ghost'}
-              size="icon"
+              variant={sidebarOpen && workspaceLibraryLabel ? 'default' : 'ghost'}
+              size="bar-icon"
               onClick={toggleSidebar}
-              aria-label="Toggle Library"
+              disabled={!workspaceLibraryLabel}
+              aria-label={workspaceLibraryLabel ? `Toggle ${workspaceLibraryLabel}` : 'Toggle Library'}
               aria-pressed={sidebarOpen}
             >
-              <Menu className="w-4 h-4" />
+              <Menu />
             </Button>
           </HoverHelp>
           <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
-          <div className="flex min-w-0 items-center gap-2">
-            <FolioMark className="hidden h-[18px] w-[18px] flex-shrink-0 text-primary sm:block" />
-            <div className="min-w-0">
-              <h1 className="truncate text-[13px] font-semibold leading-tight text-foreground" title={currentProject.name}>
-                {currentProject.name}
-              </h1>
-              {isDirty && (
-                <div className="flex items-center gap-2 text-[10px] uppercase leading-tight tracking-[0.08em]">
-                  <span className="inline-flex items-center gap-1.5 text-warning">
-                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-warning" aria-hidden="true" />
-                    Unsaved
-                  </span>
-                </div>
-              )}
+          <div className="flex min-w-0 items-center gap-2.5">
+            <FolioMark className="hidden h-5 w-5 flex-shrink-0 text-primary sm:block" />
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <EditableProjectTitle
+                name={currentProject.name}
+                onRename={renameCurrentProject}
+                titleClassName="text-[15px] font-semibold tracking-[-0.01em]"
+              />
+              <div className="flex items-center gap-2 text-[11px] leading-none">
+                <span
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border/70 px-2 py-[3px] font-medium text-muted-foreground"
+                  title={WORKSPACE_MODE_META[workspaceMode].description}
+                >
+                  <span
+                    className="inline-block h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: `hsl(${groupAccent(groupForMode(workspaceMode))})` }}
+                    aria-hidden="true"
+                  />
+                  {WORKSPACE_MODE_META[workspaceMode].label}
+                </span>
+                <span
+                  className={`inline-flex items-center gap-1.5 ${isDirty ? 'text-warning' : 'text-muted-foreground'}`}
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span
+                    className={`inline-block h-1.5 w-1.5 rounded-full ${isDirty ? 'bg-warning' : 'bg-success'}`}
+                    aria-hidden="true"
+                  />
+                  {isDirty ? 'Unsaved' : offlineMode ? 'Saved locally' : 'Saved'}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -1586,13 +1791,15 @@ function App() {
           <HoverHelp topicId="header.assistant" placement="bottom">
             <Button
               variant={aiChatOpen ? 'default' : 'ghost'}
-              size="icon"
+              size="bar"
               onClick={toggleAiChat}
               aria-label="Design assistant"
               aria-pressed={aiChatOpen}
               data-tour="agent-button"
+              className="gap-1.5"
             >
-              <Bot className="w-4 h-4" />
+              <Bot />
+              <span className="hidden lg:inline">Ask</span>
             </Button>
           </HoverHelp>
           <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
@@ -1601,12 +1808,12 @@ function App() {
             <HoverHelp topicId="header.version-history" placement="bottom">
               <Button
                 variant="ghost"
-                size="icon"
+                size="bar-icon"
                 onClick={() => { setShowVcsMenu(value => !value); refreshVcs() }}
                 aria-label="Version history"
                 aria-expanded={showVcsMenu}
               >
-                <History className="w-4 h-4" />
+                <History />
               </Button>
             </HoverHelp>
             {showVcsMenu && (
@@ -1648,12 +1855,12 @@ function App() {
                       </div>
                       <Button
                         variant="ghost"
-                        size="icon"
+                        size="bar-icon"
                         title={`Restore ${commit.message}`}
                         aria-label={`Restore ${commit.message}`}
-                        onClick={() => handleVcsCheckout(commit)}
+                        onClick={() => void handleVcsCheckout(commit)}
                       >
-                        <RotateCcw className="w-4 h-4" />
+                        <RotateCcw />
                       </Button>
                     </div>
                     ))}
@@ -1665,12 +1872,12 @@ function App() {
                       </div>
                       <Button
                         variant="ghost"
-                        size="icon"
+                        size="bar-icon"
                         title={`Restore ${backup.label}`}
                         aria-label={`Restore ${backup.label}`}
                         onClick={() => void restoreCheckpoint(backup)}
                       >
-                        <RotateCcw className="w-4 h-4" />
+                        <RotateCcw />
                       </Button>
                     </div>
                     ))}
@@ -1682,42 +1889,33 @@ function App() {
           </div>
           <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
           <HoverHelp topicId="header.palette" placement="bottom">
-            <Button
-              variant="ghost"
-              size="icon"
+            <button
+              type="button"
               onClick={() => setShowCommandPalette(true)}
               aria-label="Command palette"
               aria-haspopup="dialog"
               data-tour="command-palette"
+              className="shell-command"
             >
-              <Search className="w-4 h-4" />
-            </Button>
+              <Search className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+              <span className="shell-command__label">Search parts, nets, commands</span>
+              <span className="shell-command__key" aria-hidden="true">
+                <kbd className="cad-kbd">{commandKey}</kbd>
+                <kbd className="cad-kbd">K</kbd>
+              </span>
+            </button>
           </HoverHelp>
 
           <HoverHelp topicId="header.help" placement="bottom">
             <Button
               variant="ghost"
-              size="icon"
+              size="bar-icon"
               onClick={() => openHelp('tutorials')}
               aria-label="Help and tutorials"
               aria-haspopup="dialog"
               data-tour="help-button"
             >
-              <HelpCircle className="w-4 h-4" />
-            </Button>
-          </HoverHelp>
-
-          <HoverHelp topicId="nav.demos" placement="bottom">
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex items-center gap-1 text-xs"
-              onClick={() => setShowDemoGallery(true)}
-              aria-label="Open the demo gallery"
-              aria-haspopup="dialog"
-            >
-              <FlaskConical className="h-4 w-4" />
-              <span className="hidden sm:inline">Demos</span>
+              <HelpCircle />
             </Button>
           </HoverHelp>
 
@@ -1726,8 +1924,7 @@ function App() {
             <HoverHelp topicId="header.export" placement="bottom">
               <Button
                 variant="default"
-                size="sm"
-                className="flex items-center gap-1 text-xs"
+                size="bar"
                 onClick={() => {
                   setShowExportMenu(v => !v)
                   setExportStatus('')
@@ -1735,7 +1932,7 @@ function App() {
                 aria-label="Export design"
                 aria-expanded={showExportMenu}
               >
-                <Download className="w-4 h-4" />
+                <Download />
                 <span className="hidden sm:inline">Export</span>
               </Button>
             </HoverHelp>
@@ -1768,14 +1965,17 @@ function App() {
             )}
           </div>
 
+          {/* Who else is in this project — the roster itself, not a toggle to it. */}
+          <UserPresence users={othersPresent} />
+
           <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
           <HoverHelp topicId="header.settings" placement="bottom">
-            <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} aria-label="Settings">
-              <Settings className="w-4 h-4" />
+            <Button variant="ghost" size="bar-icon" onClick={() => setShowSettings(true)} aria-label="Settings">
+              <Settings />
             </Button>
           </HoverHelp>
           <HoverHelp topicId="header.theme" placement="bottom">
-            <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label={themeToggleLabel}>
+            <Button variant="ghost" size="bar-icon" onClick={toggleTheme} aria-label={themeToggleLabel}>
               {themeIcon}
             </Button>
           </HoverHelp>
@@ -1784,13 +1984,13 @@ function App() {
             <HoverHelp topicId="header.more" placement="bottom">
               <Button
                 variant={showMoreMenu ? 'default' : 'ghost'}
-                size="icon"
+                size="bar-icon"
                 onClick={() => setShowMoreMenu(value => !value)}
                 aria-label="More tools"
                 aria-haspopup="menu"
                 aria-expanded={showMoreMenu}
               >
-                <MoreHorizontal className="w-4 h-4" />
+                <MoreHorizontal />
               </Button>
             </HoverHelp>
             {showMoreMenu && (
@@ -1803,7 +2003,7 @@ function App() {
                 >
                   {moreMenuSections.map(({ group, items }) => (
                     <div key={group} role="group" aria-label={group} className="pb-1">
-                      <p className="px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      <p className="px-3 pb-1 pt-1.5 text-[11px] font-medium text-muted-foreground">
                         {group}
                       </p>
                       {items.map(({ label, icon: Icon, action }) => (
@@ -1887,52 +2087,145 @@ function App() {
 
       {/* ── Status bar: document metrics on the sheet, workspace context elsewhere ── */}
       <footer className="status-bar" aria-label="Workspace status" data-tour="status-bar">
+        {/* Where you are: family › document. The same hue the family wears in
+            the launcher and in the workspace rail, so the breadcrumb is read
+            before the names are. */}
         <span className="status-segment text-foreground" title={WORKSPACE_MODE_META[workspaceMode].description}>
           <span
             className="h-1.5 w-1.5 rounded-full"
             style={{ backgroundColor: `hsl(${groupAccent(groupForMode(workspaceMode))})` }}
             aria-hidden="true"
           />
-          MODE <span className="cad-readout uppercase">{WORKSPACE_MODE_META[workspaceMode].label}</span>
+          <span className="cad-readout hidden lg:inline">
+            {WORKSPACE_GROUPS.find((group) => group.id === groupForMode(workspaceMode))?.label}
+          </span>
+          <span className="hidden text-muted-foreground lg:inline" aria-hidden="true">›</span>
+          <span className="cad-readout">{WORKSPACE_MODE_META[workspaceMode].label}</span>
         </span>
         {workspaceMode === 'schematic' ? (
           <>
             <span className="status-segment">
-              PARTS <span className="cad-readout">{components.length}</span>
+              Parts <span className="cad-readout">{components.length}</span>
             </span>
             <span className="status-segment">
-              WIRES <span className="cad-readout">{wires.length}</span>
+              Wires <span className="cad-readout">{wires.length}</span>
             </span>
             <span className="status-segment">
-              SEL <span className="cad-readout">{selectedComponents.length}</span>
+              Selected <span className="cad-readout">{selectedComponents.length}</span>
             </span>
+            {selectedNet && selectedNetName ? (
+              <button
+                type="button"
+                onClick={() => clearSelection()}
+                className="status-segment transition-colors hover:bg-accent"
+                title="Clear the net selection"
+                aria-label={`Selected net ${selectedNetName}${selectedNetPins > 0 ? `, ${selectedNetPins} pins` : ''}. Clear selection.`}
+              >
+                Net <span className="cad-readout">{selectedNetName}</span>
+                {selectedNetPins > 0 ? (
+                  <span className="text-muted-foreground">
+                    {selectedNetPins} pin{selectedNetPins === 1 ? '' : 's'}
+                  </span>
+                ) : null}
+              </button>
+            ) : null}
             <span className="status-segment">
-              TOOL <span className="cad-readout uppercase">{activeTool}</span>
+              Tool <span className="cad-readout">{activeTool}</span>
             </span>
             <span className="status-segment hidden sm:inline-flex">
-              GRID <span className="cad-readout">{settings.gridSize}</span>
+              Grid <span className="cad-readout">{settings.gridSize}</span>
             </span>
             <span className="status-segment hidden sm:inline-flex">
-              SNAP <span className="cad-readout">{settings.snapToGrid ? 'ON' : 'OFF'}</span>
+              Snap <span className="cad-readout">{settings.snapToGrid ? 'on' : 'off'}</span>
             </span>
+            <button
+              type="button"
+              onClick={toggleHealthPanel}
+              aria-expanded={healthPanelOpen}
+              aria-controls="design-health-panel"
+              aria-label={`Design health: ${healthErrors} error${healthErrors === 1 ? '' : 's'}, ${healthWarnings} warning${healthWarnings === 1 ? '' : 's'}, ${healthNotices} notice${healthNotices === 1 ? '' : 's'}. ${healthPanelOpen ? 'Hide' : 'Show'} the findings panel.`}
+              title={
+                healthTotal === 0
+                  ? 'The electrical rule check passes on this sheet. Open the design health panel for the outline.'
+                  : 'Electrical rule check findings. Open the design health panel to locate each one.'
+              }
+              className={`status-segment transition-colors hover:bg-accent ${
+                healthErrors > 0
+                  ? 'text-destructive'
+                  : healthTotal > 0
+                    ? 'text-warning'
+                    : 'text-muted-foreground'
+              }`}
+            >
+              {healthTotal === 0 ? (
+                <ShieldCheck className="h-3 w-3 text-success" aria-hidden="true" />
+              ) : (
+                <AlertCircle className="h-3 w-3" aria-hidden="true" />
+              )}
+              {healthTotal === 0 ? (
+                'ERC clean'
+              ) : (
+                <>
+                  <span>ERC</span>
+                  {healthErrors > 0 && (
+                    <span className="cad-readout text-destructive">
+                      {healthErrors} error{healthErrors === 1 ? '' : 's'}
+                    </span>
+                  )}
+                  {healthWarnings > 0 && (
+                    <span className="cad-readout text-warning">
+                      {healthWarnings} warning{healthWarnings === 1 ? '' : 's'}
+                    </span>
+                  )}
+                  {healthNotices > 0 && (
+                    <span className="cad-readout">
+                      {healthNotices} notice{healthNotices === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </>
+              )}
+            </button>
           </>
         ) : (
           <span className="status-segment hidden truncate lg:inline-flex" title={WORKSPACE_MODE_META[workspaceMode].description}>
             {WORKSPACE_MODE_META[workspaceMode].description}
           </span>
         )}
-        <span className="status-segment hidden md:inline-flex">
-          THEME <span className="cad-readout">{themeLabel}</span>
+        <span
+          className={`status-segment hidden sm:inline-flex ${isDirty ? 'text-warning' : ''}`}
+          title={isDirty ? 'Changes are held in the editor until the next save.' : 'Every change has been written to the project.'}
+        >
+          <span
+            className={`inline-block h-1.5 w-1.5 rounded-full ${isDirty ? 'bg-warning' : 'bg-success'}`}
+            aria-hidden="true"
+          />
+          {isDirty ? 'Unsaved' : offlineMode ? 'Saved locally' : 'Saved'}
         </span>
-        {isDirty && (
-          <span className="status-segment text-warning">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-warning" aria-hidden="true" />
-            UNSAVED
-          </span>
-        )}
+        <span
+          className="status-segment hidden text-muted-foreground lg:inline-flex"
+          title={offlineMode
+            ? 'This build has no cloud backend configured: projects are stored on this device.'
+            : 'Projects are stored in the configured cloud backend.'}
+        >
+          {offlineMode ? (
+            <HardDrive className="h-3 w-3" aria-hidden="true" />
+          ) : (
+            <Cloud className="h-3 w-3" aria-hidden="true" />
+          )}
+          {offlineMode ? 'On device' : 'Cloud sync'}
+        </span>
         {voiceListening && (
           <span className="status-segment animate-pulse text-success">
-            <Mic className="h-3 w-3" /> VOICE
+            <Mic className="h-3 w-3" /> Listening
+          </span>
+        )}
+        {usageMirrorError && (
+          <span
+            className="status-segment hidden text-warning md:inline-flex"
+            role="status"
+            title={`The last action was recorded on this device but the deployment did not accept it: ${usageMirrorError}. Server-side usage reports and quota checks did not see it.`}
+          >
+            <CloudOff className="h-3 w-3" aria-hidden="true" /> Usage not synced
           </span>
         )}
         {activeAlertCount > 0 && (
@@ -1943,7 +2236,7 @@ function App() {
             aria-label={`Open security alerts: ${activeAlertCount} active${activeAlertSummary ? ` - ${activeAlertSummary}` : ''}`}
             className="status-segment text-destructive transition-colors hover:bg-accent"
           >
-            <AlertCircle className="h-3 w-3" /> {activeAlertCount} ALERT{activeAlertCount !== 1 ? 'S' : ''}
+            <ShieldAlert className="h-3 w-3" /> {activeAlertCount} alert{activeAlertCount !== 1 ? 's' : ''}
           </button>
         )}
         <HoverHelp topicId="nav.limits" placement="top">
@@ -1953,30 +2246,10 @@ function App() {
             data-tour="limits-button"
             className="status-segment ml-auto hidden border-l border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:inline-flex"
           >
-            <ShieldAlert className="h-3 w-3" /> LIMITS
-          </button>
-        </HoverHelp>
-        <HoverHelp topicId="nav.demos" placement="top">
-          <button
-            type="button"
-            onClick={() => setShowDemoGallery(true)}
-            className="status-segment hidden border-l border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground lg:inline-flex"
-          >
-            <FlaskConical className="h-3 w-3" /> DEMOS <span className="cad-kbd ml-1">{DEMO_SHORTCUT_LABEL}</span>
+            <ScrollText className="h-3 w-3" /> Limits
           </button>
         </HoverHelp>
       </footer>
-
-      {/* Canvas ref for UserPresence */}
-      <canvas ref={canvasRef} className="hidden" />
-
-      {/* Overlays */}
-      <UserPresence
-        users={collaborativeUsers}
-        showCursors={true}
-        showSelections={true}
-        canvasRef={canvasRef}
-      />
 
       {overlayStack}
       {demoBusyOverlay}

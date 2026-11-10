@@ -199,10 +199,17 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
   },
   {
     id: 'palette.open',
-    action: 'Command palette: workspaces, demos and actions',
+    action: 'Command palette: parts, nets, workspaces and actions',
     where: 'Workbench',
     scope: 'global',
     binding: { key: 'k', primary: true },
+  },
+  {
+    id: 'settings.open',
+    action: 'Settings',
+    where: 'Workbench',
+    scope: 'global',
+    binding: { key: ',', primary: true },
   },
   {
     id: 'demos.open',
@@ -280,6 +287,34 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     where: 'Schematic',
     scope: 'schematic',
     binding: { key: 'f' },
+  },
+  {
+    id: 'schematic.tidy',
+    action: 'Tidy-arrange the whole sheet',
+    where: 'Schematic',
+    scope: 'schematic',
+    binding: { key: 't' },
+  },
+  {
+    id: 'schematic.problems',
+    action: 'Show or hide the design health panel',
+    where: 'Schematic',
+    scope: 'schematic',
+    binding: { key: 'e', primary: true, shift: true },
+  },
+  {
+    id: 'schematic.nextProblem',
+    action: 'Step to the next design-health finding and centre its part',
+    where: 'Schematic',
+    scope: 'schematic',
+    binding: { key: 'f8' },
+  },
+  {
+    id: 'schematic.previousProblem',
+    action: 'Step to the previous design-health finding',
+    where: 'Schematic',
+    scope: 'schematic',
+    binding: { key: 'f8', shift: true },
   },
   {
     id: 'schematic.undo',

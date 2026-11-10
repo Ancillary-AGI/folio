@@ -383,7 +383,7 @@ describe('netlist structure hostility', () => {
 
   it('refuses unknown device types, missing terminals and unnamed nets', () => {
     /*
-     * Classification is substring-based, so "flux capacitor" really is a
+     * Classification is substring-based, so "tantalum capacitor" really is a
      * capacitor here. A type string that matches no device keyword and no
      * SPICE designator prefix is the genuinely unknown case.
      */

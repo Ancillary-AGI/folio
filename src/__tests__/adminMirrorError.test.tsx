@@ -31,7 +31,7 @@ beforeEach(() => {
 describe('administration usage mirror', () => {
   it('reports a failed cloud mirror instead of implying the cloud saw the event', async () => {
     render(<AdminConsole user={owner} offlineMode onBack={vi.fn()} />)
-    await screen.findByRole('heading', { name: 'Administration' })
+    await screen.findByRole('heading', { name: 'Admin console' })
     fireEvent.click(screen.getByRole('tab', { name: 'Usage' }))
 
     expect(await screen.findByText(/The last usage mirror failed/)).toHaveTextContent(

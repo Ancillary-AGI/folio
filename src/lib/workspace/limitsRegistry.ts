@@ -33,6 +33,7 @@ export type CapabilityFamilyId =
   | 'control'
   | 'machine'
   | 'firmware'
+  | 'life'
   | 'agents'
   | 'platform'
 
@@ -71,6 +72,7 @@ export const CAPABILITY_FAMILIES: readonly CapabilityFamily[] = [
   { id: 'control', label: 'Control & ML toolbox', description: 'LTI analysis, PID design and tuning routes, and the heuristics the designer drives.' },
   { id: 'machine', label: 'Machines & parts', description: 'Electric-machine operating points plus part ratings, margins, catalogues and power sources.' },
   { id: 'firmware', label: 'Firmware, embedded & HIL', description: 'Code generation, static analysis, flashing, imaging and hardware interface simulation.' },
+  { id: 'life', label: 'Biology & life systems', description: 'Mass-action networks, gene circuits, excitable cells and tissue, a respiring mitochondrion, the working ventricle and drug disposition.' },
   { id: 'agents', label: 'Agents & assistant', description: 'The tool surface an agent may call, the symbolic verifier and the assistant integrations.' },
   { id: 'platform', label: 'Data & operations', description: 'Version control, projects, collaboration, security telemetry, plugins, twins and compute.' },
 ]
@@ -636,6 +638,54 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     ],
     validatedBy: ['src/lib/3d/stlImporter.test.ts', 'src/lib/3d/objImporter.test.ts'],
   },
+  {
+    id: 'structure-drawing-paper',
+    family: 'structure',
+    title: 'Shared engineering-drawing paper',
+    modes: ['schematic', 'mechanical', 'structures'],
+    computes:
+      'One plotted sheet — trimmed border, zone ticks and letters, fit at a stated scale, arrowheaded dimensions with witness lines, notes band and a cell-driven title block — that the schematic wiring diagram, the mechanical part drawing and the truss framing sheet are all built on, in print or screen palette, on A4, A3 or Letter.',
+    method:
+      'The millimetre is the drawing unit and the viewBox equals the paper size, so a line weight is declared in millimetres of ink and divided by the fit scale instead of guessed in pixels. The model bounds are fitted by their binding dimension and centred on the free one; the resulting ratio is then snapped to the largest ISO 5455 preferred scale that still fits, and the sheet prints that ratio in the block, so the stated scale is the scale drawn. Geometry goes through one translate-then-scale transform; text is placed in paper space and haloed where it crosses the model. Title-block cells are label/value pairs each fitted to the room their column leaves, over-long values trimmed with an ellipsis rather than allowed to overprint the divider.',
+    notCovered: [
+      'Dimensions are nominal model values. The paper prints what a domain hands it and invents no tolerance, fit, surface finish or datum.',
+      'A model that needs a smaller ratio than the smallest preferred scale is refused with a message rather than drawn at a scale the block does not state.',
+      'One SVG page per sheet: no assembly drawing with balloons, no multi-page sheet sets, no PDF/DWF plotting and no fold to A4.',
+      'No GD&T symbol font, no weld or section-line callouts and no revision clouds; a section is whatever text the domain writes.',
+      'The title block is a fixed template with caller-supplied cells: no company stamp, no approval signatures, no PDM status.',
+    ],
+    validatedBy: [
+      'src/lib/drawing/sheet.test.ts',
+      'src/__tests__/schematicDrawing.test.ts',
+      'src/lib/mechanical/partDrawing.test.ts',
+      'src/lib/structures/trussSheet.test.ts',
+    ],
+  },
+  {
+    id: 'structure-truss',
+    family: 'structure',
+    title: 'Pin-jointed truss analysis',
+    modes: ['structures'],
+    computes:
+      'Bar axial force, stress and utilisation, joint displacements, support reactions closed against the applied load, slenderness and the Euler load of every compressed bar, a determinacy verdict from the joint, member and restraint count, and an A3 framing sheet (elevation at a preferred scale, bar schedule with the solver\'s forces, bearings, loads and overall dimensions) downloaded from the panel.',
+    method:
+      'Direct stiffness for a planar frame: two degrees of freedom per joint, each bar stamped as the standard transformed 4×4 member matrix (EA/L with direction cosines), assembled into the global system, and the free block solved by dense Gaussian elimination with partial pivoting. Reactions come from the restrained rows of the full K·u − f residual rather than a separate statics pass, so the closure the panel reports is the solver\'s own arithmetic. Buckling uses Euler with pin ends (K = 1) on a solid circular bar of the same area.',
+    notCovered: [
+      'Two-force bars only: no member bending, no rigid joints, no continuity between spans. A moment frame or a fixed base plate is not modelled here — the 1-D beam and frame solvers in the mechanical workspace are.',
+      'Loads may only act at joints. A load between panel points needs intermediate joints or it is simply not a pin-jointed truss.',
+      'Planar only: no space truss, no out-of-plane torsion or lateral-torsional buckling, and no second-order P-Δ or large-displacement path.',
+      'The count `m + r = 2j` is necessary, not sufficient: a frame can satisfy it and still be locally unstable. The solver, not the count, is the final word, and a mechanism is reported with the joint and axis that can still move.',
+      'Utilisation is |σ| against published yield (C24: bending strength parallel to grain) with no partial safety factors, no load combinations and no section-class checks. It is a screening number, not a code compliance verdict.',
+      'Material data is the three published families in the material table; any other grade, hollow section or built-up member has to be entered as its own area and modulus.',
+      'No connection design: bolts, welds, gussets, wall plates and notches are out of scope, and self-weight is not added unless the user loads it.',
+    ],
+    validatedBy: [
+      'src/lib/structures/truss.test.ts',
+      'src/lib/structures/trussPresets.test.ts',
+      'src/lib/structures/trussDrawing.test.ts',
+      'src/__tests__/structuresPanel.test.tsx',
+    ],
+  },
   // ── motion ─────────────────────────────────────────────────────────────────
   {
     id: 'motion-kinematics',
@@ -788,9 +838,10 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     modes: ['hdl', 'fpga'],
     computes: 'Parse, elaborate to a gate-level netlist and simulate the supported RTL subset.',
     method:
-      'Structural parsers for a declared Verilog subset (module header, ports, wire and reg declarations, then gate elaboration) and a VHDL synthesizable subset (entity and architecture with AND, OR, NAND, NOR, XOR, NOT, BUF) elaborating into the same runnable digital netlist the discrete-event kernel simulates.',
+      'Structural parsers for a declared Verilog subset (module header, ports, wire and reg declarations, continuous assignments, clocked always blocks, if/else and case/default decode over constant labels, bitwise and logical operators, reductions, equality, ternary, and unsigned + / - lowered to ripple-carry gates with the assignment width supplying the context) and a VHDL synthesizable subset (entity and architecture with AND, OR, NAND, NOR, XOR, NOT, BUF) elaborating into the same runnable digital netlist the discrete-event kernel simulates. Shared expression subtrees are emitted once, so a datapath that reuses a sub-expression does not fan out exponentially.',
     notCovered: [
       'Only the declared subset. Unmapped ports and unsupported constructs fail with the line number instead of being silently ignored.',
+      'No multiplication, division, signed arithmetic, memories, module hierarchy or generate blocks; no asynchronously reset flops and no multi-clock CDC.',
       'No timing annotation and no vendor synthesis: a passing simulation proves the modelled logic, not the fabricated part.',
     ],
     validatedBy: [
@@ -1072,6 +1123,81 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
       'src/__tests__/piImagingPanel.test.tsx',
     ],
   },
+  // ── life ───────────────────────────────────────────────────────────────────
+  {
+    id: 'life-reaction-networks',
+    family: 'life',
+    title: 'Mass-action reaction networks and gene circuits',
+    modes: ['biology'],
+    computes:
+      'Concentration and flux trajectories for a declared stoichiometry, the conservation residuals the run actually obeys, a detailed-balance verdict for every independent cycle in the network, and — where a preset declares one — the closed-form Michaelis-Menten curve the integrated mechanism is plotted against rather than replaced by.',
+    method:
+      'Rate law written straight from the stoichiometry: v_j = kf * prod(C_i^nu_reactant) - kr * prod(C_i^nu_product), then dC/dt = (products - reactants) transpose times v. Integrated with classical RK4, the internal step sized from the smallest time constant the caller computes from its own parameters and decimated to the reporting cadence under a 400,000-step ceiling. Conservation laws come from the integer null space of the stoichiometry matrix and are reported as a residual against the initial state, not as an assumption. The cycle audit walks the cycle space of the network and compares the product of forward against reverse rate constants per loop. Gene circuits replace the chemistry with Hill functions of the other species: alpha * (leak + (1 - leak) * promoter activity) - delta * C, activity a product of repression and activation factors over the edges into each species. The network trajectory the panel plots is a 0.3 s solve (0.9 s with the dials at their maxima), so it is dispatched to a Web Worker and the previous answer stays on screen while the next one solves; a host that cannot build a worker runs the same function synchronously instead. The cooperativity scan is a worker job too; the single gene-circuit verdict at 106-234 ms is not, and stays in-thread.',
+    notCovered: [
+      'Elementary steps only: an exponent is a stoichiometric coefficient, so a reaction written as 2A to B is treated as a termolecular collision. A real overall reaction order has to be written as the mechanism that produces it.',
+      'Deterministic and well-mixed. There is no diffusion, no gradient and no copy-number noise, so a network whose key species holds ten molecules is not described here; the stochastic simulation algorithm is not implemented.',
+      'Isothermal, with no fuel species. ATP, NADH, proton gradients and light are absent, so the detailed-balance verdict is a statement about the rate constants as declared, not about a driven cell.',
+      'A Hill slope is an empirical fit to promoter occupancy, not cooperative binding; mRNA appears only when declared, and ribosomes and polymerases are infinite, so there is no resource competition between circuits.',
+      'Conservation laws are structural: they hold for any rate law that respects the stoichiometry, and they cannot catch a species that was never declared.',
+      'Concentrations are dimensionless and time is the model\'s own unit; a higher-order rate constant has to carry matching units or the numbers mean nothing.',
+    ],
+    validatedBy: [
+      'src/lib/biology/kinetics.test.ts',
+      'src/lib/biology/geneticCircuit.test.ts',
+      'src/lib/biology/models.test.ts',
+      'src/lib/biology/bioRunDispatch.test.ts',
+    ],
+  },
+  {
+    id: 'life-electrophysiology',
+    family: 'life',
+    title: 'Excitable cells and conducting tissue',
+    modes: ['biology'],
+    computes:
+      'Membrane potential with its gating variables, spike times, threshold behaviour and refractory windows for three cell models; conduction velocity of an excitation front measured from the activation times of the compartments it passed; and the phase-locking of a coupled oscillator population against the threshold mean-field theory predicts.',
+    method:
+      'Hodgkin-Huxley in four states (potential plus sodium activation, sodium inactivation, potassium activation) with the classic squid rate functions, FitzHugh-Nagumo in two states, and leaky integrate-and-fire integrated in closed form between spikes with an absolute refractory hold. All of them run through the same RK4 loop, with the internal step derived from the fastest time constant in the system. The cable is a line of FitzHugh-Nagumo compartments coupled by a diffusion term built from axial resistance and membrane capacitance; the stimulus is a current density spread over a length given in millimetres, so refining the mesh changes neither the stimulated length nor the total charge, and the velocity fit uses only compartments outside that window. The population is Kuramoto with all-to-all coupling, which collapses to the mean field exactly and costs O(N) per step; synchrony is the order parameter R = abs(sum of e^i theta)/N, and a coupling sweep is compared with the K_c = 2*gamma bracket for a Lorentzian spread of half-width gamma. Cable, mesh, population, population sweep and the FitzHugh-Nagumo relaxation trace are worker jobs measured at 0.7-41 s, 0.05-1.2 s and 2.7 s for the strength-duration search; the Hodgkin-Huxley trace at 26-46 ms stays in-thread. Every one of them calls the same solve function whichever thread runs it, so the numbers do not depend on where they were computed.',
+    notCovered: [
+      'Parameters are the original room-temperature squid values and no Q10 correction is applied, so a mammalian cell at 37 degrees Celsius spikes faster than these equations say.',
+      'Reversal potentials are constants: no pump, no concentration drift during a train, no calcium current, no after-hyperpolarisation potassium current, no glia and no dendrites. The cell is one isopotential compartment, so spike initiation and propagation are the same event.',
+      'Integrate-and-fire spikes are events with a vertical upstroke, not action potentials, and the reset is instantaneous where a real refractory tail is graded.',
+      'FitzHugh-Nagumo voltage is a phase-plane variable: it has no millivolt and represents no ion current, so it reproduces excitability and pulse travel, not spike shape.',
+      'The cable is a line. A sheet has transverse coupling, anisotropy from fibre rotation and wavebreak, none of which are representable here, so scroll waves and re-entrant circuits cannot appear and a strand velocity is not a heart velocity.',
+      'Compartments are discrete and the mesh sweep is capped, so a finer strand than the ceiling is coarsened and held rather than solved; the panel states which meshes actually ran.',
+    ],
+    validatedBy: [
+      'src/lib/biology/excitability.test.ts',
+      'src/lib/biology/tissue.test.ts',
+      'src/lib/biology/scales.test.ts',
+    ],
+  },
+  {
+    id: 'life-physiology',
+    family: 'life',
+    title: 'Mitochondrion, working ventricle and drug disposition',
+    modes: ['biology'],
+    computes:
+      'Proton-motive force, oxygen consumption, ATP output and coupling efficiency for a respiring mitochondrion, with the respiratory control ratio measured from two runs rather than set; pressure-volume loops, stroke volume, stroke work, arterial pressures and valve regurgitation for a ventricle driving its arterial tree; filtration at both ends of a capillary; and concentration-time profiles with exposure, peak, trough, accumulation and a fitted elimination half-life for a dose.',
+    method:
+      'The chemiosmotic loop is three proton fluxes against one capacitance: transport Jmax * [O2]/(Km + [O2]) * (1 - PMF/PMF_eq) pushing out, synthase pulled by an ADP Michaelis factor and the phosphorylation potential of the current masses, and an ohmic leak returning, with the adenylate pool conserved so ATP is what the ADP leaves. PMF_eq comes from the redox span and pumping stoichiometry and PMF_atp from the run\'s own masses, so neither is a typed-in resting voltage. The heart is a time-varying elastance P_lv = E(t) * max(V - V0, 0) with a smooth periodic E, driving a 2- or 3-element Windkessel through two resistive diode valves, and the aortic root reads P + Zc * Q; the loop is auditable with the same first-order machinery as the electronics domain, and stroke work is the area the integrator traced. Capillary exchange is the Starling balance NFP = (Pc - Pi) - sigma * (pic - pii). Pharmacokinetics is closed form where the model is linear - Bateman absorption, biexponential two-compartment built from its micro constants, multiple dosing by superposition, accumulation 1/(1 - e^-k*tau) - and RK4-integrated for the saturable case, because superposition is false once clearance depends on concentration; the estimator fits a log-linear terminal limb by least squares and reports its r-squared.',
+    notCovered: [
+      'The circulation is lumped: four chambers become one elastance and one resistor, so there is no septum, pericardium, regional wall motion, valve anatomy or murmur, and no ventricular assist device or prosthetic valve can be designed against it.',
+      'Preload is an input. The atrium is a fixed pressure source and the veins have no compliance, so the pulmonary circuit, right heart, venous return, Valsalva, haemorrhage compensation and baroreflex are outside the model; the preload sweep measures the elastance geometry that is coded, not a Frank-Starling law that is not.',
+      'Valves are diodes with a large finite reverse resistance: a kink in the vector field at every open and close. Regurgitation is modelled by lowering that resistance, not by orifice geometry, and the reverse volume it admits is reported.',
+      'The mitochondrion is one membrane and one adenylate lump. Cristae geometry, individual complex assemblies, transport beyond the lumped pool and the organelle network are absent.',
+      'Pharmacokinetic compartments are bookkeeping buckets, not organs: no PBPK blood flows, no metabolites, no transporters, no saturable binding or time-varying clearance, and no inter-subject variability. The illustrative parameter sets are not clinical recommendations for any compound.',
+      'A biexponential curve fed to the log-linear estimator returns a slope that means nothing; the reported r-squared is the guard rail that says so, and an extrapolated tail is stated as extrapolated.',
+      'Metrics averaged over the last quarter of a run are labelled settled or not, and an unmetabolic plateau above Vmax is reported as no plateau rather than as a number.',
+      'The ventricle and the mitochondrion trace are worker jobs when the panel asks for a re-solve, and so is the preload sweep behind its button (six whole beats: 0.2 s at the preset window, 0.5 s at the longest the dial offers). The single beat the panel draws on every dial move integrates in-thread, and the respiratory-control ratio, which needs two runs, costs 0.36 s there; the flip-flop scan is six closed-form curves and costs 17-56 ms, so none of those three is worth a round trip.',
+    ],
+    validatedBy: [
+      'src/lib/biology/mitochondrion.test.ts',
+      'src/lib/biology/haemodynamics.test.ts',
+      'src/lib/biology/pharmacokinetics.test.ts',
+      'src/lib/biology/bioRunDispatch.test.ts',
+      'src/__tests__/biologyPanel.test.tsx',
+    ],
+  },
   // ── agents ─────────────────────────────────────────────────────────────────
   {
     id: 'agents-surface',
@@ -1307,23 +1433,28 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
   {
     id: 'platform-admin',
     family: 'platform',
-    title: 'Administration, quotas and usage',
+    title: 'Operator console, quotas and usage',
     modes: ['dashboard', 'siem'],
-    computes: 'The administration console view of users, roles, quotas and usage, with an append-only workspace usage ledger.',
+    computes: 'A separate operator-only application for the accounts, roles, quotas and usage of a Folio deployment, plus the workbench-side usage ledger and quota pre-check.',
     method:
-      'Cloud mode reads the profiles table from the admin migration; standalone mode has exactly one principal, the workspace administrator. Quotas are evaluated as policy from the role table, and the workspace ledger aggregates deterministically.',
+      'The console is its own document (admin.html) with its own Supabase session key; authority is the profiles row the server holds, and every table it reads is restricted to operators by row-level security. The workbench reads its own role and the quota_policies table to pre-check an action, and the database enforces the same limits on insert.',
     notCovered: [
-      'A limit of null means unlimited and the owner is always unlimited, so a workspace can never lock itself out of administration.',
-      'When the cloud schema is absent or unreachable the console says so instead of rendering a made-up user list, and it labels cloud-only capabilities without faking invitations.',
-      'The ledger is confined to this workspace and is not an analytics pipeline; mirroring to the cloud table is best-effort and only in a configured deployment, and a failed mirror never breaks the design action it was recording.',
-      'The guided tour counts itself honestly: a card closed before the last step is recorded as an exit carrying the number of steps actually opened, and only reaching the end — or taking the register hand-off there — is recorded as a finished tour.',
-      'Console numbers are this workspace ledger, not a billing system.',
+      'The workbench contains no route, link or lazy chunk for the console. A designer who knows the URL reaches a sign-in form and, unless the server says they operate the deployment, a refusal.',
+      'There is no local mode for the console: with no deployment configured there are no accounts to manage, and it says so instead of inventing a directory.',
+      'A limit of null means unlimited, and owner/administrator policies are fixed at unlimited so the console cannot lock itself out.',
+      'Inviting accounts needs the identity service admin API and a service-role key, which never ships to a browser; the console labels that instead of faking the call.',
+      'Usage and audit rows are append-only for every client including operators: the console cannot delete the record of what accounts did or what operators changed.',
+      'The workbench ledger is device-side and mirrored best-effort into usage_events; a failed mirror never breaks the design action it was recording.',
+      'The guided tour counts itself honestly: a card closed before the last step is recorded as an exit carrying the number of steps actually opened.',
+      'Console numbers describe product usage, not billing. Storage is a policy figure only — the server does not measure an account\'s design bytes.',
     ],
     validatedBy: [
       'src/lib/admin/adminService.test.ts',
+      'src/lib/admin/operatorSession.test.ts',
       'src/lib/admin/quotaPolicy.test.ts',
       'src/lib/admin/usageLedger.test.ts',
       'src/__tests__/adminConsole.test.tsx',
+      'src/__tests__/adminGate.test.tsx',
       'src/__tests__/appShell.test.tsx',
     ],
   },

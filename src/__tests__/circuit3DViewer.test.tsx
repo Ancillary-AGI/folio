@@ -10,6 +10,7 @@ import '@testing-library/jest-dom/vitest'
 import * as THREE from 'three'
 import Circuit3DViewer from '../components/3d/Circuit3DViewer'
 import { boxMeshObj } from '../lib/3d/meshFixtures'
+import { useAppStore } from '../stores/useAppStore'
 import { useEnclosureStore } from '../stores/useEnclosureStore'
 import { useProjectStore } from '../stores/useProjectStore'
 
@@ -21,7 +22,16 @@ const rig = vi.hoisted(() => ({
 
 vi.mock('@react-three/fiber', () => {
   const state = {
+    // The viewer frames the board through the camera's own perspective members,
+    // so the stand-in carries the ones a real `THREE.PerspectiveCamera` has; only
+    // `position.set` is recorded, because that is what the assertions read back.
     camera: {
+      isPerspectiveCamera: true,
+      fov: 45,
+      aspect: 800 / 600,
+      near: 0.1,
+      far: 2000,
+      updateProjectionMatrix: () => {},
       position: { set: (x: number, y: number, z: number) => { rig.position = [x, y, z] } },
       lookAt: () => {},
     },
@@ -77,7 +87,21 @@ describe('Circuit3DViewer', () => {
   it('switches camera presets', () => {
     render(<Circuit3DViewer onClose={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: 'top' }))
-    expect(screen.getByRole('button', { name: 'top' })).toHaveClass('bg-primary')
+    expect(screen.getByRole('button', { name: 'top' })).toHaveClass('cad-ctl--active')
+  })
+
+  it('writes the HUD shading choice to the app-wide preference', () => {
+    render(<Circuit3DViewer onClose={() => {}} />)
+    /*
+     * A board with no routed layout is declarative JSX, and with no WebGL context
+     * nothing turns it into a scene graph. Shading then has nothing to walk — the
+     * choice still has to land in the one setting every other viewport reads.
+     */
+    fireEvent.click(screen.getByRole('button', { name: 'Outline' }))
+    expect(useAppStore.getState().settings.shadingMode).toBe('outline')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Solid' }))
+    expect(useAppStore.getState().settings.shadingMode).toBe('solid')
   })
 
   it('frames the routed circuit by default and can fall back to the board outline', () => {
@@ -102,12 +126,12 @@ describe('Circuit3DViewer', () => {
     render(<Circuit3DViewer onClose={() => {}} />)
     const circuit = screen.getByRole('button', { name: 'Circuit' })
     const board = screen.getByRole('button', { name: 'Board' })
-    expect(circuit).toHaveClass('bg-primary')
-    expect(board).not.toHaveClass('bg-primary')
+    expect(circuit).toHaveClass('cad-ctl--active')
+    expect(board).not.toHaveClass('cad-ctl--active')
 
     fireEvent.click(board)
-    expect(board).toHaveClass('bg-primary')
-    expect(circuit).not.toHaveClass('bg-primary')
+    expect(board).toHaveClass('cad-ctl--active')
+    expect(circuit).not.toHaveClass('cad-ctl--active')
   })
 
   it('exports STL through the real export path', () => {

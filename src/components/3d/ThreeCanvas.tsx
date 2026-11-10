@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { Download, Focus, Upload, X } from 'lucide-react'
-import type { MechanicalComponent } from '../../types/toolbox'
+import type { MechanicalComponent } from '../../types/mechanical'
 import { ThreeManager } from '../../lib/3d/threeManager'
 import {
   VIEW_DIRECTIONS,
@@ -14,9 +14,11 @@ import {
   type ThreeView,
 } from '../../lib/3d/framing'
 import { MeshImportError, readMeshFile, shellProblem, type MeshReport } from '../../lib/3d/meshMeasure'
+import { restoreSolidMaterials, setShadingMode as shadeScene } from '../../lib/3d/outline'
 import { parseObj } from '../../lib/3d/objImporter'
 import { parseStl } from '../../lib/3d/stlImporter'
 import { useProjectStore } from '../../stores/useProjectStore'
+import { usePreferenceValue } from '../../lib/settings/usePreference'
 import { useReferenceModelStore } from '../../stores/useReferenceModelStore'
 import { Button } from '../ui/button'
 
@@ -112,9 +114,17 @@ function meshKind(format: MeshReport['format']): string {
 function disposeObject(object: THREE.Object3D): void {
   object.traverse(child => {
     if (child instanceof THREE.Mesh || child instanceof THREE.Line) {
-      child.geometry.dispose()
+      /*
+       * Buffers and finishes flagged `shared` belong to a cache outside this
+       * subtree: the outline pass keeps one crease wire per shape and one ghost
+       * per colour, and this viewport rebuilds every part on each edit. Releasing
+       * what it does not own would kill the shading of every part still on screen.
+       */
+      if (!child.geometry.userData.shared) child.geometry.dispose()
       const materials = Array.isArray(child.material) ? child.material : [child.material]
-      materials.forEach(material => material.dispose())
+      materials.forEach(material => {
+        if (!material.userData.shared) material.dispose()
+      })
     }
   })
 }
@@ -137,6 +147,8 @@ export default function ThreeCanvas({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const reference = useReferenceModelStore((state) => state.reference)
   const setReference = useReferenceModelStore((state) => state.setReference)
+  /** Read from the app, not from a prop: every viewport shades the same way. */
+  const shadingMode = usePreferenceValue('shadingMode')
   const projectId = useProjectStore((state) => state.currentProject?.id ?? null)
   const [unavailable, setUnavailable] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
@@ -255,6 +267,9 @@ export default function ThreeCanvas({
 
     for (const model of [...scene.models]) {
       scene.scene.remove(model.mesh)
+      // A shaded part keeps its real finish on `userData`, where the walk below
+      // cannot see it; put it back so the finish dies with the part.
+      restoreSolidMaterials(model.mesh)
       disposeObject(model.mesh)
       scene.models.splice(scene.models.indexOf(model), 1)
     }
@@ -305,10 +320,19 @@ export default function ThreeCanvas({
       )
       edges.name = 'part-edges'
       model.mesh.add(edges)
+
+      /*
+       * The bevel stroke is the same crease the outline pass draws, only darker
+       * and fainter — two strokes on one edge read as a printing error. Parts are
+       * annotated geometry's only competition, so the load arrows and support
+       * markers outside the mesh keep their solid look either way.
+       */
+      edges.visible = shadingMode !== 'outline'
+      shadeScene(model.mesh, shadingMode)
     })
 
     manager.renderScene(sceneId)
-  }, [components, stress])
+  }, [components, stress, shadingMode])
 
   /*
    * Swapping assemblies can change scale by orders of magnitude (a metre-long

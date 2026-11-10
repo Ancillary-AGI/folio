@@ -1,6 +1,6 @@
 export type FPGAVendor = 'xilinx' | 'intel' | 'lattice' | 'gowin';
 
-import { parseVerilogModule } from './verilogSubset';
+import { expandVerilogPorts, parseVerilogModule } from './verilogSubset';
 import { parseVhdl } from './vhdlSubset';
 import { simulateDigital } from '../simulation/digitalLogic';
 
@@ -103,6 +103,12 @@ const EMPTY_UTILIZATION: SynthesisResult['utilization'] = {
 
 const NO_TIMING: SynthesisResult['timing'] = { fmaxMhz: null, wnsNs: null, modelled: false };
 
+/** Sequential designs need several clock edges for the functional check to settle DFFs. */
+function longestClockWindow(clocks: readonly { period: number }[] | undefined, fallback: number): number {
+  const longest = (clocks ?? []).reduce((max, clock) => Math.max(max, clock.period), 0);
+  return longest > 0 ? Math.max(fallback, Math.round(longest * 6)) : fallback;
+}
+
 export class FPGADesignFlow {
   private retained: Map<string, DesignManifest> = new Map();
 
@@ -154,15 +160,19 @@ export class FPGADesignFlow {
           const { ports, netlist } = parseVhdl(module.source);
           gateCount += netlist.gates?.length ?? 0;
           ffCount += netlist.flipFlops?.length ?? 0;
+          const clockNets = new Set((netlist.clocks ?? []).map((clock) => clock.output));
+          const stopTime = longestClockWindow(netlist.clocks, 10);
           const sim = simulateDigital(
             {
               gates: netlist.gates,
               flipFlops: netlist.flipFlops,
+              clocks: netlist.clocks,
+              initialValues: netlist.initialValues,
               stimuli: ports
-                .filter((p) => p.direction === 'in')
+                .filter((p) => p.direction === 'in' && !clockNets.has(p.name))
                 .map((p) => ({ node: p.name, value: 0 as const, time: 0 })),
             },
-            10,
+            stopTime,
           );
           if (!sim.success) {
             errors.push(`VHDL ${module.name}: functional check failed — ${sim.error ?? 'unknown'}`);
@@ -171,15 +181,19 @@ export class FPGADesignFlow {
           const { ports, netlist } = parseVerilogModule(module.source);
           gateCount += netlist.gates?.length ?? 0;
           ffCount += netlist.flipFlops?.length ?? 0;
+          const clockNets = new Set((netlist.clocks ?? []).map((clock) => clock.output));
+          const stopTime = longestClockWindow(netlist.clocks, 10);
           const sim = simulateDigital(
             {
               gates: netlist.gates,
               flipFlops: netlist.flipFlops,
-              stimuli: ports
-                .filter((p) => p.direction === 'input')
+              clocks: netlist.clocks,
+              initialValues: netlist.initialValues,
+              stimuli: expandVerilogPorts(ports)
+                .filter((p) => p.direction === 'input' && !clockNets.has(p.name))
                 .map((p) => ({ node: p.name, value: 0 as const, time: 0 })),
             },
-            10,
+            stopTime,
           );
           if (!sim.success) {
             errors.push(`Verilog ${module.name}: functional check failed — ${sim.error ?? 'unknown'}`);

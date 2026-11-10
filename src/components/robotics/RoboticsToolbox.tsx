@@ -1,4 +1,4 @@
-import { useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Box, Cylinder, Sphere } from '@react-three/drei';
 import * as THREE from 'three';
@@ -8,6 +8,8 @@ import { RangeControl } from '../ui/range-control';
 import { Play, Pause, RotateCcw, Settings, Zap, Cpu, X, Download, Upload } from 'lucide-react';
 import { stepJointDynamics } from '../../lib/robotics/jointDynamics';
 import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign';
+import { setShadingMode } from '../../lib/3d/outline';
+import { usePreferenceValue } from '../../lib/settings/usePreference';
 
 interface RoboticsToolboxProps {
   onClose: () => void;
@@ -179,6 +181,18 @@ function RobotArm({
 }) {
   const pivots = useRef<Array<THREE.Group | null>>([]);
   const phase = useRef(0);
+  const modelRoot = useRef<THREE.Group>(null);
+  const shadingMode = usePreferenceValue('shadingMode');
+
+  /*
+   * The chain animates every frame, but shading only has to be laid once per mode
+   * and per configuration: the meshes survive the animation, and the pass is
+   * idempotent, so a repaint cannot stack a second crease wire on a link.
+   */
+  useEffect(() => {
+    const root = modelRoot.current;
+    if (root) setShadingMode(root, shadingMode);
+  }, [shadingMode, config]);
 
   useFrame((_, delta) => {
     const frameDelta = Math.min(delta, 0.1) * simulationSpeed;
@@ -268,7 +282,7 @@ function RobotArm({
     );
   };
 
-  return <group>{config.joints.length > 0 ? renderChain(0) : null}</group>;
+  return <group ref={modelRoot}>{config.joints.length > 0 ? renderChain(0) : null}</group>;
 }
 
 function SensorVisualization({ sensors, anchor }: { sensors: Sensor[]; anchor?: [number, number, number] }) {
@@ -483,7 +497,7 @@ export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
         <div className="flex max-h-[45%] w-full flex-shrink-0 flex-col border-t border-border bg-card lg:max-h-none lg:w-96 lg:border-l lg:border-t-0">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold text-foreground">Robotics Toolbox</h3>
-            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close robotics toolbox">
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close robotics toolbox" title="Leave the robotics toolbox; the robot you defined stays with the project.">
               <X className="w-4 h-4" />
             </Button>
           </div>

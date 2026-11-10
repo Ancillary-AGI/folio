@@ -35,33 +35,33 @@ function PinRow({
   return (
     <div className="grid grid-cols-[1fr_1fr_3.5rem_3.5rem_6.5rem_1.75rem] items-center gap-1">
       <input
-        className="min-w-0 rounded border border-border bg-background px-1.5 py-0.5 text-[11px]"
+        className="min-w-0 rounded border border-input bg-background px-1.5 py-0.5 text-[11px]"
         value={pin.id}
         aria-label={`Pin ${index + 1} id`}
         onChange={(event) => onChange({ ...pin, id: event.target.value })}
       />
       <input
-        className="min-w-0 rounded border border-border bg-background px-1.5 py-0.5 text-[11px]"
+        className="min-w-0 rounded border border-input bg-background px-1.5 py-0.5 text-[11px]"
         value={pin.name}
         aria-label={`Pin ${index + 1} name`}
         onChange={(event) => onChange({ ...pin, name: event.target.value })}
       />
       <input
         type="number"
-        className="min-w-0 rounded border border-border bg-background px-1 py-0.5 text-[11px]"
+        className="min-w-0 rounded border border-input bg-background px-1 py-0.5 text-[11px]"
         value={Number.isFinite(pin.x) ? pin.x : ''}
         aria-label={`Pin ${index + 1} x`}
         onChange={(event) => onChange({ ...pin, x: number(event.target.value) })}
       />
       <input
         type="number"
-        className="min-w-0 rounded border border-border bg-background px-1 py-0.5 text-[11px]"
+        className="min-w-0 rounded border border-input bg-background px-1 py-0.5 text-[11px]"
         value={Number.isFinite(pin.y) ? pin.y : ''}
         aria-label={`Pin ${index + 1} y`}
         onChange={(event) => onChange({ ...pin, y: number(event.target.value) })}
       />
       <select
-        className="min-w-0 rounded border border-border bg-background px-1 py-0.5 text-[11px]"
+        className="min-w-0 rounded border border-input bg-background px-1 py-0.5 text-[11px]"
         value={pin.type}
         aria-label={`Pin ${index + 1} type`}
         onChange={(event) => onChange({ ...pin, type: event.target.value as SymbolPinType })}
@@ -76,7 +76,7 @@ function PinRow({
         className="h-5 w-5"
         onClick={onRemove}
         aria-label={`Remove pin ${pin.id || index + 1}`}
-      >
+        title="Take this pin out of the symbol.">
         <Trash2 className="w-3 h-3" />
       </Button>
     </div>
@@ -194,7 +194,7 @@ export default function SchematicSymbolEditor({ componentId, onClose }: Schemati
               Applies to {instances} placed instance{instances === 1 ? '' : 's'} of this part. Pin ids must stay stable or their wires detach.
             </p>
           </div>
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onClose} aria-label="Close symbol editor">
+          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onClose} aria-label="Close symbol editor" title="Close the symbol editor without saving the symbol.">
             <X className="w-4 h-4" />
           </Button>
         </header>
@@ -251,7 +251,7 @@ export default function SchematicSymbolEditor({ componentId, onClose }: Schemati
                 Width
                 <input
                   type="number"
-                  className="mt-0.5 w-full rounded border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
+                  className="mt-0.5 w-full rounded border border-input bg-background px-1.5 py-0.5 text-xs text-foreground"
                   value={Number.isFinite(draft.width) ? draft.width : ''}
                   onChange={(event) => change({ width: size(event.target.value) })}
                 />
@@ -260,7 +260,7 @@ export default function SchematicSymbolEditor({ componentId, onClose }: Schemati
                 Height
                 <input
                   type="number"
-                  className="mt-0.5 w-full rounded border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
+                  className="mt-0.5 w-full rounded border border-input bg-background px-1.5 py-0.5 text-xs text-foreground"
                   value={Number.isFinite(draft.height) ? draft.height : ''}
                   onChange={(event) => change({ height: size(event.target.value) })}
                 />
@@ -271,7 +271,7 @@ export default function SchematicSymbolEditor({ componentId, onClose }: Schemati
           <div className="min-w-0 space-y-4">
             <section>
               <div className="mb-1 flex items-center justify-between">
-                <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Outline paths</h3>
+                <h3 className="text-[11px] font-medium text-muted-foreground">Outline paths</h3>
                 <Button variant="outline" size="sm" className="h-6 text-[11px]" onClick={addPath}>
                   <Plus className="mr-1 w-3 h-3" /> Path
                 </Button>
@@ -280,7 +280,7 @@ export default function SchematicSymbolEditor({ componentId, onClose }: Schemati
                 {draft.paths.map((path, index) => (
                   <div key={index} className="flex items-center gap-1">
                     <input
-                      className="min-w-0 flex-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[11px]"
+                      className="min-w-0 flex-1 rounded border border-input bg-background px-1.5 py-0.5 font-mono text-[11px]"
                       value={path}
                       aria-label={`Outline path ${index + 1}`}
                       onChange={(event) => changePath(index, event.target.value)}
@@ -291,7 +291,7 @@ export default function SchematicSymbolEditor({ componentId, onClose }: Schemati
                       className="h-5 w-5"
                       onClick={() => removePath(index)}
                       aria-label={`Remove outline path ${index + 1}`}
-                    >
+                      title="Take this outline path out of the symbol body.">
                       <Trash2 className="w-3 h-3" />
                     </Button>
                   </div>
@@ -304,12 +304,12 @@ export default function SchematicSymbolEditor({ componentId, onClose }: Schemati
 
             <section>
               <div className="mb-1 flex items-center justify-between">
-                <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Pins</h3>
+                <h3 className="text-[11px] font-medium text-muted-foreground">Pins</h3>
                 <Button variant="outline" size="sm" className="h-6 text-[11px]" onClick={addPin}>
                   <Plus className="mr-1 w-3 h-3" /> Pin
                 </Button>
               </div>
-              <div className="grid grid-cols-[1fr_1fr_3.5rem_3.5rem_6.5rem_1.75rem] gap-1 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <div className="grid grid-cols-[1fr_1fr_3.5rem_3.5rem_6.5rem_1.75rem] gap-1 pb-1 text-[11px] text-muted-foreground">
                 <span>Id</span><span>Name</span><span>X</span><span>Y</span><span>Type</span><span />
               </div>
               <div className="space-y-1">

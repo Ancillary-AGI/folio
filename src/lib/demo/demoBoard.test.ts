@@ -99,7 +99,7 @@ describe('demo board — full e-CAD loop on one canvas', () => {
     // rail-midpoint stubs — the screenshot open-circuit cannot return.
     const taps: Array<[string, string]> = [
       ['demo-w-out-rail', '260,180'],
-      ['demo-w-out-rail', '325,180'],
+      ['demo-w-out-rail', '320,180'],
     ];
     for (const [id, key] of taps) {
       const w = board.wires.find((cand) => cand.id === id)!;

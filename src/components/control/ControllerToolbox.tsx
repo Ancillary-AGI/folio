@@ -427,7 +427,7 @@ export default function ControllerToolbox({
         </div>
         <div className="text-xs text-muted-foreground">
           Plant under test: {plant ? <span className="font-mono text-foreground">P(s) = {plantText}</span> : <span className="text-destructive">the coefficients above are not usable</span>}
-          <span className="font-mono">(descending powers of s)</span>
+          <span>(descending powers of s)</span>
           {' · '}horizon {formatNumber(horizon.tEndSeconds, 3)} s at {formatNumber(horizon.dtSeconds, 4)} s
           {' · '}margin scan {formatNumber(marginScan.fMinHz, 3)}…{formatNumber(marginScan.fMaxHz, 3)} Hz
         </div>

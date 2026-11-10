@@ -1,8 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { describeError } from '../../lib/utils';
-import { CodeEditor } from '../editor/CodeEditor';
+import { CodeEditor, type CodeEditorHandle } from '../editor/CodeEditor';
+import LibraryDropNote from '../library/LibraryDropNote';
+import { useDomainLibraryZone } from '../../lib/library/useDomainLibraryZone';
+import { snippetVerdict } from '../../lib/library/snippetVerdict';
+import type { LibraryItem } from '../../lib/library/types';
 import { 
   Play, 
   Upload, 
@@ -51,6 +55,8 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
   const [arduinoIDEVersion, setArduinoIDEVersion] = useState<string | null>(null);
   const [toolchainError, setToolchainError] = useState<string | null>(null);
   const [schematicNotice, setSchematicNotice] = useState<string | null>(null);
+  const [snippetNotice, setSnippetNotice] = useState<string | null>(null);
+  const editorRef = useRef<CodeEditorHandle>(null);
 
   /*
    * Loaders are stable callbacks declared before the effect that uses them, so
@@ -98,6 +104,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
 
   const handleTemplateChange = (template: string) => {
     setSelectedTemplate(template);
+    setSnippetNotice(null);
     // The rectifier companion is a real, proven sketch — pull it from the
     // demo module rather than shipping a second copy here.
     if (template === 'demo_rectifier') {
@@ -117,6 +124,18 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
     setFirmwareCode(next);
     setSchematicNotice(null);
   };
+
+  const placeSnippetRow = useCallback((item: LibraryItem) => {
+    if (item.kind !== 'snippet') return;
+    editorRef.current?.insertAtCaret(item.payload.text);
+    setSnippetNotice(`"${item.name}" inserted at the caret.`);
+  }, []);
+
+  const snippetZone = useDomainLibraryZone({
+    accepts: snippetVerdict(['c', 'cpp'], 'this firmware sketch'),
+    as: 'the sketch editor',
+    onPlace: placeSnippetRow,
+  });
 
   /** Build one source string; shared by the button and the gallery demo. */
   const compileSource = async (source: string) => {
@@ -401,7 +420,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                   Arduino IDE
                 </Button>
               )}
-              <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close board programming panel">
+              <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close board programming panel" title="Leave board programming; closing writes nothing to the design.">
                 <X className="w-4 h-4" />
               </Button>
             </div>
@@ -477,10 +496,20 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                 {schematicNotice}
               </p>
             )}
+            {snippetNotice && (
+              <p role="status" className="mt-2 text-xs text-muted-foreground">
+                {snippetNotice}
+              </p>
+            )}
           </div>
 
-          <div className="flex min-h-0 flex-1 gap-0 p-4">
+          <div className="px-4 pb-1 text-xs text-muted-foreground">
+            Drag a library row onto the sketch to insert it at the caret; a row written for another domain says why it cannot land here.
+          </div>
+
+          <div className="cad-dropzone relative flex min-h-0 flex-1 gap-0 p-4" role="group" aria-label="Firmware sketch editor — drop a code snippet here" {...snippetZone.zoneProps}>
             <CodeEditor
+              ref={editorRef}
               value={code}
               onChange={handleCodeChange}
               language="c"
@@ -488,6 +517,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
               placeholder="void setup() / void loop()"
               className="min-h-56 flex-1 sm:min-h-72"
             />
+            <LibraryDropNote zone={snippetZone} surface="the sketch" />
           </div>
 
           {/* Action Buttons */}
@@ -633,7 +663,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                     size="icon"
                     onClick={loadAvailablePorts}
                     className="h-8 w-8"
-                   aria-label="Refresh serial ports">
+                   aria-label="Refresh serial ports" title="Re-scan the serial ports this computer can see.">
                     <RefreshCw className="w-3 h-3" />
                   </Button>
                 </div>
@@ -838,24 +868,24 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
           <div className="flex max-h-[35%] w-full flex-shrink-0 flex-col border-t border-border bg-card lg:max-h-none lg:w-96 lg:border-l lg:border-t-0">
             <div className="flex items-center justify-between p-4 border-b border-border">
               <h4 className="font-semibold text-foreground">Output</h4>
-              <Button variant="ghost" size="icon" onClick={() => setShowOutput(false)} aria-label="Close output panel">
+              <Button variant="ghost" size="icon" onClick={() => setShowOutput(false)} aria-label="Close output panel" title="Hide the build and flash output.">
                 <X className="w-4 h-4" />
               </Button>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4">
-              <div className="font-mono text-xs space-y-2">
+              <div className="text-xs space-y-2">
                 {compilationResult && (
                   <div className="bg-muted p-3 rounded">
                     <div className="font-medium mb-2">Compilation Output:</div>
-                    <pre className="whitespace-pre-wrap">{compilationResult.output}</pre>
+                    <pre className="whitespace-pre-wrap font-mono">{compilationResult.output}</pre>
                   </div>
                 )}
 
                 {uploadResult && (
                   <div className="bg-muted p-3 rounded">
                     <div className="font-medium mb-2">Upload Output:</div>
-                    <pre className="whitespace-pre-wrap">{uploadResult.output}</pre>
+                    <pre className="whitespace-pre-wrap font-mono">{uploadResult.output}</pre>
                   </div>
                 )}
 

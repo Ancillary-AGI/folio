@@ -108,10 +108,10 @@ export default function VoiceCommandBar({ onClose }: VoiceCommandBarProps) {
           {status === 'idle' && spokenReplies === false ? 'Ready — replies stay on screen.' : STATUS_LABEL[status]}
         </span>
 
-        <Button variant="ghost" size="icon" onClick={clearTurns} aria-label="Clear transcript" className="h-7 w-7">
+        <Button variant="ghost" size="icon" onClick={clearTurns} aria-label="Clear transcript" className="h-7 w-7" title="Empty the transcript of this session's turns.">
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
-        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close voice conversation" className="h-7 w-7">
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close voice conversation" className="h-7 w-7" title="Close the voice bar. Listening stops with it.">
           <X className="h-4 w-4" />
         </Button>
       </div>
@@ -143,7 +143,7 @@ export default function VoiceCommandBar({ onClose }: VoiceCommandBarProps) {
             >
               <p className="whitespace-pre-wrap">{turn.text}</p>
               {turn.role === 'assistant' && turn.speech && (
-                <p className="mt-0.5 text-[10px] uppercase tracking-wide opacity-70">
+                <p className="mt-0.5 text-[11px] opacity-70">
                   {SPEECH_LABEL[turn.speech]}
                   {turn.applied === true ? ' · applied' : turn.intent ? ` · ${turn.intent.replace(/_/g, ' ')}` : ''}
                 </p>

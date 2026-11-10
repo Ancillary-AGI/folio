@@ -63,10 +63,14 @@ export default function FolioLogo({
   return (
     <div className={`flex items-center gap-2.5 ${className}`} role="img" aria-label="Folio">
       <FolioMark className={markClassName} />
-      <div className="flex min-w-0 flex-col gap-0.5">
+      {/* `items-start`, not the default stretch: in a column, stretch forces the
+          wordmark to the tagline's width, and an SVG with a viewBox centres what
+          it is given, so "FOLIO" sat dead middle over a left-aligned line of
+          text. The lockup is flush left or it is not a lockup. */}
+      <div className="flex min-w-0 flex-col items-start gap-0.5">
         <FolioWordmark className={wordmarkClassName} />
         {showTagline && (
-          <span className="text-[8px] font-medium uppercase leading-none tracking-[0.28em] text-muted-foreground">
+          <span className="text-[11px] font-medium leading-none tracking-[0.01em] text-muted-foreground">
             Engineering workbench
           </span>
         )}

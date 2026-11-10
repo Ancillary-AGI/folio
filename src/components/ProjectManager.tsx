@@ -3,23 +3,74 @@ import { supabase, Project } from '../lib/supabase'
 import { offlineProjectStore } from '../lib/offlineProjectStore'
 import { vcsService } from '../lib/vcs/vcsService'
 import { backupService } from '../lib/backup/backupService'
+import { describeError } from '../lib/utils'
+import EditableProjectTitle from './EditableProjectTitle'
 import { Button } from './ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
-import { Plus, FolderOpen, Calendar, History, RotateCw, Search, Trash2, ArrowRight, X } from 'lucide-react'
-import { WORKSPACE_GROUPS, MODE_COUNT_BY_GROUP } from '../lib/workspace/modes'
+import ConfirmDialog from './ui/ConfirmDialog'
+import { useConfirm } from './ui/useConfirm'
+import { Card, CardContent, CardHeader } from './ui/card'
+import {
+  ArrowRight, ArrowUpRight, Calendar, CircuitBoard, FlaskConical,
+  FolderOpen, History, Layers, Microscope, Plus, RotateCw, Search, ShieldCheck,
+  Sparkles, Trash2, Wrench, X, Zap,
+  type LucideIcon,
+} from 'lucide-react'
+import { WORKSPACE_GROUPS, MODE_COUNT_BY_GROUP, WORKSPACE_MODE_META, FIRST_MODE_BY_GROUP, WORKSPACE_MODES, type WorkspaceGroupId } from '../lib/workspace/modes'
 import { groupAccent } from '../lib/workspace/accents'
+import { DEMO_SCENARIOS, type DemoScenario } from '../lib/demo/demoScenarios'
 
 interface ProjectManagerProps {
   onSelectProject: (project: Project) => void
-  onNewProject: () => void
+  /**
+   * Creates a project. A family opens it in that family's first workspace; with
+   * no family the shell keeps its default opening tab.
+   */
+  onNewProject: (family?: WorkspaceGroupId) => void
+  /** Lets the shell re-title the workspace header when the open project is renamed here. */
+  onProjectRenamed?: (project: Project) => void
   offlineMode?: boolean
+  /** Opens the demo gallery. Omitted when the launcher has no gallery host. */
+  onOpenDemos?: () => void
+  /** Loads a scenario straight from the launcher (the shell creates the project). */
+  onOpenDemo?: (scenario: DemoScenario) => void
 }
 
-export default function ProjectManager({ onSelectProject, onNewProject, offlineMode = false }: ProjectManagerProps) {
+/** Icons for the five workspace families, matching the rail in the workbench. */
+const FAMILY_ICONS: Readonly<Record<WorkspaceGroupId, LucideIcon>> = {
+  design: Layers,
+  electrical: Zap,
+  mechanical: Wrench,
+  life: Microscope,
+  ops: ShieldCheck,
+}
+
+/**
+ * Scenarios the launcher can open directly. One per family that a newcomer can
+ * understand from its title, so the empty state is a doorway instead of a wall.
+ */
+const FEATURED_DEMO_IDS = ['rectifier-pcb', 'control-motor-loop', 'mechanical-enclosure'] as const
+
+/** A relative timestamp: precise on hover, glanceable in the list. */
+function relativeTime(value: string | Date): string {
+  const then = new Date(value).getTime()
+  if (!Number.isFinite(then)) return 'Unknown'
+  const minutes = Math.max(0, Math.round((Date.now() - then) / 60000))
+  if (minutes < 1) return 'Just now'
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours} h ago`
+  const days = Math.round(hours / 24)
+  if (days < 30) return `${days} d ago`
+  return new Date(value).toLocaleDateString()
+}
+
+export default function ProjectManager({ onSelectProject, onNewProject, onProjectRenamed, offlineMode = false, onOpenDemos, onOpenDemo }: ProjectManagerProps) {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [projectError, setProjectError] = useState<string | null>(null)
+  // The one question this surface asks: a delete that cannot be undone.
+  const { spec: confirmSpec, confirm, resolve: resolveConfirm } = useConfirm()
 
   const loadProjects = useCallback(async () => {
     try {
@@ -35,7 +86,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
       if (error) throw error
       setProjects(data || [])
     } catch (error) {
-      setProjectError(error instanceof Error ? error.message : 'Could not load projects.')
+      setProjectError(describeError(error))
     } finally {
       setLoading(false)
     }
@@ -56,18 +107,30 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
     void loadProjects()
   }
 
-  const handleDeleteProject = async (projectId: string, e: React.MouseEvent) => {
+  const handleDeleteProject = async (project: Project, e: React.MouseEvent) => {
     e.stopPropagation()
-    
-    if (!confirm('Are you sure you want to delete this project? This action cannot be undone.')) {
-      return
-    }
 
+    /*
+     * Deletion is the one launcher action that cannot be walked back, so it
+     * asks in the app's own panel: the project's name is in the question, and
+     * the answer says what goes with it. A declined answer performs no write at
+     * all, and the card stays where it was.
+     */
+    const accepted = await confirm({
+      title: `Delete “${project.name}”?`,
+      detail:
+        'The project is removed from this workspace, together with the version history and the backups stored with it. Nothing else of yours is touched, and there is no undo.',
+      confirmLabel: 'Delete project',
+      destructive: true,
+    })
+    if (!accepted) return
+
+    const projectId = project.id
     if (offlineMode) {
       offlineProjectStore.delete(projectId)
       vcsService.removeRepo(projectId)
       backupService.deleteProjectBackups(projectId)
-      setProjects((current) => current.filter((project) => project.id !== projectId))
+      setProjects((current) => current.filter((entry) => entry.id !== projectId))
       return
     }
 
@@ -83,12 +146,39 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
       // was cloud-owned, so deleting the project must purge them too.
       vcsService.removeRepo(projectId)
       backupService.deleteProjectBackups(projectId)
-      setProjects(projects.filter(p => p.id !== projectId))
+      setProjects((current) => current.filter((entry) => entry.id !== projectId))
     } catch (error) {
-      setProjectError(
-        `Could not delete the project: ${error instanceof Error ? error.message : 'unknown error'}`,
-      )
+      setProjectError(`Could not delete the project: ${describeError(error)}`)
     }
+  }
+
+  /*
+   * Renaming writes the project's own row — the offline store, or the cloud row —
+   * and tells the shell so an open workspace re-titles itself with it. The click
+   * gesture lives in `EditableProjectTitle`, the same one the workspace header
+   * uses; this is only the storage behind it, and it throws so the reason can be
+   * shown under a name that did not change.
+   */
+  const renameProject = async (project: Project, nextName: string): Promise<void> => {
+    if (offlineMode) {
+      const updated = offlineProjectStore.rename(project.id, nextName)
+      if (!updated) throw new Error('This project is no longer in the workspace.')
+      setProjects((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)))
+      onProjectRenamed?.(updated)
+      return
+    }
+
+    const updatedAt = new Date().toISOString()
+    const { error } = await supabase
+      .from('projects')
+      .update({ name: nextName, updated_at: updatedAt })
+      .eq('id', project.id)
+
+    if (error) throw new Error(`Could not rename the project: ${describeError(error)}`)
+
+    const updated: Project = { ...project, name: nextName, updated_at: updatedAt }
+    setProjects((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)))
+    onProjectRenamed?.(updated)
   }
 
   const filteredProjects = projects.filter(project =>
@@ -101,51 +191,122 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
   const listFailure = projectError !== null && projects.length === 0
 
   if (loading) {
+    /*
+     * The shape of what is coming, not a word in the middle of an empty page:
+     * the hero, the family tiles and the cards all appear here in the sizes
+     * they will occupy, so the wait reads as a library loading rather than as a
+     * surface that has nothing in it.
+     */
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-muted-foreground">Loading projects...</div>
+      <div className="launcher-column" role="status" aria-live="polite">
+        <span className="sr-only">Loading your projects…</span>
+        <div className="launcher-hero launcher-hero--skeleton">
+          <div className="cad-skeleton mb-4 h-3 w-32" />
+          <div className="cad-skeleton mb-3 h-10 w-2/3 max-w-md" />
+          <div className="cad-skeleton mb-8 h-4 w-full max-w-xl" />
+          <div className="cad-skeleton h-14 w-full rounded-xl" />
+        </div>
+        <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+          {Array.from({ length: 5 }, (_, index) => (
+            <div key={index} className="cad-skeleton h-[124px] rounded-xl" />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }, (_, index) => (
+            <div key={index} className="rounded-xl border border-border bg-card p-5">
+              <div className="cad-skeleton mb-3 h-5 w-3/5" />
+              <div className="cad-skeleton mb-4 h-3 w-4/5" />
+              <div className="cad-skeleton mb-2 h-3 w-2/5" />
+              <div className="mt-6 flex justify-end gap-2">
+                <div className="cad-skeleton h-7 w-20 rounded-md" />
+                <div className="cad-skeleton h-7 w-20 rounded-md" />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="mx-auto max-w-6xl p-4 sm:p-6">
-      <div className="mb-8">
-        <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">Project library</p>
-        <h1 className="mb-2 text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Your Projects</h1>
-        <p className="max-w-2xl text-muted-foreground">
-          {offlineMode
-            ? 'Schematic, PCB, mechanical, robotics and firmware state for every project is kept together.'
-            : 'Projects are stored in your cloud workspace; version history and backups are kept with each project.'}
+    <div className="launcher-column">
+      {/* ── Hero: the one statement of what this place is, and the two doors
+          into it. The ambient field passes through the glass. ─────────────── */}
+      <section className="launcher-hero" aria-labelledby="launcher-heading">
+        <div className="launcher-hero__aura" aria-hidden="true" />
+        <p className="launcher-eyebrow">
+          <span className="launcher-eyebrow__dot" aria-hidden="true" />
+          Project library
         </p>
-        {/*
-         * The families come from the same registry that drives the workspace tab
-         * strip, and each count is derived from it, so a workspace cannot ship in
-         * the CAD and go missing from here. The hue is decorative — the label and
-         * the count carry the meaning.
-         */}
-        <ul className="mt-5 flex flex-wrap gap-2" aria-label="Engineering families">
-          {WORKSPACE_GROUPS.map((family) => (
-            <li
-              key={family.id}
-              title={family.description}
-              className="flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium"
-              style={{
-                backgroundColor: `hsl(${groupAccent(family.id)} / 0.10)`,
-                borderColor: `hsl(${groupAccent(family.id)} / 0.30)`,
-              }}
+        <h1 id="launcher-heading" className="launcher-title">Your Projects</h1>
+        <p className="launcher-lede">
+          One workbench for circuit, board, mechanical, robotics and firmware design —
+          each domain with its own solver, its own limits and a shared project.
+        </p>
+
+        <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <input
+              type="text"
+              placeholder="Search projects by name or description"
+              aria-label="Search projects"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="launcher-search"
+            />
+            {searchTerm ? (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                aria-label="Clear project search"
+                className="cad-ctl cad-ctl--icon absolute right-3 top-1/2 -translate-y-1/2"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
+            <span className="pointer-events-none absolute right-12 top-1/2 -translate-y-1/2 font-mono text-xs tabular-nums text-muted-foreground">
+              {searchTerm ? `${filteredProjects.length}/${projects.length}` : ''}
+            </span>
+          </div>
+
+          <Button onClick={() => onNewProject()} className="h-12 flex-shrink-0 gap-2 rounded-xl px-5 text-sm font-semibold">
+            <Plus className="h-4 w-4" />
+            New Project
+          </Button>
+          {onOpenDemos ? (
+            <Button
+              variant="outline"
+              onClick={onOpenDemos}
+              className="h-12 flex-shrink-0 gap-2 rounded-xl px-4 text-sm"
             >
-              <span
-                aria-hidden="true"
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: `hsl(${groupAccent(family.id)})` }}
-              />
-              <span className="text-foreground">{family.label}</span>
-              <span className="font-mono tabular-nums text-muted-foreground">{MODE_COUNT_BY_GROUP[family.id]}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
+              <FlaskConical className="h-4 w-4" aria-hidden="true" />
+              Browse demos
+            </Button>
+          ) : null}
+        </div>
+
+        {/* Derived from the same registries as the workspace rail and the
+            gallery, so no claim here can outlive the build. */}
+        <dl className="launcher-stats">
+          <div>
+            <dt>Projects</dt>
+            <dd>{projects.length}</dd>
+          </div>
+          <div>
+            <dt>Workspaces</dt>
+            <dd>{WORKSPACE_MODES.length}</dd>
+          </div>
+          <div>
+            <dt>Runnable demos</dt>
+            <dd>{DEMO_SCENARIOS.length}</dd>
+          </div>
+          <div>
+            <dt>Storage</dt>
+            <dd>{offlineMode ? 'Local' : 'Cloud'}</dd>
+          </div>
+        </dl>
+      </section>
 
       {projectError && !listFailure && (
         <div
@@ -163,38 +324,117 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
         </div>
       )}
 
-      <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-          <input
-            type="text"
-            placeholder="Search projects by name or description"
-            aria-label="Search projects"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="h-12 w-full rounded-xl border border-border bg-surface pl-11 pr-24 text-[15px] text-foreground placeholder:text-muted-foreground"
-          />
-          {searchTerm ? (
-            <button
-              type="button"
-              onClick={() => setSearchTerm('')}
-              aria-label="Clear project search"
-              className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          ) : null}
-          {/* The field says what it filtered, so the count is never a guess. */}
-          <span className="pointer-events-none absolute right-12 top-1/2 -translate-y-1/2 font-mono text-xs tabular-nums text-muted-foreground">
-            {searchTerm ? `${filteredProjects.length}/${projects.length}` : ''}
-          </span>
+      {/*
+       * A level select, not a legend. The families come from the same registry
+       * that drives the workspace tab strip, and each count is derived from it, so
+       * a workspace cannot ship in the CAD and go missing from here. Pressing a
+       * tile does the thing its label says: it creates a project and opens it in
+       * that family's first workspace.
+       */}
+      <section className="mb-10" aria-labelledby="family-start-heading">
+        <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2 id="family-start-heading" className="launcher-section-title">
+            Start in a family
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Creates a project and opens the first workspace of that family.
+          </p>
         </div>
+        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+          {WORKSPACE_GROUPS.map((family) => {
+            const firstMode = WORKSPACE_MODE_META[FIRST_MODE_BY_GROUP[family.id]]
+            const workspaceCount = MODE_COUNT_BY_GROUP[family.id]
+            const FamilyIcon = FAMILY_ICONS[family.id]
+            return (
+            <li key={family.id} className="min-w-0">
+              <button
+                type="button"
+                onClick={() => onNewProject(family.id)}
+                className="family-tile"
+                style={{ '--family-accent': groupAccent(family.id) } as React.CSSProperties}
+                aria-label={`Start a project in the ${family.label} family, opening ${firstMode.label} first`}
+              >
+                <span className="family-tile__top">
+                  <span className="family-tile__icon" aria-hidden="true">
+                    <FamilyIcon />
+                  </span>
+                  <span className="family-tile__count-badge">
+                    {workspaceCount}
+                  </span>
+                </span>
+                <span className="family-tile__label">{family.label}</span>
+                <span className="family-tile__desc">{family.description}</span>
+                <span className="family-tile__foot">
+                  Opens {firstMode.label}
+                  <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                </span>
+              </button>
+            </li>
+            )
+          })}
+        </ul>
+      </section>
 
-        <Button onClick={onNewProject} className="h-12 flex-shrink-0 gap-2 rounded-xl px-5 text-sm font-semibold">
-          <Plus className="h-4 w-4" />
-          New Project
-        </Button>
-      </div>
+      {/* Featured scenarios: the fastest way to see a real engine run instead
+          of an empty sheet. Each loads the same scenario the gallery opens. */}
+      {onOpenDemo ? (
+        <section className="mb-10" aria-labelledby="featured-demos-heading">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h2 id="featured-demos-heading" className="launcher-section-title">
+                Start from a running design
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                Every demo runs the real solver, router or exporter.
+              </p>
+            </div>
+            {onOpenDemos ? (
+              <button
+                type="button"
+                onClick={onOpenDemos}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-primary transition-colors hover:text-foreground"
+              >
+                All {DEMO_SCENARIOS.length} demos
+                <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
+          <ul className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            {FEATURED_DEMO_IDS.map((id) => {
+              const scenario = DEMO_SCENARIOS.find((entry) => entry.id === id)
+              if (!scenario) return null
+              const modeMeta = WORKSPACE_MODE_META[scenario.mode]
+              return (
+                <li key={scenario.id} className="min-w-0">
+                  <article
+                    className="launcher-demo"
+                    style={{ '--family-accent': groupAccent(scenario.group) } as React.CSSProperties}
+                  >
+                    <div className="launcher-demo__top">
+                      <span className="launcher-demo__mode">
+                        <CircuitBoard className="h-3.5 w-3.5" aria-hidden="true" />
+                        {modeMeta.label}
+                      </span>
+                      <Sparkles className="h-4 w-4 text-[hsl(var(--family-accent))]" aria-hidden="true" />
+                    </div>
+                    <h3 className="launcher-demo__title">{scenario.title}</h3>
+                    <p className="launcher-demo__summary">{scenario.summary}</p>
+                    <button
+                      type="button"
+                      onClick={() => onOpenDemo(scenario)}
+                      className="launcher-demo__open"
+                      aria-label={`Open demo: ${scenario.title}`}
+                    >
+                      Open demo
+                      <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  </article>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      ) : null}
 
       {listFailure ? (
         <Card className="text-center py-12">
@@ -209,28 +449,47 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
           </CardContent>
         </Card>
       ) : filteredProjects.length === 0 ? (
-        <Card className="text-center py-12">
+        <Card className="launcher-empty">
           <CardContent>
-            <FolderOpen className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">
+            <span className="launcher-empty__mark" aria-hidden="true">
+              <FolderOpen />
+            </span>
+            <h3 className="text-xl font-semibold tracking-tight text-foreground">
               {searchTerm ? 'No projects found' : 'No projects yet'}
             </h3>
-            <p className="text-muted-foreground mb-4">
-              {searchTerm 
+            <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
+              {searchTerm
                 ? 'Try adjusting your search terms'
-                : 'Create your first engineering project — from circuit to enclosure — to get started'
+                : 'Create your first engineering project — from circuit to enclosure — or open a running demo above.'
               }
             </p>
             {!searchTerm && (
-              <Button onClick={onNewProject} className="flex items-center gap-2 mx-auto">
-                <Plus className="w-4 h-4" />
-                Create Project
-              </Button>
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                <Button onClick={() => onNewProject()} className="flex items-center gap-2">
+                  <Plus className="w-4 h-4" />
+                  Create Project
+                </Button>
+                {onOpenDemos ? (
+                  <Button variant="outline" onClick={onOpenDemos} className="flex items-center gap-2">
+                    <FlaskConical className="w-4 h-4" aria-hidden="true" />
+                    Browse demos
+                  </Button>
+                ) : null}
+              </div>
             )}
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <>
+          <div className="mb-3 flex items-baseline justify-between gap-4">
+            <h2 className="launcher-section-title">
+              {searchTerm ? 'Matching projects' : 'Recent projects'}
+            </h2>
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              {filteredProjects.length} of {projects.length}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
           {filteredProjects.map((project) => {
             // Commit history is kept with the local workspace even for a cloud row,
             // so this is the revision count available here — not the project's
@@ -240,77 +499,100 @@ export default function ProjectManager({ onSelectProject, onNewProject, offlineM
             const historyTitle = repo
               ? `${revisionCount} ${revisionCount === 1 ? 'commit' : 'commits'} on branch ${repo.currentBranch}, stored with the project`
               : 'No commit has been taken for this project yet'
+            const monogram = project.name.trim().charAt(0).toUpperCase() || 'P'
             return (
             <Card
               key={project.id}
-              className="cursor-pointer overflow-hidden rounded-xl border-border/70 transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:border-primary/50 hover:shadow-xl active:translate-y-0 active:shadow-md"
+              className="project-card launcher-project cursor-pointer"
               onClick={() => onSelectProject(project)}
             >
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <CardTitle className="text-lg font-semibold truncate">
-                    {project.name}
-                  </CardTitle>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`Delete ${project.name}`}
-                    onClick={(e) => handleDeleteProject(project.id, e)}
-                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+              <CardHeader className="gap-3 pb-3">
+                <div className="flex items-start gap-3">
+                  <span className="launcher-project__monogram" aria-hidden="true">
+                    {monogram}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    {/* The name is the control: click it, type, click away or press
+                        Enter and the write happens. The rest of the card opens the
+                        project, so a click on the title must not do both. */}
+                    <EditableProjectTitle
+                      headingLevel="h3"
+                      stopClickPropagation
+                      name={project.name}
+                      onRename={(nextName) => renameProject(project, nextName)}
+                      titleClassName="text-base font-semibold"
+                      inputClassName="text-[15px]"
+                    />
+                    {project.description && (
+                      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                        {project.description}
+                      </p>
+                    )}
+                  </div>
                 </div>
-                {project.description && (
-                  <p className="text-sm text-muted-foreground line-clamp-2">
-                    {project.description}
-                  </p>
-                )}
               </CardHeader>
-              
+
               <CardContent className="pt-0">
-                <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                  <div className="flex items-center gap-1" title="Last modified">
-                    <Calendar className="w-3 h-3" />
-                    {new Date(project.updated_at).toLocaleDateString()}
+                {/* Each fact once: the row's last write, and the commit history the
+                    workspace really holds for this project. */}
+                <div className="launcher-project__facts">
+                  <div className="flex items-center gap-1" title={new Date(project.updated_at).toLocaleString()}>
+                    <Calendar className="w-3 h-3" aria-hidden="true" />
+                    {relativeTime(project.updated_at)}
                   </div>
                   <div
                     className="flex items-center gap-1"
                     title={historyTitle}
                   >
-                    <History className="w-3 h-3" />
+                    <History className="w-3 h-3" aria-hidden="true" />
                     {repo
                       ? `${revisionCount} revision${revisionCount === 1 ? '' : 's'} · ${repo.currentBranch}`
                       : 'No revisions yet'}
                   </div>
                 </div>
-                
-                <div className="mt-3 flex items-center justify-between border-t border-border pt-2">
-                  <span className="text-xs text-muted-foreground">
-                    Last modified{' '}
-                    <span className="font-medium text-foreground">
-                      {new Date(project.updated_at).toLocaleTimeString()}
-                    </span>
-                  </span>
+
+                {/*
+                 * One action group on one centre line, at the trailing edge. An
+                 * icon-only trash glyph parked in the bottom-right corner reads
+                 * as part of the card's decoration until it is far too late to
+                 * notice it; named in words and set beside the thing it is not,
+                 * it is a decision instead of a landmine.
+                 */}
+                <div className="launcher-project__actions">
                   <Button
                     variant="ghost"
-                    size="sm"
-                    className="h-6 gap-1 px-1.5 text-xs text-primary hover:text-primary"
+                    size="bar"
+                    aria-label={`Delete ${project.name}`}
+                    onClick={(e) => handleDeleteProject(project, e)}
+                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    title="Delete this project for good. It asks you to confirm first."
+                  >
+                    <Trash2 />
+                    Delete
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="bar"
                     onClick={(e) => {
                       e.stopPropagation()
                       onSelectProject(project)
                     }}
                     aria-label={`Open ${project.name}`}
                   >
-                    Open <ArrowRight className="h-3.5 w-3.5" />
+                    Open
+                    <ArrowRight />
                   </Button>
                 </div>
               </CardContent>
             </Card>
             )
           })}
-        </div>
+          </div>
+        </>
       )}
+
+      {/* The delete question is asked here, in the app's own panel. */}
+      <ConfirmDialog spec={confirmSpec} onResolve={resolveConfirm} />
     </div>
   )
 }

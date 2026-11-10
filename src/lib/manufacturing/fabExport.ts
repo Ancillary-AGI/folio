@@ -21,6 +21,7 @@
 import type { Net, PlacedComponent, Point, Wire } from '../../types'
 import { polylineDistance } from '../geometry/distance'
 import { footprintLibrary, type Footprint, type FootprintPad } from './footprintLibrary'
+import { generatedFootprint } from './landPattern'
 import { footprintPadForPin } from './padMapping'
 
 /** Capability profile of the fab house the board is ordered from. */
@@ -239,9 +240,12 @@ export const rotate = (x: number, y: number, degrees: number): { x: number; y: n
 }
 
 /**
- * Resolve the IPC footprint: an explicit `footprint` property wins,
- * otherwise the category maps to the stock footprint of that family.
- * `undefined` means the caller records a violation — never invent pads.
+ * Resolve the IPC footprint: an explicit `footprint` property wins, and a
+ * package the library hand-builds no part number for is generated as its
+ * nominal land pattern so the Gerbers carry the same copper as the board on
+ * screen. Only a part with no package declared at all may borrow its family's
+ * stock footprint. `undefined` means the caller records a violation — never
+ * invent pads.
  */
 export function resolveFootprint(component: PlacedComponent): Footprint | undefined {
   const explicit = String(component.properties.footprint ?? '').trim()
@@ -250,6 +254,11 @@ export function resolveFootprint(component: PlacedComponent): Footprint | undefi
     if (direct) return direct
     const byName = footprintLibrary.getAllFootprints().find((entry) => entry.name === explicit)
     if (byName) return byName
+    const generated = generatedFootprint(explicit, component.component.pins.length)
+    if (generated) return generated
+    // The string names a package, so answering with some other package's lands
+    // would export copper that no trace on this board matches.
+    return undefined
   }
   const family = footprintLibrary.getFootprintsByCategory(component.component.category?.toLowerCase() ?? '')
   if (family.length > 0) {

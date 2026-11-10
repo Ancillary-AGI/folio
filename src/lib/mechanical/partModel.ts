@@ -7,7 +7,7 @@
  * the viewport, the analyser, and an agent's observation can never disagree
  * about which body they are looking at.
  */
-import type { Material } from '../../types/toolbox'
+import type { Material } from '../../types/mechanical'
 import { getMaterial } from './materials'
 import {
   analyseBeam,

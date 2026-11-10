@@ -57,7 +57,7 @@ rules); it makes no model or network call, and its output is advisory.
 - **Hover help and the help centre** (**F1** or **?**, or the header help button):
   resting on a rail button, header control or workspace tab raises a delayed
   one-line description with its keycap, and the same registry fills the help
-  centre — a guide to all 25 workspaces, the control reference and a shortcut
+  centre — a guide to all 28 workspaces, the control reference and a shortcut
   table. Guides name the method and the limits; they do not promise validity.
 - **Hands-on tutorials**: seven walkthroughs — rectifier to fabrication, control
   and the ML toolbox, RF filters, two-link robotics, the mechanical enclosure,
@@ -87,6 +87,18 @@ rules); it makes no model or network call, and its output is advisory.
   model refuses to cover. Tests enforce that every cited file exists, that every
   workspace mode is named, and that no positive claim uses the words
   "guarantee", "certified", "zero errors" or "always correct".
+- **Ambient light field**: the shell sits over a WebGL field of three drifting
+  light ribbons (`src/components/brand/AuroraField.tsx`, colours from
+  `src/lib/theme/aurora.ts`) that takes the hue of the open workspace family, and
+  the header, workspace nav, tool rail and status bar go translucent over it with
+  a backdrop blur. Bands are theme hues held within 0.02 of the background's
+  luma, so the field moves colour rather than brightness — `aurora.test.ts`
+  re-audits every pair of the WCAG contrast contract along the full ribbon
+  falloff, in all three lit themes, and pins the chrome alpha to the one number
+  the stylesheet uses. It renders one static frame when motion is reduced, stops
+  entirely in the high-contrast theme and under forced colours, paints two soft
+  CSS tints where WebGL is unavailable, and switches off from
+  **Settings → General → Ambient light field**.
 - A contextual status bar reports the active mode, schematic metrics, theme and
   unsaved state.
 
@@ -176,7 +188,9 @@ rules); it makes no model or network call, and its output is advisory.
   refuses targets outside the achievable range instead of returning a best-effort
   miss.
 - VHDL/Verilog subsets with parsers, logic synthesis, FPGA flow helpers, and
-  testbench-ready netlists.
+  testbench-ready netlists — including buses, clocked always blocks, case/default
+  decode and unsigned `+`/`-`, with an accumulator CPU and a 4-tap FIR DSP as
+  worked reference designs.
 - IC design flow adapters, SKY130 standard-cell library, silicon floorplanning
   with die/core sizing and macro placement, GDSII export, and package/chip
   models (QFN/TQFP/BGA with bond-wire parasitics).
@@ -362,11 +376,12 @@ rules); it makes no model or network call, and its output is advisory.
 - Asset RBAC and encrypted exports. The in-session audit trail records grants,
   encryptions, decryptions, and refusals.
 
-### Administration
+### Admin console
 
-- **Administration console** at `/admin` (header shield, or the More menu on
-  narrow screens). It is a sibling surface to the CAD workspaces and opens with
-  or without a project loaded.
+- **Admin console** at `/admin` — the labelled button in the launcher header, or
+  the same entry under **Project** in the workbench's More menu, for a governing
+  role only. It is a sibling surface to the CAD workspaces and opens with or
+  without a project loaded.
 - **Local mode**: the device owner is the administrator. The console reports
   people, the device's usage ledger, quota policies, the SIEM audit trail, and
   the real environment (storage estimate, agent-runner capability).

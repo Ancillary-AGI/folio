@@ -89,10 +89,11 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
   return (
     <main className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="mb-4 flex items-center justify-center">
+        {/* The lockup is left-aligned everywhere it appears, so the mark and the
+            wordmark start on the same edge as the fields below them. */}
+        <CardHeader>
+          <div className="mb-4 flex items-center">
             <FolioLogo
-              className="justify-center"
               markClassName="h-11 w-11 flex-shrink-0 text-primary"
               wordmarkClassName="h-5 w-auto text-foreground"
               showTagline

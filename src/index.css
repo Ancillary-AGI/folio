@@ -3,6 +3,37 @@
 @tailwind utilities;
 
 /*
+ * ── Typefaces ───────────────────────────────────────────────────────────────
+ * Bundled rather than borrowed from the host machine: the workbench must render
+ * identically on a fresh Windows install, a locked-down workstation and in an
+ * exported drawing. Inter carries the whole interface; JetBrains Mono is only
+ * for code, netlists and keycaps, where column alignment is information.
+ */
+@font-face {
+  font-family: 'InterVariable';
+  src: url('/fonts/InterVariable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/*
  * ────────────────────────────────────────────────────────────────────────────
  *  Folio — global stylesheet
  * ────────────────────────────────────────────────────────────────────────────
@@ -79,20 +110,26 @@
     @apply bg-background text-foreground antialiased;
     height: 100%;
     margin: 0;
-    font-family: theme(
-      'fontFamily.sans',
-      ui-sans-serif,
+    /* Stated literally rather than read from the Tailwind theme: the shell's
+       typeface must not depend on a config reload having landed. */
+    font-family:
+      'InterVariable',
+      'Inter',
+      'Segoe UI Variable Text',
+      'Segoe UI',
       system-ui,
       -apple-system,
-      'Segoe UI',
       Roboto,
       'Helvetica Neue',
       Arial,
-      sans-serif
-    );
+      sans-serif;
+    /* Optical sizing keeps Inter's smaller sizes legible without loosening the
+       display sizes; the alternates are Inter's own, not a synthetic effect. */
+    font-optical-sizing: auto;
     font-feature-settings:
       'rlig' 1,
-      'calt' 1;
+      'calt' 1,
+      'kern' 1;
     overscroll-behavior: none;
   }
 
@@ -309,13 +346,290 @@
     display: none;
   }
 
+  /* ── Workspace switcher ───────────────────────────────────────────────────
+   * Two shelves, not one 25-item scroll: the top row chooses a family and the
+   * second lists that family's documents. The family row is the level *above*
+   * the document, so it is quieter — smaller type, no fills — and only the
+   * active family takes its hue. The mode rail is the document switcher, built
+   * like browser tabs: the open one is lifted out of the row.
+   */
+  .ws-family-row {
+    @apply flex h-10 w-full min-w-0 flex-shrink-0 items-center justify-between gap-2 border-b border-border/60 px-1.5;
+  }
+
+  .ws-family-rail {
+    @apply flex min-w-0 items-center gap-1 overflow-x-auto;
+    scrollbar-width: none;
+  }
+
+  .ws-family-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .ws-family {
+    @apply relative flex h-8 flex-shrink-0 items-center gap-2 rounded-md px-2.5 text-xs font-medium text-muted-foreground outline-none transition-[background-color,color,box-shadow] duration-150 hover:bg-accent/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  /* The hue is decorative wayfinding: high contrast and forced colours drop it
+   * and lean on the pressed state instead. */
+  .ws-family--active {
+    @apply bg-accent text-foreground;
+    box-shadow: inset 0 0 0 1px hsl(var(--family-accent, var(--primary)) / 0.45);
+  }
+
+  /* The ring utilities on the base class are a box-shadow; the active fill
+   * also is, so the focused active button restates both in one declaration. */
+  .ws-family--active:focus-visible {
+    box-shadow:
+      inset 0 0 0 1px hsl(var(--family-accent, var(--primary)) / 0.45),
+      0 0 0 3px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .ws-family__icon {
+    @apply h-3.5 w-3.5 flex-shrink-0;
+    color: hsl(var(--family-accent, var(--primary)));
+    opacity: 0.75;
+  }
+
+  .ws-family--active .ws-family__icon {
+    opacity: 1;
+  }
+
+  .ws-family__label {
+    @apply whitespace-nowrap;
+  }
+
+  .ws-family__count {
+    @apply ml-0.5 rounded-full bg-muted/70 px-1.5 text-[10px] font-medium leading-[16px] tabular-nums text-muted-foreground;
+  }
+
+  .ws-family-actions {
+    @apply flex flex-shrink-0 items-center gap-1;
+  }
+
+  /* The mode row scrolls sideways rather than wrapping, so a tall family never
+   * pushes the sheet down the window. Gradients at either end say "more lives
+   * past this edge" without a visible scrollbar. */
+  .ws-mode-rail {
+    @apply flex w-full min-w-0 flex-shrink-0 items-stretch gap-1 overflow-x-auto px-1.5;
+    scrollbar-width: none;
+  }
+
+  .ws-mode-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .ws-mode {
+    @apply relative inline-flex h-9 flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-t-md border-b-2 border-b-transparent px-3 text-xs font-medium text-muted-foreground outline-none transition-[background-color,color,border-color] duration-150 hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  .ws-mode__icon {
+    @apply h-3.5 w-3.5 flex-shrink-0;
+    color: hsl(var(--family-accent, var(--primary)));
+    opacity: 0.55;
+    transition: opacity 120ms ease;
+  }
+
+  .ws-mode:hover .ws-mode__icon,
+  .ws-mode--active .ws-mode__icon {
+    opacity: 1;
+  }
+
+  .ws-mode--active {
+    @apply bg-background text-foreground;
+    border-bottom-color: hsl(var(--family-accent, var(--primary)));
+  }
+
+  .ws-mode--active:focus-visible {
+    box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  @media (max-width: 640px) {
+    .ws-family__label {
+      @apply sr-only;
+    }
+
+    .ws-family {
+      @apply px-1.5;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ws-family,
+    .ws-mode,
+    .ws-mode__icon {
+      transition: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .ws-family--active {
+      border: 1px solid ButtonText;
+    }
+
+    .ws-mode--active {
+      border-bottom-color: Highlight;
+      outline: 1px solid Highlight;
+      outline-offset: -1px;
+    }
+  }
+
+  /* ── Workspace stage ──────────────────────────────────────────────────────
+   * The bed every domain draws on. A very low-contrast dimensional grid plus a
+   * soft vignette keeps panels from floating in a flat rectangle; both are
+   * painted at the same strength as the shell's ambient field so no text ever
+   * sits on a competing pattern. Decorative, so forced colours drop it.
+   */
+  .workspace-stage {
+    position: relative;
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(120% 90% at 50% -10%, hsl(var(--primary) / 0.06), transparent 60%),
+      radial-gradient(80% 60% at 100% 100%, hsl(var(--chart-4) / 0.04), transparent 70%),
+      linear-gradient(hsl(var(--border) / 0.28) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.28) 1px, transparent 1px);
+    background-size:
+      100% 100%,
+      100% 100%,
+      32px 32px,
+      32px 32px;
+    background-position: center top, center bottom, -1px -1px, -1px -1px;
+  }
+
+  @media (forced-colors: active) {
+    .workspace-stage {
+      background-image: none;
+      background-color: Canvas;
+    }
+  }
+
   .app-chrome-divider {
     @apply border-b border-border;
+  }
+
+  /* ── Ambient light field ──────────────────────────────────────────────────
+   * `<AuroraField />` paints drifting ribbons of the theme's own hues into a
+   * canvas that sits inside the shell, above its background and under its
+   * content (`z-index: -1` with `isolation` on the host, so the canvas cannot
+   * fall behind the page and cannot rise over the work).
+   *
+   * Band colours come from `src/lib/theme/aurora.ts`, which limits how far above
+   * the background's brightness any of them may travel, and `aurora.test.ts`
+   * re-measures every contrast pair the field can reach at every point along a
+   * ribbon's falloff. The chrome bars let the field through at exactly the alpha
+   * that test audits — one number, two places, pinned by a test.
+   */
+  .app-shell,
+  .launcher-shell {
+    isolation: isolate;
+  }
+
+  [data-aurora='on'] {
+    --chrome-ambient-alpha: 0.86;
+  }
+
+  .folio-aurora {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    display: grid;
+    pointer-events: none;
+  }
+
+  .folio-aurora__canvas {
+    @apply h-full w-full;
+  }
+
+  /* No WebGL context — a machine with a blocked or software-only GL still gets a
+   * deliberate background rather than a flat one, at a fraction of the strength. */
+  .folio-aurora[data-engine='css'] {
+    background-image:
+      radial-gradient(68% 54% at 16% -6%, hsl(var(--primary) / 0.08), transparent 72%),
+      radial-gradient(58% 46% at 84% 8%, hsl(var(--chart-4) / 0.06), transparent 70%);
+  }
+
+  .folio-aurora[data-engine='css'] .folio-aurora__canvas {
+    display: none;
+  }
+
+  [data-aurora='on'] .app-chrome,
+  [data-aurora='on'] .cad-rail,
+  [data-aurora='on'] .status-bar {
+    background-color: hsl(var(--surface) / var(--chrome-ambient-alpha));
+  }
+
+  /* The blur is what makes a translucent bar read as glass over light instead
+   * of as a washed-out fill. A reader who asks for flat transparency gets the
+   * solid bar back; the field still shows in the launcher's open space. */
+  @media (prefers-reduced-transparency: no-preference) {
+    [data-aurora='on'] .app-chrome,
+    [data-aurora='on'] .cad-rail {
+      backdrop-filter: blur(12px) saturate(1.3);
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    [data-aurora='on'] .app-chrome,
+    [data-aurora='on'] .cad-rail,
+    [data-aurora='on'] .status-bar {
+      background-color: hsl(var(--surface));
+      backdrop-filter: none;
+    }
+  }
+
+  /* Forced colours owns every surface in the window; scenery has no place. */
+  @media (forced-colors: active) {
+    .folio-aurora {
+      display: none;
+    }
   }
 
   .app-panel {
     @apply bg-card text-card-foreground;
     box-shadow: inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
+  }
+
+  /*
+   * The shell's one search door. A 32px glass field in the header, deliberately
+   * the widest control up there: the whole workbench (28 workspaces, 40 demos,
+   * document actions) is reachable by typing into it. It collapses to its icon
+   * below `lg`, where the header would otherwise clip the project name.
+   */
+  .shell-command {
+    @apply inline-flex h-8 w-[clamp(12rem,22vw,20rem)] min-w-0 flex-shrink items-center gap-2 rounded-lg border border-border/70 bg-background/40 px-2 text-[11px] text-muted-foreground outline-none transition-[border-color,background-color,box-shadow] duration-150;
+  }
+
+  .shell-command:hover {
+    @apply border-border bg-background/70 text-foreground;
+  }
+
+  .shell-command:focus-visible {
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .shell-command__label {
+    @apply min-w-0 flex-1 truncate text-left;
+  }
+
+  .shell-command__key {
+    @apply flex flex-shrink-0 items-center gap-0.5;
+  }
+
+  @media (max-width: 1023px) {
+    .shell-command {
+      @apply w-8 justify-center px-0;
+    }
+
+    .shell-command__label,
+    .shell-command__key {
+      display: none;
+    }
+  }
+
+  /* The document's save state, stated rather than implied by an asterisk. */
+  .doc-state {
+    @apply inline-flex flex-shrink-0 items-center gap-1.5 text-[11px] font-medium;
   }
 
   .app-panel-header {
@@ -349,7 +663,465 @@
       inset 0 0 0 1px hsl(var(--shadow-color) / 0.12);
   }
 
-  /* ── CAD action pair (KiCad/Altium/Fusion convention) ────────────────────
+  /* ── Launcher card ────────────────────────────────────────────────────────
+   * A project card is a door, not a document. It lifts toward the pointer, its
+   * edge takes the accent, and the keyboard gets the same edge without the card
+   * leaving its place in the grid.
+   *
+   * Before this the lift, the border and the shadow were eleven utility classes
+   * written into the JSX, so no second card surface could reuse the treatment and
+   * the two that wanted to disagreed about their corners. The hover rules are
+   * deliberately class+pseudo (`0,2,0`) so they out-rank the base `shadow-sm`
+   * the shared Card primitive carries, instead of fighting it in the cascade.
+   */
+  .project-card {
+    @apply overflow-hidden rounded-xl border-border/70;
+    transition:
+      transform 200ms ease,
+      border-color 200ms ease,
+      box-shadow 200ms ease;
+  }
+
+  .project-card:hover {
+    transform: translateY(-3px);
+    border-color: hsl(var(--primary) / 0.55);
+    box-shadow:
+      0 0 0 1px hsl(var(--primary) / 0.22),
+      0 18px 30px -20px hsl(var(--shadow-color) / 0.95);
+  }
+
+  .project-card:focus-within {
+    border-color: hsl(var(--primary) / 0.55);
+    box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .project-card:active {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 18px -16px hsl(var(--shadow-color) / 0.9);
+  }
+
+  /* ── Launcher family tile ─────────────────────────────────────────────────
+   * A level select, not a legend: pressing one creates a project and opens it in
+   * that family's first workspace, so it is built as a control — raised edge,
+   * press, focus halo — and not as one of the read-only pills. `--family-accent`
+   * arrives from the same registry that underlines the open workspace tab, so the
+   * hue a family wears in the launcher is the hue it wears inside the project.
+   */
+  .family-tile {
+    @apply relative flex h-full min-w-0 flex-col items-start gap-1 overflow-hidden rounded-lg border border-border/70 bg-surface/60 px-3 py-3 text-left text-surface-foreground outline-none;
+    transition:
+      transform 160ms ease,
+      border-color 160ms ease,
+      background-color 160ms ease,
+      box-shadow 160ms ease;
+  }
+
+  /* The accent is a hairline across the top of the tile, brightest where the
+   * label starts, so a row of five reads as one instrument panel. */
+  .family-tile::before {
+    content: '';
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: 2px;
+    background: linear-gradient(
+      90deg,
+      hsl(var(--family-accent, var(--primary)) / 0.95),
+      hsl(var(--family-accent, var(--primary)) / 0.2) 70%,
+      transparent
+    );
+  }
+
+  .family-tile:hover {
+    transform: translateY(-2px);
+    border-color: hsl(var(--family-accent, var(--primary)) / 0.6);
+    background-color: hsl(var(--family-accent, var(--primary)) / 0.12);
+    box-shadow: 0 14px 26px -20px hsl(var(--shadow-color) / 0.95);
+  }
+
+  .family-tile:focus-visible {
+    border-color: hsl(var(--family-accent, var(--primary)) / 0.8);
+    box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .family-tile:active {
+    transform: translateY(0);
+  }
+
+  .family-tile__label {
+    @apply text-[15px] font-semibold leading-tight tracking-[-0.01em] text-foreground;
+  }
+
+  .family-tile__count {
+    @apply text-[11px] font-medium tabular-nums text-muted-foreground;
+  }
+
+  .family-tile__desc {
+    @apply mt-1 text-xs leading-relaxed text-muted-foreground;
+  }
+
+  /* ── Launcher, v3 ─────────────────────────────────────────────────────────
+   * The library opens on a statement rather than a form. One glass stage sets
+   * the frame, a single search field is the fastest door, and the five families
+   * and three runnable demos sit under it as equal, clearly-pressable objects.
+   * Every hue is a theme token; the accent arrives per tile.
+   */
+  .launcher-column {
+    @apply mx-auto w-full max-w-[1180px] px-4 pb-20 pt-6 sm:px-6 sm:pt-8;
+  }
+
+  .launcher-hero {
+    @apply relative mb-10 overflow-hidden rounded-2xl border border-border/60 bg-card/70 p-6 sm:p-8;
+    box-shadow:
+      inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge)),
+      0 30px 60px -48px hsl(var(--shadow-color) / 1);
+    backdrop-filter: blur(14px);
+  }
+
+  /* A slow aurora-coloured wash behind the copy: the same three brand hues the
+   * shell's ambient field carries, held at low alpha so it never competes with
+   * the text the contrast contract measures. Decorative only. */
+  .launcher-hero__aura {
+    position: absolute;
+    inset: -35% -20% auto auto;
+    width: 620px;
+    height: 420px;
+    pointer-events: none;
+    background:
+      radial-gradient(45% 55% at 30% 35%, hsl(var(--primary) / 0.22), transparent 72%),
+      radial-gradient(40% 50% at 70% 25%, hsl(var(--chart-4) / 0.18), transparent 74%),
+      radial-gradient(45% 45% at 55% 75%, hsl(var(--chart-2) / 0.14), transparent 76%);
+    filter: blur(6px);
+  }
+
+  .launcher-hero--skeleton {
+    min-height: 260px;
+  }
+
+  .launcher-eyebrow {
+    @apply relative mb-3 flex items-center gap-2 text-xs font-medium text-primary;
+  }
+
+  .launcher-eyebrow__dot {
+    @apply inline-block h-1.5 w-1.5 rounded-full;
+    background: hsl(var(--primary));
+    box-shadow: 0 0 12px hsl(var(--primary) / 0.9);
+  }
+
+  .launcher-title {
+    @apply relative text-[2.3rem] font-semibold leading-[1.02] tracking-[-0.035em] text-foreground sm:text-[2.9rem];
+    text-wrap: balance;
+  }
+
+  .launcher-lede {
+    @apply relative mt-3 max-w-2xl text-[15px] leading-relaxed text-muted-foreground;
+  }
+
+  .launcher-search {
+    @apply h-12 w-full rounded-xl border border-input bg-background/70 pl-11 pr-24 text-[15px] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground;
+    box-shadow: inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
+  }
+
+  .launcher-search:focus {
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .launcher-stats {
+    @apply relative mt-7 flex flex-wrap gap-x-8 gap-y-3 border-t border-border/70 pt-5;
+  }
+
+  .launcher-stats dt {
+    @apply text-xs font-medium text-muted-foreground;
+  }
+
+  .launcher-stats dd {
+    @apply mt-1 text-2xl font-semibold tracking-[-0.02em] tabular-nums text-foreground;
+  }
+
+  .launcher-section-title {
+    @apply text-sm font-semibold tracking-[-0.01em] text-foreground;
+  }
+
+  .family-tile__top {
+    @apply mb-2 flex w-full items-center justify-between gap-2;
+  }
+
+  .family-tile__icon {
+    @apply flex h-7 w-7 items-center justify-center rounded-md;
+    color: hsl(var(--family-accent, var(--primary)));
+    background: hsl(var(--family-accent, var(--primary)) / 0.14);
+  }
+
+  .family-tile__icon > svg {
+    @apply h-4 w-4;
+  }
+
+  .family-tile__count-badge {
+    @apply rounded-full bg-muted/70 px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground;
+  }
+
+  .family-tile__foot {
+    @apply mt-auto flex w-full items-center justify-between gap-2 border-t border-border/50 pt-2.5 text-[11px] font-medium text-muted-foreground;
+  }
+
+  .family-tile:hover .family-tile__foot {
+    color: hsl(var(--family-accent, var(--primary)));
+  }
+
+  .launcher-demo {
+    @apply relative flex h-full flex-col overflow-hidden rounded-xl border border-border/70 bg-card/80 p-4;
+    box-shadow: inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
+    transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+  }
+
+  .launcher-demo::before {
+    content: '';
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: 2px;
+    background: linear-gradient(
+      90deg,
+      hsl(var(--family-accent, var(--primary)) / 0.95),
+      hsl(var(--family-accent, var(--primary)) / 0.15) 65%,
+      transparent
+    );
+  }
+
+  .launcher-demo:hover {
+    transform: translateY(-2px);
+    border-color: hsl(var(--family-accent, var(--primary)) / 0.55);
+    box-shadow: 0 18px 32px -24px hsl(var(--shadow-color) / 1);
+  }
+
+  .launcher-demo__top {
+    @apply mb-3 flex items-center justify-between gap-2;
+  }
+
+  .launcher-demo__mode {
+    @apply inline-flex items-center gap-1.5 rounded-full bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground;
+  }
+
+  .launcher-demo__title {
+    @apply text-base font-semibold leading-snug tracking-[-0.015em] text-foreground;
+  }
+
+  .launcher-demo__summary {
+    @apply mt-1.5 line-clamp-3 flex-1 text-[13px] leading-relaxed text-muted-foreground;
+  }
+
+  .launcher-demo__open {
+    @apply -mx-1 mt-3 inline-flex items-center gap-1.5 rounded-md px-1 py-0.5 text-[13px] font-medium text-foreground transition-colors;
+  }
+
+  .launcher-demo__open:hover {
+    border-color: hsl(var(--family-accent, var(--primary)) / 0.7);
+    color: hsl(var(--family-accent, var(--primary)));
+  }
+
+  .launcher-demo__open:focus-visible {
+    box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
+    outline: none;
+  }
+
+  .launcher-empty {
+    @apply border-border/70 py-14 text-center;
+  }
+
+  .launcher-empty__mark {
+    @apply mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-border/70 text-primary;
+    background:
+      radial-gradient(circle at 30% 25%, hsl(var(--primary) / 0.25), transparent 70%),
+      hsl(var(--surface) / 0.7);
+  }
+
+  .launcher-empty__mark > svg {
+    @apply h-6 w-6;
+  }
+
+  .launcher-project {
+    @apply relative;
+  }
+
+  .launcher-project__monogram {
+    @apply flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-primary/30 text-base font-semibold text-primary;
+    background:
+      linear-gradient(150deg, hsl(var(--primary) / 0.22), hsl(var(--chart-4) / 0.12)),
+      hsl(var(--background) / 0.4);
+  }
+
+  .launcher-project__facts {
+    @apply flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums text-muted-foreground;
+  }
+
+  .launcher-project__actions {
+    @apply mt-3 flex items-center justify-end gap-2 border-t border-border/70 pt-2;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .launcher-demo,
+    .launcher-demo:hover,
+    .family-tile,
+    .family-tile:hover,
+    .launcher-project,
+    .launcher-project:hover {
+      transform: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .launcher-hero__aura {
+      display: none;
+    }
+
+    .family-tile__icon,
+    .launcher-project__monogram {
+      border: 1px solid ButtonText;
+      background: Canvas;
+    }
+  }
+
+  /* ── Admin console ────────────────────────────────────────────────────────
+   * The console governs accounts and what they do in the workbench, so it is
+   * laid out like an operator's panel: sections down the left, one content
+   * column, tables whose header stays put while the directory scrolls under it.
+   * On a narrow window the rail becomes a wrapped strip of chips — a section is
+   * never hidden behind a sideways scroll nobody can see.
+   */
+  .admin-rail {
+    @apply flex-shrink-0 border-b border-border bg-surface/40 px-3 py-2 lg:w-56 lg:border-b-0 lg:border-r lg:py-4;
+  }
+
+  .admin-rail__list {
+    @apply flex flex-wrap items-stretch gap-1 lg:flex-col;
+  }
+
+  /*
+   * Below `lg` the rail is a horizontal strip, so each row takes its own label's
+   * width and the strip wraps. Stretching the rows to equal widths instead —
+   * which is what `flex-1` did — squeezed five names into 92px each and every one
+   * of them truncated to "Pe…", "Enviro…". A rail you cannot read is not compact,
+   * it is broken. In the vertical rail the rows are the rail's width, which is
+   * what they are for.
+   */
+  .admin-rail__item {
+    @apply flex min-h-9 flex-none cursor-pointer select-none items-center gap-2 rounded-md border border-transparent px-2.5 text-left text-xs font-medium text-muted-foreground outline-none transition-colors lg:w-full;
+  }
+
+  .admin-rail__item:hover {
+    @apply bg-accent/60 text-foreground;
+  }
+
+  /* The selected section keeps a hue on its edge, the same trick the open
+   * workspace tab uses, so the rail reads as an instrument panel. */
+  .admin-rail__item[aria-selected='true'] {
+    @apply border-border bg-card text-foreground;
+    box-shadow: inset 2px 0 0 hsl(var(--primary));
+  }
+
+  .admin-rail__item:focus-visible {
+    @apply border-ring outline-none ring-0 ring-offset-0;
+    box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .admin-rail__icon {
+    @apply h-3.5 w-3.5 flex-shrink-0;
+  }
+
+  .admin-rail__count {
+    @apply flex-shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground;
+  }
+
+  .admin-rail__note {
+    @apply mt-3 hidden text-[11px] leading-snug text-muted-foreground lg:block;
+  }
+
+  .admin-table {
+    @apply w-full border-collapse text-left text-xs;
+  }
+
+  .admin-table thead th {
+    @apply sticky top-0 z-10 bg-surface px-3 py-2 text-[11px] font-medium text-muted-foreground;
+    box-shadow: inset 0 -1px 0 hsl(var(--border));
+  }
+
+  .admin-table tbody tr {
+    @apply border-t border-border/70;
+  }
+
+  .admin-table tbody tr:hover {
+    @apply bg-accent/40;
+  }
+
+  .admin-table td {
+    @apply px-3 py-2.5 align-middle;
+  }
+
+  @media (forced-colors: active) {
+    .admin-rail__item[aria-selected='true'] {
+      border: 1px solid ButtonText;
+    }
+
+    .admin-rail__count {
+      border: 1px solid ButtonText;
+    }
+  }
+
+  /* The name is the rename control, so it carries an edit mark — but only while
+   * the pointer or the caret is on it. A wall of cards stays a wall of names. */
+  .editable-title .editable-title__mark {
+    opacity: 0;
+    transition: opacity 140ms ease;
+  }
+
+  .editable-title:hover .editable-title__mark,
+  .editable-title:focus-visible .editable-title__mark {
+    opacity: 1;
+  }
+
+  /* Forced colours strips the shadow that carried the lift, so the mark — the
+   * only thing saying "this name is editable" — never rides on a hover state. */
+  @media (forced-colors: active) {
+    .editable-title .editable-title__mark {
+      opacity: 1;
+    }
+
+    /* The tile's hue was decoration over an accent hairline; with the palette
+     * taken away it has to keep its own edge and its own text colour. */
+    .family-tile {
+      @apply bg-canvas;
+      border: 1px solid ButtonText;
+    }
+
+    .family-tile::before {
+      display: none;
+    }
+
+    .family-tile__label,
+    .family-tile__count,
+    .family-tile__desc {
+      color: CanvasText;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .project-card,
+    .project-card:hover,
+    .project-card:active,
+    .family-tile,
+    .family-tile:hover,
+    .family-tile:active {
+      transform: none;
+      transition: none;
+    }
+
+    .editable-title .editable-title__mark {
+      transition: none;
+    }
+  }
+
+  /* ── CAD action pair ─────────────────────────────────────────────────────
    * Side-by-side Back + primary actions that can NEVER differ in height:
    * one grid, one fixed width, one height, no wrap. Use for every wizard /
    * dialog footer in the product — never hand-roll two buttons again.
@@ -410,9 +1182,10 @@
     display: none;
   }
 
-  /* One monospace cell of the segmented status bar (CAD-style readouts). */
+  /* One cell of the segmented status bar. Sans, sentence case, tabular figures:
+   * the bar states facts; it is not a console. */
   .status-segment {
-    @apply inline-flex h-full flex-shrink-0 items-center gap-1.5 whitespace-nowrap border-r border-border px-3 text-[10px] uppercase tracking-[0.08em];
+    @apply inline-flex h-full flex-shrink-0 items-center gap-1.5 whitespace-nowrap border-r border-border px-3.5 text-xs;
   }
 
   /* Which cell ends the bar depends on the viewport — the optional ones are
@@ -482,7 +1255,7 @@
    * numeric readouts. Token-backed only — no colour values here.
    */
   .cad-tab {
-    @apply inline-flex h-7 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-md border-b-2 border-b-transparent px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground transition-[background-color,color,border-color,box-shadow] duration-150 hover:bg-accent hover:text-foreground;
+    @apply inline-flex h-7 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-md border-b-2 border-b-transparent px-3 text-[11px] font-medium text-muted-foreground transition-[background-color,color,border-color,box-shadow] duration-150 hover:bg-accent hover:text-foreground;
   }
 
   /* The family hue runs through its tabs: the icon carries it quietly all the
@@ -579,7 +1352,7 @@
    * the keycap starts clear of it.
    */
   .cad-rail-key {
-    @apply pointer-events-none absolute bottom-1 right-1.5 font-mono text-[8px] font-semibold leading-none text-muted-foreground;
+    @apply pointer-events-none absolute bottom-1 right-1.5 font-mono text-[9px] font-medium leading-none text-muted-foreground;
   }
 
   .cad-rail-btn-active .cad-rail-key {
@@ -595,6 +1368,14 @@
     box-shadow:
       inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge)),
       4px 0 16px -10px hsl(var(--shadow-color) / 0.75);
+  }
+
+  /* One wide desktop gets a library column that can show a part number and its
+   * package without truncating both to initials. */
+  @media (min-width: 1280px) {
+    .cad-dock {
+      @apply w-[19rem] min-w-[19rem] max-w-[19rem];
+    }
   }
 
   /* Inspector dock — same palette anatomy as the library, mirrored border. */
@@ -626,7 +1407,7 @@
 
   /* Fixed 28px palette title bar shared by every docked panel. */
   .cad-palette-title {
-    @apply flex h-7 flex-shrink-0 items-center justify-between gap-2 border-b border-border bg-surface px-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground;
+    @apply flex h-8 flex-shrink-0 items-center justify-between gap-2 border-b border-border bg-surface px-2.5 text-xs font-medium text-muted-foreground;
     /* The bar catches the shell's light along its top edge — see `--panel-edge`,
      * which an appearance that carries no decoration switches off. */
     background-image: linear-gradient(180deg, hsl(var(--foreground) / var(--panel-edge)) 0%, transparent 100%);
@@ -634,17 +1415,302 @@
 
   /* Sticky section header bar inside a palette body. */
   .cad-section-title {
-    @apply sticky top-0 z-10 flex h-6 items-center justify-between gap-2 border-b border-border bg-surface px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground;
+    @apply sticky top-0 z-10 flex h-7 items-center justify-between gap-2 border-b border-border bg-surface px-2 text-xs font-medium text-muted-foreground;
     background-image: linear-gradient(180deg, hsl(var(--foreground) / var(--panel-edge)) 0%, transparent 100%);
   }
 
   .cad-readout {
-    @apply font-mono text-[11px] tabular-nums;
+    @apply text-xs font-medium tabular-nums;
   }
 
   /* Editor-local status strip pinned to the bottom of the sheet. */
   .cad-hud {
-    @apply pointer-events-none absolute inset-x-0 bottom-0 flex h-6 items-center justify-between border-t border-border bg-surface/90 px-2 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm;
+    @apply pointer-events-none absolute inset-x-0 bottom-0 flex h-6 items-center justify-between border-t border-border bg-surface/90 px-2 text-[11px] tabular-nums text-muted-foreground backdrop-blur-sm;
+  }
+
+  /* ── Workbench bottom panel ───────────────────────────────────────────────
+   * The IDE half of the shell: a docked, tabbed panel under the sheet that
+   * states what the design engine found. It is part of the workstation row, so
+   * the canvas gives up height rather than being covered; the palette bar uses
+   * the same 32px anatomy as every dock above it.
+   */
+  .cad-panel {
+    @apply relative flex h-[13.5rem] flex-shrink-0 flex-col overflow-hidden border-t border-border bg-surface text-surface-foreground;
+    box-shadow: inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
+  }
+
+  /* The top edge is the splitter, so the dock's own border is not the only
+   * thing under the pointer when a designer reaches for it. */
+  .cad-panel__resize {
+    @apply absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize touch-none bg-transparent outline-none;
+  }
+
+  .cad-panel__resize:hover,
+  .cad-panel__resize--active,
+  .cad-panel__resize:focus-visible {
+    @apply bg-primary/50;
+  }
+
+  @media (max-width: 1279px) {
+    .cad-panel {
+      @apply h-[11.5rem];
+    }
+  }
+
+  /* A clean sheet does not need a findings dock. The panel keeps its bar and
+   * verdict but drops to a status rail, so a passing design gives the canvas
+   * its height back instead of reserving space to say nothing. */
+  .cad-panel--quiet {
+    @apply h-[7.25rem];
+  }
+
+  .cad-panel__bar {
+    @apply flex h-8 flex-shrink-0 items-stretch justify-between gap-2 border-b border-border pr-1;
+  }
+
+  .cad-panel__tabs {
+    @apply flex min-w-0 items-stretch overflow-x-auto;
+    scrollbar-width: none;
+  }
+
+  .cad-panel__tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* A tab, not a pill: the open panel is underlined in the family hue and the
+   * closed ones stay quiet, so the bar reads as one shelf of surfaces. */
+  .cad-panel__tab {
+    @apply relative flex flex-shrink-0 items-center gap-1.5 border-b-2 border-b-transparent px-3 text-xs font-medium text-muted-foreground outline-none transition-[color,border-color,background-color] duration-150 hover:bg-accent/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  .cad-panel__tab[aria-selected='true'] {
+    @apply border-b-primary text-foreground;
+  }
+
+  .cad-panel__tab > svg {
+    @apply h-3.5 w-3.5 flex-shrink-0;
+  }
+
+  .cad-panel__count {
+    @apply rounded-full bg-muted/70 px-1.5 text-[10px] font-medium leading-[16px] tabular-nums text-muted-foreground;
+  }
+
+  .cad-panel__count--alert {
+    @apply bg-destructive/10 text-destructive;
+  }
+
+  .cad-panel__actions {
+    @apply flex min-w-0 flex-shrink items-center gap-1.5 overflow-x-auto;
+    scrollbar-width: none;
+  }
+
+  .cad-panel__actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .cad-panel__filters {
+    @apply flex flex-shrink-0 items-center gap-0.5 rounded-md border border-border/70 bg-background/40 p-0.5;
+  }
+
+  .cad-panel__filter {
+    @apply inline-flex h-6 flex-shrink-0 items-center gap-1 rounded px-1.5 text-[11px] font-medium tabular-nums text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  .cad-panel__filter--active {
+    @apply bg-accent text-foreground;
+  }
+
+  .cad-panel__filter-dot {
+    @apply h-1.5 w-1.5 rounded-full;
+  }
+
+  .cad-panel__filter-dot--error {
+    @apply bg-destructive;
+  }
+
+  .cad-panel__filter-dot--warning {
+    @apply bg-warning;
+  }
+
+  .cad-panel__filter-dot--info {
+    @apply bg-muted-foreground;
+  }
+
+  .cad-panel__filter-count {
+    @apply text-[10px] text-muted-foreground;
+  }
+
+  .cad-panel__body {
+    @apply min-h-0 flex-1 overflow-y-auto scrollbar-thin;
+  }
+
+  .cad-panel__list {
+    @apply m-0 list-none p-0;
+  }
+
+  .cad-panel__empty {
+    @apply flex h-full items-center justify-center gap-2.5 px-4;
+  }
+
+  /* One finding: severity mark, the rule's sentence, the fix, then the part.
+   * The whole row is the locate target — a designer reads a rule and wants the
+   * offending pin under the viewport, not a second menu. */
+  .cad-problem {
+    @apply grid w-full grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2 border-b border-border/40 px-3 py-1.5 text-left outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring;
+  }
+
+  .cad-problem__icon {
+    @apply h-3.5 w-3.5 flex-shrink-0;
+  }
+
+  .cad-problem__icon--error {
+    @apply text-destructive;
+  }
+
+  .cad-problem__icon--warning {
+    @apply text-warning;
+  }
+
+  .cad-problem__icon--info {
+    @apply text-muted-foreground;
+  }
+
+  .cad-problem__side {
+    @apply flex flex-shrink-0 items-center gap-2;
+  }
+
+  .cad-problem__locate {
+    @apply inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground;
+  }
+
+  .cad-problem:hover .cad-problem__locate {
+    @apply text-primary;
+  }
+
+  /* The F8 cursor is a row state, not a hover: it survives the pointer moving
+   * away, and the footer counter says where it sits in the list. */
+  .cad-problem--active {
+    @apply bg-accent/60;
+    box-shadow: inset 2px 0 0 hsl(var(--primary));
+  }
+
+  /* Outline rows put the reference first, the part name in the flexible
+   * column and the category at the end — the same left-to-right reading order
+   * as a netlist, so locating a part is a scan, not a search. */
+  .cad-problem--outline {
+    @apply grid-cols-[auto_minmax(0,1fr)_auto] py-1;
+  }
+
+  .cad-panel__foot {
+    @apply flex h-7 flex-shrink-0 items-center justify-between gap-3 border-t border-border bg-surface px-2.5 text-[11px] tabular-nums text-muted-foreground;
+  }
+
+  /* ── Empty-sheet doorways ─────────────────────────────────────────────────
+   * A blank schematic is the moment the product is judged: the caption that
+   * used to sit here explained the gesture but offered nothing to press. The
+   * card names the sheet, offers the three real starts, and prints the four
+   * keys that get a draft moving — all inside the drawing area so the first
+   * click never leaves the canvas.
+   */
+  .cad-empty-sheet {
+    @apply pointer-events-none absolute inset-0 z-[2] flex items-center justify-center p-4;
+  }
+
+  .cad-empty-sheet__card {
+    @apply pointer-events-auto flex w-full max-w-[24rem] flex-col items-center rounded-xl border border-border/70 bg-card/90 px-5 py-5 text-center;
+    box-shadow:
+      inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge)),
+      0 24px 48px -36px hsl(var(--shadow-color) / 1);
+    backdrop-filter: blur(14px);
+    /* The card arrives with the workspace, not on every empty re-render: one
+     * short rise, removed for readers who ask for less motion. */
+    animation: cad-empty-sheet-in 220ms ease-out both;
+  }
+
+  @keyframes cad-empty-sheet-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .cad-empty-sheet__mark {
+    @apply mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-primary/30 text-primary;
+    background:
+      radial-gradient(circle at 30% 25%, hsl(var(--primary) / 0.28), transparent 72%),
+      hsl(var(--surface) / 0.8);
+  }
+
+  .cad-empty-sheet__mark > svg {
+    @apply h-5 w-5;
+  }
+
+  .cad-empty-sheet__eyebrow {
+    @apply text-[11px] font-medium tracking-[0.02em] text-muted-foreground;
+  }
+
+  .cad-empty-sheet__title {
+    @apply mt-1 text-base font-semibold tracking-[-0.01em] text-foreground;
+  }
+
+  .cad-empty-sheet__lede {
+    @apply mt-1.5 max-w-[21rem] text-xs leading-relaxed text-muted-foreground;
+  }
+
+  .cad-empty-sheet__actions {
+    @apply mt-4 flex w-full flex-wrap items-center justify-center gap-1.5;
+  }
+
+  .cad-empty-sheet__action {
+    @apply inline-flex h-8 items-center gap-1.5 rounded-md border border-border/80 bg-background/60 px-2.5 text-xs font-medium text-foreground outline-none transition-[background-color,border-color,box-shadow] duration-150 hover:border-primary/50 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  .cad-empty-sheet__action > svg {
+    @apply h-3.5 w-3.5;
+  }
+
+  .cad-empty-sheet__action--primary {
+    @apply border-transparent bg-primary text-primary-foreground hover:bg-primary hover:brightness-110;
+    box-shadow: 0 3px 12px -5px hsl(var(--primary) / var(--control-glow));
+  }
+
+  .cad-empty-sheet__keys {
+    @apply mt-4 grid w-full grid-cols-4 gap-2 border-t border-border/70 pt-3;
+  }
+
+  .cad-empty-sheet__keys dt {
+    @apply text-[11px] font-medium text-muted-foreground;
+  }
+
+  .cad-empty-sheet__keys dd {
+    @apply mt-1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cad-empty-sheet__card {
+      animation: none;
+    }
+
+    .cad-empty-sheet__action {
+      transition: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .cad-empty-sheet__card,
+    .cad-empty-sheet__action {
+      border: 1px solid ButtonText;
+      background: Canvas;
+    }
+
+    .cad-empty-sheet__mark {
+      border: 1px solid ButtonText;
+      background: Canvas;
+    }
   }
 
   /* Chip shown while a library part is armed for placement. It is the only
@@ -652,6 +1718,45 @@
    * accent ring and floats clear of the sheet chrome. */
   .cad-place-chip {
     @apply pointer-events-none absolute left-1/2 top-7 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-primary/40 bg-surface/95 px-3 py-1 text-[11px] text-surface-foreground shadow-lg backdrop-blur-sm;
+  }
+
+  /*
+   * A surface that takes library rows. The edge answers the drag before the drop
+   * lands, so the pointer says whether this is the right place: accent while a
+   * compatible row hovers, destructive for the moment after a row it cannot use.
+   */
+  .cad-dropzone {
+    transition: box-shadow 120ms ease-out;
+  }
+
+  .cad-dropzone[data-library-drop='accept'] {
+    box-shadow:
+      inset 0 0 0 2px hsl(var(--primary) / 0.7),
+      inset 0 0 28px -8px hsl(var(--primary) / var(--control-glow));
+  }
+
+  .cad-dropzone[data-library-drop='refuse'] {
+    box-shadow: inset 0 0 0 2px hsl(var(--destructive) / 0.75);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cad-dropzone {
+      transition: none;
+    }
+  }
+
+  /* The sentence a drop zone speaks — a refusal, or the row it is about to spend. */
+  .cad-drop-note {
+    @apply absolute left-1/2 top-2 z-20 flex max-w-[min(30rem,calc(100%-1rem))] -translate-x-1/2 items-center gap-2 rounded-full border border-primary/40 bg-surface/95 px-3 py-1 text-[11px] text-surface-foreground shadow-lg backdrop-blur-sm;
+  }
+
+  .cad-drop-note--refuse {
+    @apply border-destructive/50 text-destructive;
+  }
+
+  /* A note that lives inside a card rather than floating over a viewport. */
+  .cad-drop-note--inline {
+    @apply static z-0 max-w-none translate-x-0 rounded-md border-border/70 bg-muted/50 px-2 py-1 shadow-none backdrop-blur-none;
   }
 
   /* Right-click menu over the sheet. */
@@ -669,7 +1774,7 @@
 
   /* Fail-loud strip listing placed symbols that break the symbol contract. */
   .cad-symbol-faults {
-    @apply pointer-events-none absolute inset-x-0 bottom-6 z-10 flex h-6 items-center gap-2 border-t border-destructive/40 bg-surface px-2 text-[10px] uppercase tracking-[0.08em] text-destructive;
+    @apply pointer-events-none absolute inset-x-0 bottom-6 z-10 flex h-6 items-center gap-2 border-t border-destructive/40 bg-surface px-2 text-[11px] text-destructive;
   }
 
   .cad-ruler-face {
@@ -677,24 +1782,109 @@
   }
 
 
+  /* ── One control shape ────────────────────────────────────────────────────
+   * Every pressable thing in the chrome is built from `.cad-ctl`: one height,
+   * one radius, one icon size, one focus treatment. Before this, a strip could
+   * put a `rounded-full` button next to a `rounded-sm` one, a 13px icon next to
+   * a 16px one, and the row would never share a centre line — the icons sit at
+   * different offsets inside boxes that disagree about their own corners.
+   *
+   * The rule: a pill is not a control shape here. `rounded-full` is reserved for
+   * status that is read and never pressed (`.cad-chip`, `.cad-kbd`, a badge), so
+   * pressing something and reading something cannot look the same.
+   *
+   * 28px is the shortest legal target — the a11y contract floors every button
+   * at 1.5rem, and the chrome (tab strip, HUDs, floating palettes) is built on
+   * 28px rows, so a control that matched its row would be exactly 28px.
+   */
+  .cad-ctl {
+    @apply inline-flex h-7 min-h-7 min-w-7 shrink-0 cursor-pointer select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-surface/70 px-2 text-[11px] font-medium leading-none text-surface-foreground;
+    transition:
+      background-color 140ms ease,
+      border-color 140ms ease,
+      color 140ms ease,
+      box-shadow 140ms ease,
+      transform 120ms ease;
+  }
+
+  /* The icon is a fixed 14px, whatever the caller passed. A `size={13}` next to
+   * a `w-4 h-4` is the arithmetic that breaks a row's centre line. */
+  .cad-ctl > svg {
+    @apply h-3.5 w-3.5 flex-shrink-0;
+  }
+
+  .cad-ctl:hover:not(:disabled) {
+    @apply border-primary/40 bg-accent text-accent-foreground;
+  }
+
+  .cad-ctl:active:not(:disabled) {
+    @apply translate-y-px;
+  }
+
+  /* Same one-edge focus contract as `.cad-field`: the border names it, the halo
+   * makes it findable on a busy sheet. */
+  .cad-ctl:focus-visible {
+    @apply outline-none border-ring ring-0 ring-offset-0;
+    box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .cad-ctl:disabled {
+    @apply pointer-events-none border-transparent bg-muted/40 text-muted-foreground;
+  }
+
+  .cad-ctl--icon {
+    @apply w-7 px-0;
+  }
+
+  /* A control that holds a state, not an action — view mode, active tool. */
+  .cad-ctl--active {
+    @apply border-primary/60 bg-primary/15 text-primary;
+  }
+
+  .cad-ctl--active:hover:not(:disabled) {
+    @apply bg-primary/25 text-primary;
+  }
+
+  /* The emphasis end of the scale, for the one action a surface wants taken. */
+  .cad-ctl--primary {
+    @apply border-primary/50 bg-primary/20 text-primary;
+  }
+
+  .cad-ctl--primary:hover:not(:disabled) {
+    @apply border-primary bg-primary/30 text-primary;
+  }
+
+  /* Read-only status: a pill, on purpose. It is looked at, not clicked. */
+  .cad-chip {
+    @apply inline-flex h-5 min-h-5 max-w-full items-center gap-1 whitespace-nowrap rounded-full border border-border bg-muted/50 px-2 text-[11px] leading-none tabular-nums text-muted-foreground;
+  }
+
+  .cad-chip > svg {
+    @apply h-3 w-3 flex-shrink-0;
+  }
+
+  .cad-chip--alert {
+    @apply border-destructive/40 bg-destructive/10 text-destructive;
+  }
+
   /* ── Inspector field system ───────────────────────────────────────────────
    * Dense label → value rows and flat monospace inputs — the row rhythm of a
    * CAD properties inspector, not a web form.
    */
   .cad-prop-row {
-    @apply grid min-h-[26px] grid-cols-[86px_minmax(0,1fr)] items-center gap-2 border-b border-border/50 px-2 py-0.5 text-[11px];
+    @apply grid min-h-[28px] grid-cols-[86px_minmax(0,1fr)] items-center gap-2 border-b border-border/50 px-2 py-0.5 text-xs;
   }
 
   .cad-prop-label {
-    @apply truncate text-[10px] font-medium uppercase tracking-[0.06em] text-muted-foreground;
+    @apply truncate text-xs font-medium text-muted-foreground;
   }
 
   .cad-prop-value {
-    @apply min-w-0 truncate font-mono text-[11px] tabular-nums text-foreground;
+    @apply min-w-0 truncate text-xs font-medium tabular-nums text-foreground;
   }
 
   .cad-field {
-    @apply h-[22px] min-w-0 rounded-md border border-border/70 bg-background px-1.5 font-mono text-[11px] text-foreground outline-none transition-[border-color,background-color] hover:border-border;
+    @apply h-6 min-w-0 rounded-md border border-input bg-background px-1.5 text-xs tabular-nums text-foreground outline-none transition-[border-color,background-color] hover:border-muted-foreground/60;
   }
 
   /* A live field tints as well as re-drawing its edge, and carries the same flush
@@ -708,6 +1898,58 @@
 
   .cad-field:disabled {
     @apply border-transparent bg-muted/40 text-muted-foreground;
+  }
+
+  /* ── Settings fields ──────────────────────────────────────────────────────
+   * The settings page is a form, but it is a form inside this app, so it takes
+   * the same 28px chrome scale as a tool button and the same one-edge focus
+   * contract as a canvas field. A number's unit lives *inside* the field edge:
+   * the value and the thing it is measured in are one control, and "0.2 mm"
+   * can never wrap onto two lines or be clipped by the row edge.
+   */
+  .cad-form-field {
+    @apply inline-flex h-7 min-w-0 items-center rounded-md border border-input bg-surface/40 transition-[border-color,background-color];
+  }
+
+  .cad-form-field:focus-within {
+    @apply border-ring bg-background;
+    box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .cad-form-field[data-disabled='true'] {
+    @apply border-transparent bg-muted/40;
+  }
+
+  .cad-form-input {
+    @apply h-full w-full min-w-0 bg-transparent px-2.5 text-[13px] tabular-nums text-foreground outline-none;
+  }
+
+  .cad-form-input::-webkit-outer-spin-button,
+  .cad-form-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input.cad-form-input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
+  .cad-form-unit {
+    @apply shrink-0 pl-0.5 pr-2.5 text-[11px] text-muted-foreground;
+  }
+
+  select.cad-form-select {
+    @apply h-7 max-w-[240px] min-w-0 cursor-pointer rounded-md border border-input bg-surface/40 px-2 text-[13px] text-foreground outline-none transition-[border-color,background-color] hover:border-primary/40 focus:border-ring;
+  }
+
+  select.cad-form-select:focus {
+    @apply bg-background;
+    box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  select.cad-form-select:disabled {
+    @apply cursor-not-allowed border-transparent bg-muted/40 text-muted-foreground;
   }
 
   /* ── Range control (slider) ─────────────────────────────────────────────
@@ -827,12 +2069,12 @@
 
   /* Live numeric readout pinned to the right of a control's label row. */
   .cad-slider-value {
-    @apply rounded-full border border-primary/30 bg-primary/10 px-1.5 py-px font-mono text-[11px] tabular-nums text-primary;
+    @apply rounded-full border border-primary/30 bg-primary/10 px-1.5 py-px text-[11px] font-medium tabular-nums text-primary;
   }
 
   /* ── Parts browser rows ─────────────────────────────────────────────────── */
   .cad-lib-row {
-    @apply relative flex h-[30px] w-full cursor-grab items-center gap-2 rounded-md px-2 text-left transition-colors hover:bg-accent active:cursor-grabbing;
+    @apply relative flex h-8 w-full cursor-grab items-center gap-2 rounded-md px-2 text-left transition-colors hover:bg-accent active:cursor-grabbing;
   }
 
   .cad-lib-row-armed {
@@ -846,7 +2088,7 @@
   }
 
   /* CAD hover tooltip: follows the pointer, offset so it never covers the
-   * pin or part under the cursor (KiCad-style readout, not a toast). */
+   * pin or part under the cursor. A readout, not a toast. */
   .cad-tip {
     @apply pointer-events-none absolute left-0 top-0 z-30 flex max-w-64 items-center gap-2 truncate whitespace-nowrap rounded-md border border-border bg-surface/95 px-2.5 py-1 text-[11px] text-surface-foreground shadow-lg backdrop-blur-sm;
   }
@@ -858,17 +2100,17 @@
 
   /* Bare search input — its container draws the border. */
   .cad-search {
-    @apply h-full w-full min-w-0 bg-transparent px-2 font-mono text-[11px] text-foreground outline-none placeholder:font-sans placeholder:text-muted-foreground;
+    @apply h-full w-full min-w-0 bg-transparent px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground;
   }
 
   /* Palette footer readout. */
   .cad-palette-foot {
-    @apply flex h-6 flex-shrink-0 items-center justify-between gap-2 border-t border-border bg-surface px-2.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground;
+    @apply flex h-7 flex-shrink-0 items-center justify-between gap-2 border-t border-border bg-surface px-2.5 text-[11px] tabular-nums text-muted-foreground;
   }
 
   /* Keyboard chip used in the placement banner. */
   .cad-kbd {
-    @apply rounded-md border border-border bg-muted/60 px-1 font-mono text-[9px] font-semibold leading-[14px] text-foreground;
+    @apply rounded-md border border-border bg-muted/60 px-1.5 font-mono text-[10px] font-medium leading-[16px] text-foreground;
     /* One pixel of hard light under the baseline: a keycap, not a label. */
     box-shadow: 0 1px 0 hsl(var(--shadow-color) / 0.45);
   }
@@ -891,8 +2133,10 @@
 @layer components {
   .code-metrics {
     font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
-    font-size: 12px;
-    line-height: 20px;
+    /* Set from the editor font-size preference by CodeEditor; the JS row
+       geometry uses the same pair, so text and caret stay on one grid. */
+    font-size: var(--cad-editor-font, 12px);
+    line-height: var(--cad-editor-line, 20px);
     letter-spacing: 0;
     tab-size: 4;
     white-space: pre;
@@ -1244,6 +2488,44 @@
 
 .tour-step-dot:hover {
   transform: scaleY(1.35);
+}
+
+/*
+ * Chapter travel: a single light sweep plus a destination chip that names the
+ * workspace the guide just opened. The overlay never takes pointer events, so
+ * the target stays operable throughout the 1 s cue. Reduced motion removes it
+ * entirely; the tour also skips rendering it when animations are off.
+ */
+.tour-travel-sweep {
+  background:
+    radial-gradient(120% 80% at 50% 0%, hsl(var(--primary) / 0.16), transparent 60%),
+    linear-gradient(100deg, transparent 20%, hsl(var(--primary) / 0.08) 50%, transparent 80%);
+  animation: tour-travel-sweep 1s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes tour-travel-sweep {
+  0% { opacity: 0; transform: translateX(-6%); }
+  18% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(4%); }
+}
+
+.tour-travel-chip {
+  animation: tour-travel-chip 1s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes tour-travel-chip {
+  0% { opacity: 0; transform: translateY(12px) scale(0.96); }
+  18% { opacity: 1; transform: translateY(0) scale(1); }
+  72% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-8px) scale(0.98); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-travel-sweep,
+  .tour-travel-chip {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 /*

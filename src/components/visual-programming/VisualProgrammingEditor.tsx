@@ -522,7 +522,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
         <div className="flex max-h-[38%] w-full flex-shrink-0 flex-col border-b border-border bg-card lg:max-h-none lg:w-80 lg:border-b-0 lg:border-r">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold text-foreground">Block Palette</h3>
-            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close visual programming editor">
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close visual programming editor" title="Leave the block editor; closing writes nothing to the design.">
               <X className="w-4 h-4" />
             </Button>
           </div>
@@ -672,7 +672,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
           <div className="flex max-h-[35%] w-full flex-shrink-0 flex-col border-t border-border bg-card lg:max-h-none lg:w-96 lg:border-l lg:border-t-0">
             <div className="flex items-center justify-between p-4 border-b border-border">
               <h3 className="font-semibold text-foreground">Generated Code</h3>
-              <Button variant="ghost" size="icon" onClick={() => setShowCode(false)} aria-label="Close code view">
+              <Button variant="ghost" size="icon" onClick={() => setShowCode(false)} aria-label="Close code view" title="Hide the generated code and go back to the blocks.">
                 <X className="w-4 h-4" />
               </Button>
             </div>

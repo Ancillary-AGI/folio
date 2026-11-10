@@ -119,6 +119,15 @@
   per-layer copper, via barrels, footprint pads and component bodies — and the
   same geometry feeds STL/OBJ export. Off-board traces, vias and parts are
   reported as warnings rather than silently clamped
+- **Footprints**: a part's declared package resolves to a library footprint, and
+  a pitched family the library does not hand-build (SOIC, TSSOP, VSSOP, X2SON,
+  DSBGA, QFN, TQFP, DIP, SOT-23) gets its nominal IPC-style land pattern from
+  the package name and pin count, so a datasheet IC reaches the board with copper
+  instead of a padless blob. The generated geometry is family-nominal, not a
+  manufacturer's recommended pattern, and tabbed power outlines (TO-92/TO-220/
+  TO-263) and module castellation rings are deliberately not generated — their
+  geometry is not a lead pitch, so those parts are reported as a warning rather
+  than dressed in guessed or borrowed copper
 - **Conversion & routing**: schematic-to-PCB placement and constrained autorouting
 - **Cross-selection**: picking a part on the sheet highlights it on the board and
   picking a part on the board selects it on the sheet — both views read and write
@@ -307,7 +316,10 @@
 ## HDL, FPGA & IC [done]
 
 - **HDL**: VHDL and Verilog subsets with parsers and fail-loud diagnostics,
-  logic synthesis, FPGA flow helpers
+  buses, clocked always blocks, case/default decode, unsigned `+`/`-` lowered to
+  ripple-carry gates, logic synthesis, FPGA flow helpers. Reference designs: an
+  8-bit accumulator CPU and a 4-tap FIR DSP datapath, both simulated and mapped
+  to SKY130
 - **IC**: flow adapters, standard-cell library, silicon floorplanning, GDS export,
   chip packaging models
 
@@ -492,7 +504,7 @@
   viewport, flips to whichever side fits and clamps on tiny windows, and the
   trigger only carries `aria-describedby` while the tooltip is open.
 - **Help centre** (**F1**, **?**, the header help button or the workspace
-  **Guide** button): searchable tabs for tutorials, a guide to all 25
+  **Guide** button): searchable tabs for tutorials, a guide to all 28
   workspaces, the control reference and the shortcut table. It reads the same
   description registry as the tooltips, so a control cannot be explained one way
   on hover and another way in the guide; workspace guides show their capability

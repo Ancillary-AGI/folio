@@ -109,13 +109,13 @@ export default function JobRunnerPanel({ runner = agentJobRunner }: JobRunnerPan
       </p>
 
       <div className="shrink-0 space-y-2 border-b border-border p-3">
-        <div className="scrollbar-none flex gap-1.5 overflow-x-auto pb-1">
+        <div className="flex flex-wrap gap-1.5">
           {TEMPLATES.map((template) => (
             <button
               key={template.label}
               type="button"
               onClick={() => queueJob(template.prompt)}
-              className="shrink-0 rounded-full border border-border bg-card px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-muted"
+              className="cad-ctl shrink-0"
             >
               {template.label}
             </button>
@@ -123,7 +123,7 @@ export default function JobRunnerPanel({ runner = agentJobRunner }: JobRunnerPan
         </div>
         <div className="flex gap-2">
           <Input
-            className="h-9 flex-1 border-border bg-card text-sm"
+            className="h-9 flex-1 border-input bg-card text-sm"
             placeholder="Describe the job: inspect, simulate, DRC, route, export…"
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
@@ -140,7 +140,7 @@ export default function JobRunnerPanel({ runner = agentJobRunner }: JobRunnerPan
             aria-label="Queue job"
             data-testid="job-add-button"
             className="h-9 bg-primary hover:bg-primary/90"
-          >
+            title="Put this prompt on the background queue; the runner works it while you keep editing.">
             <Send size={14} />
           </Button>
         </div>
@@ -181,7 +181,7 @@ export default function JobRunnerPanel({ runner = agentJobRunner }: JobRunnerPan
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="truncate text-xs font-medium">{job.title}</span>
-                        <span className={`rounded-full border px-1.5 py-px text-[10px] uppercase tracking-wide ${STATUS_STYLE[job.status]}`}>
+                        <span className={`rounded-full border px-1.5 py-px text-[11px] ${STATUS_STYLE[job.status]}`}>
                           {STATUS_LABEL[job.status]}
                         </span>
                         <span className="text-[10px] text-muted-foreground">{phaseLabel(job)}</span>
@@ -205,7 +205,7 @@ export default function JobRunnerPanel({ runner = agentJobRunner }: JobRunnerPan
                           className="h-7 px-2 text-xs text-muted-foreground hover:text-warning"
                           onClick={() => runner.pause(job.id)}
                           aria-label={`Pause job ${job.title}`}
-                        >
+                          title="Stop the job after the step it is on. Work already done stays done.">
                           <Pause size={12} />
                         </Button>
                       ) : null}
@@ -216,7 +216,7 @@ export default function JobRunnerPanel({ runner = agentJobRunner }: JobRunnerPan
                           className="h-7 px-2 text-xs text-muted-foreground hover:text-success"
                           onClick={() => runner.resume(job.id)}
                           aria-label={`Resume job ${job.title}`}
-                        >
+                          title="Let the job pick up again from the step it stopped at.">
                           <Play size={12} />
                         </Button>
                       )}
@@ -227,7 +227,7 @@ export default function JobRunnerPanel({ runner = agentJobRunner }: JobRunnerPan
                           className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
                           onClick={() => runner.cancel(job.id)}
                           aria-label={`Cancel job ${job.title}`}
-                        >
+                          title="End the job now. Steps it already applied to the design stay applied.">
                           <XCircle size={12} />
                         </Button>
                       )}
@@ -238,7 +238,7 @@ export default function JobRunnerPanel({ runner = agentJobRunner }: JobRunnerPan
                           className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
                           onClick={() => runner.remove(job.id)}
                           aria-label={`Remove job ${job.title}`}
-                        >
+                          title="Take the job and its log out of the runner.">
                           <Trash2 size={12} />
                         </Button>
                       )}
@@ -310,7 +310,7 @@ export default function JobRunnerPanel({ runner = agentJobRunner }: JobRunnerPan
                       )}
                       {job.report && (
                         <div className="mt-2 rounded bg-muted p-2">
-                          <p className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          <p className="mb-0.5 flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
                             <RotateCcw size={10} /> Report
                           </p>
                           <p className="whitespace-pre-wrap text-[11px] leading-relaxed text-foreground">{job.report}</p>

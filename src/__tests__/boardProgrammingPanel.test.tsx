@@ -5,6 +5,9 @@ import BoardProgrammingPanel from '../components/programming/BoardProgrammingPan
 import { useAppStore } from '../stores/useAppStore'
 import { useProjectStore, type CanvasComponent, type CanvasWire } from '../stores/useProjectStore'
 import type { Component } from '../lib/supabase'
+import { dropLibraryItem } from './helpers/libraryDrop'
+import { snippetCatalog } from '../lib/library/elementCatalogs'
+import type { LibraryItem } from '../lib/library/types'
 
 const libraryPart = (
   id: string,
@@ -95,5 +98,66 @@ describe('BoardProgrammingPanel schematic generation', () => {
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent(/schematic is empty/)
     })
+  })
+})
+
+/**
+ * The sketch editor is a drop target for code rows: C/C++ lands at the caret,
+ * and an HDL row is turned away with the reason instead of breaking the build.
+ */
+describe('BoardProgrammingPanel library drops', () => {
+  const sketch = (): HTMLTextAreaElement => screen.getByLabelText('Firmware source code') as HTMLTextAreaElement
+
+  const editorZone = (): HTMLElement => {
+    const zone = sketch().closest('.cad-dropzone')
+    if (!zone) throw new Error('the sketch editor is not a drop zone')
+    return zone as HTMLElement
+  }
+
+  const snippetRow = (id: string): LibraryItem => {
+    const row = snippetCatalog().find((item) => item.id === id)
+    if (!row) throw new Error(`catalog row ${id} is gone`)
+    return row
+  }
+
+  beforeEach(() => {
+    localStorage.clear()
+    useProjectStore.setState({ components: [], wires: [], firmwareCode: '', domainDesigns: {} })
+    useAppStore.setState({ demoRequest: null, armedLibraryItem: null })
+  })
+
+  it('inserts a firmware row at the caret', () => {
+    render(<BoardProgrammingPanel onClose={() => {}} />)
+
+    const area = sketch()
+    area.setSelectionRange(0, 0)
+    dropLibraryItem(editorZone(), snippetRow('fw-arduino-blink'))
+
+    expect(sketch().value.startsWith('// Turn an LED on PB5')).toBe(true)
+    expect(screen.getByText(/"Arduino blink loop" inserted at the caret\./)).toBeInTheDocument()
+    expect(useProjectStore.getState().firmwareCode).toContain('digitalWrite(13, HIGH)')
+  })
+
+  it('refuses HDL, which this board cannot compile', async () => {
+    render(<BoardProgrammingPanel onClose={() => {}} />)
+
+    const before = sketch().value
+    dropLibraryItem(editorZone(), snippetRow('hdl-mux2'))
+
+    expect(await screen.findByText(/is VERILOG HDL — the HDL editor takes it, not this firmware sketch\./)).toBeInTheDocument()
+    expect(sketch().value).toBe(before)
+  })
+
+  it('spends an armed row through the Place button and disarms it', async () => {
+    useAppStore.setState({ armedLibraryItem: snippetRow('fw-esp32-pwm') })
+
+    render(<BoardProgrammingPanel onClose={() => {}} />)
+
+    expect(await screen.findByText(/— drop it on the sketch or place it here\./)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Place' }))
+
+    expect(await screen.findByText(/"ESP32 PWM fade" inserted at the caret\./)).toBeInTheDocument()
+    expect(sketch().value).toContain('ledcAttachPin(PWM_PIN, 0)')
+    expect(useAppStore.getState().armedLibraryItem).toBeNull()
   })
 })

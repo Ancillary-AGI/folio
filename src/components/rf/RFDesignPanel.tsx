@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDemoRequest } from '../workspace/useDemoRequest'
 import { Activity, Download, Info, Radio, X } from 'lucide-react'
 import TraceChart, { type TraceSeries } from '../charts/TraceChart'
@@ -33,6 +33,9 @@ import { useTheme } from '../../lib/theme/useTheme'
 import { chartSeriesColors } from '../../lib/theme/tokens'
 import { describeError } from '../../lib/utils'
 import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign'
+import { useDomainLibraryZone } from '../../lib/library/useDomainLibraryZone'
+import type { LibraryItem } from '../../lib/library/types'
+import LibraryDropNote from '../library/LibraryDropNote'
 import { opticalLink, type OpticalLinkResult } from '../../lib/photonics/opticalLink'
 import {
   MAX_QUBITS,
@@ -387,6 +390,10 @@ interface RFDesign {
   linkBitRateMbps?: number
   linkRainRate?: number
   linkAtmospheric?: boolean
+  /** Feed and filter losses beside the antennas — what a chain element sets. */
+  linkTxLossDb?: number
+  linkRxLossDb?: number
+  linkAdditionalLossDb?: number
   numerologyMu?: number
 }
 
@@ -443,7 +450,12 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
   const [linkBitRateMbps, setLinkBitRateMbps] = useState(rfNumber(saved?.linkBitRateMbps, 10))
   const [linkRainRate, setLinkRainRate] = useState(rfNumber(saved?.linkRainRate, 0))
   const [linkAtmospheric, setLinkAtmospheric] = useState(saved?.linkAtmospheric !== false)
+  const [linkTxLossDb, setLinkTxLossDb] = useState(rfNumber(saved?.linkTxLossDb, 0))
+  const [linkRxLossDb, setLinkRxLossDb] = useState(rfNumber(saved?.linkRxLossDb, 0))
+  const [linkAdditionalLossDb, setLinkAdditionalLossDb] = useState(rfNumber(saved?.linkAdditionalLossDb, 0))
   const [numerologyMu, setNumerologyMu] = useState(rfNumber(saved?.numerologyMu, 0))
+  /** Which budget input the last dropped chain element wrote. */
+  const [chainPlaced, setChainPlaced] = useState<string | null>(null)
 
   const [fibreWavelengthNm, setFibreWavelengthNm] = useState(1550)
   const [fibreLaunchDbm, setFibreLaunchDbm] = useState(0)
@@ -480,7 +492,8 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
     arrayElements, arrayLayout, filterKind, cutoffMHz, bandwidthMHz, order, impedance,
     linkScenario, linkDistanceKm, linkAltitudeKm, linkElevationDeg, linkTxPowerDbm,
     linkTxGainDbi, linkRxGainDbi, linkBandwidthMHz, linkNoiseFigureDb, linkRequiredEbN0Db,
-    linkBitRateMbps, linkRainRate, linkAtmospheric, numerologyMu,
+    linkBitRateMbps, linkRainRate, linkAtmospheric, linkTxLossDb, linkRxLossDb,
+    linkAdditionalLossDb, numerologyMu,
   }, (next) => {
     setTab(linkTabOf(next.tab))
     if (next.antennaKind && ['dipole', 'monopole', 'patch', 'yagi', 'phased'].includes(next.antennaKind)) {
@@ -512,6 +525,9 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
     setLinkBitRateMbps(rfNumber(next.linkBitRateMbps, linkBitRateMbps))
     setLinkRainRate(rfNumber(next.linkRainRate, linkRainRate))
     setLinkAtmospheric(next.linkAtmospheric !== false)
+    setLinkTxLossDb(rfNumber(next.linkTxLossDb, linkTxLossDb))
+    setLinkRxLossDb(rfNumber(next.linkRxLossDb, linkRxLossDb))
+    setLinkAdditionalLossDb(rfNumber(next.linkAdditionalLossDb, linkAdditionalLossDb))
     setNumerologyMu(rfNumber(next.numerologyMu, numerologyMu))
   })
 
@@ -594,6 +610,9 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
         bitRateBps: linkBitRateMbps * 1e6,
         atmospheric: linkAtmospheric,
         rainRateMmPerHour: linkRainRate,
+        txLossDb: linkTxLossDb,
+        rxLossDb: linkRxLossDb,
+        additionalLossDb: linkAdditionalLossDb,
       })
     } catch (error) {
       return { error: describeError(error) }
@@ -602,6 +621,7 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
     frequencyMHz, linkScenario, linkAltitudeKm, linkElevationDeg, linkDistanceKm,
     linkTxPowerDbm, linkTxGainDbi, linkRxGainDbi, linkBandwidthMHz, linkNoiseFigureDb,
     linkRequiredEbN0Db, linkBitRateMbps, linkRainRate, linkAtmospheric,
+    linkTxLossDb, linkRxLossDb, linkAdditionalLossDb,
   ])
 
   const antennaData = 'error' in antenna ? null : antenna
@@ -610,6 +630,47 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
   const antennaError = 'error' in antenna ? antenna.error : 'Antenna design failed.'
   const filterError = 'error' in filter ? filter.error : 'Filter design failed.'
   const linkError = 'error' in link ? link.error : 'Link budget failed.'
+
+  /*
+   * A chain element writes the one budget input it actually is: an antenna sets
+   * a gain, a feed or filter sets its side's loss, a pad sets path loss, an LNA
+   * sets the receiver figure. The card then names the field it wrote, because
+   * "1.5 dB" means different things in those places.
+   */
+  const placeChainElement = useCallback((item: LibraryItem) => {
+    if (item.kind !== 'rf-element') return
+    const { role, valueDb, side } = item.payload
+    const onTransmit = side === 'tx'
+    if (role === 'antenna') {
+      if (onTransmit) setLinkTxGainDbi(valueDb)
+      else setLinkRxGainDbi(valueDb)
+      setChainPlaced(`${item.name} → ${onTransmit ? 'transmit' : 'receive'} antenna gain, ${valueDb.toFixed(1)} dBi`)
+      return
+    }
+    if (role === 'lna') {
+      setLinkNoiseFigureDb(valueDb)
+      setChainPlaced(`${item.name} → receiver noise figure, ${valueDb.toFixed(1)} dB`)
+      return
+    }
+    if (role === 'cable' || role === 'filter') {
+      if (onTransmit) {
+        setLinkTxLossDb(valueDb)
+        setChainPlaced(`${item.name} → transmit feed loss, ${valueDb.toFixed(1)} dB`)
+      } else {
+        setLinkRxLossDb(valueDb)
+        setChainPlaced(`${item.name} → receive feed loss, ${valueDb.toFixed(1)} dB`)
+      }
+      return
+    }
+    setLinkAdditionalLossDb(valueDb)
+    setChainPlaced(`${item.name} → additional path loss, ${valueDb.toFixed(1)} dB`)
+  }, [])
+
+  const chainZone = useDomainLibraryZone({
+    accepts: ['rf-element'],
+    as: 'the link budget',
+    onPlace: placeChainElement,
+  })
 
   const photonic = useMemo<OpticalLinkResult | { error: string }>(() => {
     try {
@@ -828,7 +889,7 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
               </button>
             ))}
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close RF workspace">
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close RF workspace" title="Leave the RF workspace; closing writes nothing to the design.">
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -1036,11 +1097,17 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
             </>
           ) : tab === 'link' ? (
             <>
-              <Card>
+              <Card className="cad-dropzone" {...chainZone.zoneProps}>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm">Link budget</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  <LibraryDropNote zone={chainZone} surface="the link budget" className="cad-drop-note--inline" />
+                  {chainPlaced && (
+                    <p role="status" className="rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-[11px] text-primary">
+                      {chainPlaced}
+                    </p>
+                  )}
                   <div className="space-y-1">
                     <label htmlFor="link-scenario" className="text-xs font-medium text-muted-foreground">
                       Scenario
@@ -1120,6 +1187,35 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
                     unit="dBi"
                     step={1}
                     onChange={setLinkRxGainDbi}
+                  />
+                  {/* The three loss terms a chain element can set, visible so a
+                      dropped feed or pad can be read and corrected in place. */}
+                  <NumberField
+                    id="link-tx-loss"
+                    label="Transmit feed loss"
+                    value={linkTxLossDb}
+                    unit="dB"
+                    min={0}
+                    step={0.1}
+                    onChange={setLinkTxLossDb}
+                  />
+                  <NumberField
+                    id="link-rx-loss"
+                    label="Receive feed loss"
+                    value={linkRxLossDb}
+                    unit="dB"
+                    min={0}
+                    step={0.1}
+                    onChange={setLinkRxLossDb}
+                  />
+                  <NumberField
+                    id="link-additional-loss"
+                    label="Additional path loss"
+                    value={linkAdditionalLossDb}
+                    unit="dB"
+                    min={0}
+                    step={1}
+                    onChange={setLinkAdditionalLossDb}
                   />
                   <NumberField
                     id="link-bandwidth"
@@ -1831,11 +1927,13 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
                         <dl className="space-y-2 text-xs">
                           {([
                             ['Transmitter power', `${linkTxPowerDbm.toFixed(1)} dBm`],
-                            ['EIRP', formatDb(linkData.txEirpDbm)],
+                            ['EIRP (after transmit feed loss)', formatDb(linkData.txEirpDbm)],
                             ['Free-space loss', formatDb(-linkData.freeSpaceLossDb)],
                             ['Atmospheric loss', formatDb(-linkData.atmosphericLossDb)],
                             ['Rain loss', formatDb(-linkData.rainLossDb)],
+                            ['Additional path loss', formatDb(-linkAdditionalLossDb)],
                             ['Receive antenna gain', `${linkRxGainDbi >= 0 ? '+' : ''}${linkRxGainDbi.toFixed(1)} dBi`],
+                            ['Receive feed loss', formatDb(-linkRxLossDb)],
                             ['Received power', formatDb(linkData.receivedPowerDbm)],
                             ['Noise floor', formatDb(linkData.noiseFloorDbm)],
                             ['Signal-to-noise ratio', formatDb(linkData.snrDb)],
@@ -1911,7 +2009,7 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
                           ['Sample rate (4096 FFT)', formatEng(linkNumerology.sampleRateHz, 'Hz')],
                         ] as const).map(([label, value]) => (
                           <div key={label} className="rounded-md border border-border/60 px-2 py-1.5">
-                            <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                            <dt className="text-[11px] text-muted-foreground">
                               {label}
                             </dt>
                             <dd className="font-mono text-foreground">{value}</dd>
@@ -2177,7 +2275,7 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
                       <CardContent>
                         <table className="w-full text-left text-xs">
                           <thead>
-                            <tr className="border-b border-border text-[10px] uppercase tracking-wide text-muted-foreground">
+                            <tr className="border-b border-border text-[11px] text-muted-foreground">
                               <th className="pb-1.5 font-medium">Basis</th>
                               <th className="pb-1.5 text-right font-medium">Probability</th>
                               <th className="pb-1.5 text-right font-medium">Amplitude</th>
@@ -2287,7 +2385,7 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
 function Metric({ label, value, pending = false }: { label: string; value: string; pending?: boolean }) {
   return (
     <div className="rounded-md border border-border bg-card px-3 py-1.5">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="text-[11px] text-muted-foreground">{label}</div>
       {/* pending = the model cannot produce this metric: prose, never a mono number. */}
       <div className={pending ? 'max-w-[16rem] text-[10px] leading-snug text-muted-foreground' : 'font-mono text-sm text-foreground'}>
         {value}

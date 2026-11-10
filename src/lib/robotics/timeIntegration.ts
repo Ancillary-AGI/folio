@@ -37,6 +37,17 @@ export type SecondOrderMethod = 'symplectic-euler' | 'rk4' | 'rk45';
 export interface StepOptions {
   /** Step size. Must be strictly positive. */
   dt: number;
+  /**
+   * Keep one sample in this many, counting from the start sample, and always the
+   * final one. Defaults to keeping every step.
+   *
+   * The two domains that integrate a stiff fast subsystem and plot it coarsely ask
+   * for a stride here instead of calling `decimate` afterwards: keeping every
+   * internal step means copying a whole state vector per step, and for a cable run
+   * that is the difference between a solve and a stalled tab. The result is the
+   * same array `decimate` would have returned.
+   */
+  keepEvery?: number;
 }
 
 export interface Sample {
@@ -61,6 +72,52 @@ function assertFinite(values: readonly number[], label: string): void {
  * First-order systems
  * ------------------------------------------------------------------ */
 
+/** Caller-owned working space for one first-order system of a fixed size. */
+export interface Rk4Scratch {
+  /** The `y + Σ a·k` argument handed to each stage. */
+  argument: number[];
+  /** Where the finished step is written. */
+  out: number[];
+}
+
+/** Allocate the two buffers one `rk4StepInto` needs for a state of `size`. */
+export function createRk4Scratch(size: number): Rk4Scratch {
+  if (!Number.isInteger(size) || size < 0) throw new Error(`RK4 scratch needs a whole state size, got ${size}.`);
+  return { argument: new Array<number>(size), out: new Array<number>(size) };
+}
+
+/**
+ * Classical fourth-order Runge-Kutta, written into caller-owned buffers.
+ *
+ * The arithmetic is the same as `rk4Step` — same stage arguments, same final
+ * weighted sum, same order of operations, so the numbers are bit-identical — and
+ * only the allocation differs: a run reuses these two arrays for every step
+ * instead of building four new ones. `out` may alias `state`: each element is
+ * read before it is written, and every stage argument is computed from the state
+ * that was handed in, so a caller can ping-pong a single buffer.
+ */
+export function rk4StepInto(
+  derivative: Derivative,
+  time: number,
+  state: readonly number[],
+  dt: number,
+  scratch: Rk4Scratch,
+): number[] {
+  const half = 0.5 * dt;
+  const { argument, out } = scratch;
+  const size = state.length;
+  const k1 = derivative(time, state);
+  for (let i = 0; i < size; i += 1) argument[i] = state[i] + half * k1[i];
+  const k2 = derivative(time + half, argument);
+  for (let i = 0; i < size; i += 1) argument[i] = state[i] + half * k2[i];
+  const k3 = derivative(time + half, argument);
+  for (let i = 0; i < size; i += 1) argument[i] = state[i] + dt * k3[i];
+  const k4 = derivative(time + dt, argument);
+  const sixth = dt / 6;
+  for (let i = 0; i < size; i += 1) out[i] = state[i] + sixth * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]);
+  return out;
+}
+
 /** Classical fourth-order Runge-Kutta, the workhorse. */
 export function rk4Step(
   derivative: Derivative,
@@ -68,11 +125,7 @@ export function rk4Step(
   state: readonly number[],
   dt: number,
 ): number[] {
-  const k1 = derivative(time, state);
-  const k2 = derivative(time + 0.5 * dt, state.map((v, i) => v + 0.5 * dt * k1[i]));
-  const k3 = derivative(time + 0.5 * dt, state.map((v, i) => v + 0.5 * dt * k2[i]));
-  const k4 = derivative(time + dt, state.map((v, i) => v + dt * k3[i]));
-  return state.map((v, i) => v + (dt / 6) * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]));
+  return rk4StepInto(derivative, time, state, dt, createRk4Scratch(state.length));
 }
 
 /** Explicit forward Euler: first-order accurate, kept as the accuracy floor. */
@@ -143,40 +196,134 @@ export function integrate(
 ): Sample[] {
   const method = options.method ?? 'rk4';
   const dt = options.dt;
+  const keepEvery = options.keepEvery === undefined ? 1 : Math.max(1, Math.floor(options.keepEvery));
   if (!Number.isFinite(t0) || !Number.isFinite(tEnd)) throw new Error('Time bounds must be finite.');
   if (!(dt > 0)) throw new Error(`Step size must be positive, got ${dt}.`);
   if (tEnd < t0) throw new Error(`End time ${tEnd} precedes start time ${t0}.`);
   assertFinite(initial, 'initial state');
 
-  const samples: Sample[] = [{ time: t0, state: [...initial] }];
-  let state = [...initial];
-  let time = t0;
+  // The length check belongs on the derivative itself, not on an extra call made
+  // only to inspect it: that call was a fifth evaluation of a four-stage method,
+  // paid on every step of every run in the app.
   let step = 0;
-
-  while (time < tEnd) {
-    const remaining = tEnd - time;
-    const last = remaining <= dt;
-    const h = last ? remaining : dt;
+  const checked: Derivative = (time, state) => {
     const slope = derivative(time, state);
     if (slope.length !== state.length) {
       throw new Error(`Step ${step}: derivative returned ${slope.length} values for ${state.length}.`);
     }
+    return slope;
+  };
+
+  const samples: Sample[] = [{ time: t0, state: [...initial] }];
+  const scratch = method === 'rk4' ? createRk4Scratch(initial.length) : null;
+  let state = [...initial];
+  let time = t0;
+
+  while (time < tEnd) {
+    const remaining = tEnd - time;
+    // The k-th grid time, not `time + dt`: accumulating the clock over hundreds of
+    // thousands of steps drifts a few ulps, which lands the last step just short of
+    // `tEnd` and makes it short. Then the endpoint sample sits one index off the
+    // reporting stride, `decimate` appends it next to the grid sample it almost
+    // equals, and the caller gets two chart points at the same time.
+    const target = t0 + (step + 1) * dt;
+    const last = remaining <= dt || target >= tEnd;
+    const h = last ? remaining : dt;
     const next =
-      method === 'rk4'
-        ? rk4Step(derivative, time, state, h)
+      method === 'rk4' && scratch
+        ? rk4StepInto(checked, time, state, h, scratch)
         : method === 'rk45'
-          ? rk45Step(derivative, time, state, h).next
-          : eulerStep(derivative, time, state, h);
+          ? rk45Step(checked, time, state, h).next
+          : eulerStep(checked, time, state, h);
     assertFinite(next, `Step ${step} at t=${time}`);
     state = next;
     // Land exactly on tEnd on the final step instead of accumulating round-off
     // (and never spin on a step too small to advance the clock).
-    time = last ? tEnd : time + h;
+    time = last ? tEnd : target;
     step += 1;
-    samples.push({ time, state: [...state] });
+    // With a stride, the states between the kept samples are never copied: a fine
+    // internal step is the point of the run, not something to report.
+    if (last || step % keepEvery === 0) samples.push({ time, state: [...state] });
     if (last) break;
   }
   return samples;
+}
+
+/* ------------------------------------------------------------------ *
+ * Output cadence and step planning
+ *
+ * Two domains — electric machines and biological models — integrate a stiff
+ * fast subsystem and plot it at a much coarser cadence. The plan is the same
+ * in both: pick an internal step that resolves the fastest time constant, then
+ * keep one sample in `stride` for the caller. It lives here so both use one
+ * implementation of the arithmetic and one ceiling on internal work.
+ * ------------------------------------------------------------------ */
+
+export interface SubStepPlan {
+  /** Internal integration step actually handed to `integrate`. */
+  dt: number
+  /** How many internal samples are dropped between reported samples. */
+  stride: number
+}
+
+/**
+ * Validate a caller-supplied window and step, and enforce a ceiling on the
+ * number of *output* samples. A run that would emit tens of millions of chart
+ * points is a mistake, not a long job, so it throws instead of hanging.
+ */
+export function assertOutputPlan(
+  tEnd: number,
+  outputDt: number,
+  maxOutputSteps: number,
+  limitLabel = 'output',
+): void {
+  if (!Number.isFinite(tEnd) || tEnd <= 0) throw new Error(`Simulation end time must be positive and finite (got ${tEnd}).`)
+  if (!Number.isFinite(outputDt) || outputDt <= 0) throw new Error(`Simulation step must be positive and finite (got ${outputDt}).`)
+  const steps = Math.ceil(tEnd / outputDt)
+  if (steps > maxOutputSteps) {
+    throw new Error(
+      `Simulation would take ${steps} ${limitLabel} steps (limit ${maxOutputSteps}); ` +
+        'increase the step size or shorten the run.',
+    )
+  }
+}
+
+/**
+ * Choose an internal step that resolves `fastestTau`, keeping the caller's
+ * output step as the reporting cadence.
+ *
+ * The rule of thumb is one twentieth of the fastest time constant: RK4 is
+ * stable to roughly |λh| < 2.8 and accurate to a few percent at h = τ/20, so
+ * the internal step is never the thing that ruins the answer. An infinite (or
+ * non-positive) `fastestTau` means nothing faster than the output step needs
+ * resolving, so the caller's step is used unchanged.
+ */
+export function planStableSubSteps(
+  tEnd: number,
+  outputDt: number,
+  fastestTau: number,
+  maxInternalSteps: number,
+): SubStepPlan {
+  const target = Number.isFinite(fastestTau) && fastestTau > 0 ? fastestTau / 20 : outputDt
+  const stride = Math.max(1, Math.ceil(outputDt / target))
+  const dt = outputDt / stride
+  const steps = Math.ceil(tEnd / dt)
+  if (steps > maxInternalSteps) {
+    throw new Error(
+      `A stable step of ${dt.toExponential(2)} needs ${steps} internal steps (limit ${maxInternalSteps}); ` +
+        'shorten the run or use a system with slower dynamics.',
+    )
+  }
+  return { dt, stride }
+}
+
+/** Keep every `stride`-th sample, and always keep the final one. */
+export function decimate<T extends { time: number }>(samples: T[], stride: number): T[] {
+  if (stride === 1) return samples
+  const out = samples.filter((_, index) => index % stride === 0)
+  const last = samples[samples.length - 1]
+  if (out[out.length - 1] !== last) out.push(last)
+  return out
 }
 
 /* ------------------------------------------------------------------ *

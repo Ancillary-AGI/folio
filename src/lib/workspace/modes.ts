@@ -8,7 +8,7 @@
  */
 import type { WorkspaceMode } from '../../stores/useAppStore'
 
-export type WorkspaceGroupId = 'design' | 'electrical' | 'mechanical' | 'ops'
+export type WorkspaceGroupId = 'design' | 'electrical' | 'mechanical' | 'life' | 'ops'
 
 export interface WorkspaceGroup {
   id: WorkspaceGroupId
@@ -26,7 +26,8 @@ export interface WorkspaceModeMeta {
 export const WORKSPACE_GROUPS: readonly WorkspaceGroup[] = [
   { id: 'design', label: 'Design', description: 'Schematic capture, simulation, PCB and fabrication' },
   { id: 'electrical', label: 'Electrical', description: 'Control, machines, power grids, RF, HDL, FPGA and silicon' },
-  { id: 'mechanical', label: 'Mechanical', description: 'CAD, robotics, firmware and hardware test' },
+  { id: 'mechanical', label: 'Mechanical', description: 'CAD, structures, robotics, firmware and hardware test' },
+  { id: 'life', label: 'Life systems', description: 'Reaction kinetics, organelles, cells, tissues, organs and whole-body disposition' },
   { id: 'ops', label: 'Operations', description: 'Digital twins, agents, plugins and monitoring' },
 ]
 
@@ -45,17 +46,19 @@ const MODES: readonly WorkspaceModeMeta[] = [
   { id: 'icdesign', label: 'IC Design', group: 'electrical', description: 'Synthesize SKY130 RTL, floorplan, package and export GDSII.' },
   { id: 'fpga', label: 'FPGA', group: 'electrical', description: 'Elaborate HDL, estimate device resources and emit a design manifest.' },
   { id: 'mechanical', label: 'CAD', group: 'mechanical', description: 'Beam analysis, enclosures, STEP/STL, printability and G-code.' },
+  { id: 'structures', label: 'Structures', group: 'mechanical', description: 'Pin-jointed trusses: joints, bars, bearings and loads solved by direct stiffness.' },
   { id: 'robotics', label: 'Robotics', group: 'mechanical', description: 'Forward/inverse kinematics, trajectories, collision checks and mechanisms.' },
   { id: 'embedded', label: 'Firmware', group: 'mechanical', description: 'Generate, compile and upload firmware and inspect board toolchains.' },
   { id: 'imaging', label: 'Pi Imaging', group: 'mechanical', description: 'Flash Raspberry Pi images, verify boot files and check serial bring-up.' },
   { id: 'visual', label: 'Blocks', group: 'mechanical', description: 'Compose behaviour from blocks and compile it to executable code.' },
   { id: 'hil', label: 'HIL', group: 'mechanical', description: 'Run hardware-in-the-loop suites against the modeled board.' },
+  { id: 'biology', label: 'Biology', group: 'life', description: 'Reaction kinetics, a respiring mitochondrion, excitable cells, gene circuits, conducting tissue and circuits, and drug disposition — solved, not illustrated.' },
   { id: 'twin', label: 'Twin / IIoT', group: 'ops', description: 'Synchronize digital twins and monitor a device fleet.' },
   { id: 'agents', label: 'Agents', group: 'ops', description: 'Run the closed-loop autopilot, inspect the EDA tool harness and verify a design claim.' },
   { id: 'components', label: 'Parts', group: 'ops', description: 'Import datasheets and extend the local part library.' },
   { id: 'plugins', label: 'Plugins', group: 'ops', description: 'Review, install and manage permission-gated plugins.' },
   { id: 'dashboard', label: 'System', group: 'ops', description: 'Compute capabilities, acceleration paths and project metrics.' },
-  { id: 'siem', label: 'SIEM', group: 'ops', description: 'Audit trail, security alerts and policy visibility.' },
+  { id: 'siem', label: 'Activity log', group: 'ops', description: 'What this workspace recorded, the alerts those events raised, and policy state.' },
   { id: 'marketplace', label: 'Marketplace', group: 'ops', description: 'Browse, install and publish versioned design bundles.' },
 ]
 
@@ -73,4 +76,20 @@ export const MODE_COUNT_BY_GROUP: Readonly<Record<WorkspaceGroupId, number>> =
   WORKSPACE_GROUPS.reduce(
     (acc, group) => ({ ...acc, [group.id]: MODES.filter((mode) => mode.group === group.id).length }),
     {} as Record<WorkspaceGroupId, number>,
+  )
+
+/**
+ * The workspace a family is entered through: the first mode listed under it, so
+ * "start a project in this family" lands on the tab that family is built around
+ * instead of always on the schematic. Derived from the same registry — a family
+ * that shipped no mode would fail here rather than quietly open a blank tab.
+ */
+export const FIRST_MODE_BY_GROUP: Readonly<Record<WorkspaceGroupId, WorkspaceMode>> =
+  WORKSPACE_GROUPS.reduce(
+    (acc, group) => {
+      const first = MODES.find((mode) => mode.group === group.id)
+      if (!first) throw new Error(`Workspace family "${group.id}" lists no mode.`)
+      return { ...acc, [group.id]: first.id }
+    },
+    {} as Record<WorkspaceGroupId, WorkspaceMode>,
   )

@@ -12,9 +12,6 @@ interface User {
 
 interface UserPresenceProps {
   users: User[];
-  showCursors: boolean;
-  showSelections: boolean;
-  canvasRef: React.RefObject<HTMLElement>;
 }
 
 const formatLastSeen = (lastSeen: number): string => {
@@ -24,23 +21,38 @@ const formatLastSeen = (lastSeen: number): string => {
   return `active ${Math.floor(seconds / 60)}m ago`;
 };
 
+const initial = (name: string): string => name.trim().charAt(0).toUpperCase() || '?';
+
+/**
+ * The people else in this project, as a stacked avatar group in the header.
+ *
+ * One entry per person, overlapping by a few pixels so five collaborators cost
+ * the bar two avatar widths rather than five. Each carries its own colour, which
+ * is the same colour its selections wear on the sheet.
+ */
 const UserPresence: React.FC<UserPresenceProps> = ({ users }) => {
   const active = users.filter(user => user.isActive);
   if (active.length === 0) return null;
 
   return (
-    <div className="absolute inset-0 pointer-events-none" aria-label={`${active.length} collaborator${active.length === 1 ? '' : 's'} online`}>
+    <div
+      className="flex min-w-0 items-center -space-x-2"
+      role="group"
+      aria-label={`${active.length} other ${active.length === 1 ? 'collaborator' : 'collaborators'} in this project`}
+    >
       {active.map(user => (
-        <div key={user.id} className="absolute left-2 top-2 flex items-center gap-2 rounded-full border border-border bg-background/90 py-1 pl-1 pr-3 shadow-sm" style={{ color: user.color }} title={`${user.name} (${user.email}) — ${formatLastSeen(user.lastSeen)}`}>
+        <span
+          key={user.id}
+          title={`${user.name} (${user.email}) — ${formatLastSeen(user.lastSeen)}`}
+          className="relative flex h-6 w-6 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-background"
+          style={{ backgroundColor: `${user.color}33`, color: user.color }}
+        >
           {user.avatar ? (
-            <img src={user.avatar} alt={user.name} className="h-6 w-6 rounded-full" />
+            <img src={user.avatar} alt={user.name} className="h-6 w-6 object-cover" />
           ) : (
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-semibold" style={{ backgroundColor: `${user.color}22` }}>
-              {user.name.charAt(0).toUpperCase()}
-            </span>
+            <span className="text-[10px] font-semibold">{initial(user.name)}</span>
           )}
-          <span className="text-xs font-medium text-foreground">{user.name}</span>
-        </div>
+        </span>
       ))}
     </div>
   );

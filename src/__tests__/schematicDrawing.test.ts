@@ -161,6 +161,11 @@ describe('engineering schematic drawing', () => {
     expect(svg).toContain('text-anchor="middle"')
   })
 
+  it('prints the net name on the sheet', () => {
+    const svg = drawing()
+    expect(svg).toContain('>VCC</text>')
+  })
+
   it('renders a dark-screen variant and notes strip', () => {
     const svg = drawing({ palette: 'screen', notes: ['Reference designators per IEC 60617'] })
     expect(svg).toContain('fill="#0b1017"')

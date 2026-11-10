@@ -18,10 +18,17 @@ import {
 } from '../../lib/robotics/mechanismExport';
 import { buildDemoArm, buildSixDofDemoMechanism, buildTwoLinkDemoMechanism } from '../../lib/demo/demoArm';
 import { useDemoRequest } from '../workspace/useDemoRequest';
+import LibraryDropNote from '../library/LibraryDropNote';
+import { useDomainLibraryZone } from '../../lib/library/useDomainLibraryZone';
+import type { LibraryItem } from '../../lib/library/types';
+import { ROBOT_ARCHITECTURES, buildRobotMechanism } from '../../lib/robotics/robotLibrary';
 import type { Finding } from '../../lib/robotics/manufacturability';
 import { checkTaskPath } from '../../lib/robotics/taskCheck';
 import RoboticsToolbox from './RoboticsToolbox';
 import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign';
+import { setShadingMode as shadeScene, SHADING_MODES } from '../../lib/3d/outline';
+import { SHADING_UI } from '../../lib/3d/shadingLabels';
+import { usePreference, usePreferenceValue } from '../../lib/settings/usePreference';
 
 interface AdvancedRoboticsPanelProps {
   onClose?: () => void;
@@ -129,6 +136,8 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
   const [trajectory, setTrajectory] = useState<Trajectory | null>(null);
   const [plannedMove, setPlannedMove] = useState<{ start: number[]; target: number[] } | null>(null);
   const [showWorkspace, setShowWorkspace] = useState(false);
+  /** The app-wide 3D reading, so an arm is inspected the way a board or bracket is. */
+  const [shadingMode, setShadingMode] = usePreference('shadingMode');
   const [dynamicsResult, setDynamicsResult] = useState<DynamicsResult | null>(null);
   const [runMessage, setRunMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   /** Findings from the last refused STEP export; empty when the last export succeeded. */
@@ -220,6 +229,44 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
   };
 
   useDemoRequest('robotics-demo', loadTwoLinkDemo);
+
+  /**
+   * A robot row builds the architecture the kinematics engine actually knows, so
+   * what lands on the stage is an arm FK, IK and dynamics can run — the panel
+   * never invents joint data for a row the library did not describe.
+   */
+  const placeRobotRow = useCallback(
+    (item: LibraryItem) => {
+      if (item.kind !== 'robot-element') return;
+      const architecture = ROBOT_ARCHITECTURES.find((entry) => entry.id === item.payload.architecture);
+      if (!architecture) return;
+      const mechanism = buildRobotMechanism(architecture);
+      loadMechanisms();
+      setSelectedMechanism(mechanism);
+      initializeJointAngles(mechanism);
+      // A new arm invalidates every result measured on the previous one.
+      setDynamicsResult(null);
+      setPlannedMove(null);
+      setTrajectory(null);
+      setPathResult(null);
+      setRunMessage({
+        kind: 'ok',
+        text: `${architecture.name} built and selected — ${architecture.dof} joints, ${architecture.reachMm} mm reach, ${architecture.payloadKg} kg payload.`,
+      });
+    },
+    [loadMechanisms],
+  );
+
+  const robotZone = useDomainLibraryZone({
+    accepts: (item) => {
+      if (item.kind !== 'robot-element') return `${item.name} is not a robot — this card builds mechanisms from the Robotics library.`;
+      return ROBOT_ARCHITECTURES.some((entry) => entry.id === item.payload.architecture)
+        ? true
+        : `The kinematics engine has no architecture named "${item.payload.architecture}".`;
+    },
+    as: 'the mechanism card',
+    onPlace: placeRobotRow,
+  });
 
   const runForwardKinematics = () => {
     if (!selectedMechanism) return;
@@ -566,11 +613,12 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
         </div>
 
         {/* Mechanism Selection */}
-        <Card>
+        <Card className="cad-dropzone" {...robotZone.zoneProps}>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm">Mechanism</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
+            <LibraryDropNote zone={robotZone} surface="this card" className="cad-drop-note--inline" />
             <Select
               value={selectedMechanism?.id || ''}
               onValueChange={(value) => {
@@ -717,7 +765,7 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
                 <div className="grid grid-cols-4 gap-1">
                   {(['x', 'y', 'z', 'size'] as const).map((key) => (
                     <div key={key}>
-                      <Label className="text-[10px] uppercase">{key === 'size' ? 'size' : key}</Label>
+                      <Label className="text-[11px]">{key === 'size' ? 'size' : key}</Label>
                       <Input
                         type="number"
                         step="0.05"
@@ -1001,6 +1049,22 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
           >
             Workspace
           </Button>
+          {/* The same reading the board and the bracket get, from the same setting,
+              so an arm can be checked for reach and clearance the way a frame is. */}
+          <div className="flex gap-1" role="group" aria-label="3D shading mode">
+            {SHADING_MODES.map((id) => (
+              <Button
+                key={id}
+                variant={shadingMode === id ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShadingMode(id)}
+                aria-pressed={shadingMode === id}
+                title={SHADING_UI[id].hint}
+              >
+                {SHADING_UI[id].label}
+              </Button>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -1013,6 +1077,18 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
 const MechanismVisualization: React.FC<{ mechanism: Mechanism; jointAngles: number[] }> = ({ mechanism, jointAngles }) => {
   const joints = Array.from(mechanism.joints.values());
   const links = Array.from(mechanism.links.values());
+  const modelRef = useRef<THREE.Group>(null);
+  const shadingMode = usePreferenceValue('shadingMode');
+
+  /*
+   * Hooks before anything that can bail out. The outline pass is idempotent in
+   * both directions, so running it after every kinematics frame costs a traversal
+   * of the arm and nothing else.
+   */
+  useEffect(() => {
+    const root = modelRef.current;
+    if (root) shadeScene(root, shadingMode);
+  }, [shadingMode, mechanism, jointAngles]);
 
   // Forward kinematics gives each link's joint frame; the link mesh inherits
   // both position and orientation so a rotating joint actually swings its arm.
@@ -1029,37 +1105,46 @@ const MechanismVisualization: React.FC<{ mechanism: Mechanism; jointAngles: numb
 
   return (
     <group position={[base.x, base.y, base.z]}>
-      {/* Base */}
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={[0.2, 0.2, 0.1]} />
-        <meshPhongMaterial color="#666666" />
-      </mesh>
+      {/*
+        The arm proper. Outlined as one group so the crease pass sees the same
+        subtree every repaint: the parts hold their materials on the mechanism
+        itself, and shading only re-points the meshes, so an FK update that moves
+        a link cannot leave it wearing the ghost of the mode that was set before.
+      */}
+      <group ref={modelRef}>
+        {/* Base */}
+        <mesh castShadow receiveShadow>
+          <boxGeometry args={[0.2, 0.2, 0.1]} />
+          <meshPhongMaterial color="#666666" />
+        </mesh>
 
-      {/* Links */}
-      {links.map((link, index) => {
-        const position = fkResult.positions[index];
-        const orientation = fkResult.orientations[index];
-        if (!position || !orientation) return null;
-        return (
-          <mesh key={link.id} position={position} quaternion={orientation} castShadow receiveShadow>
-            <primitive object={link.geometry} />
-            <primitive object={link.material} />
-          </mesh>
-        );
-      })}
+        {/* Links */}
+        {links.map((link, index) => {
+          const position = fkResult.positions[index];
+          const orientation = fkResult.orientations[index];
+          if (!position || !orientation) return null;
+          return (
+            <mesh key={link.id} position={position} quaternion={orientation} castShadow receiveShadow>
+              <primitive object={link.geometry} />
+              <primitive object={link.material} />
+            </mesh>
+          );
+        })}
 
-      {/* Joints */}
-      {joints.map((joint, index) => {
-        const position = fkResult.positions[index] ?? joint.position;
-        return (
-          <mesh key={joint.id} position={position} castShadow>
-            <sphereGeometry args={[0.032, 24, 16]} />
-            <meshStandardMaterial color="#f97316" metalness={0.35} roughness={0.4} />
-          </mesh>
-        );
-      })}
+        {/* Joints */}
+        {joints.map((joint, index) => {
+          const position = fkResult.positions[index] ?? joint.position;
+          return (
+            <mesh key={joint.id} position={position} castShadow>
+              <sphereGeometry args={[0.032, 24, 16]} />
+              <meshStandardMaterial color="#f97316" metalness={0.35} roughness={0.4} />
+            </mesh>
+          );
+        })}
+      </group>
 
-      {/* Tool point (last joint plus the end-effector offset) */}
+      {/* Tool point (last joint plus the end-effector offset). An annotation, so
+          it stays solid in either reading — an invisible target is worse than none. */}
       <mesh position={toolPosition}>
         <sphereGeometry args={[0.018, 20, 14]} />
         <meshStandardMaterial color="#22c55e" emissive="#14532d" emissiveIntensity={0.6} />

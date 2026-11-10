@@ -12,14 +12,21 @@
 import { useState, useRef, useCallback } from 'react'
 import { Play, Download, Upload, Cpu, Terminal, RefreshCw, ChevronRight, Check, AlertCircle, X } from 'lucide-react'
 import { Button } from '../ui/button'
-import { parseVerilogModule } from '../../lib/fpga/verilogSubset'
+import { expandVerilogPorts, parseVerilogModule } from '../../lib/fpga/verilogSubset'
+import { ACC_CPU_VERILOG } from '../../lib/fpga/accCpu'
+import { FIR_DSP_VERILOG } from '../../lib/fpga/firDsp'
 import { parseVhdl } from '../../lib/fpga/vhdlSubset'
 import { simulateDigital, valueAt, type DigitalNetlist, type LogicValue } from '../../lib/simulation/digitalLogic'
 import { synthesize } from '../../lib/ic/icFlowAdapter'
-import { CodeEditor } from '../editor/CodeEditor'
+import { CodeEditor, type CodeEditorHandle } from '../editor/CodeEditor'
+import LibraryDropNote from '../library/LibraryDropNote'
+import { useDomainLibraryZone } from '../../lib/library/useDomainLibraryZone'
+import { snippetVerdict } from '../../lib/library/snippetVerdict'
+import type { LibraryItem } from '../../lib/library/types'
 import { fpgaDesignFlow, FPGA_DEVICES } from '../../lib/fpga/fpgaDesignFlow'
 import { useDemoRequest } from '../workspace/useDemoRequest'
 import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign'
+import { compact } from '../../lib/numberFormat'
 
 const VERILOG_TEMPLATE = `// Verilog structural module
 module half_adder (
@@ -68,7 +75,10 @@ interface ElaboratedDesign {
   name: string
   language: 'verilog' | 'vhdl'
   netlist: DigitalNetlist
+  /** Scalar bit nets: `[7:0] d` becomes d[0]…d[7]. Simulation and synthesis use these. */
   ports: Array<{ name: string; direction: 'input' | 'output' }>
+  /** Ports as declared in the source, for the human-readable header. */
+  declaredPorts: Array<{ name: string; direction: 'input' | 'output' }>
 }
 
 /** Parse either language into the common elaborated form. */
@@ -79,19 +89,16 @@ function elaborate(code: string, language: 'verilog' | 'vhdl'): ElaboratedDesign
       name: elab.name,
       language,
       netlist: elab.netlist,
-      ports: elab.ports.map((port) => ({ name: port.name, direction: port.direction })),
+      ports: expandVerilogPorts(elab.ports),
+      declaredPorts: elab.ports.map((port) => ({ name: port.name, direction: port.direction })),
     }
   }
   const elab = parseVhdl(code)
-  return {
-    name: elab.entity,
-    language,
-    netlist: elab.netlist,
-    ports: elab.ports.map((port) => ({
-      name: port.name,
-      direction: port.direction === 'in' ? 'input' : 'output',
-    })),
-  }
+  const ports = elab.ports.map((port) => ({
+    name: port.name,
+    direction: (port.direction === 'in' ? 'input' : 'output') as 'input' | 'output',
+  }))
+  return { name: elab.entity, language, netlist: elab.netlist, ports, declaredPorts: ports }
 }
 
 const formatValue = (value: LogicValue): string => (value === 'X' || value === 'Z' ? String(value) : String(value))
@@ -106,13 +113,20 @@ const formatValue = (value: LogicValue): string => (value === 'X' || value === '
 function autoInputStimuli(
   ports: ReadonlyArray<{ name: string; direction: 'input' | 'output' }>,
   stopTime: number,
+  options: { exclude?: ReadonlySet<string>; phase?: number } = {},
 ): Array<{ node: string; time: number; value: 0 | 1 }> {
-  const inputs = ports.filter((port) => port.direction === 'input')
+  const inputs = ports.filter(
+    (port) => port.direction === 'input' && !options.exclude?.has(port.name),
+  )
+  // Clocked designs: park every transition a quarter period after an edge so
+  // the stimulus never races the clock in a zero-delay event simulator.
+  const phase = Math.max(0, Math.round(options.phase ?? 0))
+  const unit = Math.max(1, phase)
   const stimuli: Array<{ node: string; time: number; value: 0 | 1 }> = []
   for (const [index, port] of inputs.entries()) {
-    const halfPeriod = 2 ** (index + 1)
-    for (let time = 0; time <= stopTime; time += halfPeriod) {
-      stimuli.push({ node: port.name, time, value: (time / halfPeriod) % 2 === 0 ? 0 : 1 })
+    const halfPeriod = 2 ** (index + 1) * unit
+    for (let step = 0; phase + step * halfPeriod <= stopTime; step += 1) {
+      stimuli.push({ node: port.name, time: phase + step * halfPeriod, value: step % 2 === 0 ? 0 : 1 })
     }
   }
   return stimuli
@@ -132,7 +146,9 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
   const [activeTarget, setActiveTarget] = useState('simulate')
   const [driveInputs, setDriveInputs] = useState(saved?.driveInputs !== false)
   const [loading, setLoading] = useState(false)
+  const [dropped, setDropped] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const editorRef = useRef<CodeEditorHandle>(null)
 
   usePublishDomainDesign('hdl', { language, code, driveInputs }, (next) => {
     const nextLanguage = next.language === 'vhdl' ? 'vhdl' : next.language === 'verilog' ? 'verilog' : language
@@ -153,46 +169,112 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
     onCodeChange?.(next, nextLanguage)
   }, [language, onCodeChange])
 
+  const loadExample = useCallback((example: string) => {
+    const next =
+      example === 'acc-cpu' ? ACC_CPU_VERILOG
+        : example === 'fir-dsp' ? FIR_DSP_VERILOG
+          : example === 'half-adder' ? VERILOG_TEMPLATE
+            : null
+    if (!next) return
+    setLanguage('verilog')
+    updateCode(next, 'verilog')
+    setOutput('')
+    setParseOk(null)
+    setSignals([])
+    setDropped(null)
+  }, [updateCode])
+
+  useDemoRequest('hdl-acc-cpu', () => {
+    setLanguage('verilog')
+    updateCode(ACC_CPU_VERILOG, 'verilog')
+    setActiveTarget('simulate')
+    void runCompile('simulate', ACC_CPU_VERILOG, 'verilog')
+  })
+
+  useDemoRequest('hdl-fir-dsp', () => {
+    setLanguage('verilog')
+    updateCode(FIR_DSP_VERILOG, 'verilog')
+    setActiveTarget('simulate')
+    void runCompile('simulate', FIR_DSP_VERILOG, 'verilog')
+  })
+
+  const placeSnippetRow = useCallback((item: LibraryItem) => {
+    if (item.kind !== 'snippet') return
+    editorRef.current?.insertAtCaret(item.payload.text)
+    setDropped(`"${item.name}" inserted at the caret.`)
+  }, [])
+
+  const snippetZone = useDomainLibraryZone({
+    accepts: snippetVerdict([language], 'this HDL buffer'),
+    as: 'the editor',
+    onPlace: placeSnippetRow,
+  })
+
   const appendOutput = (text: string) => setOutput(prev => prev + text + '\n')
 
-  const runCompile = useCallback(async (target = activeTarget) => {
+  const runCompile = useCallback(async (target = activeTarget, source = code, sourceLanguage = language) => {
     setLoading(true)
     setOutput('')
     setSignals([])
     setParseOk(null)
+    setDropped(null)
     try {
-      const design = elaborate(code, language)
+      const design = elaborate(source, sourceLanguage)
       appendOutput(`Parsed ${design.language === 'verilog' ? 'module' : 'entity'}: ${design.name}`)
-      appendOutput(`  Ports: ${design.ports.map(p => `${p.direction} ${p.name}`).join(', ')}`)
+      appendOutput(`  Ports: ${design.declaredPorts.map(p => `${p.direction} ${p.name}`).join(', ')}`)
+      if (design.ports.length !== design.declaredPorts.length) {
+        appendOutput(`  Expanded to ${design.ports.length} scalar bit nets for simulation and synthesis.`)
+      }
 
       if (target === 'simulate') {
-        const stopTime = 20
+        const clocks = design.netlist.clocks ?? []
+        const maxPeriod = clocks.reduce((longest, clock) => Math.max(longest, clock.period), 0)
+        // Sequential designs need several edges; combinational ones keep the
+        // original short window.
+        const stopTime = maxPeriod > 0 ? Math.max(20, maxPeriod * 8) : 20
+        const sampleCount = maxPeriod > 0 ? 81 : 21
         const netlist = { ...design.netlist }
         const existingStimuli = netlist.stimuli?.length ?? 0
+        const clockNets = new Set(clocks.map((clock) => clock.output))
         const generated = driveInputs && existingStimuli === 0
-          ? autoInputStimuli(design.ports, stopTime)
+          ? autoInputStimuli(design.ports, stopTime, {
+              exclude: clockNets,
+              phase: maxPeriod > 0 ? maxPeriod / 4 : 0,
+            })
           : []
         if (generated.length > 0) netlist.stimuli = generated
         const result = simulateDigital(netlist, stopTime)
         if (!result.success) throw new Error(result.error ?? 'digital simulation failed')
         appendOutput(`\nDigital simulation (0–${stopTime} time units, ${result.eventCount} events):`)
+        if (clocks.length > 0) {
+          appendOutput(
+            `  Generated functional clock: ${[...clockNets].join(', ')} — period ${maxPeriod} time units. ` +
+            'This clock exercises the logic; SKY130 static timing analysis is the timing sign-off.',
+          )
+        }
         if (generated.length > 0) {
           appendOutput(
             `  Auto testbench: ${design.ports
-              .filter((port) => port.direction === 'input')
+              .filter((port) => port.direction === 'input' && !clockNets.has(port.name))
               .map((port) => port.name)
               .join(', ')} driven as a binary count (LSB fastest).`,
           )
         } else if (driveInputs && existingStimuli > 0) {
           appendOutput('  Inputs already driven by the netlist — auto testbench skipped.')
         }
+        const nominalStep = stopTime / (sampleCount - 1)
         for (const node of Object.keys(result.transitions)) {
-          const bus = Array.from({ length: 21 }, (_, t) => formatValue(valueAt(result, node, t))).join('')
+          const bus = Array.from({ length: sampleCount }, (_, t) =>
+            formatValue(valueAt(result, node, t * nominalStep)),
+          ).join('')
           appendOutput(`  ${node.padEnd(12)}: ${bus}`)
         }
         setSignals(Object.keys(result.transitions).map(node => ({
           name: node,
-          values: Array.from({ length: 21 }, (_, t) => ({ time: t, value: valueAt(result, node, t) })),
+          values: Array.from({ length: sampleCount }, (_, t) => ({
+            time: t * nominalStep,
+            value: valueAt(result, node, t * nominalStep),
+          })),
         })))
       } else if (target === 'synthesize') {
         const synth = synthesize(design.netlist, design.ports)
@@ -201,11 +283,11 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
         appendOutput(`  Total area: ${synth.totalArea.toFixed(2)} µm²`)
         appendOutput(`  Critical path: ${synth.criticalPathPs.toFixed(0)} ps`)
         appendOutput(`  Max frequency: ${synth.metrics.maxOperatingFreqMhz.toFixed(1)} MHz`)
-        appendOutput(`  Leakage power: ${(synth.staticPowerUw ?? 0).toFixed(2)} µW`)
+        appendOutput(`  Leakage power: ${compact(synth.staticPowerUw)} µW`)
       } else if (target.startsWith('fpga:')) {
         const deviceId = target.slice(5)
         const synthesis = fpgaDesignFlow.synthesize(
-          [{ name: design.name, language: design.language, source: code }],
+          [{ name: design.name, language: design.language, source }],
           deviceId,
         )
         appendOutput(`\nFPGA elaboration for ${synthesis.device?.part ?? deviceId}:`)
@@ -256,6 +338,7 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
       updateCode(text || (nextLanguage === 'vhdl' ? VHDL_TEMPLATE : VERILOG_TEMPLATE), nextLanguage)
       setOutput('')
       setParseOk(null)
+      setDropped(null)
     }
     reader.readAsText(file)
   }
@@ -269,19 +352,34 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
           {(['verilog', 'vhdl'] as const).map(lang => (
             <button
               key={lang}
-              onClick={() => { setLanguage(lang); updateCode(lang === 'vhdl' ? VHDL_TEMPLATE : VERILOG_TEMPLATE, lang); setOutput(''); setParseOk(null); setSignals([]) }}
-              className={`px-3 py-1 text-xs font-mono transition-colors ${language === lang ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              onClick={() => { setLanguage(lang); updateCode(lang === 'vhdl' ? VHDL_TEMPLATE : VERILOG_TEMPLATE, lang); setOutput(''); setParseOk(null); setSignals([]); setDropped(null) }}
+              className={`px-3 py-1 text-xs transition-colors ${language === lang ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
             >
               {lang.toUpperCase()}
             </button>
           ))}
         </div>
 
+        <label className="flex items-center gap-1">
+          <span className="hidden text-xs text-muted-foreground sm:inline">Example</span>
+          <select
+            aria-label="Load HDL example"
+            className="min-w-0 max-w-[11rem] bg-card border border-input text-xs text-foreground rounded px-1 py-0.5 outline-none"
+            value=""
+            onChange={event => loadExample(event.target.value)}
+          >
+            <option value="" disabled>Load example…</option>
+            <option value="half-adder">Half adder</option>
+            <option value="acc-cpu">8-bit accumulator CPU</option>
+            <option value="fir-dsp">4-tap FIR filter (DSP)</option>
+          </select>
+        </label>
+
         <div className="flex items-center gap-1">
           <span className="hidden text-xs text-muted-foreground sm:inline">Target:</span>
           <select
             aria-label="HDL target"
-            className="min-w-0 max-w-[10.5rem] bg-card border border-border text-xs text-foreground rounded px-1 py-0.5 outline-none"
+            className="min-w-0 max-w-[10.5rem] bg-card border border-input text-xs text-foreground rounded px-1 py-0.5 outline-none"
             value={activeTarget}
             onChange={event => setActiveTarget(event.target.value)}
           >
@@ -318,6 +416,10 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
           </span>
         )}
 
+        {dropped !== null && (
+          <span className="text-xs text-muted-foreground">{dropped}</span>
+        )}
+
         <div className="ml-auto flex gap-1">
           <Button size="sm" variant="ghost" onClick={() => fileInputRef.current?.click()} title="Import HDL file">
             <Upload size={13} />
@@ -326,7 +428,7 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
             <Download size={13} />
           </Button>
           {onClose && (
-            <Button size="sm" variant="ghost" onClick={onClose} className="text-muted-foreground" aria-label="Close HDL editor"><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
+            <Button size="sm" variant="ghost" onClick={onClose} className="text-muted-foreground" aria-label="Close HDL editor" title="Close the HDL editor. Source you have not saved to the project is lost."><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
           )}
         </div>
         <input ref={fileInputRef} type="file" accept=".v,.sv,.vhd,.vhdl" aria-label="Import HDL file" className="hidden"
@@ -335,8 +437,14 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
 
       {/* Main split: code editor | output */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-        <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div
+          className="cad-dropzone relative min-h-0 flex-1 overflow-hidden"
+          role="group"
+          aria-label="HDL source — drop a code snippet here"
+          {...snippetZone.zoneProps}
+        >
           <CodeEditor
+            ref={editorRef}
             value={code}
             onChange={updateCode}
             language={language}
@@ -344,6 +452,7 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
             placeholder="module half_adder (…)"
             className="h-full rounded-none border-0"
           />
+          <LibraryDropNote zone={snippetZone} surface="the editor" />
         </div>
 
         <div className="flex max-h-[45%] w-full flex-shrink-0 flex-col overflow-hidden border-t border-border lg:max-h-none lg:w-80 lg:border-l lg:border-t-0">
@@ -369,16 +478,21 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
                       {signal.values.map(sample => (
                         <div
                           key={sample.time}
-                          title={`t=${sample.time}: ${formatValue(sample.value)}`}
-                          className={`inline-block border-r border-border ${
+                          title={`t=${sample.time.toFixed(1)}: ${formatValue(sample.value)}`}
+                          className={`min-w-px flex-1 border-r border-border/40 ${
                             sample.value === 1 ? 'bg-success' : sample.value === 0 ? 'bg-muted' : 'bg-warning'
                           }`}
-                          style={{ width: '4px', height: sample.value === 1 ? '100%' : sample.value === 0 ? '30%' : '60%' }}
+                          style={{ height: sample.value === 1 ? '100%' : sample.value === 0 ? '30%' : '60%' }}
                         />
                       ))}
                     </div>
                   </div>
                 ))}
+                {signals.length > 12 && (
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    Showing 12 of {signals.length} nodes — every node is listed in the output log.
+                  </p>
+                )}
               </div>
             </>
           )}

@@ -3,7 +3,7 @@
  * stepper. All results come from `src/lib/electronics/machineDynamics`; the
  * panel only edits operating points and plots the returned states.
  */
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useDemoRequest } from '../workspace/useDemoRequest'
 import { X, AlertCircle, Gauge } from 'lucide-react'
 import { Button } from '../ui/button'
@@ -25,6 +25,9 @@ import { formatEngineering } from '../../lib/simulation/formatEngineering'
 import { chartSeriesColors } from '../../lib/theme/tokens'
 import { useTheme } from '../../lib/theme/useTheme'
 import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign'
+import { useDomainLibraryZone } from '../../lib/library/useDomainLibraryZone'
+import type { LibraryItem } from '../../lib/library/types'
+import LibraryDropNote from '../library/LibraryDropNote'
 
 interface MachineSimulatorPanelProps {
   onClose: () => void
@@ -46,6 +49,11 @@ function thin<T>(items: readonly T[], limit = 700): T[] {
   const last = items[items.length - 1]
   if (out[out.length - 1] !== last) out.push(last)
   return out
+}
+
+/** The preset table a family solves against — both DC tabs share one. */
+function presetsFor(entry: Family) {
+  return entry === 'bldc' ? BLDC_PRESETS : entry === 'stepper' ? STEPPER_PRESETS : DC_MACHINE_PRESETS
 }
 
 function format(value: number, digits = 2, unit = ''): string {
@@ -291,6 +299,29 @@ export default function MachineSimulatorPanel({ onClose }: MachineSimulatorPanel
     else setDcPresetId(id)
   }
 
+  /* Dropping a machine row switches the family tab and the preset in it, so what
+   * lands is a machine this panel can solve — never a row it would have to
+   * invent parameters for. */
+  const placeMachine = useCallback((item: LibraryItem) => {
+    if (item.kind !== 'machine') return
+    const { family: nextFamily, presetId: nextPreset } = item.payload
+    setFamily(nextFamily)
+    if (nextFamily === 'bldc') setBldcPresetId(nextPreset)
+    else if (nextFamily === 'stepper') setStepperPresetId(nextPreset)
+    else setDcPresetId(nextPreset)
+  }, [])
+
+  const machineZone = useDomainLibraryZone({
+    accepts: (item) => {
+      if (item.kind !== 'machine') return `${item.name} is not an electric machine.`
+      return presetsFor(item.payload.family).some((preset) => preset.id === item.payload.presetId)
+        ? true
+        : `The ${item.payload.family} solver has no model for ${item.name}.`
+    },
+    as: 'the machine card',
+    onPlace: placeMachine,
+  })
+
   return (
     <div className="h-full overflow-auto bg-background p-4">
       <div className="mx-auto max-w-7xl space-y-4">
@@ -301,17 +332,18 @@ export default function MachineSimulatorPanel({ onClose }: MachineSimulatorPanel
               Dynamic simulation of brushed DC machines, BLDC/PMSM drives and steppers.
             </p>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Close machine simulator" onClick={onClose}>
+          <Button variant="ghost" size="icon" aria-label="Close machine simulator" onClick={onClose} title="Leave the machine simulator; closing writes nothing to the design.">
             <X className="h-4 w-4" />
           </Button>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
-          <Card>
+          <Card className="cad-dropzone" {...machineZone.zoneProps}>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Machine and operating point</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <LibraryDropNote zone={machineZone} surface="this card" className="cad-drop-note--inline" />
               <div className="flex flex-wrap gap-1">
                 {FAMILIES.map((entry) => (
                   <Button

@@ -122,7 +122,7 @@ export default function DemoGallery({ open, onClose, onOpenScenario, onStartTuto
           {/* The filter belongs to the whole dialog, so it sits in the header.
            * Down in the toolbar row it shared a flex line with a wrapping
            * category strip and painted over it. */}
-          <label className="cad-search flex h-8 w-36 flex-shrink-0 items-center gap-2 rounded-md border border-border bg-background px-2 sm:w-56">
+          <label className="cad-search flex h-8 w-36 flex-shrink-0 items-center gap-2 rounded-md border border-input bg-background px-2 sm:w-56">
             <Search className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
             <span className="sr-only">Search demos</span>
             <input
@@ -134,14 +134,15 @@ export default function DemoGallery({ open, onClose, onOpenScenario, onStartTuto
               className="h-full w-full min-w-0 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
-          <Button variant="ghost" size="icon" aria-label="Close demo gallery" onClick={onClose}>
+          <Button variant="ghost" size="icon" aria-label="Close demo gallery" onClick={onClose} title="Close the gallery. A demo you loaded stays loaded.">
             <X className="h-4 w-4" />
           </Button>
         </div>
 
-        {/* One line, scrolled instead of wrapped: a wrapped strip stacks the
-         * categories into a column and wastes the rest of the row. */}
-        <div className="scrollbar-none flex flex-shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-4 py-2" role="group" aria-label="Demo categories">
+        {/* The categories are five short names, so the strip takes the width it
+            is given and spills onto a second line on a narrow window rather than
+            hiding a family behind a sideways scroll. */}
+        <div className="flex flex-wrap items-center gap-1 border-b border-border px-4 py-2" role="group" aria-label="Demo categories">
           {FILTERS.map((entry) => (
             <button
               key={entry.id}
@@ -175,16 +176,16 @@ export default function DemoGallery({ open, onClose, onOpenScenario, onStartTuto
                   <li key={scenario.id} className="flex">
                     <article className="flex min-w-0 flex-1 flex-col rounded-lg border border-border bg-card p-3 transition-colors hover:border-primary/50">
                       <div className="mb-2 flex items-center justify-between gap-2">
-                        <span className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+                        <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                           {meta.label}
                         </span>
                         {tutorial ? (
-                          <span className="flex items-center gap-1 rounded-sm bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-primary">
+                          <span className="flex items-center gap-1 rounded-sm bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
                             <GraduationCap className="h-3 w-3" aria-hidden="true" />
                             Guided
                           </span>
                         ) : (
-                          <span className="text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+                          <span className="text-[10px] text-muted-foreground">
                             {WORKSPACE_GROUPS.find((group) => group.id === scenario.group)?.label}
                           </span>
                         )}
@@ -234,7 +235,7 @@ export default function DemoGallery({ open, onClose, onOpenScenario, onStartTuto
 
         <footer className="flex flex-shrink-0 items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-2 text-[10px] text-muted-foreground">
           <span>{visible.length} of {DEMO_SCENARIOS.length} demos · every workspace is covered</span>
-          <span className="font-mono uppercase tracking-[0.08em]">Esc to close</span>
+          <span>Esc to close</span>
         </footer>
       </div>
     </div>

@@ -26,7 +26,10 @@ import {
   Palette,
 } from 'lucide-react';
 import { useProjectStore } from '../../stores/useProjectStore';
+import { usePreference, usePreferenceValue } from '../../lib/settings/usePreference';
 import { useEnclosureStore } from '../../stores/useEnclosureStore';
+import { SHADING_MODES, setShadingMode as shadeScene, type ShadingMode } from '../../lib/3d/outline';
+import { SHADING_UI } from '../../lib/3d/shadingLabels';
 import { downloadFile } from '../../lib/exportUtils';
 import { STLExporter } from '../../lib/3d/stlExporter';
 import { objExporter } from '../../lib/3d/objExporter';
@@ -186,6 +189,32 @@ function Trace3D({
   );
 }
 
+/*
+ * A circuit with no routed board is drawn from declarative parts instead, and
+ * those parts hold their materials the way the fiber handed them out — so the
+ * outline pass runs on the group that owns them, after the reconciler attached
+ * them. Mounted inside the canvas, this effect sees a real scene graph; an
+ * effect in the panel above the canvas could run before the tree exists and
+ * leave the parts solid until the mode is pressed twice.
+ *
+ * The pass is idempotent in both directions, so a repaint cannot stack overlays
+ * or leave a part wearing the ghost after the mode goes back to solid.
+ */
+function ShadedFallbackGroup({
+  shading,
+  children,
+}: {
+  shading: ShadingMode;
+  children: ReactNode;
+}) {
+  const root = useRef<THREE.Group>(null);
+  useEffect(() => {
+    shadeScene(root.current, shading);
+  }, [shading, children]);
+
+  return <group ref={root}>{children}</group>;
+}
+
 const VIEW_POSITIONS: Record<string, [number, number, number]> = {
   iso: [1, 1, 1],
   top: [0, 1.4, 0.001],
@@ -193,7 +222,13 @@ const VIEW_POSITIONS: Record<string, [number, number, number]> = {
   side: [1, 0.35, 0],
 };
 
-const CAMERA_FOV_DEG = 42;
+/**
+ * The vertical angle every 3D camera is framed with. 42° is the working default
+ * — wide enough to read a board in one glance, narrow enough that the far edge
+ * does not bow. It is a preference, because a drawing-like flatness and a
+ * walk-around look are two different jobs for the same viewport.
+ */
+export const DEFAULT_CAMERA_FOV_DEG = 42;
 
 interface OrbitLikeControls {
   target: THREE.Vector3;
@@ -217,6 +252,7 @@ function CameraController({
   const camera = useThree((state) => state.camera);
   const controls = useThree((state) => state.controls) as OrbitLikeControls | null;
   const size = useThree((state) => state.size) as { width: number; height: number } | undefined;
+  const fov = usePreferenceValue('cameraFovDeg');
   const [centerX, centerY, centerZ] = frame.center;
   const [halfX, halfY, halfZ] = frame.half;
 
@@ -224,7 +260,16 @@ function CameraController({
     const viewport = size ?? { width: 16, height: 10 };
     const base = new THREE.Vector3(...(VIEW_POSITIONS[view] ?? VIEW_POSITIONS.iso));
     const framed: Framing = { center: [centerX, centerY, centerZ], half: [halfX, halfY, halfZ] };
-    const distance = fitFrameDistance(framed, base, viewport, CAMERA_FOV_DEG) / zoom;
+    /*
+     * The angle is written onto the camera here rather than only at Canvas
+     * creation, so a change made on the Settings page reframes the board that is
+     * already on screen — and the framing distance is solved against the angle
+     * the camera actually has, not the one it started with.
+     */
+    const perspective = camera as THREE.PerspectiveCamera;
+    perspective.fov = fov;
+    perspective.updateProjectionMatrix();
+    const distance = fitFrameDistance(framed, base, viewport, fov) / zoom;
     const direction = base.normalize();
     camera.position.set(
       centerX + direction.x * distance,
@@ -236,25 +281,18 @@ function CameraController({
       controls.target.set(centerX, centerY, centerZ);
       controls.update();
     }
-  }, [view, zoom, reframe, centerX, centerY, centerZ, halfX, halfY, halfZ, camera, controls, size]);
+  }, [view, zoom, reframe, centerX, centerY, centerZ, halfX, halfY, halfZ, camera, controls, size, fov]);
 
   return null;
 }
 
 /* The viewport HUD. These sit over a rendered board, so they read as one
-   floating bar of controls rather than a grid of separate boxes: the active
-   control carries the accent, everything else stays quiet until hovered. */
-const hudItem = (active: boolean) =>
-  cn(
-    'h-7 shrink-0 rounded-lg px-2.5 text-[11px] font-semibold uppercase tracking-wide transition-colors',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
-    active
-      ? 'bg-primary text-primary-foreground shadow-sm'
-      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-  );
+   floating bar of controls rather than a grid of separate boxes. They are the
+   chrome control shape — one height, one radius, one focus ring — because a HUD
+   that draws its own corners is how a strip ends up with a pill beside a square. */
+const hudItem = (active: boolean) => cn('cad-ctl', active && 'cad-ctl--active')
 
-const hudIcon =
-  'grid h-7 w-7 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background';
+const hudIcon = 'cad-ctl cad-ctl--icon'
 
 /**
  * A layer or object switch. The eye icon alone made state something you had to
@@ -335,7 +373,7 @@ function Stat({
 }) {
   return (
     <div className="flex items-baseline gap-1.5">
-      <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dt className="text-[11px] text-muted-foreground">{label}</dt>
       <dd className="font-mono tabular-nums" data-testid={`hud-${label}`}>
         <span className={accent ? 'text-info' : 'text-foreground'}>{value}</span>
         {hint && <span className="text-muted-foreground"> · {hint}</span>}
@@ -415,7 +453,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
   const pcbLayout = useProjectStore((s) => s.pcbLayout);
   const liveFrame = useProjectStore((s) => s.liveFrame);
   const [currentView, setCurrentView] = useState('iso');
-  const [showGrid, setShowGrid] = useState(true);
+  const [showGrid, setShowGrid] = usePreference('viewerGrid');
   const [showComponents, setShowComponents] = useState(true);
   const [showTraces, setShowTraces] = useState(true);
   const [showPCB, setShowPCB] = useState(true);
@@ -424,16 +462,22 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
   const [zoom, setZoom] = useState(1);
   const [reframe, setReframe] = useState(0);
   const [frameMode, setFrameMode] = useState<'board' | 'circuit'>('circuit');
-  const [shadows, setShadows] = useState(true);
-  // Start at the display's own density (capped at 2× so a 5K panel does not
-  // quadruple the fragment cost) instead of a fixed 1.5 that softens on HiDPI.
-  const [pixelRatio, setPixelRatio] = useState(() => {
+  const [shadows, setShadows] = usePreference('viewerShadows');
+  /*
+   * Resolution scale, from settings: the display's own density is the ceiling,
+   * because drawing 2× on a 1× panel buys nothing but fragment cost.
+   */
+  const [resolutionScale, setResolutionScale] = usePreference('viewerPixelRatio');
+  const [displayDensity] = useState(() => {
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
     return dpr >= 2 ? 2 : dpr >= 1.5 ? 1.5 : 1;
   });
-  const [componentScale, setComponentScale] = useState(1);
+  const pixelRatio = Math.min(displayDensity, resolutionScale);
+  const [componentScale, setComponentScale] = usePreference('viewerPartScale');
   const [maskColor, setMaskColor] = useState<PcbMaskColor>('green');
   const [padFinish, setPadFinish] = useState<PcbPadFinish>('enig');
+  /** Shared with every other 3D viewport, so one press outlines the whole app. */
+  const [shadingMode, setShadingMode] = usePreference('shadingMode');
   const [xrStatus, setXrStatus] = useState('');
   const [xrBusy, setXrBusy] = useState(false);
   const glRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -516,8 +560,9 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
         hiddenComponentIds: hiddenComponentSet,
         maskColor,
         padFinish,
+        shading: shadingMode,
       }),
-    [scene, showPCB, showTraces, showComponents, hiddenLayerSet, hiddenComponentSet, maskColor, padFinish],
+    [scene, showPCB, showTraces, showComponents, hiddenLayerSet, hiddenComponentSet, maskColor, padFinish, shadingMode],
   );
 
   // A schematic-scale circuit on a 100 x 80 mm outline is a few millimetres
@@ -652,6 +697,12 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
       'communication': '#9370DB',
       'microcontroller': '#006400',
       'memory': '#8A2BE2',
+      'interface': '#4B0082',
+      'amplifier': '#008B8B',
+      'converter': '#B8860B',
+      'reference': '#8B008B',
+      'regulator': '#A52A2A',
+      'protection': '#556B2F',
       'actuator': '#DC143C',
       'timing': '#FF69B4',
       'test': '#A0A0A0'
@@ -867,7 +918,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
           <Canvas
             shadows={shadows}
             dpr={pixelRatio}
-            camera={{ position: [28, 22, 28], fov: CAMERA_FOV_DEG }}
+            camera={{ position: [28, 22, 28], fov: DEFAULT_CAMERA_FOV_DEG }}
             gl={{ preserveDrawingBuffer: true, antialias: true }}
             onCreated={({ gl, scene: threeScene }) => {
               gl.toneMapping = THREE.ACESFilmicToneMapping;
@@ -916,7 +967,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
             {boardGroup ? (
               <primitive object={boardGroup} />
             ) : (
-              <>
+              <ShadedFallbackGroup shading={shadingMode}>
                 {showPCB && <PCBBoard layers={pcbLayers} />}
 
                 {showComponents && components3D.map(comp => (
@@ -930,7 +981,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                 {showTraces && traces3D.map(trace => (
                   <Trace3D key={trace.id} points={trace.points} />
                 ))}
-              </>
+              </ShadedFallbackGroup>
             )}
 
             {shell && <primitive object={shell.group} />}
@@ -981,6 +1032,23 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
               >
                 Board
               </button>
+
+              <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
+
+              {/* Shading is a viewport reading, not a property of the board, so it
+                  sits with the view presets rather than in the fabrication card. */}
+              {SHADING_MODES.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setShadingMode(id)}
+                  aria-pressed={shadingMode === id}
+                  title={SHADING_UI[id].hint}
+                  className={hudItem(shadingMode === id)}
+                >
+                  {SHADING_UI[id].label}
+                </button>
+              ))}
 
               <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
 
@@ -1041,7 +1109,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
         <div className="flex max-h-[45%] w-full flex-shrink-0 flex-col border-t border-border bg-card lg:max-h-none lg:w-80 lg:border-l lg:border-t-0">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold text-foreground">3D Viewer</h3>
-            <Button variant="ghost" size="icon" aria-label="Close 3D viewer" onClick={onClose}>
+            <Button variant="ghost" size="icon" aria-label="Close 3D viewer" title="Leave the 3D view; the board and its model are untouched." onClick={onClose}>
               <X className="w-4 h-4" />
             </Button>
           </div>
@@ -1373,8 +1441,8 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                   <select
                     id="render-resolution"
                     className="w-full mt-1 px-2 py-1 text-xs border border-input rounded"
-                    value={pixelRatio}
-                    onChange={(event) => setPixelRatio(parseFloat(event.target.value))}
+                    value={resolutionScale}
+                    onChange={(event) => setResolutionScale(parseFloat(event.target.value))}
                   >
                     <option value={0.75}>Low (0.75×)</option>
                     <option value={1}>Medium (1×)</option>

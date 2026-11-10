@@ -353,7 +353,7 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
               <Package className="w-3 h-3 mr-1" />Load rectifier
             </Button>
           )}
-          {onClose && <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close BOM panel"><X className="w-4 h-4" /></Button>}
+          {onClose && <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close BOM panel" title="Hide the bill of materials. The schematic and the board are not changed."><X className="w-4 h-4" /></Button>}
         </div>
       </div>
 
@@ -396,7 +396,7 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
               size="icon"
               aria-label="Dismiss demo BOM audit"
               onClick={() => setDemoAudit(null)}
-            >
+              title="Hide this audit banner. The parts table and its filters are unchanged.">
               <X className="w-4 h-4" />
             </Button>
           </div>
@@ -524,15 +524,15 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
                           className="h-6 text-xs py-0"
                           autoFocus
                         />
-                        <Button size="icon" className="h-6 w-6" onClick={() => saveNotes(item, editNotes)} aria-label={`Save notes for ${item.references.join(', ')}`}><Save className="w-3 h-3" /></Button>
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditingKey(null)} aria-label={`Discard note edit for ${item.references.join(', ')}`}><X className="w-3 h-3" /></Button>
+                        <Button size="icon" className="h-6 w-6" onClick={() => saveNotes(item, editNotes)} aria-label={`Save notes for ${item.references.join(', ')}`} title="Write the note onto every part instance in this row, as a property that travels with the design."><Save className="w-3 h-3" /></Button>
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditingKey(null)} aria-label={`Discard note edit for ${item.references.join(', ')}`} title="Drop what you typed and leave the row's existing note as it was."><X className="w-3 h-3" /></Button>
                       </div>
                     ) : (
                       <span className="text-muted-foreground truncate block max-w-[150px]" title={item.notes || undefined}>{item.notes || '—'}</span>
                     )}
                   </td>
                   <td className="p-2">
-                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setEditingKey(item.key); setEditNotes(item.notes) }} aria-label={`Edit notes for ${item.references.join(', ')}`}>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setEditingKey(item.key); setEditNotes(item.notes) }} aria-label={`Edit notes for ${item.references.join(', ')}`} title="Edit the note carried by the parts in this row.">
                       <Edit3 className="w-3 h-3" />
                     </Button>
                   </td>

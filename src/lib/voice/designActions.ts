@@ -19,7 +19,15 @@ export interface DesignActionResult {
   [key: string]: unknown
 }
 
-const TYPE_ALIASES: ReadonlyArray<readonly [readonly string[], string]> = [
+/**
+ * Spoken word → library part.
+ *
+ * Exported so the contract test can read every row: a phrase list written by
+ * hand is a list that quietly stops covering the table.
+ */
+export const TYPE_ALIASES: ReadonlyArray<readonly [readonly string[], string]> = [
+  // Aliases are singular: the spoken phrase is singularised before it is
+  // compared, so an entry ending in "s" could never be reached.
   [['resistor', 'resistance'], 'Resistor'],
   [['capacitor', 'cap'], 'Capacitor'],
   [['inductor', 'coil'], 'Inductor'],
@@ -39,18 +47,58 @@ const TYPE_ALIASES: ReadonlyArray<readonly [readonly string[], string]> = [
   [['battery', 'source', 'supply'], 'DC Voltage Source'],
   [['regulator', 'ldo'], 'Voltage Regulator'],
   [['crystal', 'oscillator'], 'Crystal Oscillator'],
-  [['sensor', 'thermistor'], 'Temperature Sensor'],
-  [['arduino', 'microcontroller', 'mcu'], 'Arduino Uno'],
   [['button', 'switch'], 'Push Button'],
   [['header', 'connector'], 'Header Pin'],
   [['testpoint', 'probe'], 'Test Point'],
-  [['eeprom', 'memory'], 'EEPROM'],
-  [['lcd', 'display'], 'LCD Display'],
   [['servo', 'motor'], 'Servo Motor'],
-  [['wifi', 'radio'], 'WiFi Module'],
   [['and'], 'Logic Gate AND'],
   [['or'], 'Logic Gate OR'],
   [['not', 'inverter'], 'Logic Gate NOT'],
+  // Catalog parts: what the datasheet calls them, since the sheet places those
+  // parts and no invented stand-in.
+  [['arduino', 'atmega', 'microcontroller', 'mcu'], 'ATmega328P-PU AVR 8-bit microcontroller'],
+  [['stm32', 'bluepill', 'cortex'], 'STM32F103C8T6 ARM Cortex-M3 microcontroller'],
+  [['esp32', 'wifi', 'radio', 'esp'], 'ESP32-WROOM-32 WiFi + Bluetooth module'],
+  [['eeprom', 'memory'], '24LC256 256Kbit I2C EEPROM'],
+  [['flash'], 'W25Q128JV 128Mbit SPI flash'],
+  [['shift', 'register'], '74HC595 8-bit shift register with latch'],
+  [['decoder', 'mux'], '74HC138 3-to-8 inverting decoder'],
+  [['relay'], 'SRD-05VDC-SL-C Relay 5V 10A SPDT'],
+  [['usbc', 'usb'], 'TYPE-C-16P USB-C receptacle 16-pin'],
+  [['barrel', 'jack', 'power'], 'PJ-102A DC barrel jack 2.1mm'],
+  [['fuse'], 'FUSE-0805 Fuse 0805 SMD'],
+  // The rest are asked for by part number, because that is how a person names
+  // silicon. Where one word has exactly one part behind it in the catalog, the
+  // word is allowed; where the catalog ships two, only the number resolves.
+  [['rs485', 'max3485'], 'MAX3485 RS-485 transceiver 3.3V half-duplex'],
+  [['cantransceiver', 'sn65hvd230'], 'SN65HVD230 CAN transceiver 3.3V'],
+  [['rs232', 'max232'], 'MAX232CPL RS-232 transceiver with charge pump'],
+  [['optocoupler', 'pc817'], 'PC817 Phototransistor optocoupler'],
+  [['uln2003', 'driverarray'], 'ULN2003A Seven 500 mA Darlington driver array'],
+  [['tip120'], 'TIP120 NPN Darlington transistor 60 V'],
+  [['bss138'], 'BSS138 N-channel MOSFET 50 V SOT-23'],
+  [['isolator', 'iso7741'], 'ISO7741DW Quad-channel digital isolator, 3 forward + 1 reverse'],
+  [['levelshifter', 'txb0104'], 'TXB0104 4-bit bidirectional level translator'],
+  [['pca9306'], 'PCA9306 2-bit I2C bus level translator'],
+  [['ethernet', 'lan8720'], 'LAN8720A 10/100 Ethernet PHY with RMII'],
+  [['lm358'], 'LM358 Dual op-amp, single supply'],
+  [['tl072'], 'TL072 Dual JFET-input op-amp'],
+  [['lm393'], 'LM393 Dual comparator, open-collector'],
+  [['ina128'], 'INA128 Programmable-gain instrumentation amp'],
+  [['ina180'], 'INA180A1 Current-sense amplifier 20 V/V'],
+  [['adc', 'ads1115'], 'ADS1115 16-bit I2C ADC with PGA'],
+  [['mcp4725'], 'MCP4725A0T-E/CH 12-bit I2C DAC with EEPROM'],
+  [['dac8564'], 'DAC8564 Quad 16-bit SPI DAC'],
+  [['tl431'], 'TL431ACDBZR Programmable shunt reference'],
+  [['lm7805'], 'LM7805 5 V 3-terminal positive regulator'],
+  [['lm317'], 'LM317T Adjustable positive regulator'],
+  [['ams1117'], 'AMS1117-3.3 3.3 V 1 A low-dropout regulator'],
+  [['tps54331', 'buck'], 'TPS54331DR 3 A step-down converter'],
+  [['bme280', 'environmentalsensor'], 'BME280 Humidity, pressure and temperature sensor'],
+  [['bmp280', 'barometer'], 'BMP280 Absolute barometric pressure sensor'],
+  [['sht40', 'sht4x'], 'SHT40 Humidity and temperature sensor with heater'],
+  [['veml6040', 'colorsensor'], 'VEML6040 RGB colour light sensor'],
+  [['ds18b20', 'onewire'], 'DS18B20 1-Wire digital thermometer (TO-92)'],
 ]
 
 const REFERENCE_PREFIX: ReadonlyArray<readonly [RegExp, string]> = [
@@ -61,9 +109,11 @@ const REFERENCE_PREFIX: ReadonlyArray<readonly [RegExp, string]> = [
   [/diode|led/i, 'D'],
   [/transistor|mosfet|finfet|hemt|jfet/i, 'Q'],
   [/op-amp|arduino|eeprom|lcd|regulator|wifi|sensor/i, 'U'],
+  [/fuse/i, 'F'],
+  [/relay/i, 'K'],
   [/crystal|oscillator/i, 'Y'],
   [/switch|button/i, 'SW'],
-  [/header|pin/i, 'J'],
+  [/header|pin|jack|usb|receptacle/i, 'J'],
   [/ground/i, 'G'],
   [/source|battery/i, 'V'],
   [/test/i, 'TP'],

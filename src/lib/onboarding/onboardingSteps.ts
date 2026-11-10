@@ -18,8 +18,62 @@ import type { WorkspaceMode } from '../../stores/useAppStore'
  * runtime and the coach mark moves next to it. A step without a target (or
  * whose target is not on screen) falls back to a centred card.
  */
+export type OnboardingChapterId =
+  | 'orientation'
+  | 'capture'
+  | 'prove'
+  | 'physical'
+  | 'connect'
+  | 'govern'
+
+export interface OnboardingChapter {
+  id: OnboardingChapterId
+  label: string
+  /** What this chapter promises before its first step opens. */
+  promise: string
+}
+
+/**
+ * The tour reads as six deliberate chapters rather than thirteen flat steps.
+ * The order is a design review: orient yourself, capture intent, prove it,
+ * build it, connect it, then govern what you built.
+ */
+export const ONBOARDING_CHAPTERS: readonly OnboardingChapter[] = [
+  {
+    id: 'orientation',
+    label: 'Orientation',
+    promise: 'Find your way around the workbench and the families that hold its workspaces.',
+  },
+  {
+    id: 'capture',
+    label: 'Capture',
+    promise: 'Turn intent into a connected electrical design on the sheet.',
+  },
+  {
+    id: 'prove',
+    label: 'Prove it',
+    promise: 'Simulate with stated models and read real numbers off the results.',
+  },
+  {
+    id: 'physical',
+    label: 'Make it physical',
+    promise: 'Turn the netlist into a board, verify constraints and judge mechanical fit.',
+  },
+  {
+    id: 'connect',
+    label: 'Connect it',
+    promise: 'Join firmware, hardware tests, digital twins and the agent loop.',
+  },
+  {
+    id: 'govern',
+    label: 'Delegate & govern',
+    promise: 'Version the whole project and know the boundary of every number.',
+  },
+]
+
 export interface OnboardingStep {
   id: string
+  chapter: OnboardingChapterId
   title: string
   summary: string
   detail: string
@@ -45,6 +99,7 @@ export interface OnboardingStep {
 export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   {
     id: 'workflow',
+    chapter: 'orientation',
     title: 'One project, one connected engineering workflow',
     summary: 'Start from intent, then move deliberately toward implementation evidence.',
     detail:
@@ -60,7 +115,43 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     placement: 'bottom',
   },
   {
+    id: 'families',
+    chapter: 'orientation',
+    title: 'Five families hold twenty-eight workspaces',
+    summary: 'Design, Electrical, Mechanical, Life systems and Operations each open their own tools; hover a tab to hear what it does.',
+    detail:
+      'The family strip groups the workbench by discipline and the row beneath it holds that family’s workspaces — schematic, simulation, PCB and fabrication under Design; control, machines, RF, HDL and silicon under Electrical; CAD, robotics, firmware, imaging, blocks and HIL under Mechanical; reaction kinetics, organelles, cells and whole-body disposition under Life systems; agents, parts, plugins, system, activity log and marketplace under Operations. Each tab has a one-sentence description on hover, the Guide button opens the full workspace guide, and the demo gallery has a tested scenario for every mode.',
+    checklist: [
+      'Open a family you have not used and read its tabs',
+      'Hover a tab before opening it: the tooltip says what the workspace computes',
+      'Use Guide to compare what that workspace models and what it refuses to model',
+    ],
+    mode: 'schematic',
+    icon: Layers3,
+    target: 'workspace-nav',
+    placement: 'bottom',
+    handsOn: true,
+  },
+  {
+    id: 'help',
+    chapter: 'orientation',
+    title: 'Help lives in the chrome, not in a manual',
+    summary: 'Hover a control to hear what it does; press F1 for guides and hands-on tutorials.',
+    detail:
+      'Rest the pointer on any rail button, header control or workspace tab and a one-line explanation appears after a moment; every control that has a shortcut prints its keycap. Press F1 or ? anywhere to open the help centre: guided tutorials that load a working demo and walk the real buttons, a guide to each of the 28 workspaces, a control reference and the shortcut list. Tutorial steps are self-checked — the workbench does not watch your screen or grade the result.',
+    checklist: [
+      'Hover the wire tool on the rail: the tooltip names the tool and its key',
+      'Press F1, open Tutorials and start the rectifier walkthrough',
+      'Read a workspace guide before trusting its numbers',
+    ],
+    mode: 'schematic',
+    icon: HelpCircle,
+    target: 'help-button',
+    placement: 'bottom',
+  },
+  {
     id: 'schematic',
+    chapter: 'capture',
     title: 'Capture electrical intent in the schematic',
     summary: 'Build a circuit that reads correctly before you optimise it.',
     detail:
@@ -80,6 +171,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   },
   {
     id: 'editor-tools',
+    chapter: 'capture',
     title: 'The rail holds the gestures, the keys hold the rail',
     summary: 'Select, wire and delete sit on one rail, each with a one-key shortcut.',
     detail:
@@ -96,24 +188,8 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     handsOn: true,
   },
   {
-    id: 'families',
-    title: 'Four families hold twenty-five workspaces',
-    summary: 'Design, Electrical, Mechanical and Operations each open their own tools; hover a tab to hear what it does.',
-    detail:
-      'The family strip groups the workbench by discipline and the row beneath it holds that family’s workspaces — schematic, simulation, PCB and fabrication under Design; control, machines, RF, HDL and silicon under Electrical; CAD, robotics, firmware, imaging, blocks and HIL under Mechanical; agents, parts, plugins, system, security and marketplace under Operations. Each tab has a one-sentence description on hover, the Guide button opens the full workspace guide, and the demo gallery has a tested scenario for every mode.',
-    checklist: [
-      'Open a family you have not used and read its tabs',
-      'Hover a tab before opening it: the tooltip says what the workspace computes',
-      'Use Guide to compare what that workspace models and what it refuses to model',
-    ],
-    mode: 'schematic',
-    icon: Layers3,
-    target: 'workspace-nav',
-    placement: 'bottom',
-    handsOn: true,
-  },
-  {
     id: 'simulate',
+    chapter: 'prove',
     title: 'Simulate with stated models and assumptions',
     summary: 'A numeric result is only as trustworthy as its model and boundary conditions.',
     detail:
@@ -130,6 +206,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   },
   {
     id: 'waveforms',
+    chapter: 'prove',
     title: 'Read the response, not just the picture',
     summary: 'Zoom, pan and pin a cursor to take real numbers off the solver output.',
     detail:
@@ -146,6 +223,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   },
   {
     id: 'convert',
+    chapter: 'physical',
     title: 'Convert to PCB and verify constraints',
     summary: 'Treat conversion as a starting layout, never as manufacturing approval.',
     detail:
@@ -162,6 +240,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   },
   {
     id: 'mechanical',
+    chapter: 'physical',
     title: 'Prepare the mechanical and 3D context',
     summary: 'Judge fit and packaging separately from electrical correctness.',
     detail:
@@ -178,6 +257,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   },
   {
     id: 'evidence',
+    chapter: 'connect',
     title: 'Connect firmware, hardware tests and twins',
     summary: 'Move from design artefacts to controlled experiments.',
     detail:
@@ -193,23 +273,8 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     placement: 'top',
   },
   {
-    id: 'version-control',
-    title: 'Version the whole project, not just the schematic',
-    summary: 'Every commit captures the complete multi-domain design state.',
-    detail:
-      'One content-addressed commit stores schematic, routed PCB, mechanical assembly, firmware and every other CAD domain together. Check out any commit to restore a consistent state, and branch when an alternative should not disturb the current design.',
-    checklist: [
-      'Commit a named milestone before a risky edit',
-      'Keep one branch per alternative, review the diff before merging',
-      'Treat workspace history as working storage, not a backup you have verified',
-    ],
-    mode: 'schematic',
-    icon: History,
-    target: 'version-history',
-    placement: 'bottom',
-  },
-  {
     id: 'agent',
+    chapter: 'connect',
     title: 'Drive the CAD with an agent, visually',
     summary: 'The assistant reads the sheet and board back as images after every edit.',
     detail:
@@ -226,23 +291,25 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     placement: 'bottom',
   },
   {
-    id: 'help',
-    title: 'Help lives in the chrome, not in a manual',
-    summary: 'Hover a control to hear what it does; press F1 for guides and hands-on tutorials.',
+    id: 'version-control',
+    chapter: 'govern',
+    title: 'Version the whole project, not just the schematic',
+    summary: 'Every commit captures the complete multi-domain design state.',
     detail:
-      'Rest the pointer on any rail button, header control or workspace tab and a one-line explanation appears after a moment; every control that has a shortcut prints its keycap. Press F1 or ? anywhere to open the help centre: guided tutorials that load a working demo and walk the real buttons, a guide to each of the 25 workspaces, a control reference and the shortcut list. Tutorial steps are self-checked — the workbench does not watch your screen or grade the result.',
+      'One content-addressed commit stores schematic, routed PCB, mechanical assembly, firmware and every other CAD domain together. Check out any commit to restore a consistent state, and branch when an alternative should not disturb the current design.',
     checklist: [
-      'Hover the wire tool on the rail: the tooltip names the tool and its key',
-      'Press F1, open Tutorials and start the rectifier walkthrough',
-      'Read a workspace guide before trusting its numbers',
+      'Commit a named milestone before a risky edit',
+      'Keep one branch per alternative, review the diff before merging',
+      'Treat workspace history as working storage, not a backup you have verified',
     ],
     mode: 'schematic',
-    icon: HelpCircle,
-    target: 'help-button',
+    icon: History,
+    target: 'version-history',
     placement: 'bottom',
   },
   {
     id: 'limits',
+    chapter: 'govern',
     title: 'Know the boundary of every number',
     summary: 'One registry states what each analysis computes, how, and what it refuses to model.',
     detail:
@@ -267,4 +334,32 @@ export const ONBOARDING_STEP_COUNT = ONBOARDING_STEPS.length
 export function clampOnboardingStep(index: number): number {
   if (!Number.isInteger(index)) return 0
   return Math.min(Math.max(index, 0), ONBOARDING_STEP_COUNT - 1)
+}
+
+export const ONBOARDING_CHAPTER_META: Readonly<Record<OnboardingChapterId, OnboardingChapter>> =
+  Object.fromEntries(ONBOARDING_CHAPTERS.map((chapter) => [chapter.id, chapter])) as Record<
+    OnboardingChapterId,
+    OnboardingChapter
+  >
+
+/** Chapter that owns a step index, and the chapter's ordinal (1-based). */
+export function chapterForStep(index: number): { chapter: OnboardingChapter; ordinal: number } {
+  const step = ONBOARDING_STEPS[clampOnboardingStep(index)]
+  const ordinal = ONBOARDING_CHAPTERS.findIndex((chapter) => chapter.id === step.chapter) + 1
+  return { chapter: ONBOARDING_CHAPTER_META[step.chapter], ordinal }
+}
+
+/** Step indices that belong to a chapter, in tour order. */
+export function chapterStepIndices(chapter: OnboardingChapterId): number[] {
+  return ONBOARDING_STEPS.reduce<number[]>((indices, step, index) => {
+    if (step.chapter === chapter) indices.push(index)
+    return indices
+  }, [])
+}
+
+/** Position of a step within its own chapter (1-based) and the chapter size. */
+export function stepPositionInChapter(index: number): { position: number; size: number } {
+  const clamped = clampOnboardingStep(index)
+  const indices = chapterStepIndices(ONBOARDING_STEPS[clamped].chapter)
+  return { position: indices.indexOf(clamped) + 1, size: indices.length }
 }

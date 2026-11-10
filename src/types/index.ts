@@ -1,17 +1,17 @@
 /**
  * types/index.ts
  *
- * Canonical type definitions for Folio.
+ * The shapes the sheet, the board and the solver agree on, so that a component
+ * drawn on the canvas and the netlist built from it are the same object rather
+ * than two dialects that drift.
  *
- * IMPORTANT — Category type policy:
- *   Components from Supabase use  `category: string`.
- *   The AI / domain services use  `category: { id: string; name: string }`.
- *   To bridge both, CategoryLike is exported and getCategoryName() is the
- *   single helper that normalises either form to a plain string — use it
- *   everywhere instead of `typeof c.category === 'string'` guards.
+ * Components from Supabase carry `category: string`; the AI and domain services
+ * carry `category: { id, name }`. CategoryLike accepts either, and
+ * getCategoryName() / getCategoryId() are the only normalisation — use them
+ * instead of `typeof c.category === 'string'` guards.
  */
 
-// ── Category helpers (eliminates the string-vs-object inconsistency) ──────────
+// ── Category helpers ──────────────────────────────────────────────────────────
 
 export type CategoryLike = string | { id: string; name: string }
 
@@ -25,96 +25,8 @@ export function getCategoryId(category: CategoryLike): string {
   return category.id
 }
 
-// ── Simulation aggregate type (wraps params + result + metadata) ──────────────
+// ── Geometry ──────────────────────────────────────────────────────────────────
 
-export interface Simulation {
-  id: string
-  name: string
-  type: 'dc' | 'ac' | 'transient' | 'noise' | 'montecarlo'
-  parameters: SimulationParameters
-  result: SimulationResult | null
-  status: 'idle' | 'running' | 'completed' | 'failed'
-  createdAt: string
-  completedAt?: string
-}
-
-// ── Component library ─────────────────────────────────────────────────────────
-
-export interface ComponentLibrary {
-  id: string
-  name: string
-  description?: string
-  version: string
-  components: Component[]
-  author?: string
-  tags?: string[]
-}
-
-// ── Validation error (shape used by project.store validateProject) ─────────────
-
-export interface ValidationError {
-  id: string
-  type: 'schematic' | 'pcb' | 'simulation' | 'general'
-  severity: 'error' | 'warning' | 'info'
-  message: string
-  location?: {
-    componentId?: string
-    wireId?: string
-    netId?: string
-    elementId?: string
-  }
-}
-
-// ── Domain-level Component type (used by aiService, nlpService, domain libs) ──
-
-export interface DomainComponent {
-  id: string
-  name: string
-  category: CategoryLike
-  description?: string
-  symbol: ComponentSymbol
-  pins: Pin[]
-  properties: ComponentProperties
-  cost?: number
-  availability?: { status: 'available' | 'limited' | 'obsolete'; suppliers?: string[] }
-  tags?: string[]
-  metadata?: {
-    createdAt?: Date | string
-    updatedAt?: Date | string
-    author?: string
-    version?: string
-    tags?: string[]
-  }
-  /** optional legacy net reference on wires */
-  netId?: string
-}
-
-// ── Wire domain extension ─────────────────────────────────────────────────────
-
-export interface DomainWire {
-  id: string
-  points: Point[]
-  netName?: string
-  netId?: string
-  connectedPins: Array<{ componentId: string; pinId: string }>
-  style?: { color?: string; width?: number; dashArray?: number[] }
-  selected?: boolean
-  current?: number
-  voltage?: number
-}
-
-// ── Net domain extension ──────────────────────────────────────────────────────
-
-export interface DomainNet {
-  id: string
-  name: string
-  connectedPins: Array<{ componentId: string; pinId: string }>
-  wires: string[]
-  voltage?: number
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Core application types
 export interface Point {
   x: number
   y: number
@@ -125,14 +37,8 @@ export interface Size {
   height: number
 }
 
-export interface Bounds {
-  x: number
-  y: number
-  width: number
-  height: number
-}
+// ── Schematic drawing types ───────────────────────────────────────────────────
 
-// Component and Circuit Types
 export interface Pin {
   id: string
   name: string
@@ -185,27 +91,6 @@ export interface PlacedComponent {
   selected?: boolean
 }
 
-// Legacy interface for compatibility with PropertiesPanel
-export interface ComponentInstance {
-  id: string
-  reference: string
-  component: {
-    name: string
-    category: string
-    pins: Array<{
-      id: string
-      name: string
-      type: string
-    }>
-  }
-  properties: Record<string, string | number | boolean>
-  x: number
-  y: number
-  rotation?: number
-  locked?: boolean
-  visible?: boolean
-}
-
 export interface Wire {
   id: string
   points: Point[]
@@ -224,6 +109,19 @@ export interface Wire {
   voltage?: number // Voltage in Volts
 }
 
+/** The wire the domain and AI services pass around, which also carries a net id. */
+export interface DomainWire {
+  id: string
+  points: Point[]
+  netName?: string
+  netId?: string
+  connectedPins: Array<{ componentId: string; pinId: string }>
+  style?: { color?: string; width?: number; dashArray?: number[] }
+  selected?: boolean
+  current?: number
+  voltage?: number
+}
+
 export interface Net {
   id: string
   name: string
@@ -234,7 +132,6 @@ export interface Net {
   wires: string[]
 }
 
-// Schematic and Project Types
 export interface Schematic {
   id: string
   name: string
@@ -258,31 +155,7 @@ export interface Schematic {
   }
 }
 
-export interface Project {
-  id: string
-  name: string
-  description?: string
-  schematics: Schematic[]
-  libraries: string[]
-  metadata: {
-    created: string
-    modified: string
-    version: string
-    author?: string
-    tags?: string[]
-  }
-  settings: {
-    defaultUnits: 'metric' | 'imperial'
-    defaultVoltage: number
-    defaultCurrent: number
-  }
-}
-
-// Simulation Types
-export interface SimulationModel {
-  type: string
-  parameters: Record<string, number | string>
-}
+// ── Simulation types ──────────────────────────────────────────────────────────
 
 export interface SimulationNode {
   name: string
@@ -322,33 +195,33 @@ export interface SimulationResult {
 
 export interface SimulationParameters {
   type: 'dc' | 'ac' | 'transient' | 'noise' | 'montecarlo'
-  
+
   // Transient analysis
   startTime?: number
   stopTime?: number
   stepTime?: number
   maxStep?: number
-  
+
   // AC analysis
   startFreq?: number
   stopFreq?: number
   pointsPerDecade?: number
   sweepType?: 'linear' | 'decade' | 'octave'
-  
+
   // DC analysis
   source?: string
   startValue?: number
   stopValue?: number
   stepValue?: number
-  
+
   // Noise analysis
   outputNode?: string
   inputSource?: string
-  
+
   // Monte Carlo
   iterations?: number
   seed?: number
-  
+
   // General
   temperature?: number
   abstol?: number
@@ -357,7 +230,8 @@ export interface SimulationParameters {
   chgtol?: number
 }
 
-// AI and MCP Types
+// ── Assistant chat ────────────────────────────────────────────────────────────
+
 export interface AIMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
@@ -371,261 +245,13 @@ export interface AIMessage {
   }
 }
 
-export interface ComponentSuggestion {
-  component: string
-  reason: string
-  confidence: number
-  alternatives: Array<{
-    component: string
-    reason: string
-    confidence: number
-  }>
-  cost?: number
-  availability?: string
-}
+// ── Accounts ──────────────────────────────────────────────────────────────────
 
-export interface CircuitAnalysis {
-  issues: Array<{
-    type: 'error' | 'warning' | 'info'
-    message: string
-    suggestion?: string
-    componentId?: string
-    severity: 'low' | 'medium' | 'high'
-  }>
-  optimizations: Array<{
-    type: 'performance' | 'cost' | 'power' | 'reliability' | 'size'
-    description: string
-    impact: 'low' | 'medium' | 'high'
-    implementation: string
-    estimatedSavings?: number
-  }>
-  metrics: {
-    estimatedCost?: number
-    estimatedPower?: number
-    componentCount: number
-    netCount: number
-    complexity: 'simple' | 'moderate' | 'complex'
-  }
-}
-
-export interface MCPTool {
-  name: string
-  description: string
-  inputSchema: Record<string, unknown>
-  outputSchema?: Record<string, unknown>
-}
-
-export interface MCPResource {
-  uri: string
-  name: string
-  description?: string
-  mimeType?: string
-}
-
-// UI and Application Types
-export interface Theme {
-  name: string
-  colors: {
-    background: string
-    foreground: string
-    primary: string
-    secondary: string
-    accent: string
-    muted: string
-    border: string
-    // Circuit-specific
-    wire: string
-    component: string
-    pin: string
-    grid: string
-    selection: string
-  }
-}
-
-export interface ViewportState {
-  zoom: number
-  pan: Point
-  canvasSize: Size
-  gridSize: number
-  snapToGrid: boolean
-  showGrid: boolean
-}
-
-export interface SelectionState {
-  components: string[]
-  wires: string[]
-  area?: Bounds
-}
-
-export interface ToolState {
-  activeTool: 'select' | 'wire' | 'component' | 'text' | 'measure' | 'delete'
-  selectedComponent?: Component
-  wireInProgress?: {
-    points: Point[]
-    currentPoint?: Point
-  }
-}
-
-export type Viewport = {
-  zoom: number
-  pan: Point
-  bounds: Bounds
-  gridSize: number
-  snapToGrid: boolean
-  showGrid: boolean
-  showRulers: boolean
-}
-
-export type Selection = SelectionState
-export type Tool = ToolState['activeTool']
-
-export interface ApplicationSettings {
-  theme: 'light' | 'dark' | 'professional' | 'high-contrast' | 'system'
-  language: string
-  units: 'metric' | 'imperial'
-  gridSize: number
-  snapToGrid: boolean
-  autoSave: boolean
-  autoSaveInterval: number
-  showTooltips: boolean
-  showAnimations: boolean
-  performance: {
-    maxUndoSteps: number
-    canvasResolution: number
-    simulationPrecision: number
-    enableHardwareAcceleration: boolean
-  }
-}
-
-export interface UserPreferences {
-  theme?: 'light' | 'dark' | 'professional' | 'high-contrast'
-  language?: string
-  units?: 'metric' | 'imperial'
-}
-
-// Export and Import Types
-export interface ExportOptions {
-  format: 'png' | 'svg' | 'pdf' | 'netlist' | 'json' | 'gerber'
-  resolution?: number
-  includeGrid?: boolean
-  includeAnnotations?: boolean
-  colorScheme?: 'color' | 'monochrome'
-}
-
-export interface ImportResult {
-  success: boolean
-  error?: string
-  components?: PlacedComponent[]
-  wires?: Wire[]
-  metadata?: Record<string, unknown>
-}
-
-// Plugin and Extension Types
-export interface Plugin {
-  id: string
-  name: string
-  version: string
-  description: string
-  author: string
-  enabled: boolean
-  permissions: string[]
-  entry: string
-}
-
-export interface PluginAPI {
-  // Component management
-  addComponent: (component: Component) => void
-  removeComponent: (id: string) => void
-  updateComponent: (id: string, updates: Partial<Component>) => void
-  
-  // Circuit manipulation
-  addWire: (wire: Wire) => void
-  removeWire: (id: string) => void
-  
-  // Simulation
-  runSimulation: (parameters: SimulationParameters) => Promise<SimulationResult>
-  
-  // UI
-  showNotification: (message: string, type?: 'info' | 'warning' | 'error') => void
-  openDialog: (content: unknown) => void
-  
-  // Events
-  on: (event: string, callback: (...args: unknown[]) => void) => void
-  off: (event: string, callback: (...args: unknown[]) => void) => void
-  emit: (event: string, data?: unknown) => void
-}
-
-// Validation and Testing Types
-export interface ValidationRule {
-  id: string
-  name: string
-  description: string
-  severity: 'error' | 'warning' | 'info'
-  check: (schematic: Schematic) => ValidationResult[]
-}
-
-export interface ValidationResult {
-  ruleId: string
-  severity: 'error' | 'warning' | 'info'
-  message: string
-  componentId?: string
-  wireId?: string
-  suggestion?: string
-}
-
-export interface TestCase {
-  id: string
-  name: string
-  description: string
-  inputs: Record<string, number>
-  expectedOutputs: Record<string, number>
-  tolerance?: number
-}
-
-export interface TestResult {
-  testCaseId: string
-  passed: boolean
-  actualOutputs: Record<string, number>
-  error?: string
-}
-
-// Collaboration Types
 export interface User {
   id: string
   name: string
   email: string
   avatar?: string
-  role: 'owner' | 'editor' | 'viewer' | 'admin' | 'user'
-  preferences?: UserPreferences
-}
-
-export interface CollaborativeUser extends User {
-  color: string
-  isActive: boolean
-  lastSeen: number
-  cursor?: Point
-  selection?: { start: Point; end: Point }
-}
-
-export interface CollaborationSession {
-  id: string
-  projectId: string
-  users: User[]
-  changes: Array<{
-    id: string
-    userId: string
-    timestamp: number
-    type: 'component_added' | 'component_removed' | 'component_moved' | 'wire_added' | 'wire_removed'
-    data: Record<string, unknown>
-  }>
-}
-
-export interface Comment {
-  id: string
-  userId: string
-  position: Point
-  content: string
-  timestamp: number
-  resolved?: boolean
-  replies?: Comment[]
+  /** Governance role from the deployment's `profiles` row; `user` means unassigned. */
+  role: 'owner' | 'admin' | 'engineer' | 'viewer' | 'user'
 }

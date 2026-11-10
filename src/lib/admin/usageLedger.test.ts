@@ -8,6 +8,7 @@ import {
   resetUsageLedger,
   subscribeUsage,
   summarizeUsage,
+  usageByAccount,
   usageDayKey,
   usageSince,
 } from './usageLedger'
@@ -155,5 +156,40 @@ describe('usage ledger', () => {
     expect(fresh.getUsageEvents()).toHaveLength(0)
     expect(() => fresh.recordUsage('workspace.open', 'u1', undefined, 1000)).not.toThrow()
     expect(fresh.getUsageEvents()).toHaveLength(1)
+  })
+})
+
+/*
+ * The People section of the admin console shows one row per account, built from
+ * exactly this rollup, so its counts cannot drift away from the Usage table:
+ * both read the same slice of the same ledger.
+ */
+describe('usageByAccount', () => {
+  it('rolls each account up with its busiest action and its most recent event', () => {
+    recordUsage('export.run', 'u1', { format: 'netlist' }, 1000)
+    recordUsage('demo.load', 'u1', undefined, 2000)
+    recordUsage('demo.load', 'u1', undefined, 9000)
+    recordUsage('project.create', 'u2', undefined, 5000)
+
+    const usage = usageByAccount(getUsageEvents())
+    expect([...usage.keys()]).toEqual(['u1', 'u2'])
+    expect(usage.get('u1')).toMatchObject({ events: 3, lastAt: 9000, topKind: 'demo.load' })
+    expect(usage.get('u1')?.kinds).toEqual([
+      { kind: 'demo.load', count: 2 },
+      { kind: 'export.run', count: 1 },
+    ])
+    expect(usage.get('u2')).toMatchObject({ events: 1, lastAt: 5000, topKind: 'project.create' })
+  })
+
+  it('holds nothing for an account that has no events in the window', () => {
+    recordUsage('workspace.open', 'u1', undefined, 1000)
+    recordUsage('demo.load', 'u2', undefined, 20 * DAY)
+
+    const windowEvents = usageSince(14, 21 * DAY)
+    expect(windowEvents.map((event) => event.user)).toEqual(['u2'])
+
+    const usage = usageByAccount(windowEvents)
+    expect(usage.has('u1')).toBe(false)
+    expect(usage.get('u2')).toMatchObject({ events: 1, topKind: 'demo.load' })
   })
 })

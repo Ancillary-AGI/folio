@@ -14,13 +14,13 @@
  * cell specs in standardCellLibrary.ts — no magic constants.
  */
 
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { useState, useCallback, useMemo, useRef } from 'react'
 import { lazy, Suspense } from 'react'
 import { Cpu, Layers, Package, Download, Play, RefreshCw, ChevronRight, CheckCircle, AlertCircle, BarChart3, X } from 'lucide-react'
 import { Button } from '../ui/button'
 import { useDemoRequest } from '../workspace/useDemoRequest'
 import { synthesize, planFloorplan, generatePackageDescription, PACKAGE_TYPES, exportGDSII, type SynthesisResult, type FloorplanResult, type ChipPackage } from '../../lib/ic/icFlowAdapter'
-import { parseVerilogModule } from '../../lib/fpga/verilogSubset'
+import { expandVerilogPorts, parseVerilogModule } from '../../lib/fpga/verilogSubset'
 import { parseVhdl } from '../../lib/fpga/vhdlSubset'
 import { STANDARD_MEMORY } from '../../lib/electronics/logicMemory'
 import {
@@ -34,6 +34,7 @@ import {
   type ShiftRegister595Outputs,
 } from '../../lib/electronics/memoryBehavior'
 import { loadDomainDesign, usePublishDomainDesign } from '../../lib/project/domainDesign'
+import { compact } from '../../lib/numberFormat'
 
 const HDLEditor = lazy(() => import('./HDLEditor'))
 
@@ -145,12 +146,6 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
   const [activeTab, setActiveTab] = useState<ICTab>(
     saved?.activeTab && IC_TABS.includes(saved.activeTab) ? saved.activeTab : 'entry',
   )
-  const flowTabsRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const active = flowTabsRef.current?.querySelector<HTMLElement>('[aria-current="page"]')
-    active?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
-  }, [activeTab])
   useDemoRequest('ic-device-lab', runDeviceLabDemo)
   const [hdlCode, setHdlCode] = useState(
     typeof saved?.hdlCode === 'string' ? saved.hdlCode : DEFAULT_VERILOG,
@@ -402,7 +397,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
             return {
               name: elab.name,
               netlist: elab.netlist,
-              ports: elab.ports.map((port) => ({ name: port.name, direction: port.direction })),
+              ports: expandVerilogPorts(elab.ports),
             }
           })()
         : (() => {
@@ -521,19 +516,18 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
           <Cpu size={16} className="text-chart-4" />
           <h2 className="text-sm font-semibold">IC Design — SkyWater SKY130</h2>
         </div>
-        {onClose && <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close IC design panel" className="text-muted-foreground"><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>}
+        {onClose && <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close IC design panel" className="text-muted-foreground" title="Close the IC design panel; nothing is written by the act of closing."><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>}
       </div>
 
       {/* Flow tabs */}
-      <div className="relative shrink-0 border-b border-border">
-        <div ref={flowTabsRef} className="scrollbar-none flex overflow-x-auto">
+      <div className="flex shrink-0 flex-wrap border-b border-border">
         {TABS.map((tab, i) => {
           const s = tab.step ? status[tab.step] : undefined
           return (
             <button key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               aria-current={activeTab === tab.id ? 'page' : undefined}
-              className={`flex items-center gap-1.5 px-4 py-2 text-xs whitespace-nowrap transition-colors ${
+              className={`flex shrink-0 items-center gap-1.5 px-4 py-2 text-xs whitespace-nowrap transition-colors ${
                 activeTab === tab.id ? 'border-b-2 border-chart-4/50 text-chart-4' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -545,8 +539,6 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
             </button>
           )
         })}
-        </div>
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-background to-transparent" aria-hidden="true" />
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
@@ -582,8 +574,8 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                       { label: 'Total area', value: `${synthResult.totalArea.toFixed(2)} µm²` },
                       { label: 'Critical path', value: synthResult.metrics.criticalPathDelayPs > 0 ? `${synthResult.metrics.criticalPathDelayPs} ps` : 'n/a' },
                       { label: 'Max freq', value: synthResult.metrics.maxOperatingFreqMhz > 0 ? `${synthResult.metrics.maxOperatingFreqMhz} MHz` : 'n/a' },
-                      { label: 'Static power', value: `${(synthResult.staticPowerUw ?? 0).toFixed(2)} µW` },
-                      { label: 'Dynamic power', value: `${(synthResult.dynamicPowerMw ?? 0).toFixed(3)} mW` },
+                      { label: 'Static power', value: `${compact(synthResult.staticPowerUw)} µW` },
+                      { label: 'Dynamic power', value: `${compact(synthResult.dynamicPowerMw)} mW` },
                     ].map(({ label, value }) => (
                       <div key={label} className="bg-card rounded p-2">
                         <p className="text-xs text-muted-foreground">{label}</p>
@@ -730,7 +722,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                   id="device-part"
                   value={devicePartId}
                   onChange={(event) => loadDevicePart(event.target.value)}
-                  className="w-full rounded border border-border bg-card px-2 py-1.5 text-sm text-foreground"
+                  className="w-full rounded border border-input bg-card px-2 py-1.5 text-sm text-foreground"
                 >
                   {STANDARD_MEMORY.map((part) => (
                     <option key={part.id} value={part.id}>{part.partNumber} — {part.name}</option>
@@ -882,7 +874,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                       </span>
                     ))}
                   </div>
-                  <p className="text-xs font-mono text-success">
+                  <p className="text-xs text-success">
                     {decode138(decoderInputs).enabled
                       ? `Selected Y${decode138(decoderInputs).selected} (active low)`
                       : 'Disabled — all outputs high'}
@@ -906,7 +898,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                           const limit = (deviceSpec.capacityBits ?? 0) / 8 - 1
                           if (Number.isInteger(next) && next >= 0 && next <= limit) setMemoryAddress(next)
                         }}
-                        className="w-full rounded border border-border bg-background px-2 py-1 text-sm text-foreground"
+                        className="w-full rounded border border-input bg-background px-2 py-1 text-sm text-foreground"
                       />
                     </div>
                     <div>
@@ -921,7 +913,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                           const next = Number(event.target.value)
                           if (Number.isInteger(next) && next >= 0 && next <= 255) setMemoryValue(next)
                         }}
-                        className="w-full rounded border border-border bg-background px-2 py-1 text-sm text-foreground"
+                        className="w-full rounded border border-input bg-background px-2 py-1 text-sm text-foreground"
                       />
                     </div>
                   </div>
@@ -938,7 +930,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                       </Button>
                     )}
                   </div>
-                  {memoryMessage && <p className="text-xs font-mono text-success">{memoryMessage}</p>}
+                  {memoryMessage && <p className="text-xs text-success">{memoryMessage}</p>}
                   <div className="text-xs text-muted-foreground">
                     {Math.round((deviceSpec.capacityBits ?? 0) / 8)} bytes ·
                     {' '}{deviceSpec.interface ?? 'parallel'} ·

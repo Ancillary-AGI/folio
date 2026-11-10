@@ -6,11 +6,15 @@
  * button below them runs for real. These tests pin the panel's honesty: the
  * Results card must always describe the pose the arm is actually in.
  */
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { AdvancedRoboticsPanel } from '../components/robotics/AdvancedRoboticsPanel'
+import { dropLibraryItem } from './helpers/libraryDrop'
+import { gridCatalog, robotCatalog } from '../lib/library/elementCatalogs'
+import type { LibraryItem } from '../lib/library/types'
+import { useProjectStore } from '../stores/useProjectStore'
 
 vi.mock('@react-three/fiber', () => {
   const state = {
@@ -133,5 +137,52 @@ describe('AdvancedRoboticsPanel', () => {
     expect(screen.queryByText('Waypoints')).not.toBeInTheDocument()
     // The pose the card reports is the one the solver was handed.
     expect(resultValue('Current pose')).not.toBe('(0.220, 0.050, 0.000)')
+  })
+})
+
+/**
+ * The mechanism card is a drop target: a robot row is built from the geometry
+ * the kinematics engine stores, and anything else is refused in so many words.
+ */
+describe('AdvancedRoboticsPanel library drops', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    useProjectStore.setState({ domainDesigns: {} })
+  })
+
+  const row = (catalog: LibraryItem[], id: string): LibraryItem => {
+    const found = catalog.find((item) => item.id === id)
+    if (!found) throw new Error(`catalog row ${id} is gone`)
+    return found
+  }
+
+  const mechanismCard = (): HTMLElement => {
+    const card = screen.getByText('Mechanism').closest('.cad-dropzone')
+    if (!card) throw new Error('the mechanism card is not a drop zone')
+    return card as HTMLElement
+  }
+
+  it('builds the architecture a robot row names', () => {
+    render(<AdvancedRoboticsPanel />)
+
+    dropLibraryItem(mechanismCard(), row(robotCatalog(), 'robot-scara-500'))
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'SCARA, 500 mm / 3 kg built and selected — 4 joints, 500 mm reach, 3 kg payload.',
+    )
+    // The joint controls follow the arm that was actually built.
+    expect(screen.getByText('Theta 1 (shoulder)')).toBeInTheDocument()
+    expect(screen.getByText('Quill (Z)')).toBeInTheDocument()
+  })
+
+  it('refuses a row that is not a robot', async () => {
+    render(<AdvancedRoboticsPanel />)
+
+    dropLibraryItem(mechanismCard(), row(gridCatalog(), 'grid-bus-pv-33'))
+
+    expect(
+      await screen.findByText(/is not a robot — this card builds mechanisms from the Robotics library\./),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('status')).not.toHaveTextContent(/built and selected/)
   })
 })

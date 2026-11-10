@@ -222,7 +222,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
           <h2 className="text-sm font-semibold">Import Component from Datasheet</h2>
         </div>
         {onClose && (
-          <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close datasheet importer" className="text-muted-foreground hover:text-foreground"><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
+          <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close datasheet importer" className="text-muted-foreground hover:text-foreground" title="Close the importer without adding the parsed part to the library."><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
         )}
       </div>
 
@@ -286,7 +286,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
               <Label className="text-xs text-muted-foreground mb-1 block">Datasheet URL or part number</Label>
               <div className="flex gap-2">
                 <Input
-                  className="flex-1 bg-card border-border text-sm"
+                  className="flex-1 bg-card border-input text-sm"
                   placeholder="https://www.ti.com/lit/ds/… or LCSC: C123456"
                   value={urlInput}
                   onChange={e => setUrlInput(e.target.value)}
@@ -312,7 +312,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
           <div className="space-y-3">
             <div className="flex gap-2">
               <Input
-                className="flex-1 bg-card border-border text-sm"
+                className="flex-1 bg-card border-input text-sm"
                 placeholder="Search: 2N3904, LM741, IRF540, 1N4148…"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
@@ -324,12 +324,15 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
             {vendorResults.length > 0 && (
               <div className="space-y-1.5">
                 {vendorResults.map(entry => (
-                  <div key={entry.name}
-                    className="flex items-center justify-between bg-card rounded p-2.5 hover:bg-accent cursor-pointer"
+                  <button
+                    key={entry.name}
+                    type="button"
                     onClick={() => handleSelectVendorModel(entry)}
+                    aria-label={`Add ${entry.name} to the component library`}
+                    className="flex w-full items-center justify-between gap-3 rounded bg-card p-2.5 text-left hover:bg-accent"
                   >
-                    <div>
-                      <div className="flex items-center gap-2">
+                    <span>
+                      <span className="flex items-center gap-2">
                         <span className="font-mono text-sm text-foreground">{entry.name}</span>
                         <span className={`text-xs px-1.5 py-0.5 rounded ${
                           entry.category === 'bjt' ? 'bg-warning/15 text-warning' :
@@ -338,19 +341,12 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
                           entry.category === 'opamp' ? 'bg-chart-4/15 text-chart-4' :
                           'bg-muted text-foreground'
                         }`}>{entry.category.toUpperCase()}</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">{entry.description}</p>
-                      <p className="text-xs text-muted-foreground">{entry.manufacturer} · {entry.footprint}</p>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      aria-label={`Select ${entry.name}`}
-                      className="text-primary hover:text-primary shrink-0"
-                    >
-                      <Plus size={14} />
-                    </Button>
-                  </div>
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">{entry.description}</span>
+                      <span className="block text-xs text-muted-foreground">{entry.manufacturer} · {entry.footprint}</span>
+                    </span>
+                    <Plus size={14} className="shrink-0 text-primary" aria-hidden="true" />
+                  </button>
                 ))}
               </div>
             )}

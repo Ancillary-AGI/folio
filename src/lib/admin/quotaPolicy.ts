@@ -1,17 +1,37 @@
 /**
- * Role-based quotas for the administration console.
+ * Role-based quota policy.
  *
- * Quotas are policy, not physics: a limit of `null` means unlimited. The owner
- * is always unlimited so a workspace can never lock itself out of
- * administration. Cloud roles are enforced by the UI helpers here and by the
- * `usage_events`/`quota_policies` schema; on a local-only device the sole owner
- * is the only principal, so the numbers describe future members honestly.
+ * Quotas are policy, not physics: a limit of `null` means unlimited. Owner and
+ * administrator are always unlimited so a deployment can never lock itself out
+ * of its own administration. The authoritative copy is the `quota_policies`
+ * table, enforced server-side by the governance triggers; the browser keeps a
+ * cache so the workbench can refuse an action before spending the user's time
+ * on it. `quotaSync.ts` refreshes that cache from the deployment.
+ *
+ * This module is pure policy plus a local cache — it imports no client, so the
+ * operator console and the workbench can both use it without sharing a session.
  */
+import type { User } from '../../types'
 
 export const ADMIN_ROLES = ['owner', 'admin', 'engineer', 'viewer'] as const
 export type AdminRole = (typeof ADMIN_ROLES)[number]
 /** A signed-in cloud account with no governance role assigned. */
 export type QuotaSubject = AdminRole | 'user'
+
+export function isAdminRole(role: string | undefined | null): role is 'owner' | 'admin' {
+  return role === 'owner' || role === 'admin'
+}
+
+/**
+ * The role whose limits apply to this account's own work. A standalone device
+ * has one principal and no directory, so it is its own owner; a cloud account
+ * with no governance row is treated as a viewer until an operator assigns one.
+ */
+export function resolveQuotaRole(user: User | null, offlineMode: boolean): QuotaSubject {
+  if (offlineMode) return 'owner'
+  const role = user?.role
+  return role && (ADMIN_ROLES as readonly string[]).includes(role) ? (role as AdminRole) : 'user'
+}
 
 export interface QuotaLimits {
   maxProjects: number | null
@@ -204,8 +224,7 @@ function statusFor(used: number, limit: number | null): QuotaStatus {
   return 'ok'
 }
 
-export function quotaRows(role: QuotaSubject, usage: QuotaUsage): QuotaRow[] {
-  const limits = subjectLimits(role)
+export function quotaRows(role: QuotaSubject, usage: QuotaUsage, limits: QuotaLimits = subjectLimits(role)): QuotaRow[] {
   return [
     {
       id: 'projects',
@@ -250,8 +269,8 @@ export function checkQuotaCapacity(
   kind: QuotaDecisionKind,
   role: QuotaSubject,
   usage: QuotaUsage,
+  limits: QuotaLimits = subjectLimits(role),
 ): QuotaDecision {
-  const limits = subjectLimits(role)
   const row =
     kind === 'project'
       ? { used: usage.projects, limit: limits.maxProjects, label: 'project' }

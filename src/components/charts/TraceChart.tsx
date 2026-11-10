@@ -70,6 +70,13 @@ interface TraceChartProps {
   height?: number
   /** Vertical marker in x units, e.g. a playback head. */
   markerX?: number | null
+  /**
+   * How the samples are joined. `monotone` is right for a trace against time and
+   * wrong for anything that turns back on itself: a pressure–volume loop is read
+   * for its area, and a spline fitted across a reversal invents bulges the solver
+   * never produced. Pass `linear` for those — the polygon then is the run.
+   */
+  curve?: 'monotone' | 'linear'
   ariaLabel: string
 }
 
@@ -128,6 +135,7 @@ export default function TraceChart({
   ticks,
   height = 256,
   markerX = null,
+  curve = 'monotone',
   ariaLabel,
 }: TraceChartProps) {
   const { theme } = useTheme()
@@ -421,7 +429,7 @@ export default function TraceChart({
               <Line
                 key={entry.key}
                 yAxisId={entry.axis === 'right' ? 'right' : 'left'}
-                type="monotone"
+                type={curve}
                 dataKey={entry.key}
                 name={entry.label ?? entry.key}
                 stroke={entry.color}

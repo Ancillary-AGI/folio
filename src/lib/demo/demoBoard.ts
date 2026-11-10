@@ -51,11 +51,14 @@ export function buildDemoBoard(): DemoBoard {
   // 60-high rail at y=240 would run straight through the RLOAD body.
   // Pin worlds: V1 (70,180)/(70,240), R_SRC (100,180)/(180,180),
   // D1 (190,180)/(250,180), C1 rot90 (260,180)/(260,240),
-  // R_LOAD rot90 (325,180)/(325,260), G1 (200,260),
+  // R_LOAD rot90 (320,180)/(320,260), G1 (200,260),
   // TP_IN (100,180), TP_OUT (300,180).
+  // Origins are chosen so each part's own pin line lands on a rail: an 80×40
+  // resistor carries its pins at y=20, so a horizontal one sits at y=160 to
+  // reach y=180 and a rotated one at x=340 to reach x=320.
   const components: CanvasComponent[] = [
     placed('V1', 'Sine Voltage Source', 40, 180, { type: 'SINE', vo: '0V', va: '6V', freq: '1kHz', phase: '0', footprint: '0805' }),
-    placed('RSRC', 'Resistor', 100, 165, { value: '10', footprint: '0805' }),
+    placed('RSRC', 'Resistor', 100, 160, { value: '10', footprint: '0805' }),
     // Ratings are the real part's, so the margins table has something true to
     // compare against: 1N5817 is a 40 V Schottky; the 1206 ceramic is 50 V.
     placed('D1', 'Diode', 190, 160, { type: '1N5817', is: '1e-8', n: '1.1', vbr: '40V', footprint: 'SMC' }),
@@ -71,11 +74,11 @@ export function buildDemoBoard(): DemoBoard {
     wire('mid', 'MID', [...P('RSRC', 'p2'), ...P('D1', 'anode')],
       [{ x: 180, y: 180 }, { x: 190, y: 180 }]),
     wire('out-rail', 'OUT', [...P('D1', 'cathode'), ...P('C1', 'p1'), ...P('RLOAD', 'p1')],
-      [{ x: 250, y: 180 }, { x: 260, y: 180 }, { x: 320, y: 180 }, { x: 325, y: 180 }]),
+      [{ x: 250, y: 180 }, { x: 260, y: 180 }, { x: 320, y: 180 }]),
     wire('gnd-rail', 'GND', [...P('V1', 'negative'), ...P('G1', 'gnd'), ...P('C1', 'p2')],
       [{ x: 70, y: 240 }, { x: 70, y: 260 }, { x: 200, y: 260 }, { x: 260, y: 260 }, { x: 260, y: 240 }]),
     wire('gnd-load', 'GND', [...P('RLOAD', 'p2'), ...P('G1', 'gnd')],
-      [{ x: 325, y: 260 }, { x: 200, y: 260 }]),
+      [{ x: 320, y: 260 }, { x: 200, y: 260 }]),
   ];
   return {
     components, wires,

@@ -89,10 +89,10 @@ export default function TutorialRunner({ tutorial, onClose, onRestartDemo, onOpe
             aria-label={collapsed ? 'Expand tutorial' : 'Collapse tutorial'}
             aria-expanded={!collapsed}
             onClick={() => setCollapsed(value => !value)}
-          >
+            title="Fold the guide down to its title bar, or open it again.">
             {collapsed ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Close tutorial" onClick={onClose}>
+          <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Close tutorial" onClick={onClose} title="End the tutorial and close the runner.">
             <X className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -128,20 +128,20 @@ export default function TutorialRunner({ tutorial, onClose, onRestartDemo, onOpe
             ) : (
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+                  <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                     {WORKSPACE_MODE_META[step.mode].label}
                   </span>
-                  <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+                  <span className="font-mono text-[10px] text-muted-foreground">
                     {index + 1} / {total}
                   </span>
                 </div>
                 <h2 className="text-[13px] font-semibold leading-snug text-foreground">{step.title}</h2>
                 <div>
-                  <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-primary">Do</p>
+                  <p className="text-[10px] font-medium text-primary">Do</p>
                   <p className="mt-0.5 text-[11px] leading-relaxed text-foreground">{step.do}</p>
                 </div>
                 <div className="rounded-md border border-border bg-muted/40 p-2">
-                  <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Look for</p>
+                  <p className="text-[10px] font-medium text-muted-foreground">Look for</p>
                   <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{step.see}</p>
                 </div>
               </div>
@@ -150,7 +150,7 @@ export default function TutorialRunner({ tutorial, onClose, onRestartDemo, onOpe
 
           <footer className="flex flex-shrink-0 items-center justify-between gap-2 border-t border-border bg-muted/30 px-3 py-2">
             {completed ? (
-              <span className="text-[9px] uppercase tracking-[0.08em] text-muted-foreground">Self-checked · not graded</span>
+              <span className="text-[10px] text-muted-foreground">Self-checked · not graded</span>
             ) : (
               <>
                 <Button

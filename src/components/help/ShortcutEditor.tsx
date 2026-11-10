@@ -110,7 +110,7 @@ export default function ShortcutEditor({ query, platform }: ShortcutEditorProps)
 
       <table className="w-full border-collapse text-[11px]">
         <thead>
-          <tr className="border-b border-border text-left text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+          <tr className="border-b border-border text-left text-[10px] text-muted-foreground">
             <th scope="col" className="py-1.5 pr-3 font-semibold">Keys</th>
             <th scope="col" className="py-1.5 pr-3 font-semibold">Action</th>
             <th scope="col" className="py-1.5 pr-3 font-semibold">Where</th>
@@ -166,7 +166,7 @@ export default function ShortcutEditor({ query, platform }: ShortcutEditorProps)
                       className="h-6 px-1.5 text-[10px]"
                       aria-label={`Reset the binding for ${definition.action}`}
                       onClick={() => resetBinding(definition.id)}
-                    >
+                      title="Put this action back on its default binding.">
                       <Undo2 className="h-3 w-3" aria-hidden="true" />
                     </Button>
                   )}
@@ -177,7 +177,7 @@ export default function ShortcutEditor({ query, platform }: ShortcutEditorProps)
         </tbody>
       </table>
       <section className="space-y-2">
-        <h3 className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+        <h3 className="text-[11px] font-medium text-muted-foreground">
           Inside a code surface
         </h3>
         <p className="text-[11px] leading-relaxed text-muted-foreground">

@@ -1,27 +1,33 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { Stage, Layer, Rect, Line, Circle, Text, Group, Path } from 'react-konva'
+import { DraftingCompass, FlaskConical, Package, PenTool } from 'lucide-react'
 import { Component } from '../lib/supabase'
 import { useAppStore } from '../stores/useAppStore'
-import { useProjectStore } from '../stores/useProjectStore'
+import { useProjectStore, type CanvasComponent, type CanvasWire } from '../stores/useProjectStore'
 import { useTheme } from '../lib/theme/useTheme'
 import { THEMES, hslTripletToRgb, rgbToHex } from '../lib/theme/tokens'
 import Konva from 'konva'
 import { useShortcutStore } from '../stores/useShortcutStore'
-import { isEditableTarget, matchesShortcut } from '../lib/keymap/shortcuts'
+import { describeShortcut, isEditableTarget, matchesShortcut } from '../lib/keymap/shortcuts'
 import { generateId } from '../lib/utils'
 import { placePart } from '../lib/schematic/placePart'
 import { applyContextAction, CONTEXT_ACTIONS, validateSymbol, type ContextActionId } from '../lib/schematic/contextMenu'
 import SchematicSymbolEditor from './SchematicSymbolEditor'
 import SketchLayer from './sketch/SketchLayer'
 import { routePoints } from '../lib/schematic/wireRouting'
+import { applyWireDrag, hitWireHandle, type WireHandle } from '../lib/schematic/wireDrag'
+import { tidySchematic } from '../lib/schematic/tidyLayout'
 import {
   drawingExtents,
   frameAround,
   layoutComponentLabels,
+  layoutNetLabels,
   pinWorldCoord,
   rotatePinCoord,
   wireJunctions,
 } from '../lib/schematic/drawingLayout'
+import { SCHEMATIC_UNITS_PER_MM } from '../lib/schematic/units'
+import { probeNet } from '../lib/schematic/netProbe'
 
 const RULER_SIZE = 18
 const RULER_STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000]
@@ -74,6 +80,9 @@ interface SchematicCanvasProps {
   pendingComponent?: Component | null
   /** Notifies the parent once an armed part has been placed. */
   onPendingPlaced?: () => void
+  /** Empty-sheet doorways: worked examples and the part catalogue. */
+  onOpenDemos?: () => void
+  onBrowseParts?: () => void
 }
 
 export default function SchematicCanvas({
@@ -81,6 +90,8 @@ export default function SchematicCanvas({
   onSave,
   pendingComponent = null,
   onPendingPlaced,
+  onOpenDemos,
+  onBrowseParts,
 }: SchematicCanvasProps) {
   const stageRef = useRef<Konva.Stage>(null)
   const [stageSize, setStageSize] = useState({ width: 800, height: 600 })
@@ -109,11 +120,24 @@ export default function SchematicCanvas({
     start: { x: number; y: number }
     others: Array<{ id: string; x: number; y: number }>
   } | null>(null)
+  /**
+   * Live preview of a wire pull. The sheet's wires are held in local state
+   * while the pointer is down and committed as one design replacement on
+   * release, so a pull is one undo step and the store never sees the frames
+   * in between.
+   */
+  const [dragWires, setDragWires] = useState<CanvasWire[] | null>(null)
+  const wireDragRef = useRef<{
+    handle: WireHandle
+    origin: { x: number; y: number }
+    startWires: CanvasWire[]
+    moved: boolean
+  } | null>(null)
   /** rAF-throttled crosshair position in screen pixels. */
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   const cursorFrame = useRef<number | null>(null)
   const pendingCursor = useRef<{ x: number; y: number } | null>(null)
-  /** Pin under the pointer: drives the KiCad-style hover readout. */
+  /** Pin under the pointer: drives the hover readout that follows the cursor. */
   const [hoveredPin, setHoveredPin] = useState<{
     id: string; ref: string; name: string; pin: { id: string; name: string }; at: { x: number; y: number }
   } | null>(null)
@@ -121,10 +145,8 @@ export default function SchematicCanvas({
   const [hoveredPart, setHoveredPart] = useState<{
     id: string; ref: string; name: string; props: Record<string, unknown>
   } | null>(null)
-  /** Wire under the pointer: shows its net name. */
-  const [hoveredWire, setHoveredWire] = useState<{
-    id: string; netName: string; pins: number
-  } | null>(null)
+  /** Wire under the pointer; its whole net lights up as a preview. */
+  const [hoveredWireId, setHoveredWireId] = useState<string | null>(null)
 
   /** Screen cursor from the stage pointer (tooltip anchor). */
   const setCursorFromEvent = () => {
@@ -145,10 +167,18 @@ export default function SchematicCanvas({
     viewport,
     settings,
     activeTool,
+    setActiveTool,
     setZoom,
     setPan,
     selectedComponents,
-    setSelectedComponents
+    setSelectedComponents,
+    selectedNet,
+    selectNet,
+    clearSelection,
+    focusRequest,
+    consumeComponentFocus,
+    netFocusRequest,
+    consumeNetFocus,
   } = useAppStore()
 
   const {
@@ -156,7 +186,6 @@ export default function SchematicCanvas({
     wires,
     addComponent,
     addWire,
-    updateComponent,
     removeComponent,
     markDirty,
     liveFrame,
@@ -258,6 +287,76 @@ export default function SchematicCanvas({
     window.addEventListener('folio:fit-view', fit)
     return () => window.removeEventListener('folio:fit-view', fit)
   }, [stageSize, setZoom, setPan])
+
+  /** Centre a world-space box in the measured stage at a legible zoom. */
+  const frameBox = useCallback((bounds: Box) => {
+    const currentZoom = useAppStore.getState().viewport.zoom
+    const zoom = Math.max(currentZoom, 0.9)
+    const rulerInset = useAppStore.getState().settings.showRulers ? RULER_SIZE : 0
+    if (zoom !== currentZoom) setZoom(zoom)
+    setPan({
+      x: (rulerInset + stageSize.width) / 2 - ((bounds.minX + bounds.maxX) / 2) * zoom,
+      y: (rulerInset + stageSize.height) / 2 - ((bounds.minY + bounds.maxY) / 2) * zoom,
+    })
+  }, [stageSize, setZoom, setPan])
+
+  /*
+   * Locate from the design-health dock or the command palette: the caller has
+   * already selected the part, and this brings it under the viewport at a
+   * legible zoom so the offending pin is on screen rather than merely selected
+   * off-screen. The request waits for a measured stage, which is what makes a
+   * palette jump that also mounts the sheet land in the middle instead of 0,0.
+   */
+  useEffect(() => {
+    if (!focusRequest || stageSize.width < 4 || stageSize.height < 4) return
+    const comp = useProjectStore.getState().components.find(
+      (candidate) => candidate.id === focusRequest.id,
+    )
+    consumeComponentFocus(focusRequest.nonce)
+    if (!comp) return
+    frameBox(placedBounds(comp))
+  }, [focusRequest, stageSize, frameBox, consumeComponentFocus])
+
+  /*
+   * A net jump frames the whole wire run, not one part: the highlight only
+   * reads when every segment the net reaches is inside the viewport.
+   */
+  useEffect(() => {
+    if (!netFocusRequest || stageSize.width < 4 || stageSize.height < 4) return
+    consumeNetFocus(netFocusRequest.nonce)
+    const points = useProjectStore.getState().wires
+      .filter((wire) => wire.netName === netFocusRequest.name)
+      .flatMap((wire) => wire.points)
+    if (points.length === 0) return
+    frameBox({
+      minX: Math.min(...points.map((point) => point.x)),
+      minY: Math.min(...points.map((point) => point.y)),
+      maxX: Math.max(...points.map((point) => point.x)),
+      maxY: Math.max(...points.map((point) => point.y)),
+    })
+  }, [netFocusRequest, stageSize, frameBox, consumeNetFocus])
+
+  /*
+   * One-press tidy: the rail's Tidy button (and the T shortcut) dispatch
+   * `folio:tidy-schematic`. This is a drafting pass, not a rewiring one —
+   * the nets, pin memberships, rotations and part values are carried through
+   * untouched, so the tidy sheet simulates identically to the messy one. The
+   * whole sheet is replaced in one step, so a tidy is one undo.
+   */
+  useEffect(() => {
+    const tidy = () => {
+      const store = useProjectStore.getState()
+      if (store.components.length === 0 && store.wires.length === 0) return
+      const { gridSize } = useAppStore.getState().settings
+      const next = tidySchematic(store.components, store.wires, { gridSize })
+      store.replaceDesign({ components: next.components, wires: next.wires })
+      store.markDirty()
+      window.dispatchEvent(new CustomEvent('folio:fit-view'))
+    }
+
+    window.addEventListener('folio:tidy-schematic', tidy)
+    return () => window.removeEventListener('folio:tidy-schematic', tidy)
+  }, [])
 
   useEffect(() => {
     // Auto-save canvas data
@@ -376,35 +475,48 @@ export default function SchematicCanvas({
    * onto its moved pin, so wires stay landed on terminals (your screenshot
    * showed them frozen mid-air). Corners survive: the moved endpoint rides
    * the pin delta, the joint before it holds unless the segment collapses.
+   * The whole sheet is committed as one design replacement, so dragging a
+   * part — or a multi-selection of ten — is a single undo step, not one
+   * snapshot per wire it happens to touch.
    */
-  const movePartWithWires = (
-    moved: (typeof canvasComponents)[number],
-    newPos: { x: number; y: number },
+  const movePartsWithWires = (
+    moves: Array<{ comp: CanvasComponent; to: { x: number; y: number } }>,
   ) => {
     const store = useProjectStore.getState()
-    for (const wire of store.wires) {
-      // Stretch every point attached to the dragged part; hold the rest.
-      // The old endpoint-only version left T-junction middles behind,
-      // which is why your screenshot showed segments floating off-pin.
-      const pinsById = new Map(moved.component.pins.map((p) => [p.id, p]))
+    const wiresByIndex = new Map<number, CanvasWire>()
+    store.wires.forEach((wire, wireIndex) => {
+      // Every landing is measured against the ORIGINAL geometry: two moved
+      // parts sharing a junction would otherwise fight over the same vertex.
       const landed = new Map<number, { x: number; y: number }>()
-      wire.connectedPins.forEach((pinned) => {
-        if (pinned.componentId !== moved.id) return
-        const pin = pinsById.get(pinned.pinId)
-        if (!pin) return
-        const rotated = rotatePinCoord(pin, moved.rotation)
-        const at = { x: newPos.x + rotated.x, y: newPos.y + rotated.y }
-        wire.points.forEach((pt, index) => {
-          if (Math.hypot(pt.x - (moved.x + rotated.x), pt.y - (moved.y + rotated.y)) < 1.5) {
-            landed.set(index, at)
-          }
-        })
-      })
-      if (landed.size === 0) continue
-      const points = wire.points.map((pt, index) => landed.get(index) ?? pt)
-      store.updateWire(wire.id, { points })
-    }
-    updateComponent(moved.id, { x: newPos.x, y: newPos.y })
+      for (const move of moves) {
+        const pinsById = new Map(move.comp.component.pins.map((p) => [p.id, p]))
+        for (const pinned of wire.connectedPins) {
+          if (pinned.componentId !== move.comp.id) continue
+          const pin = pinsById.get(pinned.pinId)
+          if (!pin) continue
+          const rotated = rotatePinCoord(pin, move.comp.rotation)
+          const from = { x: move.comp.x + rotated.x, y: move.comp.y + rotated.y }
+          wire.points.forEach((point, index) => {
+            if (landed.has(index)) return
+            if (Math.hypot(point.x - from.x, point.y - from.y) >= 1.5) return
+            landed.set(index, { x: move.to.x + rotated.x, y: move.to.y + rotated.y })
+          })
+        }
+      }
+      if (landed.size === 0) return
+      wiresByIndex.set(
+        wireIndex,
+        { ...wire, points: wire.points.map((point, index) => landed.get(index) ?? point) },
+      )
+    })
+    if (wiresByIndex.size === 0 && moves.length === 0) return
+    store.replaceDesign({
+      components: store.components.map((comp) => {
+        const move = moves.find((candidate) => candidate.comp.id === comp.id)
+        return move ? { ...comp, x: move.to.x, y: move.to.y } : comp
+      }),
+      wires: store.wires.map((wire, wireIndex) => wiresByIndex.get(wireIndex) ?? wire),
+    })
   }
 
   const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
@@ -414,15 +526,16 @@ export default function SchematicCanvas({
     const drag = dragGroupRef.current
     dragGroupRef.current = null
     if (id && moved) {
-      movePartWithWires(moved, newPos)
+      const moves = [{ comp: moved, to: newPos }]
       if (drag && drag.others.length > 0) {
         const dx = newPos.x - drag.start.x
         const dy = newPos.y - drag.start.y
         for (const other of drag.others) {
           const comp = canvasComponents.find(c => c.id === other.id)
-          if (comp) movePartWithWires(comp, { x: other.x + dx, y: other.y + dy })
+          if (comp) moves.push({ comp, to: { x: other.x + dx, y: other.y + dy } })
         }
       }
+      movePartsWithWires(moves)
       markDirty()
     }
     setIsDragging(false)
@@ -461,7 +574,7 @@ export default function SchematicCanvas({
   }
 
   const handleStageClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    setHoveredWire(null)
+    setHoveredWireId(null)
     // The browser fires click after the mouseup that ended a marquee.
     if (marqueeJustEnded.current) {
       marqueeJustEnded.current = false
@@ -489,7 +602,7 @@ export default function SchematicCanvas({
       return
     }
 
-    setSelectedComponents([])
+    clearSelection()
   }
 
   const handleComponentClick = (id: string, pinId?: string, additive = false) => {
@@ -630,6 +743,160 @@ export default function SchematicCanvas({
     }
   }
 
+  /** Browser client coordinates → sheet millimetres, for window-level drags. */
+  const clientToWorld = (clientX: number, clientY: number): { x: number; y: number } | null => {
+    const container = stageRef.current?.container()
+    if (!container) return null
+    const rect = container.getBoundingClientRect()
+    return screenToWorldRaw({ x: clientX - rect.left, y: clientY - rect.top })
+  }
+
+  /*
+   * Every pin tip on the sheet. A wire end that sits on one is a landed
+   * connection, so the drag engine needs to know about it: a pulled run whose
+   * end is pinned dog-legs away from the pin instead of tearing loose, and a
+   * pinned junction is left to the part drag rather than offered as a node.
+   */
+  const pinTips = useMemo(
+    () => canvasComponents.flatMap((comp) => comp.component.pins.map((pin) => pinWorldCoord(comp, pin))),
+    [canvasComponents],
+  )
+
+  /** The wires the sheet draws and measures: the preview while a pull is live. */
+  const shownWires = dragWires ?? wires
+
+  const isWireSelected = useCallback((wire: CanvasWire) => {
+    if (!selectedNet) return false
+    return 'name' in selectedNet
+      ? wire.netName === selectedNet.name
+      : wire.id === selectedNet.wireId
+  }, [selectedNet])
+
+  /** Pin tips the selected net lands on, drawn as connection markers. */
+  const selectedNetPins = useMemo(() => {
+    if (!selectedNet) return []
+    const seen = new Set<string>()
+    const tips: Array<{ x: number; y: number }> = []
+    for (const wire of wires) {
+      if (!isWireSelected(wire)) continue
+      for (const connection of wire.connectedPins) {
+        const key = `${connection.componentId}:${connection.pinId}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        const comp = canvasComponents.find((candidate) => candidate.id === connection.componentId)
+        const pin = comp?.component.pins.find((candidate) => candidate.id === connection.pinId)
+        if (comp && pin) tips.push(pinWorldCoord(comp, pin))
+      }
+    }
+    return tips
+  }, [selectedNet, wires, canvasComponents, isWireSelected])
+
+  /*
+   * Hover preview: the wire under the pointer stands for its whole net, so the
+   * sheet can light every segment and pin tip before the designer commits a
+   * click. The probe shares the net inspector's figures.
+   */
+  const hoveredNet = useMemo(
+    () => (hoveredWireId ? probeNet(wires, hoveredWireId) : null),
+    [hoveredWireId, wires],
+  )
+
+  const hoveredNetIsSelected = Boolean(hoveredNet && hoveredNet.wires.every(isWireSelected))
+
+  /** Pin tips the hovered net lands on, the same markers selection draws. */
+  const hoveredNetPins = useMemo(() => {
+    if (!hoveredNet) return []
+    const seen = new Set<string>()
+    const tips: Array<{ x: number; y: number }> = []
+    for (const wire of hoveredNet.wires) {
+      for (const connection of wire.connectedPins) {
+        const key = `${connection.componentId}:${connection.pinId}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        const comp = canvasComponents.find((candidate) => candidate.id === connection.componentId)
+        const pin = comp?.component.pins.find((candidate) => candidate.id === connection.pinId)
+        if (comp && pin) tips.push(pinWorldCoord(comp, pin))
+      }
+    }
+    return tips
+  }, [hoveredNet, canvasComponents])
+
+  /** Pick the net a wire carries: named nets span every segment of that name. */
+  const selectWireNet = (wire: CanvasWire) => {
+    selectNet(wire.netName ? { name: wire.netName } : { wireId: wire.id })
+  }
+
+  /*
+   * Pull a wire run or a junction node, the way a drafting editor does it:
+   * press the copper, drag, release. The hit test runs against the wire
+   * geometry, not the netlist, so what moves is exactly what was grabbed —
+   * `connectedPins` ride along untouched and the circuit does not change.
+   * A press that never moves is a click, and a click on the copper picks the
+   * net it carries.
+   */
+  const startWireDrag = (e: Konva.KonvaEventObject<MouseEvent>, wire: CanvasWire) => {
+    if (e.evt.button !== 0 || activeTool !== 'select' || pendingComponent) return
+    const stage = e.target.getStage()
+    const pointer = stage?.getPointerPosition()
+    if (!pointer) return
+    const { settings: currentSettings, viewport: currentViewport } = useAppStore.getState()
+    const handle = hitWireHandle(wires, screenToWorldRaw(pointer), {
+      tolerance: 10 / currentViewport.zoom,
+      nodeTolerance: 7 / currentViewport.zoom,
+      terminals: pinTips,
+    })
+    if (!handle) {
+      selectWireNet(wire)
+      return
+    }
+    e.evt.preventDefault()
+    wireDragRef.current = {
+      handle,
+      origin: screenToWorldRaw(pointer),
+      startWires: wires,
+      moved: false,
+    }
+    setDragWires(wires)
+
+    const stepGrid = currentSettings.snapToGrid ? currentSettings.gridSize : 1
+    let latest: CanvasWire[] | null = null
+    const onMove = (event: MouseEvent) => {
+      const drag = wireDragRef.current
+      const world = clientToWorld(event.clientX, event.clientY)
+      if (!drag || !world) return
+      const offset = {
+        x: Math.round((world.x - drag.origin.x) / stepGrid) * stepGrid,
+        y: Math.round((world.y - drag.origin.y) / stepGrid) * stepGrid,
+      }
+      if (offset.x === 0 && offset.y === 0) return
+      drag.moved = true
+      latest = applyWireDrag(drag.startWires, drag.handle, offset, {
+        grid: currentSettings.gridSize,
+        terminals: pinTips,
+      })
+      setDragWires(latest)
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      const drag = wireDragRef.current
+      wireDragRef.current = null
+      setDragWires(null)
+      // A press that never moved the copper is a click, not an edit: it picks
+      // the net and must not enter the undo history.
+      if (!drag?.moved) {
+        if (drag) selectWireNet(wire)
+        return
+      }
+      if (!latest) return
+      const store = useProjectStore.getState()
+      store.replaceDesign({ components: store.components, wires: latest })
+      markDirty()
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
   /**
    * End a rubber band: select every part it touches. Shift keeps the existing
    * selection and adds to it, which is why the modifier is captured at press
@@ -642,7 +909,7 @@ export default function SchematicCanvas({
     if (!active) return
     if (!active.moved) {
       // A press that never moved is still "click empty sheet".
-      if (!active.additive) setSelectedComponents([])
+      if (!active.additive) clearSelection()
       return
     }
     marqueeJustEnded.current = true
@@ -714,6 +981,17 @@ export default function SchematicCanvas({
   )
 
   /*
+   * Net names sit on the sheet the way a drawn schematic carries them. They
+   * are laid out against the committed sheet (not a drag frame) so routing
+   * copper does not make the labels dance, and they follow the same display
+   * toggle as the grid and rulers.
+   */
+  const netLabels = useMemo(
+    () => (settings.showNetLabels ? layoutNetLabels(wires, canvasComponents, labelLayout) : []),
+    [settings.showNetLabels, wires, canvasComponents, labelLayout],
+  )
+
+  /*
    * Drawing sheet: a border, zone references and a title block sized around
    * the circuit. The extra bottom padding keeps the title block clear of the
    * annotations, so a screenshot of the sheet reads as a drawing rather than
@@ -721,7 +999,7 @@ export default function SchematicCanvas({
    */
   const sheetFrame = useMemo(() => {
     if (canvasComponents.length === 0) return null
-    const frame = frameAround(drawingExtents(canvasComponents, wires, labelLayout))
+    const frame = frameAround(drawingExtents(canvasComponents, shownWires, labelLayout))
     const blockWidth = Math.min(300, frame.width - 40)
     const blockHeight = 88
     return {
@@ -733,7 +1011,7 @@ export default function SchematicCanvas({
         height: blockHeight,
       },
     }
-  }, [canvasComponents, wires, labelLayout])
+  }, [canvasComponents, shownWires, labelLayout])
 
   /*
    * Deletion is a cross-cutting shortcut, so it is memoised and attached once.
@@ -1055,13 +1333,13 @@ export default function SchematicCanvas({
         onClick={(event) => handleComponentClick(canvasComp.id, undefined, event.evt.shiftKey)}
         onContextMenu={(event) => handleComponentContextMenu(event, canvasComp.id)}
         onMouseEnter={() => {
-          setHoveredWire(null)
+          setHoveredWireId(null)
           setHoveredPin(null)
           setHoveredPart({ id: canvasComp.id, ref: canvasComp.reference, name: canvasComp.component.name, props: canvasComp.properties })
           setCursorFromEvent()
         }}
         onMouseMove={() => {
-          setHoveredWire(null)
+          setHoveredWireId(null)
           if (!hoveredPart || hoveredPart.id !== canvasComp.id) {
             setHoveredPin(null)
             setHoveredPart({ id: canvasComp.id, ref: canvasComp.reference, name: canvasComp.component.name, props: canvasComp.properties })
@@ -1184,7 +1462,7 @@ export default function SchematicCanvas({
     const seen = new Set<string>();
     for (const comp of canvasComponents) {
       for (const pin of comp.component.pins) {
-        const touched = wires.some((w) =>
+        const touched = shownWires.some((w) =>
           w.connectedPins?.some((cp) => cp.componentId === comp.id && cp.pinId === pin.id),
         );
         if (touched) continue;
@@ -1197,25 +1475,25 @@ export default function SchematicCanvas({
       }
     }
     return out;
-  }, [canvasComponents, wires]);
+  }, [canvasComponents, shownWires]);
 
   /* Wire segments */
   const segments = useMemo(() => {
     const out: Array<{ x1: number; y1: number; x2: number; y2: number; wireId: string }> = []
-    for (const wire of wires) {
+    for (const wire of shownWires) {
       for (let k = 0; k + 1 < wire.points.length; k++) {
         out.push({ x1: wire.points[k].x, y1: wire.points[k].y,
           x2: wire.points[k + 1].x, y2: wire.points[k + 1].y, wireId: wire.id })
       }
     }
     return out
-  }, [wires])
+  }, [shownWires])
 
   /* Endpoint of one wire touching another wire (first/last point only):
      filled junction dot — same net only. A stub end landing anywhere on a
      same-net segment (rail midpoint, T corner) is a genuine joint and gets
      the dot; a touch across different nets never does. */
-  const junctions = useMemo(() => wireJunctions(wires), [wires])
+  const junctions = useMemo(() => wireJunctions(shownWires), [shownWires])
 
   /* Wires crossing without shared pins: hop bow on the crossing. Same-net
      crossings are already one node — hopping them would fake a disconnect,
@@ -1223,7 +1501,7 @@ export default function SchematicCanvas({
   const crossings = useMemo(() => {
     const hops: Array<{ x: number; y: number }> = []
     const seenHop = new Set<string>()
-    const byId = new Map(wires.map((w) => [w.id, w.netName ?? '']))
+    const byId = new Map(shownWires.map((w) => [w.id, w.netName ?? '']))
     for (let a = 0; a < segments.length; a++) {
       for (let b = a + 1; b < segments.length; b++) {
         const s1 = segments[a]
@@ -1245,7 +1523,7 @@ export default function SchematicCanvas({
         if (!inH || !inV) continue
         if (junctions.some((d) => Math.abs(d.x - x) < 4 && Math.abs(d.y - y) < 4)) continue
         let nearEnd = false
-        for (const w of wires) { for (const pt of w.points) { if (Math.abs(pt.x - x) < 8 && Math.abs(pt.y - y) < 8) { nearEnd = true; break } } if (nearEnd) break }
+        for (const w of shownWires) { for (const pt of w.points) { if (Math.abs(pt.x - x) < 8 && Math.abs(pt.y - y) < 8) { nearEnd = true; break } } if (nearEnd) break }
         if (nearEnd) continue
         const hopKey = Math.round(x) + ':' + Math.round(y)
         if (seenHop.has(hopKey)) continue
@@ -1254,31 +1532,84 @@ export default function SchematicCanvas({
       }
     }
     return hops
-  }, [segments, junctions, wires])
+  }, [segments, junctions, shownWires])
   const renderWires = () => {
     const { zoom } = viewport
     return (
       <>
-        {wires.map(wire => {
+        {/* Hover preview: the whole net glows, softer than a committed selection. */}
+        {hoveredNet && !hoveredNetIsSelected && shownWires.filter((wire) => hoveredNet.wires.includes(wire)).map(wire => (
+          <Line
+            key={`net-hover-${wire.id}`}
+            points={wire.points.flatMap(pt => [pt.x, pt.y])}
+            stroke={palette.selectedStroke}
+            strokeWidth={7 / zoom}
+            opacity={0.13}
+            lineCap="round"
+            lineJoin="round"
+            listening={false}
+          />
+        ))}
+        {/* Selected net: a soft halo under the copper, plus pin markers. */}
+        {shownWires.filter(isWireSelected).map(wire => (
+          <Line
+            key={`net-halo-${wire.id}`}
+            points={wire.points.flatMap(pt => [pt.x, pt.y])}
+            stroke={palette.selectedStroke}
+            strokeWidth={7 / zoom}
+            opacity={0.18}
+            lineCap="round"
+            lineJoin="round"
+            listening={false}
+          />
+        ))}
+        {shownWires.map(wire => {
+          const selected = isWireSelected(wire)
           return (
             <Line
               key={wire.id}
               points={wire.points.flatMap(pt => [pt.x, pt.y])}
-              stroke={palette.wire}
-              strokeWidth={2 / zoom}
+              stroke={selected ? palette.selectedStroke : palette.wire}
+              strokeWidth={(selected ? 2.6 : 2) / zoom}
               lineCap="round"
               lineJoin="round"
               hitStrokeWidth={12}
+              onMouseDown={(e) => startWireDrag(e, wire)}
               onMouseEnter={() => {
                 setHoveredPin(null)
-                setHoveredWire({ id: wire.id, netName: wire.netName || '—', pins: wire.connectedPins?.length ?? 0 })
+                setHoveredWireId(wire.id)
                 setCursorFromEvent()
               }}
               onMouseMove={() => setCursorFromEvent()}
-              onMouseLeave={() => setHoveredWire(null)}
+              onMouseLeave={() => setHoveredWireId(null)}
             />
           )
         })}
+        {hoveredNet && !hoveredNetIsSelected && hoveredNetPins.map((tip, k) => (
+          <Circle
+            key={`net-hover-pin-${k}`}
+            x={tip.x}
+            y={tip.y}
+            radius={3.4 / zoom}
+            fill={palette.selectedStroke}
+            stroke={palette.sheet}
+            strokeWidth={1 / zoom}
+            opacity={0.6}
+            listening={false}
+          />
+        ))}
+        {selectedNetPins.map((tip, k) => (
+          <Circle
+            key={`net-pin-${k}`}
+            x={tip.x}
+            y={tip.y}
+            radius={4 / zoom}
+            fill={palette.selectedStroke}
+            stroke={palette.sheet}
+            strokeWidth={1 / zoom}
+            listening={false}
+          />
+        ))}
         {junctions.map((d, k) => (
           <Circle key={"j" + k} x={d.x} y={d.y} radius={3.2}
             fill={palette.wire} stroke={palette.sheet} strokeWidth={0.8 / viewport.zoom} listening={false} />
@@ -1311,6 +1642,60 @@ export default function SchematicCanvas({
       </>
     )
   }
+
+  /*
+   * Net-name labels. They are the sheet's own net cursor: a press selects the
+   * whole net, exactly like pressing its copper, without needing to find an
+   * exposed segment among the parts.
+   */
+  const renderNetLabels = () =>
+    netLabels.map((label) => {
+      const selected =
+        selectedNet !== null && 'name' in selectedNet && selectedNet.name === label.name
+      const { x, y, width, height } = label.box
+      return (
+        <Group
+          key={`net-label-${label.name}`}
+          x={x}
+          y={y}
+          onMouseDown={(event) => {
+            event.cancelBubble = true
+            selectNet({ name: label.name })
+          }}
+          onMouseEnter={() => {
+            const wire = wires.find((candidate) => candidate.netName === label.name)
+            if (!wire) return
+            setHoveredPin(null)
+            setHoveredWireId(wire.id)
+            setCursorFromEvent()
+          }}
+          onMouseMove={() => setCursorFromEvent()}
+          onMouseLeave={() => setHoveredWireId(null)}
+        >
+          <Rect
+            width={width}
+            height={height}
+            cornerRadius={2}
+            fill={palette.sheet}
+            stroke={selected ? palette.selectedStroke : palette.wire}
+            strokeWidth={selected ? 1.2 : 0.7}
+          />
+          <Text
+            text={label.name}
+            width={width}
+            height={height}
+            align="center"
+            verticalAlign="middle"
+            fontSize={8}
+            fontStyle="bold"
+            fontFamily="Inter, 'Segoe UI', system-ui, sans-serif"
+            fill={selected ? palette.selectedStroke : palette.wire}
+            listening={false}
+            perfectDrawEnabled={false}
+          />
+        </Group>
+      )
+    })
 
   /* Wire-start marker */
   const renderWireStart = () => {
@@ -1494,6 +1879,9 @@ export default function SchematicCanvas({
           {/* Wires */}
           {renderWires()}
 
+          {/* Net names, above their copper and below the parts */}
+          {renderNetLabels()}
+
           {/* Pending wire start */}
           {renderWireStart()}
           
@@ -1589,7 +1977,7 @@ export default function SchematicCanvas({
           <span className="cad-readout">net {hoveredPin.pin.id === 'gnd' ? 'GND' : (netOfPin(hoveredPin.id, hoveredPin.pin.id) === '—' ? hoveredPin.id : netOfPin(hoveredPin.id, hoveredPin.pin.id))}</span>
         </div>
       ))}
-      {(cursor && !hoveredPin && !hoveredWire && hoveredPart && (() => {
+      {(cursor && !hoveredPin && !hoveredNet && hoveredPart && (() => {
         const value = hoveredPart.props.value ?? hoveredPart.props.voltage ?? hoveredPart.props.type ?? ''
         const fp = hoveredPart.props.footprint ? String(hoveredPart.props.footprint) : ''
         return (
@@ -1604,14 +1992,17 @@ export default function SchematicCanvas({
         )
       })())}
 
-      {(cursor && !hoveredPin && hoveredWire && (
+      {(cursor && !hoveredPin && hoveredNet && (
         <div
           className="cad-tip"
           style={{ transform: `translate(${Math.round(cursor.x + 14)}px, ${Math.round(cursor.y + 14)}px)` }}
           role="status"
         >
-          <span className="font-semibold">net {hoveredWire.netName}</span>
-          <span className="text-muted-foreground">{hoveredWire.pins} pin{hoveredWire.pins === 1 ? '' : 's'}</span>
+          <span className="font-semibold">net {hoveredNet.name ?? 'unnamed'}</span>
+          <span className="text-muted-foreground">
+            {hoveredNet.pins} pin{hoveredNet.pins === 1 ? '' : 's'} · {hoveredNet.segments} segment{hoveredNet.segments === 1 ? '' : 's'}
+          </span>
+          <span className="cad-readout">{(hoveredNet.length / SCHEMATIC_UNITS_PER_MM).toFixed(1)} mm</span>
         </div>
       ))}
 
@@ -1632,23 +2023,73 @@ export default function SchematicCanvas({
       {/* Armed-placement chip */}
       {pendingComponent && (
         <div className="cad-place-chip" role="status">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Place</span>
+          <span className="text-[11px] font-medium text-muted-foreground">Place</span>
           <span className="cad-readout text-foreground">{pendingComponent.name}</span>
           <span className="text-muted-foreground">click sheet to drop</span>
           <kbd className="cad-kbd">Esc</kbd>
         </div>
       )}
       
-      {/* Instructions overlay */}
-      {canvasComponents.length === 0 && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="text-center">
-            <div className="mb-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
-              Empty sheet
+      {/* Empty sheet: three real doorways instead of a caption. The card is
+          pointer-transparent at its edges so the sheet behind still takes the
+          first click; it steps aside entirely once a part is armed. */}
+      {canvasComponents.length === 0 && !pendingComponent && (
+        <div className="cad-empty-sheet">
+          <div className="cad-empty-sheet__card">
+            <span className="cad-empty-sheet__mark" aria-hidden="true">
+              <DraftingCompass />
+            </span>
+            <p className="cad-empty-sheet__eyebrow">A4 · Sheet 1 of 1</p>
+            <h2 className="cad-empty-sheet__title">Empty sheet</h2>
+            <p className="cad-empty-sheet__lede">
+              Drop a part onto the grid, open a worked example, or sketch the idea and let
+              Folio read it onto the sheet.
+            </p>
+            <div className="cad-empty-sheet__actions">
+              {onBrowseParts && (
+                <button
+                  type="button"
+                  onClick={onBrowseParts}
+                  className="cad-empty-sheet__action cad-empty-sheet__action--primary"
+                >
+                  <Package aria-hidden="true" />
+                  Browse parts
+                </button>
+              )}
+              {onOpenDemos && (
+                <button
+                  type="button"
+                  onClick={onOpenDemos}
+                  className="cad-empty-sheet__action"
+                >
+                  <FlaskConical aria-hidden="true" />
+                  Load a demo
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setActiveTool('sketch')}
+                className="cad-empty-sheet__action"
+              >
+                <PenTool aria-hidden="true" />
+                Sketch
+              </button>
             </div>
-            <div className="text-[11px] text-muted-foreground">
-              Drag a part from the library — or click to arm, then click here to place.
-            </div>
+            <dl className="cad-empty-sheet__keys">
+              {[
+                ['schematic.selectTool', 'Select'],
+                ['schematic.wireTool', 'Wire'],
+                ['schematic.sketchTool', 'Sketch'],
+                ['schematic.fit', 'Fit'],
+              ].map(([id, label]) => (
+                <div key={id}>
+                  <dt>{label}</dt>
+                  <dd>
+                    <kbd className="cad-kbd">{describeShortcut(id, shortcutOverrides)}</kbd>
+                  </dd>
+                </div>
+              ))}
+            </dl>
           </div>
         </div>
       )}
@@ -1656,7 +2097,7 @@ export default function SchematicCanvas({
       {/* Symbol contract faults — fail loud, never a silently blank part */}
       {symbolFaults.length > 0 && (
         <div className="cad-symbol-faults" role="alert">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.14em]">Symbol</span>
+          <span className="text-[11px] font-medium">Symbol</span>
           <span className="cad-readout text-foreground">{symbolFaults.length} fault{symbolFaults.length === 1 ? '' : 's'}</span>
           <span className="min-w-0 flex-1 truncate">
             {symbolFaults[0].reference}: {symbolFaults[0].reason}
@@ -1667,7 +2108,8 @@ export default function SchematicCanvas({
 
       <SchematicSymbolEditor componentId={symbolEditorId} onClose={() => setSymbolEditorId(null)} />
 
-      {/* Sheet status strip */}
+      {/* Sheet status strip: the cursor and zoom belong to the sheet. Part and
+          selection counts are in the app status bar, so they are not repeated. */}
       <div className="cad-hud">
         <span className="flex items-center gap-3">
           <span>
@@ -1677,15 +2119,7 @@ export default function SchematicCanvas({
             Y <span className="cad-readout text-foreground">{cursorWorld ? fmtCoord(cursorWorld.y) : '—'}</span>
           </span>
           <span>
-            Z <span className="cad-readout text-foreground">{Math.round(viewport.zoom * 100)}%</span>
-          </span>
-        </span>
-        <span className="flex items-center gap-3">
-          <span>
-            PARTS <span className="cad-readout text-foreground">{canvasComponents.length}</span>
-          </span>
-          <span>
-            SEL <span className="cad-readout text-foreground">{selectedComponents.length}</span>
+            Zoom <span className="cad-readout text-foreground">{Math.round(viewport.zoom * 100)}%</span>
           </span>
         </span>
       </div>

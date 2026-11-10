@@ -211,6 +211,24 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     request: 'hdl-half-adder',
   },
   {
+    id: 'hdl-acc-cpu',
+    title: '8-bit accumulator CPU',
+    mode: 'hdl',
+    group: 'electrical',
+    summary: 'Elaborate a clocked CPU with buses, a case-decoded opcode and a ripple-carry ALU, simulate its instruction sequence and synthesise it to SKY130 flip-flops.',
+    proves: ['Bus elaboration', 'Case-based decode', 'Sequential simulation', 'DFF mapping and timing'],
+    request: 'hdl-acc-cpu',
+  },
+  {
+    id: 'hdl-fir-dsp',
+    title: '4-tap FIR DSP filter',
+    mode: 'hdl',
+    group: 'electrical',
+    summary: 'Simulate a clocked DSP delay line with a weighted adder tree written using + and −, then synthesise its 24 flip-flops to SKY130.',
+    proves: ['Arithmetic lowering', 'Pipeline registers', 'DSP datapath synthesis'],
+    request: 'hdl-fir-dsp',
+  },
+  {
     id: 'fpga-half-adder',
     title: 'FPGA elaboration and manifest',
     mode: 'fpga',
@@ -245,6 +263,15 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     summary: 'Size a PCB enclosure, check beam deflection, slice the tray to G-code and export STEP/STL.',
     proves: ['Beam analysis', 'Enclosure workflow', 'FDM slicing'],
     load: 'mechanical-enclosure',
+  },
+  {
+    id: 'structures-warren',
+    title: 'Warren girder under deck load',
+    mode: 'structures',
+    group: 'mechanical',
+    summary: 'Load a five-panel Warren girder, read every bar in tension or compression, and see the deflected shape against its bearings.',
+    proves: ['Direct-stiffness truss solve', 'Reaction equilibrium closure', 'Utilisation and buckling checks'],
+    request: 'structures-warren',
   },
   {
     id: 'robotics-two-link',
@@ -290,6 +317,16 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     summary: 'Run the rectifier HIL cases; with no bench attached each hardware loop reports a refusal and the panel says why, while the twin check covers the model.',
     proves: ['HIL scenarios', 'Assertions and timing', 'Pass/fail reporting'],
     load: 'hil-suite',
+  },
+  {
+    id: 'biology-afterload',
+    title: 'Left ventricle against doubled afterload',
+    mode: 'biology',
+    group: 'life',
+    summary:
+      'Load the resting beat with peripheral resistance doubled and read the pressure–volume loop, the stroke volume it costs, and the work the chamber does per beat.',
+    proves: ['Time-varying elastance', 'Windkessel arterial load', 'Loop-area stroke work'],
+    request: 'biology-afterload',
   },
   {
     id: 'twin-rectifier',

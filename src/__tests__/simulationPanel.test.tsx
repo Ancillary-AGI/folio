@@ -11,11 +11,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import SimulationPanel from '../components/simulation/SimulationPanel'
+import { dropLibraryItem } from './helpers/libraryDrop'
+import { modelCardCatalog } from '../lib/library/catalog'
+import { snippetCatalog } from '../lib/library/elementCatalogs'
+import type { LibraryItem } from '../lib/library/types'
 import { formatEngineering } from '../lib/simulation/formatEngineering'
 import { spiceEngine } from '../lib/simulation/spiceEngine'
 import type { SimulationResult } from '../lib/simulation/spiceEngine'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useAppStore } from '../stores/useAppStore'
+import { DEFAULT_SETTINGS } from '../lib/settings/registry'
 import type { CanvasComponent } from '../stores/useProjectStore'
 import type { Component } from '../lib/supabase'
 
@@ -65,7 +70,9 @@ const seedSheet = (components: CanvasComponent[]) => {
 describe('SimulationPanel', () => {
   beforeEach(() => {
     seedSheet([])
-    useAppStore.setState({ demoRequest: null })
+    // A run starts from the Settings page, so a test that changes a preference
+    // must not hand it to the next one.
+    useAppStore.setState({ demoRequest: null, settings: { ...DEFAULT_SETTINGS } })
   })
 
   afterEach(() => {
@@ -77,6 +84,18 @@ describe('SimulationPanel', () => {
     fireEvent.change(screen.getByLabelText('Import KiCad (.net) or EAGLE (.sch) netlist'), {
       target: { files: [new File([text], name, { type: 'text/plain' })] },
     })
+  }
+
+  const modelCardRow = (device: string): LibraryItem => {
+    const row = modelCardCatalog().find((item) => item.name === device)
+    if (!row) throw new Error(`model catalog has no ${device}`)
+    return row
+  }
+
+  const snippetRow = (id: string): LibraryItem => {
+    const row = snippetCatalog().find((item) => item.id === id)
+    if (!row) throw new Error(`catalog row ${id} is gone`)
+    return row
   }
 
   it('renders the chrome and guard states for an empty sheet', () => {
@@ -292,6 +311,41 @@ describe('SimulationPanel', () => {
     fireEvent.change(modelDeck, { target: { value: '.model BAD NPN (BF=100 BF=200)' } })
     expect(screen.getByText(/duplicate model parameter BF/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Run simulation' })).toBeDisabled()
+  })
+
+  it('places a library model card on the deck, one card per line', async () => {
+    render(<SimulationPanel onClose={vi.fn()} />)
+
+    const deck = () => screen.getByLabelText('SPICE model cards')
+    const zone = deck().closest('.cad-dropzone')
+    if (!zone) throw new Error('the model deck is not a drop zone')
+
+    dropLibraryItem(zone, modelCardRow('2N3904'))
+    expect((deck() as HTMLTextAreaElement).value).toMatch(/^\.model 2N3904 NPN \(IS=/)
+    expect(screen.getByText('Loaded: 2N3904 (NPN)')).toBeInTheDocument()
+
+    // A second card starts on its own line: the deck splits statements on
+    // newlines, so two cards on one line is a parse error, not a pair of models.
+    dropLibraryItem(zone, modelCardRow('1N4148'))
+    const lines = (deck() as HTMLTextAreaElement).value.trim().split('\n')
+    expect(lines).toHaveLength(2)
+    expect(lines[0]).toContain('2N3904')
+    expect(lines[1]).toContain('1N4148')
+    expect(screen.getByText('Loaded: 2N3904 (NPN), 1N4148 (D)')).toBeInTheDocument()
+  })
+
+  it('refuses a library row the deck cannot parse', async () => {
+    seedSheet([place('R1', makeSymbol())])
+    render(<SimulationPanel onClose={vi.fn()} />)
+
+    const deck = () => screen.getByLabelText('SPICE model cards')
+    const zone = deck().closest('.cad-dropzone')
+    if (!zone) throw new Error('the model deck is not a drop zone')
+
+    dropLibraryItem(zone, snippetRow('hdl-mux2'))
+
+    expect(await screen.findByText(/is a code snippet — the model deck takes device model cards\./)).toBeInTheDocument()
+    expect(deck()).toHaveValue('')
   })
 
   it('flattens a .subckt deck into instance-qualified devices and solves it', async () => {
@@ -609,6 +663,61 @@ X1 in 0 div
     await waitFor(() => expect(simulate).toHaveBeenCalledTimes(1))
     expect(simulate.mock.calls[0][0].analyses[0]?.type).toBe('transient')
     await waitFor(() => expect(useAppStore.getState().demoRequest).toBeNull())
+  })
+
+  it('starts a run from the numbers on the Settings page', async () => {
+    seedSheet([place('R1', makeSymbol())])
+    useAppStore.setState({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        simTransientStopUs: 5000,
+        simTransientStepUs: 5,
+        simTemperatureC: 85,
+        simIntegrationMethod: 'trapezoidal',
+      },
+    })
+    const simulate = vi.spyOn(spiceEngine, 'simulate').mockResolvedValue({
+      success: true,
+      nodes: [],
+      waveforms: [],
+      convergenceInfo: { iterations: 1, converged: true },
+      analysis: 'transient',
+    })
+    render(<SimulationPanel onClose={vi.fn()} />)
+
+    // The form shows the preference, in the unit the panel works in. A number
+    // input reports its value as a number, so these compare as numbers.
+    expect(screen.getByLabelText('Stop time (s)')).toHaveValue(0.005)
+    expect(screen.getByLabelText('Max step (s)')).toHaveValue(5e-6)
+    expect(screen.getByLabelText('Temperature (°C)')).toHaveValue(85)
+    expect(screen.getByLabelText('Integration rule')).toHaveValue('trapezoidal')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }))
+    await waitFor(() => expect(simulate).toHaveBeenCalledTimes(1))
+    expect(simulate.mock.calls[0][0].analyses[0]).toMatchObject({
+      type: 'transient',
+      stopTime: 5e-3,
+      stepTime: 5e-6,
+      temperature: 85,
+      integrationMethod: 'trapezoidal',
+    })
+  })
+
+  it('lets a number typed on the panel override the preference for that run', async () => {
+    seedSheet([place('R1', makeSymbol())])
+    useAppStore.setState({ settings: { ...DEFAULT_SETTINGS, simTransientStopUs: 20000 } })
+    const simulate = vi.spyOn(spiceEngine, 'simulate').mockResolvedValue({
+      success: true,
+      nodes: [],
+      waveforms: [],
+      convergenceInfo: { iterations: 1, converged: true },
+      analysis: 'transient',
+    })
+    render(<SimulationPanel onClose={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('Stop time (s)'), { target: { value: '0.001' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }))
+    await waitFor(() => expect(simulate).toHaveBeenCalledTimes(1))
+    expect(simulate.mock.calls[0][0].analyses[0]?.stopTime).toBe(0.001)
   })
 
   it('clears the shared playback frame when it closes', () => {

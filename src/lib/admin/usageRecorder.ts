@@ -12,9 +12,26 @@ import type { User } from '../../types'
 import { recordUsage, type UsageEvent, type UsageKind } from './usageLedger'
 
 let lastCloudError: string | null = null
+const mirrorListeners = new Set<() => void>()
 
 export function getLastCloudUsageError(): string | null {
   return lastCloudError
+}
+
+/**
+ * Notify when the mirror result changes. The insert resolves after the design
+ * action has already been recorded locally, so a listener on the ledger alone
+ * would read the previous result.
+ */
+export function subscribeUsageMirror(listener: () => void): () => void {
+  mirrorListeners.add(listener)
+  return () => mirrorListeners.delete(listener)
+}
+
+function setMirrorError(message: string | null): void {
+  if (lastCloudError === message) return
+  lastCloudError = message
+  for (const listener of mirrorListeners) listener()
 }
 
 export function recordPlatformUsage(
@@ -34,9 +51,9 @@ export function recordPlatformUsage(
     }),
   )
     .then(({ error }) => {
-      lastCloudError = error ? error.message : null
+      setMirrorError(error ? error.message : null)
     })
     .catch((error: unknown) => {
-      lastCloudError = error instanceof Error ? error.message : String(error)
+      setMirrorError(error instanceof Error ? error.message : String(error))
     })
 }

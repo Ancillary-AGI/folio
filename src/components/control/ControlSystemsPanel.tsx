@@ -5,7 +5,7 @@
  * Every number on this page comes from `src/lib/control` — the panel parses
  * coefficients and renders, it never substitutes an estimate of its own.
  */
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { X, AlertCircle, Activity } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
@@ -29,6 +29,9 @@ import { pidClosedLoop, pidTransferFunction } from '../../lib/control/pid'
 import { describeError } from '../../lib/utils'
 import { chartSeriesColors } from '../../lib/theme/tokens'
 import { useTheme } from '../../lib/theme/useTheme'
+import { useDomainLibraryZone } from '../../lib/library/useDomainLibraryZone'
+import type { LibraryItem } from '../../lib/library/types'
+import LibraryDropNote from '../library/LibraryDropNote'
 
 interface ControlSystemsPanelProps {
   onClose: () => void
@@ -190,6 +193,21 @@ export default function ControlSystemsPanel({ onClose }: ControlSystemsPanelProp
     return ticks.length > 0 ? ticks : [Math.log10(fMin), Math.log10(fMax)]
   }, [fMin, fMax])
 
+  /* The plant is two coefficient strings, so a dropped block writes them in the
+   * same form the inputs show — the row replaces the plant rather than adding a
+   * second one, because this workspace solves one loop. */
+  const placeBlock = useCallback((item: LibraryItem) => {
+    if (item.kind !== 'tf-block') return
+    setNumeratorText(item.payload.numerator.join(', '))
+    setDenominatorText(item.payload.denominator.join(', '))
+  }, [])
+
+  const plantZone = useDomainLibraryZone({
+    accepts: ['tf-block'],
+    as: 'the plant card',
+    onPlace: placeBlock,
+  })
+
   return (
     <div className="h-full overflow-auto bg-background p-4">
       <div className="mx-auto max-w-7xl space-y-4">
@@ -200,17 +218,18 @@ export default function ControlSystemsPanel({ onClose }: ControlSystemsPanelProp
               Transfer-function design, PID tuning, time response, Bode margins and pole locations.
             </p>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Close control systems" onClick={onClose}>
+          <Button variant="ghost" size="icon" aria-label="Close control systems" onClick={onClose} title="Leave the control workspace; the plant and controller stay with the project.">
             <X className="h-4 w-4" />
           </Button>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
-          <Card>
+          <Card className="cad-dropzone" {...plantZone.zoneProps}>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Plant and controller</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <LibraryDropNote zone={plantZone} surface="this card" className="cad-drop-note--inline" />
               <div className="space-y-1">
                 <span className="text-xs font-medium text-muted-foreground">Presets</span>
                 <div className="flex flex-wrap gap-1">
@@ -434,7 +453,7 @@ export default function ControlSystemsPanel({ onClose }: ControlSystemsPanelProp
                     <CardContent className="space-y-3 text-sm">
                       <div>
                         <div className="mb-1 text-xs font-medium text-muted-foreground">Closed-loop poles</div>
-                        <ul className="space-y-1 font-mono text-xs">
+                        <ul className="space-y-1 text-xs tabular-nums">
                           {analysis.poles.length === 0 && <li>none (static gain)</li>}
                           {analysis.poles.map((pole, index) => (
                             <li key={`pole-${index}`}>
@@ -445,7 +464,7 @@ export default function ControlSystemsPanel({ onClose }: ControlSystemsPanelProp
                       </div>
                       <div>
                         <div className="mb-1 text-xs font-medium text-muted-foreground">Plant zeros</div>
-                        <ul className="space-y-1 font-mono text-xs">
+                        <ul className="space-y-1 text-xs tabular-nums">
                           {analysis.zeros.length === 0 && <li>none</li>}
                           {analysis.zeros.map((zero, index) => (
                             <li key={`zero-${index}`}>{formatComplex(zero.re, zero.im)}</li>

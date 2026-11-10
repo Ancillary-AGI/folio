@@ -1,51 +1,182 @@
-import { useState } from 'react';
-import { X, Monitor, Palette, Grid3X3, Save, RotateCcw, Globe, Zap, Check, Ruler, BookOpen } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Activity,
+  Book,
+  Box,
+  Check,
+  CircuitBoard,
+  Code2,
+  Copy,
+  FileOutput,
+  Keyboard,
+  LayoutGrid,
+  Monitor,
+  Palette,
+  RotateCcw,
+  Save,
+  Search,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import { Button } from './ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { RangeControl } from './ui/range-control';
 import { useAppStore } from '../stores/useAppStore';
+import type { AppSettings } from '../stores/useAppStore';
 import { useTheme } from '../lib/theme/useTheme';
-import { contrastRatio, THEME_DESCRIPTORS, THEMES } from '../lib/theme/tokens';
+import { contrastRatio, THEME_DESCRIPTORS, THEMES, type ThemeId, type ThemePreference } from '../lib/theme/tokens';
+import {
+  DEFAULT_SETTINGS,
+  SETTING_CATEGORIES,
+  SETTING_DEFINITIONS,
+  type SettingCategory,
+  type SettingDefinition,
+} from '../lib/settings/registry';
+import ShortcutEditor from './help/ShortcutEditor';
+import ModelSettingsPanel from './ecad/agent/ModelSettingsPanel';
 
 interface SettingsPanelProps {
   onClose: () => void;
   onRestartOnboarding: () => void;
 }
 
+/** Rail entries that host a whole surface instead of a list of rows. */
+const EMBEDDED_SECTIONS = [
+  {
+    id: 'shortcuts',
+    title: 'Keyboard shortcuts',
+    blurb: 'Every binding the shell answers to, editable. This is the live registry, not a poster of one.',
+    icon: Keyboard,
+    keywords: ['key', 'binding', 'hotkey', 'ctrl', 'shortcut'],
+  },
+  {
+    id: 'models',
+    title: 'Assistant models',
+    blurb:
+      'Bring your own key or point at a local model. Keys stay in this browser and are never written into a design, a snapshot or a transcript.',
+    icon: Sparkles,
+    keywords: ['byok', 'api', 'key', 'openai', 'anthropic', 'ollama', 'llm', 'provider', 'agent'],
+  },
+] as const;
+
+type RailId = SettingCategory | (typeof EMBEDDED_SECTIONS)[number]['id'];
+
+const CATEGORY_ICONS: Record<SettingCategory, typeof Palette> = {
+  general: Palette,
+  drafting: LayoutGrid,
+  board: CircuitBoard,
+  simulation: Activity,
+  viewport: Box,
+  editor: Code2,
+  output: FileOutput,
+  saving: Save,
+};
+
+/** A row is wide when its control belongs under the text rather than to the right of it. */
+const isWideRow = (definition: SettingDefinition): boolean =>
+  definition.control.kind === 'slider' || definition.control.kind === 'theme';
+
+function matchesQuery(definition: SettingDefinition, needle: string): boolean {
+  const categoryName = SETTING_CATEGORIES.find((category) => category.id === definition.category)?.title ?? '';
+  return [definition.title, definition.description, definition.category, categoryName, ...(definition.keywords ?? [])]
+    .join(' ')
+    .toLowerCase()
+    .includes(needle);
+}
+
 /**
  * Settings.
  *
- * Every control here writes to `useAppStore.settings` (or the theme controller)
- * and therefore has a visible effect. There are deliberately no decorative
- * toggles: a setting that does nothing is worse than no setting at all.
+ * The IDE shape: a rail of sections, a search that finds a setting by any word
+ * attached to it, and live application — there is no Save button, because a
+ * preference that only takes effect after a second action is one people mis-trust.
+ * Each row writes the same field the rest of the app reads, so the tool rail, a
+ * viewport HUD and this page cannot disagree, and a reset here and a reset on a
+ * row mean the same thing.
+ *
+ * The registry decides what appears: a setting with no consumer is not offered,
+ * because a toggle that changes a number nobody reads teaches the user that
+ * settings in this app are decorative.
  */
 export default function SettingsPanel({ onClose, onRestartOnboarding }: SettingsPanelProps) {
-  const { settings, updateSettings } = useAppStore();
+  const settings = useAppStore((state) => state.settings);
+  const updateSettings = useAppStore((state) => state.updateSettings);
+  const resetSettings = useAppStore((state) => state.resetSettings);
   const { preference, theme: resolvedTheme, setPreference } = useTheme();
-  const [draft, setDraft] = useState(settings);
-  const [dirty, setDirty] = useState(false);
+  const [activeSection, setActiveSection] = useState<RailId>('general');
+  const [query, setQuery] = useState('');
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
 
-  const patch = (updates: Partial<typeof settings>) => {
-    setDraft((current) => ({ ...current, ...updates }));
-    setDirty(true);
+  const needle = query.trim().toLowerCase();
+  const searching = needle.length > 0;
+
+  const searchRef = useRef<HTMLInputElement>(null);
+  /*
+   * Escape and a click on the scrim close the page, as every other workbench
+   * overlay does. `onClose` is held in a ref so the listener is attached once
+   * rather than re-registered — and kept current — on every keystroke.
+   */
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => searchRef.current?.focus());
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
+
+  const visibleDefinitions = useMemo(
+    () =>
+      SETTING_DEFINITIONS.filter((definition) =>
+        searching ? matchesQuery(definition, needle) : definition.category === activeSection,
+      ),
+    [activeSection, needle, searching],
+  );
+
+  const visibleEmbedded = useMemo(
+    () =>
+      EMBEDDED_SECTIONS.filter((section) =>
+        searching
+          ? [section.title, section.blurb, ...section.keywords].join(' ').toLowerCase().includes(needle)
+          : section.id === activeSection,
+      ),
+    [activeSection, needle, searching],
+  );
+
+  const changedKeys = (Object.keys(DEFAULT_SETTINGS) as Array<keyof AppSettings>).filter(
+    (key) => settings[key] !== DEFAULT_SETTINGS[key],
+  );
+
+  /** One write path for every control; the store clamps the value on the way in. */
+  const write = (key: keyof AppSettings, value: unknown) => {
+    const patch: Partial<Record<keyof AppSettings, unknown>> = { [key]: value };
+    updateSettings(patch as Partial<AppSettings>);
   };
 
-  const save = () => {
-    updateSettings(draft);
-    setDirty(false);
-  };
-
-  const discard = () => {
-    setDraft(settings);
-    setDirty(false);
+  const copyAsJson = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(settings, null, 2));
+      setCopyState('copied');
+    } catch {
+      setCopyState('failed');
+    }
+    window.setTimeout(() => setCopyState('idle'), 2500);
   };
 
   /*
    * Theme options come from the token module, so the picker cannot offer a
-   * preference the controller does not implement. The contrast figure is the
-   * same maths the unit tests assert, so it can never overstate legibility.
+   * preference the controller does not implement. The contrast figure is the same
+   * maths the unit tests assert, so it can never overstate legibility.
    */
   const themeOptions = THEME_DESCRIPTORS.map((descriptor) => {
-    const previewTheme = descriptor.id === 'system' ? resolvedTheme : descriptor.id;
+    const previewTheme: ThemeId = descriptor.id === 'system' ? resolvedTheme : descriptor.id;
     const tokens = THEMES[previewTheme];
     return {
       ...descriptor,
@@ -53,18 +184,9 @@ export default function SettingsPanel({ onClose, onRestartOnboarding }: Settings
     };
   });
 
-  const languages = [
-    { code: 'en', name: 'English' },
-    { code: 'es', name: 'Español' },
-    { code: 'fr', name: 'Français' },
-    { code: 'de', name: 'Deutsch' },
-    { code: 'zh', name: '中文' },
-    { code: 'ja', name: '日本語' },
-  ];
-
   /** Small, honest preview of a theme drawn from that theme's own tokens. */
   const renderSwatch = (id: string, active: boolean) => {
-    const tokens = THEMES[id === 'system' ? resolvedTheme : (id as keyof typeof THEMES)];
+    const tokens = THEMES[id === 'system' ? resolvedTheme : (id as ThemeId)];
     return (
       <span
         aria-hidden="true"
@@ -82,244 +204,321 @@ export default function SettingsPanel({ onClose, onRestartOnboarding }: Settings
     );
   };
 
+  const renderThemePicker = () => (
+    <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Theme">
+      {themeOptions.map((option) => {
+        const active = preference === option.id;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => setPreference(option.id as ThemePreference)}
+            className={`flex items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
+              active
+                ? 'border-primary bg-primary/10'
+                : 'border-border hover:border-primary/60 hover:bg-accent'
+            }`}
+          >
+            {renderSwatch(option.id, active)}
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-2 text-sm font-medium text-card-foreground">
+                {option.label}
+                {active && <Check className="h-3.5 w-3.5 text-primary" aria-hidden="true" />}
+              </span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">{option.description}</span>
+              <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                Text contrast {option.contrast.toFixed(1)}:1
+              </span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const renderControl = (definition: SettingDefinition) => {
+    const value = settings[definition.key];
+    const control = definition.control;
+    const disabled = definition.dependsOn !== undefined && settings[definition.dependsOn] === false;
+
+    if (control.kind === 'theme') return renderThemePicker();
+
+    if (control.kind === 'toggle') {
+      const on = Boolean(value);
+      return (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on}
+          aria-label={definition.title}
+          disabled={disabled}
+          onClick={() => write(definition.key, !on)}
+          className={`relative h-5 w-9 shrink-0 rounded-full border transition-colors ${
+            on ? 'border-primary/50 bg-primary/30' : 'border-border bg-background'
+          } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
+        >
+          {/* The knob carries its own edge so it survives forced-colours mode. */}
+          <span
+            aria-hidden="true"
+            className={`absolute top-0.5 left-0 h-4 w-4 rounded-full transition-transform ${
+              on ? 'bg-primary' : 'bg-muted-foreground'
+            }`}
+            style={{ transform: on ? 'translateX(18px)' : 'translateX(2px)' }}
+          />
+        </button>
+      );
+    }
+
+    if (control.kind === 'select') {
+      return (
+        <select
+          id={`setting-${definition.key}`}
+          aria-label={definition.title}
+          disabled={disabled}
+          value={String(value)}
+          onChange={(event) => {
+            const option = control.options.find((candidate) => String(candidate.value) === event.target.value);
+            write(definition.key, option?.value);
+          }}
+          className={`cad-form-select ${isWideRow(definition) ? 'w-full' : ''}`}
+        >
+          {control.options.map((option) => (
+            <option key={String(option.value)} value={String(option.value)}>
+              {option.hint ? `${option.label} — ${option.hint}` : option.label}
+            </option>
+          ))}
+        </select>
+      );
+    }
+
+    if (control.kind === 'slider') {
+      return (
+        <RangeControl
+          label={definition.title}
+          value={Number(value)}
+          min={control.min}
+          max={control.max}
+          step={control.step}
+          compact
+          disabled={disabled}
+          format={control.format}
+          onValueChange={(next) => write(definition.key, next)}
+        />
+      );
+    }
+
+    return (
+      <span className="cad-form-field w-32 shrink-0" data-disabled={disabled || undefined}>
+        <input
+          id={`setting-${definition.key}`}
+          type="number"
+          aria-label={definition.title}
+          aria-describedby={control.unit ? `setting-${definition.key}-unit` : undefined}
+          min={control.min}
+          max={control.max}
+          step={control.step}
+          disabled={disabled}
+          value={Number(value)}
+          onChange={(event) => write(definition.key, event.target.valueAsNumber)}
+          className="cad-form-input"
+        />
+        {control.unit && (
+          <span id={`setting-${definition.key}-unit`} className="cad-form-unit">
+            {control.unit}
+          </span>
+        )}
+      </span>
+    );
+  };
+
+  const renderRow = (definition: SettingDefinition) => {
+    const modified = settings[definition.key] !== DEFAULT_SETTINGS[definition.key];
+    const wide = isWideRow(definition);
+    const control = definition.control;
+    /*
+     * The reset control keeps its slot whether or not it is showing. Without the
+     * placeholder, a row that has been touched slides its field 36px left of every
+     * row that has not, and a column of settings stops lining up — the user sees a
+     * page that appears to be misaligned rather than one that is honestly reactive.
+     */
+    const resetSlot = modified ? (
+      <Button
+        variant="ghost"
+        size="bar-icon"
+        title={`Reset ${definition.title} to default`}
+        aria-label={`Reset ${definition.title} to default`}
+        onClick={() => resetSettings([definition.key])}
+      >
+        <RotateCcw className="h-3.5 w-3.5" />
+      </Button>
+    ) : (
+      <span aria-hidden="true" className="h-7 w-7 shrink-0" />
+    );
+    return (
+      <div
+        key={definition.key}
+        className={`border-b border-border/60 py-3 last:border-b-0 ${
+          wide ? 'space-y-2' : 'flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-6'
+        }`}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-card-foreground">{definition.title}</span>
+            {modified && <span className="cad-chip">modified</span>}
+          </div>
+          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{definition.description}</p>
+          {definition.alsoIn && (
+            <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+              Also reachable in {definition.alsoIn}.
+            </p>
+          )}
+        </div>
+        {wide ? (
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1">{renderControl(definition)}</div>
+            {control.kind === 'slider' && (
+              <span className="cad-slider-value shrink-0">{control.format(Number(settings[definition.key]))}</span>
+            )}
+            {resetSlot}
+          </div>
+        ) : (
+          <div className="flex shrink-0 items-center gap-2">
+            {renderControl(definition)}
+            {resetSlot}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const railItem = (id: RailId, title: string, Icon: typeof Palette, modifiedCount: number) => {
+    const active = !searching && activeSection === id;
+    return (
+      <button
+        key={id}
+        type="button"
+        onClick={() => {
+          setActiveSection(id);
+          setQuery('');
+        }}
+        aria-current={active ? 'true' : undefined}
+        className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] transition-colors ${
+          active
+            ? 'bg-primary/15 font-medium text-foreground'
+            : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+        }`}
+      >
+        <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">{title}</span>
+        {modifiedCount > 0 && (
+          <>
+            <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+            <span className="sr-only">{modifiedCount} changed from default</span>
+          </>
+        )}
+      </button>
+    );
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/70 p-4 backdrop-blur-sm">
+    <div
+      className="modal-scrim"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
-        className="app-panel flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-border shadow-2xl"
+        className="app-panel animate-rise-in flex h-[min(92vh,760px)] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border shadow-2xl"
       >
-        {/* Header */}
-        <div className="app-chrome app-chrome-divider flex shrink-0 items-center justify-between gap-4 px-6 py-4">
+        {/* Header: the page and the search that drives it */}
+        <div className="app-chrome app-chrome-divider flex shrink-0 flex-wrap items-center gap-3 px-5 py-3">
           <div className="flex items-center gap-2">
-            <Monitor className="h-5 w-5 text-primary" />
-            <h2 id="settings-title" className="text-lg font-semibold text-surface-foreground">
+            <Monitor className="h-5 w-5 text-primary" aria-hidden="true" />
+            <h2 id="settings-title" className="text-base font-semibold text-surface-foreground">
               Settings
             </h2>
           </div>
-          <div className="flex items-center gap-2">
-            {dirty && (
-              <>
-                <Button variant="outline" size="sm" onClick={discard}>
-                  <RotateCcw className="mr-2 h-4 w-4" />
-                  Discard
-                </Button>
-                <Button size="sm" onClick={save}>
-                  <Save className="mr-2 h-4 w-4" />
-                  Save changes
-                </Button>
-              </>
+          <div className="cad-search ml-auto flex h-7 w-full max-w-xs items-center gap-2 rounded-md border border-input bg-background px-2.5 sm:w-64">
+            <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <input
+              ref={searchRef}
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search settings"
+              aria-label="Search settings"
+              className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none"
+            />
+            {query && (
+              <button
+                type="button"
+                aria-label="Clear the search"
+                onClick={() => setQuery('')}
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             )}
-            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close settings">
-              <X className="h-4 w-4" />
-            </Button>
           </div>
+          <Button variant="ghost" size="bar-icon" onClick={onClose} aria-label="Close settings" title="Close settings. Every change you made is already applied.">
+            <X className="h-3.5 w-3.5" />
+          </Button>
         </div>
 
-        {/* Content */}
-        <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-6">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            {/* ── Appearance ── */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Palette className="h-4 w-4" />
-                  Appearance
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <fieldset>
-                  <legend className="mb-2 block text-sm font-medium text-card-foreground">Theme</legend>
-                  <div className="grid grid-cols-1 gap-2" role="radiogroup" aria-label="Theme">
-                    {themeOptions.map((option) => {
-                      const active = preference === option.id;
-                      return (
-                        <button
-                          key={option.id}
-                          type="button"
-                          role="radio"
-                          aria-checked={active}
-                          onClick={() => setPreference(option.id)}
-                          className={`flex items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
-                            active
-                              ? 'border-primary bg-primary/10'
-                              : 'border-border hover:border-primary/60 hover:bg-accent'
-                          }`}
-                        >
-                          {renderSwatch(option.id, active)}
-                          <span className="min-w-0 flex-1">
-                            <span className="flex items-center gap-2 text-sm font-medium text-card-foreground">
-                              {option.label}
-                              {active && <Check className="h-3.5 w-3.5 text-primary" aria-hidden="true" />}
-                            </span>
-                            <span className="mt-0.5 block text-xs text-muted-foreground">
-                              {option.description}
-                            </span>
-                            <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                              Text contrast {option.contrast.toFixed(1)}:1
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Theme changes apply immediately; the other settings below apply when saved.
-                  </p>
-                </fieldset>
+        <div className="flex min-h-0 flex-1">
+          <nav
+            aria-label="Settings sections"
+            className="scrollbar-thin hidden w-52 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border p-2 sm:flex"
+          >
+            {SETTING_CATEGORIES.map((category) =>
+              railItem(
+                category.id,
+                category.title,
+                CATEGORY_ICONS[category.id],
+                SETTING_DEFINITIONS.filter(
+                  (definition) =>
+                    definition.category === category.id &&
+                    settings[definition.key] !== DEFAULT_SETTINGS[definition.key],
+                ).length,
+              ),
+            )}
+            <div className="my-1 border-t border-border" aria-hidden="true" />
+            {EMBEDDED_SECTIONS.map((section) => railItem(section.id, section.title, section.icon, 0))}
+          </nav>
 
-                <label className="flex items-center justify-between gap-4">
-                  <span className="text-sm text-card-foreground">
-                    Interface animations
-                    <span className="mt-0.5 block text-xs text-muted-foreground">
-                      Turn off for reduced-motion preferences.
-                    </span>
-                  </span>
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 accent-[hsl(var(--primary))]"
-                    checked={draft.animations}
-                    onChange={(event) => patch({ animations: event.target.checked })}
-                  />
-                </label>
-              </CardContent>
-            </Card>
+          <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            <p className="mb-1 text-xs text-muted-foreground">
+              {searching
+                ? visibleDefinitions.length + visibleEmbedded.length === 0
+                  ? `Nothing matches “${query}”.`
+                  : `${visibleDefinitions.length + visibleEmbedded.length} result(s) for “${query}”.`
+                : SETTING_CATEGORIES.find((category) => category.id === activeSection)?.blurb ??
+                  EMBEDDED_SECTIONS.find((section) => section.id === activeSection)?.blurb}
+            </p>
 
-            {/* ── Canvas & grid ── */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Grid3X3 className="h-4 w-4" />
-                  Canvas &amp; grid
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <label htmlFor="grid-size" className="mb-1 block text-sm font-medium text-card-foreground">
-                    Grid pitch ({draft.units === 'metric' ? 'mm' : 'mil'})
-                  </label>
-                  <input
-                    id="grid-size"
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={draft.gridSize}
-                    onChange={(event) => patch({ gridSize: Number(event.target.value) || 1 })}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"
-                  />
-                </div>
+            {visibleDefinitions.map((definition) => renderRow(definition))}
 
-                {(
-                  [
-                    ['snapToGrid', 'Snap to grid', 'Constrain placement and wires to the grid.'],
-                    ['showGrid', 'Show grid', 'Draw the grid on schematic and PCB canvases.'],
-                    ['showRulers', 'Show rulers', 'Display coordinate rulers along the sheet edges.'],
-                  ] as const
-                ).map(([key, label, hint]) => (
-                  <label key={key} className="flex items-center justify-between gap-4">
-                    <span className="text-sm text-card-foreground">
-                      {label}
-                      <span className="mt-0.5 block text-xs text-muted-foreground">{hint}</span>
-                    </span>
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 accent-[hsl(var(--primary))]"
-                      checked={draft[key]}
-                      onChange={(event) => patch({ [key]: event.target.checked } as Partial<typeof settings>)}
-                    />
-                  </label>
-                ))}
-              </CardContent>
-            </Card>
+            {visibleEmbedded.map((section) => (
+              <section key={section.id} className="mt-4 first:mt-0">
+                <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-surface-foreground">
+                  <section.icon className="h-4 w-4 text-primary" aria-hidden="true" />
+                  {section.title}
+                </h3>
+                {section.id === 'shortcuts' ? <ShortcutEditor query="" /> : <ModelSettingsPanel />}
+              </section>
+            ))}
 
-            {/* ── Workspace ── */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Globe className="h-4 w-4" />
-                  Workspace
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <label htmlFor="units" className="mb-1 block text-sm font-medium text-card-foreground">
-                    Measurement units
-                  </label>
-                  <select
-                    id="units"
-                    value={draft.units}
-                    onChange={(event) => patch({ units: event.target.value as typeof settings.units })}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"
-                  >
-                    <option value="metric">Metric (mm, mm², g)</option>
-                    <option value="imperial">Imperial (mil, in, oz)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label htmlFor="language" className="mb-1 block text-sm font-medium text-card-foreground">
-                    Interface language
-                  </label>
-                  <select
-                    id="language"
-                    value={draft.language}
-                    onChange={(event) => patch({ language: event.target.value })}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"
-                  >
-                    {languages.map((language) => (
-                      <option key={language.code} value={language.code}>
-                        {language.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <label className="flex items-center justify-between gap-4">
-                  <span className="text-sm text-card-foreground">
-                    Autosave
-                    <span className="mt-0.5 block text-xs text-muted-foreground">
-                      Write a checkpoint on the interval below.
-                    </span>
-                  </span>
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 accent-[hsl(var(--primary))]"
-                    checked={draft.autoSave}
-                    onChange={(event) => patch({ autoSave: event.target.checked })}
-                  />
-                </label>
-
-                <div>
-                  <label htmlFor="autosave-interval" className="mb-1 block text-sm font-medium text-card-foreground">
-                    Autosave interval (seconds)
-                  </label>
-                  <input
-                    id="autosave-interval"
-                    type="number"
-                    min={10}
-                    max={600}
-                    step={5}
-                    disabled={!draft.autoSave}
-                    value={Math.round(draft.autoSaveInterval / 1000)}
-                    onChange={(event) =>
-                      patch({ autoSaveInterval: (Number(event.target.value) || 30) * 1000 })
-                    }
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground disabled:opacity-50"
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* ── Environment & help ── */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Zap className="h-4 w-4" />
+            {!searching && activeSection === 'general' && (
+              <div className="mt-4 rounded-lg border border-border bg-card/40 p-3">
+                <h3 className="mb-2 text-xs font-medium text-muted-foreground">
                   Environment
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
+                </h3>
                 <dl className="space-y-1 text-sm">
                   <div className="flex justify-between gap-4">
                     <dt className="text-muted-foreground">Resolved theme</dt>
@@ -331,40 +530,51 @@ export default function SettingsPanel({ onClose, onRestartOnboarding }: Settings
                   </div>
                   <div className="flex justify-between gap-4">
                     <dt className="text-muted-foreground">Text on background</dt>
-                    <dd className="inline-flex items-center gap-1 font-medium text-card-foreground">
-                      <Ruler className="h-3.5 w-3.5" aria-hidden="true" />
-                      {contrastRatio(
-                        THEMES[resolvedTheme]['--foreground'],
-                        THEMES[resolvedTheme]['--background'],
-                      ).toFixed(1)}
+                    <dd className="font-medium text-card-foreground">
+                      {contrastRatio(THEMES[resolvedTheme]['--foreground'], THEMES[resolvedTheme]['--background']).toFixed(1)}
                       :1
                     </dd>
                   </div>
                 </dl>
-                <Button variant="outline" size="sm" onClick={onRestartOnboarding}>
-                  <BookOpen className="mr-2 h-4 w-4" />
-                  Restart guided setup
-                </Button>
-
-              </CardContent>
-            </Card>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button variant="outline" size="bar" onClick={onRestartOnboarding}>
+                    <Book aria-hidden="true" />
+                    Restart guided setup
+                  </Button>
+                  <Button variant="outline" size="bar" onClick={() => void copyAsJson()}>
+                    <Copy aria-hidden="true" />
+                    {copyState === 'copied'
+                      ? 'Copied'
+                      : copyState === 'failed'
+                        ? 'Clipboard blocked'
+                        : 'Copy settings as JSON'}
+                  </Button>
+                </div>
+                <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
+                  The JSON is the same object the app acts on, so pasting it into a chat tells the assistant how you
+                  work. It holds no keys and no project data.
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Footer */}
-        {dirty && (
-          <div className="app-chrome flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-3">
-            <p className="text-sm text-muted-foreground">You have unsaved changes.</p>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={discard}>
-                Discard
-              </Button>
-              <Button size="sm" onClick={save}>
-                Save settings
-              </Button>
-            </div>
+        <div className="app-chrome flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3">
+          <p className="text-xs text-muted-foreground">
+            {changedKeys.length === 0
+              ? 'Every setting is at its default.'
+              : `${changedKeys.length} of ${Object.keys(DEFAULT_SETTINGS).length} changed from default. Changes apply as you make them.`}
+          </p>
+          <div className="flex gap-2">
+            <Button variant="outline" size="bar" disabled={changedKeys.length === 0} onClick={() => resetSettings()}>
+              <RotateCcw aria-hidden="true" />
+              Reset all
+            </Button>
+            <Button size="bar" onClick={onClose}>
+              Done
+            </Button>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

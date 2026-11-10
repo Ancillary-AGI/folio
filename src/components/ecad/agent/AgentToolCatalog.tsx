@@ -39,7 +39,7 @@ export default function AgentToolCatalog() {
       </p>
       {(['CAD', 'MECH', 'EDA'] as const).map((group) => (
         <section key={group} className="rounded-lg border border-border bg-card p-3" aria-labelledby={`tools-${group}`}>
-          <h3 id={`tools-${group}`} className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <h3 id={`tools-${group}`} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             <Wrench size={13} /> {group}
           </h3>
           <p className="mt-0.5 text-xs text-muted-foreground">{GROUP_NOTES[group]}</p>
@@ -62,7 +62,7 @@ export default function AgentToolCatalog() {
                     )}
                   </div>
                   <p className="mt-0.5 text-xs text-muted-foreground">{tool.description}</p>
-                  <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     {required.length > 0 ? required.join(', ') : 'no required parameters'}
                     {optional.length > 0 ? ` · optional: ${optional.join(', ')}` : ''}
                   </p>

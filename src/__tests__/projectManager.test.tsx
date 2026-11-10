@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import ProjectManager from '../components/ProjectManager'
 import { offlineProjectStore } from '../lib/offlineProjectStore'
@@ -20,18 +20,21 @@ const selectChain = (result: { data: unknown; error: unknown }) => ({
 const renderManager = (overrides: {
   onSelectProject?: (project: unknown) => void
   onNewProject?: () => void
+  onProjectRenamed?: (project: unknown) => void
   offlineMode?: boolean
 } = {}) => {
   const onSelectProject = overrides.onSelectProject ?? vi.fn()
   const onNewProject = overrides.onNewProject ?? vi.fn()
+  const onProjectRenamed = overrides.onProjectRenamed ?? vi.fn()
   const utils = render(
     <ProjectManager
       onSelectProject={onSelectProject as never}
       onNewProject={onNewProject}
+      onProjectRenamed={onProjectRenamed as never}
       offlineMode={overrides.offlineMode ?? true}
     />
   )
-  return { ...utils, onSelectProject, onNewProject }
+  return { ...utils, onSelectProject, onNewProject, onProjectRenamed }
 }
 
 describe('ProjectManager (offline)', () => {
@@ -96,35 +99,126 @@ describe('ProjectManager (offline)', () => {
     offlineProjectStore.create('user-1', 'Legacy Board')
     const { onSelectProject } = renderManager()
 
-    fireEvent.click(await screen.findByText('Legacy Board'))
+    // Anywhere on the card but the name is the open gesture; the name itself
+    // belongs to the rename, and is covered there.
+    const card = (await screen.findByText('Legacy Board')).closest('.project-card')
+    fireEvent.click(card as Element)
     expect(onSelectProject).toHaveBeenCalledTimes(1)
     expect(onSelectProject).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Legacy Board' })
     )
   })
 
-  it('deletes a project only after explicit confirmation', async () => {
+  it('deletes a project only after the panel asks and the answer is yes', async () => {
     offlineProjectStore.create('user-1', 'Legacy Board')
     const { onSelectProject } = renderManager()
 
     const deleteButton = await screen.findByRole('button', {
       name: 'Delete Legacy Board',
     })
+    // The word is on the control, not only in its accessible name: an icon
+    // parked in a card corner is decoration until it is far too late.
+    expect(deleteButton).toHaveTextContent('Delete')
 
-    // Declined confirmation keeps the project and does not select the card.
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    /*
+     * The question is part of the app now, so the test answers it the way a
+     * person does. Declining must write nothing and must not open the card, and
+     * the panel has to state the thing that is actually at risk: the history and
+     * backups that go with the row.
+     */
     fireEvent.click(deleteButton)
+    const question = await screen.findByRole('dialog', { name: /Delete “Legacy Board”/i })
+    expect(within(question).getByText(/version history and the backups stored with it/i)).toBeInTheDocument()
+    fireEvent.click(within(question).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(screen.getByText('Legacy Board')).toBeInTheDocument()
     expect(onSelectProject).not.toHaveBeenCalled()
+    expect(JSON.parse(localStorage.getItem('folio.offlineProjects') || '[]')).toHaveLength(1)
 
-    // Accepted confirmation removes it from the list and from storage.
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    // Answering yes removes it from the list and from storage.
     fireEvent.click(deleteButton)
-    expect(screen.queryByText('Legacy Board')).not.toBeInTheDocument()
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete project' }))
+    await waitFor(() => expect(screen.queryByText('Legacy Board')).not.toBeInTheDocument())
     expect(onSelectProject).not.toHaveBeenCalled()
     expect(
       JSON.parse(localStorage.getItem('folio.offlineProjects') || '[]')
     ).toHaveLength(0)
+  })
+
+  it('renames a project by clicking its title, and clicking away accepts', async () => {
+    const project = offlineProjectStore.create('user-1', 'Legacy Board')
+    const { onSelectProject, onProjectRenamed } = renderManager()
+
+    // The name is the control, so pressing it must not also open the project.
+    fireEvent.click(await screen.findByRole('button', { name: 'Rename Legacy Board' }))
+    expect(onSelectProject).not.toHaveBeenCalled()
+
+    const field = screen.getByRole('textbox', { name: 'New name for Legacy Board' })
+    // Once the field is open it is still the name, not the card: a click inside
+    // it must not fall through and navigate away mid-edit.
+    fireEvent.click(field)
+    expect(onSelectProject).not.toHaveBeenCalled()
+    fireEvent.change(field, { target: { value: '  Amplifier Rev B  ' } })
+    fireEvent.blur(field)
+
+    await waitFor(() => expect(screen.getByText('Amplifier Rev B')).toBeInTheDocument())
+    expect(screen.queryByRole('textbox', { name: 'New name for Amplifier Rev B' })).not.toBeInTheDocument()
+    expect(onSelectProject).not.toHaveBeenCalled()
+    expect(onProjectRenamed).toHaveBeenCalledWith(expect.objectContaining({ id: project.id, name: 'Amplifier Rev B' }))
+    expect(offlineProjectStore.get(project.id)?.name).toBe('Amplifier Rev B')
+  })
+
+  it('accepts the typed name on Enter too', async () => {
+    const project = offlineProjectStore.create('user-1', 'Legacy Board')
+    const { onProjectRenamed } = renderManager()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Rename Legacy Board' }))
+    const field = screen.getByRole('textbox', { name: 'New name for Legacy Board' })
+    fireEvent.change(field, { target: { value: 'Amplifier Rev C' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+
+    await waitFor(() => expect(screen.getByText('Amplifier Rev C')).toBeInTheDocument())
+    expect(offlineProjectStore.get(project.id)?.name).toBe('Amplifier Rev C')
+    expect(onProjectRenamed).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the old name when the rename is cancelled or blank', async () => {
+    const project = offlineProjectStore.create('user-1', 'Legacy Board')
+    const { onProjectRenamed } = renderManager()
+
+    // Escape abandons the edit.
+    fireEvent.click(await screen.findByRole('button', { name: 'Rename Legacy Board' }))
+    const field = screen.getByRole('textbox', { name: 'New name for Legacy Board' })
+    fireEvent.change(field, { target: { value: 'Half Typed' } })
+    fireEvent.keyDown(field, { key: 'Escape' })
+    expect(await screen.findByText('Legacy Board')).toBeInTheDocument()
+    expect(offlineProjectStore.get(project.id)?.name).toBe('Legacy Board')
+
+    // A name that is only whitespace is not a name, so nothing is written — and
+    // the card says so rather than quietly showing the old title.
+    fireEvent.click(screen.getByRole('button', { name: 'Rename Legacy Board' }))
+    const blank = screen.getByRole('textbox', { name: 'New name for Legacy Board' })
+    fireEvent.change(blank, { target: { value: '   ' } })
+    fireEvent.blur(blank)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/kept the old one/)
+    expect(screen.getByText('Legacy Board')).toBeInTheDocument()
+    expect(offlineProjectStore.get(project.id)?.name).toBe('Legacy Board')
+    expect(onProjectRenamed).not.toHaveBeenCalled()
+  })
+
+  it('starts a project in the family whose tile was pressed', async () => {
+    const onNewProject = vi.fn()
+    renderManager({ onNewProject })
+    await screen.findByRole('heading', { name: 'Your Projects' })
+
+    fireEvent.click(screen.getByRole('button', { name: /^Start a project in the Mechanical family/ }))
+    expect(onNewProject).toHaveBeenCalledWith('mechanical')
+
+    // The plain button still creates without picking a family.
+    fireEvent.click(screen.getByRole('button', { name: 'New Project' }))
+    expect(onNewProject).toHaveBeenCalledTimes(2)
+    expect(onNewProject.mock.calls[1]?.[0]).toBeUndefined()
   })
 
   it('states the commit history each project really has in the workspace', async () => {
@@ -183,5 +277,55 @@ describe('ProjectManager (cloud workspace)', () => {
       expect(screen.getByText('Recovered Board')).toBeInTheDocument(),
     )
     expect(screen.queryByRole('heading', { name: /could not be read/i })).not.toBeInTheDocument()
+  })
+
+  it('writes a rename to the project row and tells the shell', async () => {
+    const iso = new Date().toISOString()
+    const row = { id: 'cloud-1', user_id: 'user-1', name: 'Recovered Board', description: '', created_at: iso, updated_at: iso }
+    const eqMock = vi.fn(() => Promise.resolve({ data: null, error: null }))
+    const updateMock = vi.fn(() => ({ eq: eqMock }))
+    fromMock.mockImplementation(() => ({
+      select: () => ({ order: () => Promise.resolve({ data: [row], error: null }) }),
+      update: updateMock,
+    }))
+    const { onProjectRenamed } = renderManager({ offlineMode: false })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Rename Recovered Board' }))
+    fireEvent.change(
+      screen.getByRole('textbox', { name: 'New name for Recovered Board' }),
+      { target: { value: 'Bench PSU' } },
+    )
+    fireEvent.blur(screen.getByRole('textbox', { name: 'New name for Recovered Board' }))
+
+    await waitFor(() => expect(screen.getByText('Bench PSU')).toBeInTheDocument())
+    expect(updateMock).toHaveBeenCalledWith({ name: 'Bench PSU', updated_at: expect.any(String) })
+    expect(eqMock).toHaveBeenCalledWith('id', 'cloud-1')
+    expect(onProjectRenamed).toHaveBeenCalledWith(expect.objectContaining({ id: 'cloud-1', name: 'Bench PSU' }))
+  })
+
+  it('keeps the stored name and says why when the write is rejected', async () => {
+    const iso = new Date().toISOString()
+    const row = { id: 'cloud-1', user_id: 'user-1', name: 'Recovered Board', description: '', created_at: iso, updated_at: iso }
+    fromMock.mockImplementation(() => ({
+      select: () => ({ order: () => Promise.resolve({ data: [row], error: null }) }),
+      update: () => ({
+        eq: () => Promise.resolve({ data: null, error: new Error('row-level security blocked the write') }),
+      }),
+    }))
+    const { onProjectRenamed } = renderManager({ offlineMode: false })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Rename Recovered Board' }))
+    fireEvent.change(
+      screen.getByRole('textbox', { name: 'New name for Recovered Board' }),
+      { target: { value: 'Bench PSU' } },
+    )
+    fireEvent.blur(screen.getByRole('textbox', { name: 'New name for Recovered Board' }))
+
+    // The card goes back to the name the workspace really holds, with the reason
+    // under it. A field that vanished without either would read as a saved rename.
+    expect(await screen.findByText(/Could not rename the project/)).toHaveTextContent('row-level security blocked the write')
+    expect(screen.getByText('Recovered Board')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'New name for Recovered Board' })).not.toBeInTheDocument()
+    expect(onProjectRenamed).not.toHaveBeenCalled()
   })
 })

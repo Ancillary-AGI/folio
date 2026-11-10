@@ -430,7 +430,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
         <div className="space-y-3">
           <section className="rounded-lg border border-border bg-card p-3" aria-labelledby="mech-target-heading">
             <div className="mb-2 flex items-center justify-between">
-              <h3 id="mech-target-heading" className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 id="mech-target-heading" className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <Box size={13} /> Target part
               </h3>
               <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={loadDefaults}>
@@ -449,7 +449,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
                 <select
                   id="mech-sizing-part"
                   aria-label="Sizing part"
-                  className="mt-1 h-8 w-full rounded-md border border-border bg-background px-1 text-xs text-foreground"
+                  className="mt-1 h-8 w-full rounded-md border border-input bg-background px-1 text-xs text-foreground"
                   value={partId}
                   onChange={(event) => choosePart(event.target.value)}
                 >
@@ -467,7 +467,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
                       {mm(selectedPart.dimensions.height)} mm
                     </span>
                     <span>Material</span>
-                    <span className="font-mono text-foreground">{selectedPart.material.name}</span>
+                    <span className="text-foreground">{selectedPart.material.name}</span>
                     <span>Part mass</span>
                     <span className="font-mono text-foreground">{formatValue(selectedPart.properties.mass, 'kg')}</span>
                     <span>Assembly</span>
@@ -481,7 +481,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
           </section>
 
           <section className="rounded-lg border border-border bg-card p-3" aria-labelledby="mech-objective-heading">
-            <h3 id="mech-objective-heading" className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 id="mech-objective-heading" className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               <Gauge size={13} /> Objective and limits
             </h3>
             <div className="grid grid-cols-2 gap-2">
@@ -489,7 +489,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
                 Metric
                 <select
                   aria-label="Sizing metric"
-                  className="mt-1 h-8 w-full rounded-md border border-border bg-background px-1 text-xs text-foreground"
+                  className="mt-1 h-8 w-full rounded-md border border-input bg-background px-1 text-xs text-foreground"
                   value={metric}
                   onChange={(event) => chooseMetric(event.target.value as MechanicalMetric)}
                 >
@@ -504,7 +504,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
                 Direction
                 <select
                   aria-label="Sizing direction"
-                  className="mt-1 h-8 w-full rounded-md border border-border bg-background px-1 text-xs text-foreground"
+                  className="mt-1 h-8 w-full rounded-md border border-input bg-background px-1 text-xs text-foreground"
                   value={direction}
                   onChange={(event) => setDirection(event.target.value as 'minimize' | 'maximize')}
                 >
@@ -609,7 +609,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
           </section>
 
           <section className="rounded-lg border border-border bg-card p-3" aria-labelledby="mech-variables-heading">
-            <h3 id="mech-variables-heading" className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 id="mech-variables-heading" className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               <SlidersHorizontal size={13} /> Variables
             </h3>
             <p className="mb-2 text-xs text-muted-foreground">{sizeHint}</p>
@@ -636,7 +636,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
                       From (mm)
                       <Input
                         aria-label={`${entry.label} from`}
-                        className="mt-1 h-7 bg-background font-mono text-xs"
+                        className="mt-1 h-7 bg-background text-xs tabular-nums"
                         value={row.from}
                         onChange={(event) => updateDimension(entry.value, { from: event.target.value })}
                         disabled={!row.enabled}
@@ -647,7 +647,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
                       To (mm)
                       <Input
                         aria-label={`${entry.label} to`}
-                        className="mt-1 h-7 bg-background font-mono text-xs"
+                        className="mt-1 h-7 bg-background text-xs tabular-nums"
                         value={row.to}
                         onChange={(event) => updateDimension(entry.value, { to: event.target.value })}
                         disabled={!row.enabled}
@@ -681,7 +681,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
           </section>
 
           <section className="rounded-lg border border-border bg-card p-3" aria-labelledby="mech-budget-heading">
-            <h3 id="mech-budget-heading" className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 id="mech-budget-heading" className="mb-2 text-xs font-medium text-muted-foreground">
               Search budget
             </h3>
             <div className="grid grid-cols-2 gap-2">
@@ -748,7 +748,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
         <div className="space-y-3">
           <section className="rounded-lg border border-border bg-card p-2" aria-labelledby="mech-drawing-heading">
             <div className="mb-1 flex items-center justify-between gap-2 px-1">
-              <h3 id="mech-drawing-heading" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 id="mech-drawing-heading" className="text-xs font-medium text-muted-foreground">
                 {selected ? `Assembly after iteration #${selected.iteration}` : 'Current assembly'}
               </h3>
               {selected && (
@@ -776,7 +776,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
 
           {selected?.analysis && (
             <section className="rounded-lg border border-border bg-card p-3" aria-labelledby="mech-measure-heading">
-              <h3 id="mech-measure-heading" className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 id="mech-measure-heading" className="mb-1 text-xs font-medium text-muted-foreground">
                 Measured at iteration #{selected.iteration}
               </h3>
               <p className="text-xs text-foreground">
@@ -814,7 +814,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
 
           <section className="rounded-lg border border-border bg-card p-3" aria-labelledby="mech-timeline-heading">
             <div className="mb-1 flex items-center justify-between">
-              <h3 id="mech-timeline-heading" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 id="mech-timeline-heading" className="text-xs font-medium text-muted-foreground">
                 Iterations
               </h3>
               <span className="text-xs text-muted-foreground">{iterations.length} measured</span>

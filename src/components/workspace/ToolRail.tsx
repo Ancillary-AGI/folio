@@ -14,15 +14,18 @@
   Save,
   CircuitBoard,
   Activity,
+  Wand2,
+  ShieldCheck,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import HoverHelp from '../ui/HoverHelp'
 import { useAppStore } from '../../stores/useAppStore'
 import { useProjectStore } from '../../stores/useProjectStore'
 import { useShortcutStore } from '../../stores/useShortcutStore'
+import { useDesignHealthStore } from '../../stores/useDesignHealthStore'
 import { describeShortcut } from '../../lib/keymap/shortcuts'
 import type { HelpTopicId } from '../../lib/help/helpTopics'
-import { buildDemoBoard } from '../../lib/demo/demoBoard'
+import { loadBoardDemo } from '../../lib/demo/loadDemo'
 
 interface ToolRailProps {
   /** Persists the current design snapshot (same payload as the canvas autosave). */
@@ -112,6 +115,9 @@ function UndoRedoRailButtons() {
 export default function ToolRail({ onSave }: ToolRailProps) {
   const { activeTool, setActiveTool, settings, updateSettings, viewport, setZoom } = useAppStore()
   const shortcutOverrides = useShortcutStore((state) => state.overrides)
+  const healthErrors = useDesignHealthStore((state) => state.result?.summary.errors ?? 0)
+  const healthPanelOpen = useDesignHealthStore((state) => state.panelOpen)
+  const toggleHealthPanel = useDesignHealthStore((state) => state.togglePanel)
 
   return (
     <div className="cad-rail" role="toolbar" aria-orientation="vertical" aria-label="Editor tools" data-tour="tool-rail">
@@ -179,6 +185,15 @@ export default function ToolRail({ onSave }: ToolRailProps) {
       >
         <Maximize2 className="h-4 w-4" />
       </RailButton>
+      {/* One press: the sheet arranges itself into grid-aligned signal columns. */}
+      <RailButton
+        topicId="rail.tidy"
+        ariaLabel="Tidy arrange the sheet"
+        keyHint={describeShortcut('schematic.tidy', shortcutOverrides)}
+        onClick={() => window.dispatchEvent(new CustomEvent('folio:tidy-schematic'))}
+      >
+        <Wand2 className="h-4 w-4" />
+      </RailButton>
 
       <span className="cad-rail-sep" aria-hidden="true" />
 
@@ -186,20 +201,39 @@ export default function ToolRail({ onSave }: ToolRailProps) {
         <Save className="h-4 w-4" />
       </RailButton>
 
+      {/* The rule check is part of the drafting loop, so its panel sits on the
+          rail: one press swaps the canvas height for the findings list. */}
+      <RailButton
+        topicId="rail.problems"
+        ariaLabel={`${healthPanelOpen ? 'Hide' : 'Show'} the design health panel${
+          healthErrors > 0 ? `, ${healthErrors} error${healthErrors === 1 ? '' : 's'}` : ''
+        }`}
+        active={healthPanelOpen}
+        ariaPressed={healthPanelOpen}
+        onClick={toggleHealthPanel}
+      >
+        <span className="relative">
+          <ShieldCheck className="h-4 w-4" />
+          {healthErrors > 0 && (
+            <span
+              className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-destructive"
+              aria-hidden="true"
+            />
+          )}
+        </span>
+      </RailButton>
+
       {/* Undo/redo operate on the project store's snapshot stack. */}
       <UndoRedoRailButtons />
 
-      {/* One-click proof: load the tested 6-part rectifier onto the sheet. */}
+      {/* One-click proof: the same board loader the demo gallery uses, so the
+          sheet lands in one known state whichever surface asked for it. */}
       <RailButton
         topicId="rail.demo"
         ariaLabel="Load demo rectifier board"
         onClick={() => {
-          const board = buildDemoBoard();
-          // Same reset as the divider loader: clear selection/live state so the
-          // proof lands on a clean sheet instead of stacking on old content.
-          useAppStore.getState().clearSelection();
-          useProjectStore.setState({ components: board.components, wires: board.wires, isDirty: true, liveFrame: null });
-          window.dispatchEvent(new CustomEvent('folio:fit-view'));
+          loadBoardDemo('Half-wave rectifier')
+          window.dispatchEvent(new CustomEvent('folio:fit-view'))
         }}
       >
         <CircuitBoard className="h-4 w-4" />

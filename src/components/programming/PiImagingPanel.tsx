@@ -260,7 +260,7 @@ export default function PiImagingPanel({ onClose }: PiImagingPanelProps) {
             <ShieldCheck className="h-4 w-4" />
             Pi Imaging &amp; Bring-Up
           </h3>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close imaging panel">
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close imaging panel" title="Leave the imaging panel; closing writes nothing to the design.">
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -505,7 +505,7 @@ export default function PiImagingPanel({ onClose }: PiImagingPanelProps) {
 
               <div>
                 <div className="text-muted-foreground">Handshake expected within {PI_FIRST_BOOT_HANDSHAKE.timeoutMs / 1000} s</div>
-                <ol className="mt-1 list-decimal space-y-0.5 pl-4 font-mono">
+                <ol className="mt-1 list-decimal space-y-0.5 pl-4">
                   {PI_FIRST_BOOT_HANDSHAKE.expectLines.map((line) => (
                     <li key={line}>{line}</li>
                   ))}

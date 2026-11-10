@@ -53,6 +53,29 @@ const dip8 = (reference: string, x: number): PlacedComponent => ({
   properties: { value: 'NE555', footprint: 'dip_8' },
 })
 
+/** A datasheet SOIC whose package no library entry hand-builds. */
+const soic16 = (reference: string, x: number): PlacedComponent => ({
+  id: `id-${reference}`,
+  componentId: `comp-${reference}`,
+  component: {
+    id: `comp-${reference}`,
+    name: 'ISO7741DW',
+    category: 'ic',
+    symbol,
+    pins: Array.from({ length: 16 }, (_, index) => ({
+      id: `p${index + 1}`, name: `${index + 1}`, x: -1, y: index, type: 'passive',
+    })),
+    properties: {},
+    manufacturer: 'TI',
+    partNumber: 'ISO7741DW',
+  },
+  position: { x, y: 40 },
+  rotation: 0,
+  scale: 1,
+  reference,
+  properties: { value: 'ISO7741', footprint: 'SOIC-16 (DW, 10.30 x 7.50 mm)' },
+})
+
 const trace = (
   points: Array<{ x: number; y: number }>,
   opts: { width?: number; netName?: string; layer?: FabTrace['layer']; layerName?: string; innerIndex?: number } = {},
@@ -215,6 +238,18 @@ describe('fab package — copper is emitted on the layer it was routed on', () =
     const pkg = buildFabPackage([dip8('U1', 50)], [])
     expect(flashes(pkg.files.get('folio-pcb-F_Cu.gtl') ?? '')).toBe(8)
     expect(flashes(pkg.files.get('folio-pcb-B_Cu.gbl') ?? '')).toBe(8)
+  })
+
+  it('exports the same copper the board shows for a datasheet package', () => {
+    // A SOIC-16 the library does not hand-build still gets its land pattern on
+    // the PCB scene, so the Gerbers have to carry the same 16 lands. Borrowing
+    // an unrelated IC footprint from the category instead would ship a board
+    // whose copper matches nothing the router connected.
+    const pkg = buildFabPackage([soic16('U4', 50)], [])
+    expect(pkg.violations.filter((v) => v.rule === 'footprint')).toEqual([])
+    expect(flashes(pkg.files.get('folio-pcb-F_Cu.gtl') ?? '')).toBe(16)
+    expect(flashes(pkg.files.get('folio-pcb-B_Cu.gbl') ?? '')).toBe(0)
+    expect(pkg.centroid[0].footprint).toBe('SOIC-16')
   })
 
   it('maps board layer ids onto the copper faces they export to', () => {

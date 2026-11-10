@@ -20,16 +20,6 @@
 import type { WorkspaceMode } from './useAppStore';
 
 export const PROJECTS_ROUTE = '/projects';
-/**
- * Administration is intentionally outside the workspace routes: it is not a
- * CAD mode and can be opened with or without a project loaded.
- */
-export const ADMIN_ROUTE = '/admin';
-
-/** True for the administration console path (trailing slash tolerated). */
-export function isAdminPath(pathname: string): boolean {
-  return pathname.replace(/\/+$/, '') === ADMIN_ROUTE;
-}
 
 export const WORKSPACE_ROUTES: Readonly<Record<WorkspaceMode, string>> = {
   schematic: '/',
@@ -38,6 +28,8 @@ export const WORKSPACE_ROUTES: Readonly<Record<WorkspaceMode, string>> = {
   machines: '/machines',
   grid: '/grid',
   mechanical: '/cad',
+  structures: '/structures',
+  biology: '/biology',
   pcb: '/pcb',
   rf: '/rf',
   convert: '/schematic-pcb',

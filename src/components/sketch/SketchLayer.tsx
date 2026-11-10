@@ -351,8 +351,8 @@ export default function SketchLayer({ library }: SketchLayerProps) {
         onPointerDown={(event) => event.stopPropagation()}
       >
         <div className="flex items-baseline justify-between">
-          <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground">Sketch to schematic</h2>
-          <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+          <h2 className="text-[11px] font-medium text-foreground">Sketch to schematic</h2>
+          <span className="font-mono text-[10px] text-muted-foreground">
             {strokes.length} stroke{strokes.length === 1 ? '' : 's'}
           </span>
         </div>

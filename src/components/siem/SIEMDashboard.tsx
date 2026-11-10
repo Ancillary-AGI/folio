@@ -172,11 +172,12 @@ export default function SIEMDashboard() {
         <div>
           <h2 className="flex items-center gap-2 text-xl font-semibold text-foreground">
             <ShieldAlert className="h-5 w-5 text-primary" aria-hidden="true" />
-            SIEM &amp; compliance
+            Activity &amp; security log
           </h2>
           <p className="text-sm text-muted-foreground">
-            Events, alerts, audit trail and ISO 27001 / NIST / IEC 62443 / GDPR evidence for
-            connected IoT and robotic systems.
+            What this workspace recorded itself — saves, exports, agent runs — the alerts those
+            events raise, and the policy checks that can be evaluated in the browser. The threat
+            table is a static reference, not live telemetry.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -225,7 +226,7 @@ export default function SIEMDashboard() {
         ].map((item) => (
           <Card key={item.label}>
             <CardContent className="py-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">{item.label}</p>
+              <p className="text-xs text-muted-foreground">{item.label}</p>
               <p className={`mt-1 text-2xl font-semibold ${item.tone}`}>{item.value}</p>
             </CardContent>
           </Card>

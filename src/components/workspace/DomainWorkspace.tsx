@@ -1,20 +1,28 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
-  Activity, ArrowRightLeft, Box, Bot, Cable, Camera, ChevronLeft, ChevronRight, CircuitBoard, Code2, Cpu, FlaskConical,
-  Gauge, GitBranch, Grid3X3, HelpCircle, Layers, List, Package, PenTool, Plug, Radio, RadioTower, RotateCw,
+  Activity, ArrowRightLeft, Box, Bot, Cable, Camera, CircuitBoard, Code2,
+  Construction, Cpu, Dna, FlaskConical,
+  Gauge, GitBranch, Grid3X3, HelpCircle, Layers, List, Microscope, Package, PenTool, Plug, Radio, RadioTower, RotateCw,
   ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, Terminal, Wrench, Zap,
   type LucideIcon,
 } from 'lucide-react'
 import SchematicCanvas from '../SchematicCanvas'
-import ComponentLibrary from '../ComponentLibrary'
+import DomainLibraryDock from '../library/DomainLibraryDock'
 import PropertiesPanel from '../PropertiesPanel'
+import NetInspector, { type NetInspectorModel } from '../NetInspector'
 import ToolRail from './ToolRail'
+import DesignHealthPanel from './DesignHealthPanel'
 import HoverHelp from '../ui/HoverHelp'
 import { useAppStore, type WorkspaceMode } from '../../stores/useAppStore'
 import { useProjectStore } from '../../stores/useProjectStore'
 import { useSketchStore } from '../../stores/useSketchStore'
 import { useShortcutStore } from '../../stores/useShortcutStore'
+import { useDesignHealthStore } from '../../stores/useDesignHealthStore'
 import { isEditableTarget, matchesShortcut } from '../../lib/keymap/shortcuts'
+import { runSchematicERC } from '../../lib/manufacturing/erc'
+import { orderedFindings } from '../../lib/manufacturing/findings'
+import { libraryForMode } from '../../lib/library/catalog'
+import type { LibraryItem } from '../../lib/library/types'
 import {
   WORKSPACE_GROUPS,
   WORKSPACE_MODES,
@@ -22,6 +30,7 @@ import {
   type WorkspaceGroupId,
 } from '../../lib/workspace/modes'
 import { groupAccent } from '../../lib/workspace/accents'
+import { SCHEMATIC_UNITS_PER_MM } from '../../lib/schematic/units'
 import type { Component } from '../../lib/supabase'
 import type { Schematic } from '../../types'
 
@@ -30,6 +39,8 @@ import type { Schematic } from '../../types'
  * (three.js, reactflow, recharts) never reach the initial bundle.
  */
 const MechanicalDesignPanel = lazy(() => import('../mechanical/MechanicalDesignPanel'))
+const StructuresPanel = lazy(() => import('../structures/StructuresPanel'))
+const BiologyPanel = lazy(() => import('../biology/BiologyPanel'))
 const ControlSystemsPanel = lazy(() => import('../control/ControlSystemsPanel'))
 const MachineSimulatorPanel = lazy(() => import('../electronics/MachineSimulatorPanel'))
 const PowerGridPanel = lazy(() => import('../electronics/PowerGridPanel'))
@@ -85,11 +96,13 @@ const MODE_ICONS: Readonly<Record<WorkspaceMode, LucideIcon>> = {
   icdesign: Cpu,
   fpga: Grid3X3,
   mechanical: Wrench,
+  structures: Construction,
   robotics: Bot,
   embedded: Terminal,
   imaging: Camera,
   visual: GitBranch,
   hil: FlaskConical,
+  biology: Dna,
   twin: RadioTower,
   agents: Sparkles,
   components: Package,
@@ -103,6 +116,7 @@ const GROUP_ICONS: Readonly<Record<WorkspaceGroupId, LucideIcon>> = {
   design: Layers,
   electrical: Zap,
   mechanical: Wrench,
+  life: Microscope,
   ops: ShieldCheck,
 }
 
@@ -117,6 +131,12 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
     toggleSidebar,
     selectedComponents,
     clearSelection,
+    selectedNet,
+    selectNet,
+    setSelectedComponents,
+    requestComponentFocus,
+    armedLibraryItem,
+    setArmedLibraryItem,
   } = useAppStore()
   const { components, wires, currentProject, updateComponent } = useProjectStore()
 
@@ -132,44 +152,6 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
     [activeGroup],
   )
 
-  /* Keep the active tab visible when a mode is opened from the demo gallery,
-   * the command palette, or a deep link on a narrow screen. */
-  const modeRowRef = useRef<HTMLDivElement>(null)
-  const [modeScroll, setModeScroll] = useState({ left: false, right: false })
-
-  useEffect(() => {
-    const active = modeRowRef.current?.querySelector<HTMLElement>('[aria-current="page"]')
-    active?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
-  }, [workspaceMode, activeGroup])
-
-  /* A hidden scrollbar leaves no cue that more domains exist, so the rail
-   * exposes directional buttons only while there is content in that direction. */
-  useEffect(() => {
-    const row = modeRowRef.current
-    if (!row) return
-    const update = () =>
-      setModeScroll({
-        left: row.scrollLeft > 8,
-        right: row.scrollLeft + row.clientWidth < row.scrollWidth - 8,
-      })
-    update()
-    row.addEventListener('scroll', update, { passive: true })
-    window.addEventListener('resize', update)
-    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null
-    observer?.observe(row)
-    return () => {
-      row.removeEventListener('scroll', update)
-      window.removeEventListener('resize', update)
-      observer?.disconnect()
-    }
-  }, [activeGroup, visibleModes.length])
-
-  const scrollModes = (direction: -1 | 1) => {
-    const row = modeRowRef.current
-    if (!row) return
-    row.scrollBy?.({ left: direction * Math.max(120, row.clientWidth * 0.6), behavior: 'smooth' })
-  }
-
   /* Below the desktop breakpoint the library is a drawer; open with the sheet
    * in view instead of covering half of it. The header toggle reopens it. */
   useEffect(() => {
@@ -179,11 +161,42 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
     }
   }, [])
 
-  /**
-   * Click-to-place flow: selecting a library part arms it; the next click on
-   * the empty sheet drops it (snapped). Esc or a mode switch disarms.
+  /*
+   * Click-to-place flow: selecting a library row arms it; the next click on the
+   * empty surface places it. Esc or a mode switch disarms.
+   *
+   * The sheet and the board place `Component` objects, so their armed row is
+   * kept as the part itself — the canvases already take that prop. Every other
+   * domain places a library row, which lives in the store so its panel can read
+   * it without prop-drilling through the lazy boundary.
    */
   const [pendingComponent, setPendingComponent] = useState<Component | null>(null)
+
+  /** The dock for this workspace, or `null` when the domain places nothing. */
+  const library = useMemo(
+    () => libraryForMode(workspaceMode, libraryComponents),
+    [workspaceMode, libraryComponents],
+  )
+
+  const armLibraryItem = useCallback((item: LibraryItem | null) => {
+    if (item && item.kind === 'component') {
+      const part = libraryComponents.find((c) => c.id === item.payload.componentId) ?? null
+      setArmedLibraryItem(null)
+      setPendingComponent((prev) => (prev?.id === part?.id ? null : part))
+      return
+    }
+    setPendingComponent(null)
+    setArmedLibraryItem(armedLibraryItem?.id === item?.id ? null : item)
+  }, [armedLibraryItem, libraryComponents, setArmedLibraryItem])
+
+  /** What the dock highlights: the armed row, whichever domain owns it. */
+  const armedRow = useMemo<LibraryItem | null>(() => {
+    if (armedLibraryItem) return armedLibraryItem
+    if (!pendingComponent) return null
+    return library?.items.find(
+      (item) => item.kind === 'component' && item.payload.componentId === pendingComponent.id,
+    ) ?? null
+  }, [armedLibraryItem, library, pendingComponent])
 
   // Memoised because panels below derive from it: SchematicToPcbPanel runs a
   // full ERC pass in a memo keyed on this object, so rebuilding the literal on
@@ -227,6 +240,36 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
     },
   }), [components, wires, currentProject?.name])
 
+  /*
+   * The rule check runs on the same memoised sheet the converter uses, so every
+   * edit that rebuilds the schematic re-checks it once. The result is mirrored
+   * into the design-health store because the app status bar reads the count
+   * from outside this workspace.
+   */
+  const health = useMemo(() => runSchematicERC(schematic), [schematic])
+  const setDesignHealth = useDesignHealthStore((state) => state.setResult)
+  useEffect(() => setDesignHealth(health), [health, setDesignHealth])
+  const healthPanelOpen = useDesignHealthStore((state) => state.panelOpen)
+  const toggleHealthPanel = useDesignHealthStore((state) => state.togglePanel)
+  const hideHealthPanel = useCallback(
+    () => useDesignHealthStore.getState().setPanelOpen(false),
+    [],
+  )
+
+  /* "Browse parts" from the empty sheet opens the dock if it is closed, then
+   * lands the caret in the search field — the fastest route to a first part. */
+  const focusLibrarySearch = useCallback(() => {
+    if (!useAppStore.getState().sidebarOpen) toggleSidebar()
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const input = document.querySelector<HTMLInputElement>('[data-library-search]')
+        if (!input) return
+        input.focus()
+        input.select()
+      })
+    })
+  }, [toggleSidebar])
+
   /** Persist the current snapshot — same payload shape as the canvas autosave. */
   const saveSnapshot = useCallback(() => {
     onSave({
@@ -236,6 +279,30 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
       timestamp: Date.now(),
     })
   }, [onSave])
+
+  /*
+   * F8/Shift+F8 walks the same severity-ordered list the dock shows: the first
+   * press starts at the top (or the bottom when stepping back), later presses
+   * wrap. The dock opens and switches to Problems so the jumped-to row is
+   * visible, and the part is centred rather than merely selected.
+   */
+  const stepFinding = useCallback((direction: 1 | -1) => {
+    const ordered = orderedFindings(health)
+    if (ordered.length === 0) return
+    const healthStore = useDesignHealthStore.getState()
+    if (!healthStore.panelOpen) healthStore.setPanelOpen(true)
+    if (healthStore.tab !== 'problems') healthStore.setTab('problems')
+    const current = healthStore.activeFindingIndex
+    const index =
+      current === null
+        ? direction === 1 ? 0 : ordered.length - 1
+        : (current + direction + ordered.length) % ordered.length
+    healthStore.setActiveFindingIndex(index)
+    const finding = ordered[index]
+    if (!finding.componentId) return
+    useAppStore.getState().setSelectedComponents([finding.componentId])
+    useAppStore.getState().requestComponentFocus(finding.componentId)
+  }, [health])
 
   /*
    * CAD shortcuts. Registered only while the sheet is the active workspace and
@@ -270,7 +337,7 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
       } else if (matches('schematic.sketchTool')) {
         setActiveTool(useAppStore.getState().activeTool === 'sketch' ? 'select' : 'sketch')
       } else if (matches('schematic.rotate')) {
-        // Rotate every selected part 90° clockwise, like KiCad.
+        // Rotate every selected part 90° clockwise.
         const project = useProjectStore.getState()
         const selectedIds = useAppStore.getState().selectedComponents
         let touched = false
@@ -284,19 +351,44 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
         updateSettings({ showGrid: !settings.showGrid })
       } else if (matches('schematic.fit')) {
         window.dispatchEvent(new CustomEvent('folio:fit-view'))
+      } else if (matches('schematic.tidy')) {
+        window.dispatchEvent(new CustomEvent('folio:tidy-schematic'))
+      } else if (matches('schematic.problems')) {
+        toggleHealthPanel()
+      } else if (matches('schematic.nextProblem')) {
+        event.preventDefault()
+        stepFinding(1)
+      } else if (matches('schematic.previousProblem')) {
+        event.preventDefault()
+        stepFinding(-1)
       } else if (matches('schematic.cancel')) {
         setPendingComponent(null)
+        setArmedLibraryItem(null)
         clearSelection()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [workspaceMode, shortcutOverrides, saveSnapshot, clearSelection, setActiveTool, updateSettings, settings.showGrid])
+  }, [workspaceMode, shortcutOverrides, saveSnapshot, clearSelection, setActiveTool, updateSettings, settings.showGrid, setArmedLibraryItem, toggleHealthPanel, stepFinding])
+
+  /*
+   * Every other workspace takes the same Escape rule as the sheet: an armed row
+   * is disarmed, and only when focus is not inside a field.
+   */
+  useEffect(() => {
+    if (workspaceMode === 'schematic') return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || isEditableTarget(event.target)) return
+      setArmedLibraryItem(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [workspaceMode, setArmedLibraryItem])
 
   const isSchematic = workspaceMode === 'schematic'
-  // The board takes parts from the same palette: dragging one onto the board,
-  // or arming it and clicking a spot, adds it to the sheet and places it here.
-  const showsLibrary = isSchematic || workspaceMode === 'pcb'
+  /* Ten domains place things and fifteen do not; the dock appears only where a
+   * catalog exists, so the header toggle is never a dead control. */
+  const showsLibrary = library !== null
 
   /* Inspector payload: exactly one selected part shows the properties dock. */
   const selectedPart =
@@ -311,6 +403,19 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
           name: selectedPart.component.name,
           category: selectedPart.component.category,
           pins: selectedPart.component.pins,
+          // The row the symbol was dropped from carries the orderable number and
+          // the paper its pinout came from; the inspector shows both.
+          source: {
+            manufacturer: selectedPart.component.manufacturer,
+            partNumber: selectedPart.component.part_number,
+            // Properties are a free-form string|number|boolean map, so the package
+            // only reaches the inspector when this symbol really carries the text.
+            package:
+              typeof selectedPart.component.default_properties?.package === 'string'
+                ? selectedPart.component.default_properties.package
+                : undefined,
+            datasheetUrl: selectedPart.component.datasheet_url,
+          },
         },
         properties: selectedPart.properties,
         x: selectedPart.x,
@@ -321,17 +426,128 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
       }
     : null
 
+  /*
+   * Pin → net cross-probe. The first wire that touches each pin names where the
+   * pin lands; the inspector row sends the designer straight to that net.
+   */
+  const pinNets = useMemo(() => {
+    if (!selectedPart) return undefined
+    const map: Record<string, { name: string | null; wireId: string }> = {}
+    for (const wire of wires) {
+      for (const connection of wire.connectedPins) {
+        if (connection.componentId !== selectedPart.id) continue
+        if (map[connection.pinId]) continue
+        map[connection.pinId] = { name: wire.netName ?? null, wireId: wire.id }
+      }
+    }
+    return map
+  }, [selectedPart, wires])
+
+  const selectPinNet = useCallback(
+    (pinId: string) => {
+      const net = pinNets?.[pinId]
+      if (!net) return
+      // selectNet clears the part selection, which hands the dock to the net
+      // inspector showing the copper this pin sits on.
+      selectNet(net.name ? { name: net.name } : { wireId: net.wireId })
+    },
+    [pinNets, selectNet],
+  )
+
+  /*
+   * Net inspector payload. A named net can span many wires; an unnamed one is
+   * exactly the wire that was clicked, which is also how the rule checker keys
+   * anonymous copper (`wire:<id>`).
+   */
+  const selectedNetWires = useMemo(() => {
+    if (!selectedNet) return null
+    return 'name' in selectedNet
+      ? wires.filter((wire) => wire.netName === selectedNet.name)
+      : wires.filter((wire) => wire.id === selectedNet.wireId)
+  }, [selectedNet, wires])
+
+  const netModel = useMemo<NetInspectorModel | null>(() => {
+    if (!selectedNetWires || selectedNetWires.length === 0) return null
+    const seen = new Set<string>()
+    const pins: NetInspectorModel['pins'] = []
+    let segmentCount = 0
+    let length = 0
+    for (const wire of selectedNetWires) {
+      for (let index = 1; index < wire.points.length; index++) {
+        const a = wire.points[index - 1]
+        const b = wire.points[index]
+        length += Math.hypot(b.x - a.x, b.y - a.y)
+        segmentCount++
+      }
+      for (const connection of wire.connectedPins) {
+        const pinKey = `${connection.componentId}:${connection.pinId}`
+        if (seen.has(pinKey)) continue
+        seen.add(pinKey)
+        const placed = components.find((candidate) => candidate.id === connection.componentId)
+        const pin = placed?.component.pins.find((candidate) => candidate.id === connection.pinId)
+        if (!placed || !pin) continue
+        pins.push({
+          componentId: placed.id,
+          pinId: pin.id,
+          reference: placed.reference,
+          partName: placed.component.name,
+          pinName: pin.name,
+          pinType: pin.type,
+        })
+      }
+    }
+    // No wire name means no way for the designer to have selected a name, so
+    // the key falls back to the identity the ERC uses for that copper.
+    const name = selectedNetWires[0].netName ?? null
+    return {
+      key: name ?? `wire:${selectedNetWires[0].id}`,
+      name,
+      pins,
+      wireIds: selectedNetWires.map((wire) => wire.id),
+      segmentCount,
+      lengthMm: length / SCHEMATIC_UNITS_PER_MM,
+    }
+  }, [selectedNetWires, components])
+
+  const netFindings = useMemo(
+    () => (netModel ? health.violations.filter((finding) => finding.netId === netModel.key) : []),
+    [health, netModel],
+  )
+
+  /* Renaming rewrites every wire of the net at once, so the whole net moves as
+   * one undoable step and the selection follows the new name. */
+  const renameNet = useCallback(
+    (next: string): string | null => {
+      if (!netModel) return 'Select a net first.'
+      const members = new Set(netModel.wireIds)
+      const taken = wires.some((wire) => wire.netName === next && !members.has(wire.id))
+      if (taken) return `Another net is already named "${next}".`
+      const store = useProjectStore.getState()
+      store.replaceDesign({
+        components: store.components,
+        wires: store.wires.map((wire) =>
+          members.has(wire.id) ? { ...wire, netName: next } : wire,
+        ),
+      })
+      selectNet({ name: next })
+      return null
+    },
+    [netModel, wires, selectNet],
+  )
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      {/* Workspace families + the modes inside the selected family */}
+      {/* Workspace families + the modes inside the selected family. The family
+          rail is the level above the document; the mode rail is the document
+          switcher. They stay two rows so neither becomes a 25-item scroll. */}
       <nav
         className="cad-workspace-nav app-chrome relative flex w-full min-w-0 flex-shrink-0 flex-col overflow-hidden border-b border-border"
         aria-label="Workspace"
         data-tour="workspace-nav"
         style={{ '--family-accent': groupAccent(activeGroup) } as CSSProperties}
       >
-        <div className="flex min-w-0 items-stretch gap-1 px-2 pt-1">
-          <div className="scrollbar-none flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto" role="group" aria-label="Workspace families">
+        <div className="ws-family-row">
+          <div className="ws-family-rail" role="group" aria-label="Workspace families">
             {WORKSPACE_GROUPS.map((group) => {
               const Icon = GROUP_ICONS[group.id]
               const active = group.id === activeGroup
@@ -342,103 +558,70 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
                     type="button"
                     aria-pressed={active}
                     onClick={() => setActiveGroup(group.id)}
-                    style={
-                      active
-                        ? {
-                            borderBottomColor: `hsl(${accent})`,
-                            backgroundColor: `hsl(${accent} / 0.10)`,
-                          }
-                        : undefined
-                    }
-                    className={`flex h-7 flex-shrink-0 items-center gap-1.5 rounded-t-sm border-b-2 px-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors ${
-                      active
-                        ? 'border-b-primary text-foreground'
-                        : 'border-b-transparent text-muted-foreground hover:bg-accent hover:text-foreground'
-                    }`}
+                    style={{ '--family-accent': accent } as CSSProperties}
+                    className={`ws-family ${active ? 'ws-family--active' : ''}`}
                   >
                     {/* The hue is repeated by every family, so it stays a
                         decorative wayfinding cue: the label is always written. */}
-                    <Icon
-                      className={`h-3.5 w-3.5 ${active ? '' : 'opacity-70'}`}
-                      style={{ color: `hsl(${accent})` }}
-                      aria-hidden="true"
-                    />
-                    {group.label}
-                    {active && <span className="cad-readout text-[9px] text-muted-foreground">{visibleModes.length}</span>}
+                    <Icon className="ws-family__icon" aria-hidden="true" />
+                    <span className="ws-family__label">{group.label}</span>
+                    {active && (
+                      <span className="ws-family__count" aria-hidden="true">
+                        {visibleModes.length}
+                      </span>
+                    )}
                   </button>
                 </HoverHelp>
               )
             })}
           </div>
-          <HoverHelp topicId="nav.demos" placement="bottom">
-            <button
-              type="button"
-              onClick={onOpenDemos}
-              className="flex h-7 flex-shrink-0 items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-primary transition-colors hover:bg-primary/20"
-            >
-              <FlaskConical className="h-3.5 w-3.5" aria-hidden="true" />
-              Demos
-            </button>
-          </HoverHelp>
-          <HoverHelp topicId="nav.guide" placement="bottom">
-            <button
-              type="button"
-              onClick={onOpenHelp}
-              aria-label="Open the help centre and workspace guides"
-              className="flex h-7 flex-shrink-0 items-center gap-1.5 rounded-sm border border-border px-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <HelpCircle className="h-3.5 w-3.5" aria-hidden="true" />
-              Guide
-            </button>
-          </HoverHelp>
+          <div className="ws-family-actions">
+            <HoverHelp topicId="nav.demos" placement="bottom">
+              <button
+                type="button"
+                onClick={onOpenDemos}
+                aria-label="Open the demo gallery"
+                aria-haspopup="dialog"
+                className="cad-ctl cad-ctl--primary"
+              >
+                <FlaskConical aria-hidden="true" />
+                Demos
+              </button>
+            </HoverHelp>
+            <HoverHelp topicId="nav.guide" placement="bottom">
+              <button
+                type="button"
+                onClick={onOpenHelp}
+                aria-label="Open the help centre and workspace guides"
+                className="cad-ctl"
+              >
+                <HelpCircle aria-hidden="true" />
+                Guide
+              </button>
+            </HoverHelp>
+          </div>
         </div>
-        <div className="relative min-w-0">
-          <div ref={modeRowRef} className="scrollbar-none flex min-w-0 items-stretch overflow-x-auto" role="group" aria-label={`${activeGroup} workspaces`}>
-            {visibleModes.map((mode) => {
-              const Icon = MODE_ICONS[mode.id]
-              const active = workspaceMode === mode.id
-              return (
-                <HoverHelp key={mode.id} title={mode.label} description={mode.description} placement="bottom">
-                  <button
-                    type="button"
-                    className={`cad-tab gap-1.5 ${active ? 'cad-tab-active' : ''}`}
-                    aria-current={active ? 'page' : undefined}
-                    onClick={() => {
-                      setPendingComponent(null)
-                      setWorkspaceMode(mode.id)
-                    }}
-                  >
-                    <Icon className="h-3 w-3" aria-hidden="true" />
-                    {mode.label}
-                  </button>
-                </HoverHelp>
-              )
-            })}
-          </div>
-          {/* Overflow affordance: the tab rail scrolls without a visible bar. */}
-          {modeScroll.right && (
-            <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-surface to-transparent" aria-hidden="true" />
-          )}
-          {modeScroll.left && (
-            <button
-              type="button"
-              onClick={() => scrollModes(-1)}
-              aria-label="Scroll workspaces left"
-              className="absolute inset-y-0 left-0 z-10 flex w-6 items-center justify-center border-r border-border bg-surface/95 text-muted-foreground hover:text-foreground"
-            >
-              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-            </button>
-          )}
-          {modeScroll.right && (
-            <button
-              type="button"
-              onClick={() => scrollModes(1)}
-              aria-label="Scroll workspaces right"
-              className="absolute inset-y-0 right-0 z-10 flex w-6 items-center justify-center border-l border-border bg-surface/95 text-muted-foreground hover:text-foreground"
-            >
-              <ChevronRight className="h-4 w-4" aria-hidden="true" />
-            </button>
-          )}
+        <div className="ws-mode-rail" role="group" aria-label={`${activeGroup} workspaces`}>
+          {visibleModes.map((mode) => {
+            const Icon = MODE_ICONS[mode.id]
+            const active = workspaceMode === mode.id
+            return (
+              <HoverHelp key={mode.id} title={mode.label} description={mode.description} placement="bottom">
+                <button
+                  type="button"
+                  className={`ws-mode ${active ? 'ws-mode--active' : ''}`}
+                  aria-current={active ? 'page' : undefined}
+                  onClick={() => {
+                    setPendingComponent(null)
+                    setWorkspaceMode(mode.id)
+                  }}
+                >
+                  <Icon className="ws-mode__icon" aria-hidden="true" />
+                  {mode.label}
+                </button>
+              </HoverHelp>
+            )
+          })}
         </div>
       </nav>
       {/* Workstation row: tool rail | library | sheet | inspector */}
@@ -453,21 +636,23 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
           />
         )}
 
-        {showsLibrary && sidebarOpen && (
-          <aside className="cad-dock" aria-label="Component library" data-tour="component-library">
-            <ComponentLibrary
-              components={libraryComponents}
-              selectedComponent={pendingComponent}
-              onSelectComponent={(component) =>
-                setPendingComponent((prev) => (prev?.id === component.id ? null : component))
-              }
+        {showsLibrary && sidebarOpen && library && (
+          <aside className="cad-dock" aria-label={library.label} data-tour="component-library">
+            <DomainLibraryDock
+              items={library.items}
+              label={library.label}
+              placeholder={library.placeholder}
+              hint={library.hint}
+              armed={armedRow}
+              onArm={armLibraryItem}
               onClose={toggleSidebar}
             />
           </aside>
         )}
 
-        <div className="relative min-h-0 min-w-0 flex-1" data-tour="workspace-canvas">
-          <Suspense
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="workspace-stage relative min-h-0 min-w-0 flex-1" data-tour="workspace-canvas">
+            <Suspense
             fallback={
               <div className="flex h-full flex-col items-center justify-center gap-3" role="status">
                 {/* A bare sentence on a black sheet reads as a broken canvas, so
@@ -487,12 +672,16 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
               onSave={onSave}
               pendingComponent={pendingComponent}
               onPendingPlaced={() => setPendingComponent(null)}
+              onOpenDemos={onOpenDemos}
+              onBrowseParts={showsLibrary ? focusLibrarySearch : undefined}
             />
           )}
           {workspaceMode === 'control' && <ControlSystemsPanel onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'machines' && <MachineSimulatorPanel onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'grid' && <PowerGridPanel onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'mechanical' && <MechanicalDesignPanel onClose={() => setWorkspaceMode('schematic')} />}
+          {workspaceMode === 'structures' && <StructuresPanel onClose={() => setWorkspaceMode('schematic')} />}
+          {workspaceMode === 'biology' && <BiologyPanel onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'pcb' && (
             <PCBDesignPanel
               onClose={() => setWorkspaceMode('schematic')}
@@ -504,12 +693,16 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
           )}
           {workspaceMode === 'rf' && <RFDesignPanel onClose={() => setWorkspaceMode('schematic')} />}
           {workspaceMode === 'simulation' && (
-            <div className="h-full overflow-auto p-4">
-              <SimulationPanel
-                onClose={() => setWorkspaceMode('schematic')}
-                beforeRun={beforeSimulationRun}
-                onRunComplete={onSimulationRun}
-              />
+            <div className="h-full overflow-auto p-4 lg:p-5">
+              {/* Setup reads as one column, not a form stretched across a
+                  metre of screen; the stage keeps the width honest. */}
+              <div className="mx-auto h-full w-full max-w-5xl">
+                <SimulationPanel
+                  onClose={() => setWorkspaceMode('schematic')}
+                  beforeRun={beforeSimulationRun}
+                  onRunComplete={onSimulationRun}
+                />
+              </div>
             </div>
           )}
           {workspaceMode === 'convert' && (
@@ -549,11 +742,23 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
             <PluginMarketplace onClose={() => setWorkspaceMode('schematic')} />
           )}
           </Suspense>
+          </div>
+
+          {isSchematic && healthPanelOpen && (
+            <DesignHealthPanel
+              result={health}
+              components={components}
+              wires={wires}
+              onClose={hideHealthPanel}
+            />
+          )}
         </div>
 
         {isSchematic && inspector && selectedPart && (
           <PropertiesPanel
             component={inspector}
+            pinNets={pinNets}
+            onSelectPinNet={selectPinNet}
             onUpdate={(id, patch) => {
               // The inspector patches both instance fields (x/y/rotation/lock)
               // and the editable attribute map — route each to its own slot.
@@ -566,6 +771,20 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
                 ...(typeof locked === 'boolean' ? { locked } : {}),
                 ...(typeof visible === 'boolean' ? { visible } : {}),
               })
+            }}
+            onClose={() => clearSelection()}
+          />
+        )}
+
+        {isSchematic && netModel && !selectedPart && (
+          <NetInspector
+            key={netModel.key}
+            net={netModel}
+            findings={netFindings}
+            onRename={renameNet}
+            onSelectPin={(componentId) => {
+              setSelectedComponents([componentId])
+              requestComponentFocus(componentId)
             }}
             onClose={() => clearSelection()}
           />

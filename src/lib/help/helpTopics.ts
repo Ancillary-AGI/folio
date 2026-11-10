@@ -29,7 +29,7 @@ export const HELP_TOPICS = [
     id: 'rail.select',
     group: 'rail',
     title: 'Select',
-    description: 'Pick parts and wires, then edit or move what you selected.',
+    description: 'Pick parts and wires: a wire selects its whole net and lights every segment and pin it reaches.',
     shortcutId: 'schematic.selectTool',
   },
   {
@@ -92,6 +92,14 @@ export const HELP_TOPICS = [
     shortcutId: 'schematic.fit',
   },
   {
+    id: 'rail.tidy',
+    group: 'rail',
+    title: 'Tidy arrange',
+    description:
+      'Straighten the sheet: parts step onto the grid in signal-flow columns and wires re-route as clean orthogonal runs. Nets, connections and values are untouched, so the circuit does not change.',
+    shortcutId: 'schematic.tidy',
+  },
+  {
     id: 'rail.save',
     group: 'rail',
     title: 'Save',
@@ -119,6 +127,14 @@ export const HELP_TOPICS = [
     description: 'Put the tested six-part rectifier on the sheet so every analysis has a known design behind it.',
   },
   {
+    id: 'rail.problems',
+    group: 'rail',
+    title: 'Design health',
+    description:
+      'Show the findings panel. The rule check after every edit lists unconnected pins, floating inputs, driver conflicts and power-to-ground shorts; press F8 to step through them.',
+    shortcutId: 'schematic.problems',
+  },
+  {
     id: 'rail.simulation',
     group: 'rail',
     title: 'Open simulation',
@@ -135,8 +151,8 @@ export const HELP_TOPICS = [
   {
     id: 'header.library',
     group: 'header',
-    title: 'Component library',
-    description: 'Show or hide the schematic component library dock beside the sheet.',
+    title: 'Library dock',
+    description: 'Show or hide the dock beside the workspace. It holds the parts that domain places: symbols, ISO parts, transfer functions, code. Workspaces that design nothing have no dock.',
   },
   {
     id: 'header.help',
@@ -149,13 +165,7 @@ export const HELP_TOPICS = [
     id: 'header.assistant',
     group: 'header',
     title: 'Design assistant',
-    description: 'An assistant using the same CAD tools you have, reading the result back as an image after each change.',
-  },
-  {
-    id: 'header.admin',
-    group: 'header',
-    title: 'Administration',
-    description: 'Members, roles and the usage ledger for this workspace. In the More tools menu.',
+    description: 'Ask the sheet a question or order a change: a reflex answers what is already measured, a planner works out anything multi-step, and the Models tab is where you point it at your own local model or key.',
   },
   {
     id: 'header.theme',
@@ -167,7 +177,8 @@ export const HELP_TOPICS = [
     id: 'header.settings',
     group: 'header',
     title: 'Settings',
-    description: 'Theme, units, autosave and replaying the guided tour.',
+    description: 'Open the preference pages: theme, canvas grid, 3D shading, editor and autosave. Changes apply at once.',
+    shortcutId: 'settings.open',
   },
   {
     id: 'header.plugins',
@@ -216,7 +227,7 @@ export const HELP_TOPICS = [
     id: 'header.palette',
     group: 'header',
     title: 'Command palette',
-    description: 'Search workspaces, demos and actions by name and run them without hunting the menus.',
+    description: 'Jump to a part or net by name, or search workspaces, demos and actions. Picking a part opens the sheet and centres it.',
     keys: ['Ctrl', 'K'],
   },
   {
@@ -230,7 +241,7 @@ export const HELP_TOPICS = [
     group: 'header',
     title: 'More tools',
     description:
-      'The overflow menu, at every window width: voice, security alerts, the simulation workspace, collaboration, plugins, administration, back to the launcher and sign out.',
+      'The overflow menu, at every window width: voice control, the simulation and security-alert workspaces, collaboration, plugins, and the way back to the launcher.',
   },
   {
     id: 'header.voice',

@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
-  ADMIN_ROUTE,
   WORKSPACE_ROUTES,
   currentRoute,
-  isAdminPath,
   normalizeLegacyUrl,
   navigateTo,
   parseRoute,
@@ -84,17 +82,16 @@ describe('workspace routing', () => {
     });
   });
 
-  it('recognises the administration route without treating it as a workspace', () => {
-    expect(ADMIN_ROUTE).toBe('/admin');
-    expect(isAdminPath('/admin')).toBe(true);
-    expect(isAdminPath('/admin/')).toBe(true);
-    expect(isAdminPath('/admin/users')).toBe(false);
-    expect(isAdminPath('/')).toBe(false);
+  it('has no administration route: the operator console is a separate document', () => {
+    // `/admin` is served as admin.html by the host, not by this SPA. If the
+    // workbench ever claims it again, a designer's bundle would contain the
+    // console — which is the boundary this asserts.
     expect(parseRoute('/admin')).toEqual({
       mode: null,
       projectId: null,
       isProjectList: false,
     });
+    expect(Object.values(WORKSPACE_ROUTES)).not.toContain('/admin');
   });
 
   it('returns an unknown result for unrecognised paths', () => {

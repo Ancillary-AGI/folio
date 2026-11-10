@@ -1,23 +1,16 @@
 import { createClient } from '@supabase/supabase-js'
+import { cloudConfig, isSupabaseConfigured } from './cloudConfig'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+export { isSupabaseConfigured }
 
-const isValidSupabaseUrl = (value: string | undefined): boolean => {
-  if (!value || value.startsWith('your_')) return false
-  try {
-    const url = new URL(value)
-    return url.protocol === 'https:' || url.protocol === 'http:'
-  } catch {
-    return false
-  }
-}
-
-export const isSupabaseConfigured = Boolean(isValidSupabaseUrl(supabaseUrl) && supabaseAnonKey && !supabaseAnonKey.startsWith('your_'))
-
+/**
+ * The workbench's own session. The operator console keeps a separate client and
+ * storage key (`src/lib/admin/operatorSession.ts`) so governing the product can
+ * never ride on a designer's signed-in session.
+ */
 export const supabase = createClient(
-  isSupabaseConfigured ? supabaseUrl! : 'http://127.0.0.1:54321',
-  isSupabaseConfigured ? supabaseAnonKey! : 'local-development-placeholder',
+  isSupabaseConfigured ? cloudConfig.url! : 'http://127.0.0.1:54321',
+  isSupabaseConfigured ? cloudConfig.anonKey! : 'local-development-placeholder',
 )
 
 // Database types

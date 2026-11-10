@@ -5,10 +5,14 @@ import { describe, expect, it, vi } from 'vitest'
 import OnboardingTour from '../components/OnboardingTour'
 import { computeTourLayout, computeTourCaret, type TourRect } from '../lib/onboarding/tourLayout'
 import {
+  chapterForStep,
   clampOnboardingStep,
+  ONBOARDING_CHAPTERS,
   ONBOARDING_STEPS,
   ONBOARDING_STEP_COUNT,
+  stepPositionInChapter,
 } from '../lib/onboarding/onboardingSteps'
+import { useAppStore } from '../stores/useAppStore'
 
 const viewport = { width: 1280, height: 800 }
 const card = { width: 420, height: 360 }
@@ -121,6 +125,23 @@ describe('onboarding tour curriculum', () => {
     }
   })
 
+  it('groups steps into contiguous chapters that follow the narrative order', () => {
+    const encountered: string[] = []
+    for (const entry of ONBOARDING_STEPS) {
+      if (encountered[encountered.length - 1] !== entry.chapter) encountered.push(entry.chapter)
+    }
+    expect(encountered).toEqual(ONBOARDING_CHAPTERS.map((chapter) => chapter.id))
+    for (const chapter of ONBOARDING_CHAPTERS) {
+      expect(ONBOARDING_STEPS.some((entry) => entry.chapter === chapter.id), chapter.id).toBe(true)
+    }
+    const first = chapterForStep(0)
+    expect(first.ordinal).toBe(1)
+    expect(stepPositionInChapter(0)).toEqual({ position: 1, size: 3 })
+    const last = chapterForStep(ONBOARDING_STEP_COUNT - 1)
+    expect(last.chapter.id).toBe('govern')
+    expect(stepPositionInChapter(ONBOARDING_STEP_COUNT - 1)).toEqual({ position: 2, size: 2 })
+  })
+
   it('only marks a step live when the sheet stays usable behind it', () => {
     const live = ONBOARDING_STEPS.filter((entry) => entry.handsOn)
     expect(live.length).toBeGreaterThan(0)
@@ -181,8 +202,9 @@ const stepIndexById = (id: string) => {
 }
 
 describe('onboarding tour behaviour', () => {
-  it('makes every step reachable from the dot rail and marks the current one', () => {
-    const { setStepIndex } = renderTour(stepIndexById('editor-tools'))
+  it('makes every step reachable from the chapter rail and marks the current one', () => {
+    const currentIndex = stepIndexById('editor-tools')
+    const { setStepIndex } = renderTour(currentIndex)
 
     const dots = screen.getAllByRole('button', { name: /(Current|Reviewed|Upcoming) step\b/ })
     expect(dots).toHaveLength(ONBOARDING_STEP_COUNT)
@@ -190,8 +212,28 @@ describe('onboarding tour behaviour', () => {
     expect(current).toHaveAttribute('aria-current', 'step')
     // Visited steps stay one click away instead of trapping the user in order.
     expect(screen.getByRole('button', { name: /^Reviewed step 1:/ })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /^Upcoming step 5:/ }))
-    expect(setStepIndex).toHaveBeenCalledWith(4)
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`^Upcoming step ${currentIndex + 2}:`) }))
+    expect(setStepIndex).toHaveBeenCalledWith(currentIndex + 1)
+  })
+
+  it('names the current chapter and previews the next step or chapter', () => {
+    renderTour(stepIndexById('schematic'))
+    expect(screen.getByText(/Chapter 2 of 6/)).toBeInTheDocument()
+    expect(screen.getByText(/Step 1 of 2 in this chapter/)).toBeInTheDocument()
+    expect(screen.getByText('Next in this chapter')).toBeInTheDocument()
+    expect(screen.getByText('The rail holds the gestures, the keys hold the rail')).toBeInTheDocument()
+  })
+
+  it('announces the workspace it travels to when a step switches modes', () => {
+    const settings = useAppStore.getState().settings
+    useAppStore.setState({
+      workspaceMode: 'schematic',
+      settings: { ...settings, animations: true },
+    })
+    renderTour(stepIndexById('waveforms'))
+    expect(screen.getByText('Now entering')).toBeInTheDocument()
+    expect(screen.getByText('Simulation')).toBeInTheDocument()
+    expect(useAppStore.getState().workspaceMode).toBe('simulation')
   })
 
   it('keeps the sample loader on the step that declares it, not on a hardcoded id', () => {

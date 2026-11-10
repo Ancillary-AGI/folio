@@ -77,7 +77,7 @@ describe('sketch layer', () => {
     useProjectStore.setState({ components: [], wires: [], pcbLayout: null })
     useAppStore.setState({
       activeTool: 'sketch',
-      viewport: { zoom: 1, pan: { x: 0, y: 0 }, canvasSize: { width: 800, height: 600 } },
+      viewport: { zoom: 1, pan: { x: 0, y: 0 } },
     })
   })
 
@@ -95,7 +95,7 @@ describe('sketch layer', () => {
   })
 
   it('honours pan and zoom when converting the pointer to sheet space', () => {
-    useAppStore.setState({ viewport: { zoom: 2, pan: { x: 100, y: 50 }, canvasSize: { width: 800, height: 600 } } })
+    useAppStore.setState({ viewport: { zoom: 2, pan: { x: 100, y: 50 } } })
     const { surface } = renderLayer()
     draw(surface, [
       { x: 140, y: 70 },

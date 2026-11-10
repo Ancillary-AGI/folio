@@ -53,7 +53,7 @@ export default function AutopilotWorkspace({ onSessionSaved }: AutopilotWorkspac
             </button>
           )
         })}
-        <span className="ml-auto pr-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+        <span className="ml-auto pr-1 text-[11px] text-muted-foreground">
           Closed loop · in-process
         </span>
       </div>

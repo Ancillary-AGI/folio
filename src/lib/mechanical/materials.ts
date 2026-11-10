@@ -8,7 +8,7 @@
  * drift apart.
  */
 
-import type { Material } from '../../types/toolbox';
+import type { Material } from '../../types/mechanical';
 
 export const MATERIALS: Record<string, Material> = {
   aluminum: {

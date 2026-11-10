@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { ArrowRight, Command, CornerDownLeft, FlaskConical, Search } from 'lucide-react'
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { ArrowRight, Cable, Command, CornerDownLeft, Cpu, FlaskConical, Search, type LucideIcon } from 'lucide-react'
 import { DEMO_SCENARIOS, type DemoScenario } from '../../lib/demo/demoScenarios'
 import { loadDemoScenario } from '../../lib/demo/loadDemo'
 import { WORKSPACE_GROUPS, WORKSPACE_MODES, WORKSPACE_MODE_META } from '../../lib/workspace/modes'
 import { useAppStore } from '../../stores/useAppStore'
+import { useProjectStore } from '../../stores/useProjectStore'
 import { useShortcutStore } from '../../stores/useShortcutStore'
 import { describeShortcut } from '../../lib/keymap/shortcuts'
 
@@ -16,23 +17,67 @@ interface CommandPaletteProps {
   onOpenHelp: () => void
   /** Opens the guide on its editable shortcut sheet. */
   onOpenShortcuts: () => void
+  /** The settings page, the same surface `Ctrl+,` opens. */
+  onOpenSettings: () => void
   onToggleTheme: () => void
+  /** The design-health dock under the sheet: findings and part outline. */
+  onToggleDesignHealth: () => void
   /** Overrides the default loader so the host can create a project, confirm replacement, etc. */
   onOpenScenario?: (scenario: DemoScenario) => void
 }
+
+type CommandKind = 'component' | 'net' | 'workspace' | 'demo' | 'action'
 
 interface PaletteCommand {
   id: string
   label: string
   hint: string
-  kind: 'workspace' | 'demo' | 'action'
+  kind: CommandKind
+  /** Orderable numbers and manufacturers match without widening the row. */
+  keywords?: string
   run: () => void
 }
 
+const SECTION_LABEL: Readonly<Record<CommandKind, string>> = {
+  component: 'Parts',
+  net: 'Nets',
+  workspace: 'Workspaces',
+  demo: 'Demos',
+  action: 'Actions',
+}
+
+const isDesignObject = (kind: CommandKind) => kind === 'component' || kind === 'net'
+
+const KIND_ICON: Readonly<Record<CommandKind, LucideIcon>> = {
+  component: Cpu,
+  net: Cable,
+  workspace: Command,
+  demo: FlaskConical,
+  action: ArrowRight,
+}
+
+/* A part or net lives on the sheet, so jumping first makes sure the sheet is
+ * the open workspace; the focus request is consumed when its stage is ready. */
+function openOnSheet(ids: string[]) {
+  useAppStore.getState().setWorkspaceMode('schematic')
+  useAppStore.getState().setSelectedComponents(ids)
+  if (ids[0]) useAppStore.getState().requestComponentFocus(ids[0])
+}
+
+/* A net jump selects the wire run itself: the sheet highlight is the cursor,
+ * and framing waits for a measured stage just like a part jump. */
+function openNetOnSheet(name: string) {
+  const app = useAppStore.getState()
+  app.setWorkspaceMode('schematic')
+  app.selectNet({ name })
+  app.requestNetFocus(name)
+}
+
 /**
- * Keyboard-first navigation over the whole workbench. Modes, demos and a few
- * document actions share one search field; the palette keeps the 25-workspace
- * surface reachable without a tab hunt.
+ * Keyboard-first navigation over the whole workbench. Parts and nets from the
+ * live document, the workspace registry, demos and document actions share one
+ * search field: `Ctrl+K`, type a refdes or a net name, and the palette is a
+ * "go to" that also works when the sheet is not the open workspace.
  */
 export default function CommandPalette({
   open,
@@ -42,14 +87,67 @@ export default function CommandPalette({
   onOpenLimits,
   onOpenHelp,
   onOpenShortcuts,
+  onOpenSettings,
   onToggleTheme,
   onOpenScenario,
+  onToggleDesignHealth,
 }: CommandPaletteProps) {
   const shortcutOverrides = useShortcutStore((state) => state.overrides)
+  const projectComponents = useProjectStore((state) => state.components)
+  const projectWires = useProjectStore((state) => state.wires)
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
+
+  const designObjects = useMemo<PaletteCommand[]>(() => {
+    const parts = [...projectComponents]
+      .sort((a, b) => a.reference.localeCompare(b.reference, undefined, { numeric: true }))
+      .map((component) => {
+        const category = component.component.category
+        const value = component.properties.value
+        const detail = [category, value]
+          .filter((part) => part !== undefined && part !== '')
+          .join(' · ')
+        return {
+          id: `part:${component.id}`,
+          label: `${component.reference} · ${component.component.name}`,
+          hint: detail ? `Part · ${detail}` : 'Part',
+          kind: 'component' as const,
+          keywords: [component.component.part_number, component.component.manufacturer]
+            .filter(Boolean)
+            .join(' '),
+          run: () => openOnSheet([component.id]),
+        }
+      })
+
+    // One row per net name, not per wire segment: a net is the thing an engineer
+    // searches for, and it can span several wires and pins.
+    const nets = new Map<string, { pins: Set<string> }>()
+    for (const wire of projectWires) {
+      if (!wire.netName) continue
+      const entry = nets.get(wire.netName) ?? { pins: new Set<string>() }
+      for (const pin of wire.connectedPins) {
+        entry.pins.add(`${pin.componentId}:${pin.pinId}`)
+      }
+      nets.set(wire.netName, entry)
+    }
+    const netCommands = [...nets.entries()]
+      .filter(([, entry]) => entry.pins.size > 0)
+      .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+      .map(([name, entry]) => {
+        const pinCount = entry.pins.size
+        return {
+          id: `net:${name}`,
+          label: name,
+          hint: `Net · ${pinCount} pin${pinCount === 1 ? '' : 's'}`,
+          kind: 'net' as const,
+          run: () => openNetOnSheet(name),
+        }
+      })
+
+    return [...parts, ...netCommands]
+  }, [projectComponents, projectWires])
 
   const commands = useMemo<PaletteCommand[]>(() => {
     const workspaceCommands = WORKSPACE_MODES.map((mode) => ({
@@ -69,20 +167,38 @@ export default function CommandPalette({
     const actions: PaletteCommand[] = [
       { id: 'action:help', label: 'Open help and tutorials', hint: `Action · ${describeShortcut('help.open', shortcutOverrides)}`, kind: 'action', run: onOpenHelp },
       { id: 'action:shortcuts', label: 'Keyboard shortcuts: view and rebind', hint: 'Action', kind: 'action', run: onOpenShortcuts },
+      { id: 'action:settings', label: 'Open settings', hint: `Action · ${describeShortcut('settings.open', shortcutOverrides)}`, kind: 'action', run: onOpenSettings },
       { id: 'action:demos', label: 'Open demo gallery', hint: 'Action', kind: 'action', run: onOpenDemos },
       { id: 'action:limits', label: 'Open capabilities and limits', hint: 'Action', kind: 'action', run: onOpenLimits },
       { id: 'action:save', label: 'Save design snapshot', hint: `Action · ${describeShortcut('schematic.save', shortcutOverrides)}`, kind: 'action', run: onSave },
+      { id: 'action:health', label: 'Design health: show or hide findings', hint: `Action · ${describeShortcut('schematic.problems', shortcutOverrides)}`, kind: 'action', run: onToggleDesignHealth },
       { id: 'action:theme', label: 'Toggle colour theme', hint: 'Action', kind: 'action', run: onToggleTheme },
     ]
-    return [...workspaceCommands, ...demoCommands, ...actions]
-  }, [onOpenDemos, onOpenHelp, onOpenShortcuts, onOpenLimits, onOpenScenario, onSave, onToggleTheme, shortcutOverrides])
+    return [...designObjects, ...workspaceCommands, ...demoCommands, ...actions]
+  }, [designObjects, onOpenDemos, onOpenHelp, onOpenSettings, onOpenShortcuts, onOpenLimits, onOpenScenario, onSave, onToggleDesignHealth, onToggleTheme, shortcutOverrides])
 
   const filtered = useMemo(() => {
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean)
-    if (terms.length === 0) return commands
-    return commands.filter((command) =>
-      terms.every((term) => `${command.label} ${command.hint}`.toLowerCase().includes(term)),
+    // An empty field stays a command menu. Design objects appear once there is
+    // something to search for, so a large sheet never turns the palette into a
+    // dump of refdes rows before the engineer has typed a key.
+    if (terms.length === 0) return commands.filter((command) => !isDesignObject(command.kind))
+    const matched = commands.filter((command) =>
+      terms.every((term) =>
+        `${command.label} ${command.hint} ${command.keywords ?? ''}`.toLowerCase().includes(term),
+      ),
     )
+    /* Objects and label-prefix hits rank above prose matches; `sort` is stable,
+     * so equal ranks keep parts-before-nets and registry order. */
+    const first = terms[0]
+    const rank = (command: PaletteCommand) => {
+      const object = isDesignObject(command.kind)
+      const prefix = command.label.toLowerCase().startsWith(first)
+      if (object && prefix) return 0
+      if (object) return 1
+      return prefix ? 2 : 3
+    }
+    return matched.sort((a, b) => rank(a) - rank(b))
   }, [commands, query])
 
   // Callers pass an inline close handler; reacting to its identity would clear
@@ -156,7 +272,7 @@ export default function CommandPalette({
             full-bleed header row, the halo would bloom over the dialog's own
             rounded border and read as a second window. */}
         <div className="border-b border-border p-2">
-          <div className="cad-search flex h-10 items-center gap-2.5 rounded-lg border border-border bg-background px-3">
+          <div className="cad-search flex h-10 items-center gap-2.5 rounded-lg border border-input bg-background px-3">
             <Search className="h-4 w-4 flex-shrink-0 text-primary/70" aria-hidden="true" />
             <input
               ref={inputRef}
@@ -165,11 +281,11 @@ export default function CommandPalette({
               aria-expanded="true"
               aria-controls="command-palette-results"
               aria-autocomplete="list"
-              aria-activedescendant={filtered[activeIndex] ? `command-${filtered[activeIndex].id}` : undefined}
+              aria-activedescendant={filtered[activeIndex] ? `command-${activeIndex}` : undefined}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={onKeyDown}
-              placeholder="Go to a workspace, open a demo, run an action…"
+              placeholder="Go to a part, net, workspace, or action…"
               className="h-full w-full min-w-0 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
             />
             <span className="cad-kbd flex-shrink-0">ESC</span>
@@ -188,31 +304,43 @@ export default function CommandPalette({
               No command matches “{query}”.
             </li>
           )}
-          {filtered.map((command, index) => (
-            <li key={command.id} id={`command-${command.id}`} role="option" aria-selected={index === activeIndex}>
-              <button
-                type="button"
-                data-active={index === activeIndex}
-                onMouseEnter={() => setActiveIndex(index)}
-                onClick={() => run(command)}
-                className={`flex w-full items-center gap-3 px-3 py-1.5 text-left transition-colors ${
-                  index === activeIndex ? 'bg-accent text-accent-foreground' : 'text-foreground'
-                }`}
-              >
-                <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-sm border border-border ${
-                  command.kind === 'demo' ? 'text-primary' : 'text-muted-foreground'
-                }`}>
-                  {command.kind === 'demo'
-                    ? <FlaskConical className="h-3.5 w-3.5" aria-hidden="true" />
-                    : command.kind === 'workspace'
-                      ? <Command className="h-3.5 w-3.5" aria-hidden="true" />
-                      : <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-[13px]">{command.label}</span>
-                <span className="flex-shrink-0 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">{command.hint}</span>
-              </button>
-            </li>
-          ))}
+          {filtered.map((command, index) => {
+            const sectionStart = index === 0 || filtered[index - 1].kind !== command.kind
+            const Icon = KIND_ICON[command.kind]
+            return (
+              <Fragment key={command.id}>
+                {sectionStart && (
+                  <li
+                    role="presentation"
+                    className="px-4 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                  >
+                    {SECTION_LABEL[command.kind]}
+                  </li>
+                )}
+                <li id={`command-${index}`} role="option" aria-selected={index === activeIndex}>
+                  <button
+                    type="button"
+                    data-active={index === activeIndex}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onClick={() => run(command)}
+                    className={`flex w-full items-center gap-3 px-3 py-1.5 text-left transition-colors ${
+                      index === activeIndex ? 'bg-accent text-accent-foreground' : 'text-foreground'
+                    }`}
+                  >
+                    <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-sm border border-border ${
+                      command.kind === 'demo' || isDesignObject(command.kind)
+                        ? 'text-primary'
+                        : 'text-muted-foreground'
+                    }`}>
+                      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[13px]">{command.label}</span>
+                    <span className="flex-shrink-0 text-[11px] text-muted-foreground">{command.hint}</span>
+                  </button>
+                </li>
+              </Fragment>
+            )
+          })}
         </ul>
 
         <div className="flex items-center justify-between border-t border-border bg-muted/30 px-3 py-1.5 text-[10px] text-muted-foreground">
@@ -220,7 +348,7 @@ export default function CommandPalette({
             <span className="flex items-center gap-1"><span className="cad-kbd">↑</span><span className="cad-kbd">↓</span> navigate</span>
             <span className="flex items-center gap-1"><CornerDownLeft className="h-3 w-3" aria-hidden="true" /> open</span>
           </span>
-          <span>{filtered.length} command{filtered.length === 1 ? '' : 's'}</span>
+          <span>{filtered.length} result{filtered.length === 1 ? '' : 's'}</span>
         </div>
       </div>
     </div>

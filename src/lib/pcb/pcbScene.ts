@@ -47,6 +47,12 @@ export interface PcbSceneInputComponent {
   /** Footprint id, footprint name, or component category — resolved in that order. */
   footprint: string
   category?: string
+  /**
+   * Pins on the symbol. A package name that the footprint library does not hold
+   * is laid out from this count, so a datasheet part arrives with lands instead
+   * of an empty body.
+   */
+  pinCount?: number
   /** Board coordinates in millimetres, origin at the top-left of the outline. */
   x: number
   y: number
@@ -497,7 +503,7 @@ export function buildPcbScene(input: PcbSceneInput): PcbScene {
     }))
 
   const components: PcbSceneComponent[] = input.components.map((component) => {
-    const footprint = resolveFootprint(component.footprint, component.category)
+    const footprint = resolveFootprint(component.footprint, component.category, component.pinCount)
     if (!footprint) {
       warnings.push({
         code: 'unknown-footprint',

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import {
@@ -59,7 +59,12 @@ import { downloadFile } from '../../lib/exportUtils';
 import { describeError } from '../../lib/utils';
 import { useDemoRequest } from '../workspace/useDemoRequest';
 import { useProjectStore } from '../../stores/useProjectStore';
-import type { MechanicalComponent as ViewMechanicalComponent } from '../../types/toolbox';
+import { placeSolidRow } from '../../lib/mechanical/standardParts';
+import { useDomainLibraryZone } from '../../lib/library/useDomainLibraryZone';
+import type { LibraryItem } from '../../lib/library/types';
+import LibraryDropNote from '../library/LibraryDropNote';
+import type { MechanicalComponent as ViewMechanicalComponent } from '../../types/mechanical';
+import { usePreferenceValue } from '../../lib/settings/usePreference';
 
 interface MechanicalDesignPanelProps {
   onClose: () => void;
@@ -371,6 +376,9 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
   const [showLoads, setShowLoads] = useState(true);
   const [showConstraints, setShowConstraints] = useState(false);
   const [showStress, setShowStress] = useState(true);
+  // One paper choice for every drawing this app prints, schematic included —
+  // a part sheet on Settings' sheet, not on a size the panel picked.
+  const drawingPaper = usePreferenceValue('drawingPaperSize');
 
   /*
    * Reduced-order multiphysics calculators. These are the same verified
@@ -1082,7 +1090,7 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
           massKg: part.properties.mass,
         },
         {
-          paperSize: 'A3',
+          paperSize: drawingPaper,
           revision: 'A',
           finish: isMetal ? 'AS MACHINED' : 'AS PRINTED',
         },
@@ -1101,11 +1109,39 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
     : null;
   const showThermal = analysisType === 'thermal' && analysisResult?.thermal !== undefined;
 
+  /* A dock row lands on the next free cell of the assembly grid. The viewport
+   * exposes no screen-to-world pick, so claiming the pixel a drag was released
+   * on would be a lie; reproducible coordinates are the honest version of the
+   * same gesture, and two drops of one part still never overlap. */
+  const placeSolidFromDock = useCallback((item: LibraryItem) => {
+    if (item.kind !== 'solid') return;
+    const placed = placeSolidRow({
+      id: item.id,
+      name: item.name,
+      materialKey: item.payload.materialKey,
+      support: item.payload.support,
+      solids: item.payload.solids,
+    }, parts);
+    setParts(current => [...current, ...placed]);
+    setSelectedComponent(placed[0].id);
+  }, [parts, setParts]);
+
+  const solidZone = useDomainLibraryZone({
+    accepts: ['solid'],
+    as: 'the mechanical viewport',
+    onPlace: placeSolidFromDock,
+  });
+
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-background">
       <div className="flex h-full w-full flex-col overflow-hidden bg-card lg:flex-row">
         {/* 3D viewport */}
-        <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div
+          className="cad-dropzone relative min-h-0 min-w-0 flex-1 overflow-hidden"
+          role="group"
+          aria-label="Mechanical viewport — drop a standard part here"
+          {...solidZone.zoneProps}
+        >
           <ThreeCanvas
             components={viewComponents}
             view={view}
@@ -1116,6 +1152,8 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
             stress={viewStress}
             className="h-full"
           />
+
+          <LibraryDropNote zone={solidZone} surface="the viewport" />
 
           {/* Camera presets */}
           <div className="absolute top-4 left-4 flex gap-2">
@@ -1147,7 +1185,7 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
         <div className="flex max-h-[45%] w-full flex-shrink-0 flex-col border-t border-border bg-card lg:max-h-none lg:w-96 lg:border-l lg:border-t-0">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold text-foreground">Mechanical Design</h3>
-            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close mechanical design panel">
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close mechanical design panel" title="Leave the mechanical workspace; closing writes nothing to the design.">
               <X className="w-4 h-4" />
             </Button>
           </div>
@@ -1930,7 +1968,7 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
                     onClick={() => setShowLoads(value => !value)}
                     aria-label={showLoads ? 'Hide loads' : 'Show loads'}
                     aria-pressed={showLoads}
-                  >
+                    title="Draw or hide the applied loads on the model.">
                     {showLoads ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
                   </Button>
                 </div>
@@ -1944,7 +1982,7 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
                     onClick={() => setShowConstraints(value => !value)}
                     aria-label={showConstraints ? 'Hide constraints' : 'Show constraints'}
                     aria-pressed={showConstraints}
-                  >
+                    title="Draw or hide the supports on the model.">
                     {showConstraints ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
                   </Button>
                 </div>
@@ -1959,7 +1997,7 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
                     disabled={!analysisResult || analysisResult.stress.length === 0}
                     aria-label={showStress ? 'Hide stress' : 'Show stress'}
                     aria-pressed={showStress}
-                  >
+                    title="Colour the model by the stress from the last run. Needs a completed analysis.">
                     {showStress ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
                   </Button>
                 </div>

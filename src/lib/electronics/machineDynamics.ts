@@ -24,7 +24,7 @@
  * step; the UI picks 1 ms unless the user changes it.
  */
 
-import { integrate } from '../robotics/timeIntegration'
+import { assertOutputPlan, integrate, planStableSubSteps } from '../robotics/timeIntegration'
 
 export interface MachineSimulationOptions {
   tEndSeconds: number
@@ -161,14 +161,7 @@ function requireNonNegative(value: number, name: string): void {
 const MAX_INTERNAL_STEPS = 400_000
 
 function validateOptions(options: MachineSimulationOptions): void {
-  requirePositive(options.tEndSeconds, 'Simulation end time')
-  requirePositive(options.dtSeconds, 'Simulation step')
-  const steps = Math.ceil(options.tEndSeconds / options.dtSeconds)
-  if (steps > MAX_INTERNAL_STEPS) {
-    throw new Error(
-      `Simulation would take ${steps} output steps (limit ${MAX_INTERNAL_STEPS}); increase the step size or shorten the run.`,
-    )
-  }
+  assertOutputPlan(options.tEndSeconds, options.dtSeconds, MAX_INTERNAL_STEPS, 'output')
 }
 
 /**
@@ -177,24 +170,7 @@ function validateOptions(options: MachineSimulationOptions): void {
  * a chart is not swamped by electrical transients.
  */
 function rk4Plan(options: MachineSimulationOptions, fastestTau: number): { dt: number; stride: number } {
-  const target = Number.isFinite(fastestTau) && fastestTau > 0 ? fastestTau / 20 : options.dtSeconds
-  const stride = Math.max(1, Math.ceil(options.dtSeconds / target))
-  const dt = options.dtSeconds / stride
-  const steps = Math.ceil(options.tEndSeconds / dt)
-  if (steps > MAX_INTERNAL_STEPS) {
-    throw new Error(
-      `A stable step of ${dt.toExponential(2)} s needs ${steps} internal steps (limit ${MAX_INTERNAL_STEPS}); shorten the run or use a machine with slower dynamics.`,
-    )
-  }
-  return { dt, stride }
-}
-
-function decimate<T extends { time: number }>(samples: T[], stride: number): T[] {
-  if (stride === 1) return samples
-  const out = samples.filter((_, index) => index % stride === 0)
-  const last = samples[samples.length - 1]
-  if (out[out.length - 1] !== last) out.push(last)
-  return out
+  return planStableSubSteps(options.tEndSeconds, options.dtSeconds, fastestTau, MAX_INTERNAL_STEPS)
 }
 
 /* ------------------------------------------------------------------ *
@@ -446,19 +422,16 @@ export function simulateBldc(
     (parameters.inertiaKgm2 * r) / (1.5 * p * p * lambda * lambda + r * parameters.viscousFrictionNmsPerRad)
   const plan = rk4Plan(options, Math.min(electricalTau, mechanicalTau, electromechanicalTau))
 
-  const samples = decimate(
-    integrate(
-      derivative,
-      [
-        operating.initialCurrentDdA ?? 0,
-        operating.initialCurrentQA ?? 0,
-        operating.initialSpeedRadPerS ?? 0,
-      ],
-      0,
-      options.tEndSeconds,
-      { dt: plan.dt, method: 'rk4' },
-    ),
-    plan.stride,
+  const samples = integrate(
+    derivative,
+    [
+      operating.initialCurrentDdA ?? 0,
+      operating.initialCurrentQA ?? 0,
+      operating.initialSpeedRadPerS ?? 0,
+    ],
+    0,
+    options.tEndSeconds,
+    { dt: plan.dt, method: 'rk4', keepEvery: plan.stride },
   )
 
   return samples.map((sample) => {
@@ -561,15 +534,12 @@ export function simulateStepper(
   const oscillationTau = stiffness > 0 ? Math.sqrt(parameters.inertiaKgm2 / stiffness) : Infinity
   const plan = rk4Plan(options, Math.min(electricalTau, dampingTau, oscillationTau))
 
-  const samples = decimate(
-    integrate(
-      derivative,
-      [operating.initialSpeedRadPerS ?? 0, initialAngle, operating.initialCurrentFraction ?? 0],
-      0,
-      options.tEndSeconds,
-      { dt: plan.dt, method: 'rk4' },
-    ),
-    plan.stride,
+  const samples = integrate(
+    derivative,
+    [operating.initialSpeedRadPerS ?? 0, initialAngle, operating.initialCurrentFraction ?? 0],
+    0,
+    options.tEndSeconds,
+    { dt: plan.dt, method: 'rk4', keepEvery: plan.stride },
   )
 
   return samples.map((sample) => {

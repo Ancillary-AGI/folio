@@ -1,417 +1,352 @@
 /**
- * Administration data access.
+ * Deployment data for the operator console.
  *
- * Local mode has exactly one principal (the device owner), so there is no
- * server-side user directory to invent. Cloud mode reads the `profiles` table
- * created by the admin migration; when that schema is absent or unreachable the
- * console says so instead of rendering a made-up user list.
+ * Every read here goes to the managed deployment through the console's own
+ * client, and every table is restricted to operators by row-level security —
+ * so a refused client is refused by the database, not just by this screen.
+ * There is no local mode: a browser with no deployment behind it has no
+ * accounts to manage, and inventing a directory for it would be a lie.
+ *
+ * Writes are audited in `admin_audit` as part of the same call. If the audit
+ * append fails after a mutation succeeded, the result says so rather than
+ * reporting a clean change that left no record.
  */
-import { isSupabaseConfigured, supabase } from '../supabase'
-import { siemService } from '../siem/siemService'
-import type { User } from '../../types'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { cloudConfig } from '../cloudConfig'
 import {
-  ADMIN_ROLES,
-  type AdminRole,
-  type QuotaLimits,
-  readQuotaPolicies,
-  setQuotaPolicy,
-  validateQuotaLimits,
-  writeQuotaPolicies,
+  ADMIN_ROLES, DEFAULT_QUOTA_POLICIES, isAdminRole, validateQuotaLimits,
+  type AdminRole, type QuotaLimits,
 } from './quotaPolicy'
-import { getUsageEvents, isUsageLedgerPersistent } from './usageLedger'
-import { getLastCloudUsageError } from './usageRecorder'
+import type { Operator } from './operatorSession'
+import { USAGE_KINDS, type UsageEvent, type UsageKind } from './usageLedger'
 
-export type MemberStatus = 'active' | 'suspended'
+export type AccountStatus = 'active' | 'suspended'
 
-export interface AdminAccess {
-  allowed: boolean
-  role: AdminRole | 'user'
-  status: MemberStatus
-  reason?: string
-}
-
-export interface AdminMember {
+export interface Account {
   id: string
   name: string
   email: string
   role: AdminRole | 'user'
-  status: MemberStatus
+  status: AccountStatus
   lastSeenAt?: number
-  source: 'local' | 'cloud'
+  createdAt?: number
 }
 
-export interface CloudUsageSummary {
-  total: number
-  byKind: Array<{ kind: string; count: number }>
-  byUser: Array<{ user: string; count: number }>
-  daily: Array<{ date: string; count: number }>
+export interface AuditEntry {
+  id: string
+  at: number
+  actor: string
+  action: string
+  resource: string
+  details: Record<string, unknown>
+}
+
+export interface DeploymentStats {
+  projects: number
+  projectsByRole: Record<string, number>
+  accounts: number
+  activeAccounts: number
+  suspendedAccounts: number
+  operatorAccounts: number
+  usageEvents: number
+  auditEvents: number
+  exportsToday: number
+  simulationsToday: number
+}
+
+export interface DeploymentInfo {
+  host: string
+  agentRunnerConfigured: boolean
+  stats: DeploymentStats | null
+  /** Why the aggregate read failed, when it did. */
+  statsError?: string
+}
+
+export interface MutationResult {
+  ok: boolean
   error?: string
+  /** The change landed but its audit row did not. */
+  warning?: string
 }
 
-export interface AdminEnvironment {
-  deployment: 'local' | 'cloud'
-  supabaseConfigured: boolean
-  agentCloudConfigured: boolean
-  storageUsedMb: number | null
-  storageQuotaMb: number | null
-  ledgerEvents: number
-  /** False when the browser refused to persist the ledger. */
-  ledgerPersistent: boolean
-  /** Last failure to mirror a usage event into `usage_events`, if any. */
-  cloudUsageMirrorError: string | null
-}
+/** The deployment keeps the newest rows; a window larger than this is stated, not implied. */
+export const USAGE_ROW_LIMIT = 10000
 
-export interface AdminCapabilities {
-  managePeople: boolean
-  suspendMembers: boolean
-  inviteMembers: boolean
-  cloudUsageFeed: boolean
-  note: string
-}
+const ROLE_SET = new Set<string>(ADMIN_ROLES)
+const KIND_SET = new Set<string>(USAGE_KINDS)
 
-const ADMIN_ROLE_SET = new Set<string>(ADMIN_ROLES)
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
 
 function normalizeRole(value: unknown): AdminRole | 'user' {
-  return typeof value === 'string' && ADMIN_ROLE_SET.has(value) ? (value as AdminRole) : 'user'
+  return typeof value === 'string' && ROLE_SET.has(value) ? (value as AdminRole) : 'user'
 }
 
-function normalizeStatus(value: unknown): MemberStatus {
+function normalizeStatus(value: unknown): AccountStatus {
   return value === 'suspended' ? 'suspended' : 'active'
 }
 
-export function isAdminRole(role: string | undefined | null): role is 'owner' | 'admin' {
-  return role === 'owner' || role === 'admin'
+function timestamp(value: unknown): number | undefined {
+  if (typeof value !== 'string') return undefined
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : undefined
 }
 
-/** A standalone workspace has one administrator; managed roles come from `profiles`. */
-export function resolveLocalRole(user: User | null, offlineMode: boolean): AdminRole | 'user' {
-  if (offlineMode) return 'owner'
-  return normalizeRole((user as User & { role?: string } | null)?.role)
+function count(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0
 }
 
-export async function resolveAdminAccess(user: User, offlineMode: boolean): Promise<AdminAccess> {
-  if (offlineMode) {
-    return { allowed: true, role: 'owner', status: 'active' }
-  }
-  try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('role,status')
-      .eq('id', user.id)
-      .maybeSingle()
-    if (error) {
-      return {
-        allowed: false,
-        role: 'user',
-        status: 'active',
-        reason: `The cloud governance schema is unavailable (${error.message}). Apply the admin migration to enable account management.`,
-      }
-    }
-    if (!data) {
-      return {
-        allowed: false,
-        role: 'user',
-        status: 'active',
-        reason: 'No governance profile exists for this account yet. An owner must create it in the cloud database.',
-      }
-    }
-    const role = normalizeRole((data as { role?: unknown }).role)
-    const status = normalizeStatus((data as { status?: unknown }).status)
-    if (status === 'suspended') {
-      return { allowed: false, role, status, reason: 'This account is suspended.' }
-    }
-    if (!isAdminRole(role)) {
-      return {
-        allowed: false,
-        role,
-        status,
-        reason: 'Administrator access is required. Ask an owner to grant the administrator role.',
-      }
-    }
-    return { allowed: true, role, status }
-  } catch (error) {
-    return {
-      allowed: false,
-      role: 'user',
-      status: 'active',
-      reason: `Could not reach the account directory: ${error instanceof Error ? error.message : String(error)}`,
-    }
-  }
+export interface AdminApi {
+  listAccounts(): Promise<{ accounts: Account[]; error?: string }>
+  setRole(accountId: string, role: AdminRole): Promise<MutationResult>
+  setStatus(accountId: string, status: AccountStatus): Promise<MutationResult>
+  loadUsage(days: number): Promise<{ events: UsageEvent[]; truncated: boolean; error?: string }>
+  loadPolicies(): Promise<{ policies: Record<AdminRole, QuotaLimits>; error?: string }>
+  savePolicy(role: AdminRole, limits: QuotaLimits): Promise<MutationResult>
+  loadAudit(limit?: number): Promise<{ entries: AuditEntry[]; error?: string }>
+  loadDeployment(): Promise<DeploymentInfo>
+  recordOpen(): Promise<void>
 }
 
-export async function listMembers(
-  actor: User,
-  offlineMode: boolean,
-): Promise<{ members: AdminMember[]; error?: string }> {
-  if (offlineMode) {
-    return {
-      members: [{
-        id: actor.id,
-        name: actor.name || 'Workspace Owner',
-        email: actor.email || 'local@offline',
-        role: 'owner',
-        status: 'active',
-        source: 'local',
-      }],
-    }
-  }
-  try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id,email,display_name,role,status,last_seen_at,created_at')
-      .order('created_at', { ascending: true })
-      .limit(500)
-    if (error) return { members: [], error: error.message }
-    const members = (data ?? []).map((row) => {
-      const record = row as Record<string, unknown>
-      const lastSeen = record.last_seen_at
-      return {
-        id: String(record.id ?? ''),
-        name: String(record.display_name || record.email || 'Unnamed account'),
-        email: String(record.email ?? ''),
-        role: normalizeRole(record.role),
-        status: normalizeStatus(record.status),
-        ...(typeof lastSeen === 'string' && Number.isFinite(Date.parse(lastSeen)) ? { lastSeenAt: Date.parse(lastSeen) } : {}),
-        source: 'cloud' as const,
-      }
-    }).filter((member) => member.id.length > 0)
-    return { members }
-  } catch (error) {
-    return { members: [], error: error instanceof Error ? error.message : String(error) }
-  }
-}
-
-export async function setMemberRole(
-  actor: User,
-  offlineMode: boolean,
-  memberId: string,
-  role: AdminRole,
-): Promise<{ ok: boolean; error?: string }> {
-  if (offlineMode) return { ok: false, error: 'Standalone mode has one administrator; managed accounts are handled by the directory service.' }
-  if (!ADMIN_ROLE_SET.has(role)) return { ok: false, error: 'Unknown role.' }
-  if (memberId === actor.id && !isAdminRole(role)) {
-    return { ok: false, error: 'You cannot remove your own administrator access. Ask another owner to change it.' }
-  }
-  try {
-    const { error } = await supabase.from('profiles').update({ role }).eq('id', memberId)
-    if (error) return { ok: false, error: error.message }
-    siemService.logAuditEvent({
-      user: actor.id,
-      action: 'admin:role_change',
-      resource: memberId,
-      details: { role },
-    })
-    return { ok: true }
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) }
-  }
-}
-
-export async function setMemberStatus(
-  actor: User,
-  offlineMode: boolean,
-  memberId: string,
-  status: MemberStatus,
-): Promise<{ ok: boolean; error?: string }> {
-  if (offlineMode) return { ok: false, error: 'Standalone mode has no remote accounts to suspend.' }
-  if (memberId === actor.id && status === 'suspended') {
-    return { ok: false, error: 'You cannot suspend your own account.' }
-  }
-  try {
-    const { error } = await supabase.from('profiles').update({ status }).eq('id', memberId)
-    if (error) return { ok: false, error: error.message }
-    siemService.logAuditEvent({
-      user: actor.id,
-      action: status === 'suspended' ? 'admin:member_suspended' : 'admin:member_restored',
-      resource: memberId,
-      details: {},
-    })
-    return { ok: true }
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) }
-  }
-}
-
-export async function savePolicy(
-  actor: User,
-  offlineMode: boolean,
-  role: AdminRole,
-  limits: QuotaLimits,
-): Promise<{ ok: boolean; error?: string }> {
-  const error = validateQuotaLimits(limits)
-  if (error) return { ok: false, error }
-  const cached = setQuotaPolicy(role, limits)
-  if (!cached.ok) return cached
-
-  let cloudError: string | undefined
-  if (!offlineMode && isSupabaseConfigured) {
+export function createAdminApi(db: SupabaseClient, operator: Operator): AdminApi {
+  /** Append one operator action. Returns the failure text, or null when recorded. */
+  const audit = async (
+    action: string,
+    resource: string,
+    details: Record<string, unknown> = {},
+  ): Promise<string | null> => {
     try {
-      const { error: upsertError } = await supabase.from('quota_policies').upsert({
-        role,
-        max_projects: limits.maxProjects,
-        max_exports_per_day: limits.maxExportsPerDay,
-        max_simulations_per_day: limits.maxSimulationsPerDay,
-        max_storage_mb: limits.maxStorageMb,
-        updated_by: actor.id,
-        updated_at: new Date().toISOString(),
+      const { error } = await db.from('admin_audit').insert({
+        actor_id: operator.id,
+        action,
+        resource,
+        details,
       })
-      if (upsertError) cloudError = upsertError.message
-    } catch (thrown) {
-      cloudError = thrown instanceof Error ? thrown.message : String(thrown)
+      return error ? error.message : null
+    } catch (error) {
+      return describe(error)
     }
   }
 
-  siemService.logAuditEvent({
-    user: actor.id,
-    action: 'admin:quota_policy',
-    resource: role,
-    details: { ...limits, cloudSynced: !cloudError && !offlineMode },
-  })
-  if (cloudError) {
-    return { ok: false, error: `Saved in the workspace, but the cloud policy was not updated: ${cloudError}` }
-  }
-  return cached
-}
+  const audited = (warning: string | null, action: string): MutationResult =>
+    warning === null
+      ? { ok: true }
+      : { ok: true, warning: `The ${action} was saved, but the audit trail did not accept the row: ${warning}` }
 
-function quotaLimit(value: unknown, fallback: number | null): number | null {
-  if (value === null) return null
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback
-}
-
-/**
- * Hydrate the local policy cache from `quota_policies` so the console shows the
- * server's policy. Returns the error text when the cloud read fails; local mode
- * has nothing to sync and returns null.
- */
-export async function syncCloudPolicies(offlineMode: boolean): Promise<string | null> {
-  if (offlineMode || !isSupabaseConfigured) return null
-  try {
-    const { data, error } = await supabase
-      .from('quota_policies')
-      .select('role,max_projects,max_exports_per_day,max_simulations_per_day,max_storage_mb')
-    if (error) return error.message
-    const policies = readQuotaPolicies()
-    for (const raw of data ?? []) {
-      const row = raw as Record<string, unknown>
-      if (typeof row.role !== 'string' || !ADMIN_ROLE_SET.has(row.role)) continue
-      const role = row.role as AdminRole
-      const current = policies[role]
-      policies[role] = {
-        maxProjects: quotaLimit(row.max_projects, current.maxProjects),
-        maxExportsPerDay: quotaLimit(row.max_exports_per_day, current.maxExportsPerDay),
-        maxSimulationsPerDay: quotaLimit(row.max_simulations_per_day, current.maxSimulationsPerDay),
-        maxStorageMb: quotaLimit(row.max_storage_mb, current.maxStorageMb),
+  return {
+    async listAccounts() {
+      try {
+        const { data, error } = await db
+          .from('profiles')
+          .select('id,email,display_name,role,status,last_seen_at,created_at')
+          .order('created_at', { ascending: true })
+          .limit(500)
+        if (error) return { accounts: [], error: error.message }
+        const accounts = (data ?? []).map((raw) => {
+          const row = raw as Record<string, unknown>
+          const lastSeenAt = timestamp(row.last_seen_at)
+          const createdAt = timestamp(row.created_at)
+          return {
+            id: String(row.id ?? ''),
+            name: String(row.display_name || row.email || 'Unnamed account'),
+            email: String(row.email ?? ''),
+            role: normalizeRole(row.role),
+            status: normalizeStatus(row.status),
+            ...(lastSeenAt === undefined ? {} : { lastSeenAt }),
+            ...(createdAt === undefined ? {} : { createdAt }),
+          }
+        }).filter((account) => account.id.length > 0)
+        return { accounts }
+      } catch (error) {
+        return { accounts: [], error: describe(error) }
       }
-    }
-    const written = writeQuotaPolicies(policies)
-    return written.ok ? null : written.error ?? 'The local policy cache could not be updated.'
-  } catch (thrown) {
-    return thrown instanceof Error ? thrown.message : String(thrown)
-  }
-}
+    },
 
-export async function loadCloudUsage(days: number): Promise<CloudUsageSummary> {
-  if (!isSupabaseConfigured) {
-    return { total: 0, byKind: [], byUser: [], daily: [], error: 'Cloud storage is not configured.' }
-  }
-  const since = new Date(Date.now() - Math.max(1, days) * 24 * 3600 * 1000).toISOString()
-  try {
-    const { data, error } = await supabase
-      .from('usage_events')
-      .select('user_id,kind,created_at')
-      .gte('created_at', since)
-      .order('created_at', { ascending: false })
-      .limit(10000)
-    if (error) return { total: 0, byKind: [], byUser: [], daily: [], error: error.message }
-    const byKind = new Map<string, number>()
-    const byUser = new Map<string, number>()
-    const daily = new Map<string, number>()
-    for (let offset = days - 1; offset >= 0; offset -= 1) {
-      const date = new Date(Date.now() - offset * 24 * 3600 * 1000)
-      daily.set(date.toISOString().slice(0, 10), 0)
-    }
-    const rows = data ?? []
-    for (const row of rows) {
-      const record = row as Record<string, unknown>
-      const kind = String(record.kind ?? 'unknown')
-      const userId = String(record.user_id ?? 'unknown')
-      const createdAt = String(record.created_at ?? '')
-      byKind.set(kind, (byKind.get(kind) ?? 0) + 1)
-      byUser.set(userId, (byUser.get(userId) ?? 0) + 1)
-      const day = createdAt.slice(0, 10)
-      if (daily.has(day)) daily.set(day, (daily.get(day) ?? 0) + 1)
-    }
-    return {
-      total: rows.length,
-      byKind: [...byKind.entries()].map(([kind, count]) => ({ kind, count })).sort((a, b) => b.count - a.count),
-      byUser: [...byUser.entries()].map(([user, count]) => ({ user, count })).sort((a, b) => b.count - a.count),
-      daily: [...daily.entries()].map(([date, count]) => ({ date, count })).sort((a, b) => a.date.localeCompare(b.date)),
-    }
-  } catch (error) {
-    return {
-      total: 0,
-      byKind: [],
-      byUser: [],
-      daily: [],
-      error: error instanceof Error ? error.message : String(error),
-    }
-  }
-}
+    async setRole(accountId, role) {
+      if (!ROLE_SET.has(role)) return { ok: false, error: 'Unknown role.' }
+      if (accountId === operator.id && !isAdminRole(role)) {
+        return { ok: false, error: 'You cannot remove your own operator access. Ask another owner to change it.' }
+      }
+      try {
+        const { error } = await db.from('profiles').update({ role }).eq('id', accountId)
+        if (error) return { ok: false, error: error.message }
+        return audited(await audit('admin:role_change', accountId, { role }), 'role change')
+      } catch (error) {
+        return { ok: false, error: describe(error) }
+      }
+    },
 
-/** Project count for the signed-in owner: local store, or a cloud head count. */
-export async function loadProjectCount(user: User, offlineMode: boolean): Promise<{ count: number; error?: string }> {
-  if (offlineMode) {
-    const { offlineProjectStore } = await import('../offlineProjectStore')
-    return { count: offlineProjectStore.list().filter((project) => project.user_id === user.id).length }
-  }
-  try {
-    const { count, error } = await supabase
-      .from('projects')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', user.id)
-    if (error) return { count: 0, error: error.message }
-    return { count: count ?? 0 }
-  } catch (error) {
-    return { count: 0, error: error instanceof Error ? error.message : String(error) }
-  }
-}
+    async setStatus(accountId, status) {
+      if (accountId === operator.id && status === 'suspended') {
+        return { ok: false, error: 'You cannot suspend the account you are operating with.' }
+      }
+      try {
+        const { error } = await db.from('profiles').update({ status }).eq('id', accountId)
+        if (error) return { ok: false, error: error.message }
+        return audited(
+          await audit(status === 'suspended' ? 'admin:account_suspended' : 'admin:account_restored', accountId, {}),
+          'status change',
+        )
+      } catch (error) {
+        return { ok: false, error: describe(error) }
+      }
+    },
 
-export async function loadEnvironment(): Promise<AdminEnvironment> {
-  let storageUsedMb: number | null = null
-  let storageQuotaMb: number | null = null
-  if (typeof navigator !== 'undefined' && navigator.storage?.estimate) {
-    try {
-      const estimate = await navigator.storage.estimate()
-      if (typeof estimate.usage === 'number') storageUsedMb = estimate.usage / (1024 * 1024)
-      if (typeof estimate.quota === 'number') storageQuotaMb = estimate.quota / (1024 * 1024)
-    } catch {
-      // Estimates are optional; the console shows "unavailable" honestly.
-    }
-  }
-  return {
-    deployment: isSupabaseConfigured ? 'cloud' : 'local',
-    supabaseConfigured: isSupabaseConfigured,
-    agentCloudConfigured: Boolean(import.meta.env.VITE_AGENT_CLOUD_URL),
-    storageUsedMb,
-    storageQuotaMb,
-    ledgerEvents: getUsageEvents().length,
-    ledgerPersistent: isUsageLedgerPersistent(),
-    cloudUsageMirrorError: getLastCloudUsageError(),
-  }
-}
+    async loadUsage(days) {
+      const window = Math.max(1, Math.floor(days))
+      const since = new Date(Date.now() - window * 24 * 3600 * 1000).toISOString()
+      try {
+        const { data, error } = await db
+          .from('usage_events')
+          .select('id,user_id,kind,detail,created_at')
+          .gte('created_at', since)
+          .order('created_at', { ascending: false })
+          .limit(USAGE_ROW_LIMIT)
+        if (error) return { events: [], truncated: false, error: error.message }
+        const rows = data ?? []
+        const events: UsageEvent[] = []
+        for (const raw of rows) {
+          const row = raw as Record<string, unknown>
+          const at = timestamp(row.created_at)
+          const kind = String(row.kind ?? '')
+          if (at === undefined || !KIND_SET.has(kind)) continue
+          const detail = row.detail
+          events.push({
+            id: String(row.id ?? `${row.user_id}-${at}`),
+            at,
+            user: String(row.user_id ?? ''),
+            kind: kind as UsageKind,
+            ...(detail && typeof detail === 'object' && !Array.isArray(detail)
+              ? { detail: detail as UsageEvent['detail'] }
+              : {}),
+          })
+        }
+        return { events, truncated: rows.length >= USAGE_ROW_LIMIT }
+      } catch (error) {
+        return { events: [], truncated: false, error: describe(error) }
+      }
+    },
 
-export function capabilities(offlineMode: boolean): AdminCapabilities {
-  return {
-    managePeople: !offlineMode,
-    suspendMembers: !offlineMode,
-    inviteMembers: false,
-    cloudUsageFeed: !offlineMode,
-    note: offlineMode
-      ? 'This workspace has a single administrator. People, invitations and cross-workspace usage require a managed deployment; everything on this page still works in the workspace.'
-      : 'People and usage come from the cloud governance schema. Invitations require a server-side admin function and are intentionally not faked in the client.',
-  }
-}
+    async loadPolicies() {
+      const policies = {} as Record<AdminRole, QuotaLimits>
+      for (const role of ADMIN_ROLES) policies[role] = { ...DEFAULT_QUOTA_POLICIES[role] }
+      try {
+        const { data, error } = await db
+          .from('quota_policies')
+          .select('role,max_projects,max_exports_per_day,max_simulations_per_day,max_storage_mb')
+        if (error) return { policies, error: error.message }
+        for (const raw of data ?? []) {
+          const row = raw as Record<string, unknown>
+          if (typeof row.role !== 'string' || !ROLE_SET.has(row.role)) continue
+          const role = row.role as AdminRole
+          const fallback = policies[role]
+          // `max_storage_mb` is a numeric column, so it can arrive as a string.
+          const pick = (value: unknown, replacement: number | null): number | null => {
+            if (value === null) return null
+            const numeric = typeof value === 'number' ? value : Number(value)
+            return Number.isFinite(numeric) && numeric >= 0 ? numeric : replacement
+          }
+          policies[role] = {
+            maxProjects: pick(row.max_projects, fallback.maxProjects),
+            maxExportsPerDay: pick(row.max_exports_per_day, fallback.maxExportsPerDay),
+            maxSimulationsPerDay: pick(row.max_simulations_per_day, fallback.maxSimulationsPerDay),
+            maxStorageMb: pick(row.max_storage_mb, fallback.maxStorageMb),
+          }
+        }
+        return { policies }
+      } catch (error) {
+        return { policies, error: describe(error) }
+      }
+    },
 
-export function recordAdminOpen(user: User): void {
-  siemService.logAuditEvent({ user: user.id, action: 'admin:open', resource: 'administration', details: {} })
+    async savePolicy(role, limits) {
+      if (role === 'owner' || role === 'admin') {
+        return { ok: false, error: 'Owner and administrator limits are fixed at unlimited.' }
+      }
+      const invalid = validateQuotaLimits(limits)
+      if (invalid) return { ok: false, error: invalid }
+      try {
+        const { error } = await db.from('quota_policies').upsert({
+          role,
+          max_projects: limits.maxProjects,
+          max_exports_per_day: limits.maxExportsPerDay,
+          max_simulations_per_day: limits.maxSimulationsPerDay,
+          max_storage_mb: limits.maxStorageMb,
+          updated_by: operator.id,
+          updated_at: new Date().toISOString(),
+        })
+        if (error) return { ok: false, error: error.message }
+        return audited(await audit('admin:quota_policy', role, { ...limits }), 'policy')
+      } catch (error) {
+        return { ok: false, error: describe(error) }
+      }
+    },
+
+    async loadAudit(limit = 200) {
+      try {
+        const { data, error } = await db
+          .from('admin_audit')
+          .select('id,actor_id,action,resource,details,created_at')
+          .order('created_at', { ascending: false })
+          .limit(Math.max(1, Math.floor(limit)))
+        if (error) return { entries: [], error: error.message }
+        const entries = (data ?? []).map((raw) => {
+          const row = raw as Record<string, unknown>
+          const details = row.details
+          return {
+            id: String(row.id ?? ''),
+            at: timestamp(row.created_at) ?? 0,
+            actor: String(row.actor_id ?? ''),
+            action: String(row.action ?? ''),
+            resource: String(row.resource ?? ''),
+            details: details && typeof details === 'object' && !Array.isArray(details)
+              ? details as Record<string, unknown>
+              : {},
+          }
+        }).filter((entry) => entry.id.length > 0)
+        return { entries }
+      } catch (error) {
+        return { entries: [], error: describe(error) }
+      }
+    },
+
+    async loadDeployment() {
+      const info: DeploymentInfo = {
+        host: cloudConfig.host,
+        agentRunnerConfigured: cloudConfig.agentRunnerConfigured,
+        stats: null,
+      }
+      try {
+        const { data, error } = await db.rpc('admin_deployment_stats')
+        if (error) return { ...info, statsError: error.message }
+        if (!data || typeof data !== 'object') {
+          return { ...info, statsError: 'The deployment returned no statistics. Apply the operator console migration.' }
+        }
+        const row = data as Record<string, unknown>
+        const byRole = row.projectsByRole
+        info.stats = {
+          projects: count(row.projects),
+          projectsByRole: byRole && typeof byRole === 'object' && !Array.isArray(byRole)
+            ? Object.fromEntries(Object.entries(byRole as Record<string, unknown>).map(([role, total]) => [role, count(total)]))
+            : {},
+          accounts: count(row.accounts),
+          activeAccounts: count(row.activeAccounts),
+          suspendedAccounts: count(row.suspendedAccounts),
+          operatorAccounts: count(row.operatorAccounts),
+          usageEvents: count(row.usageEvents),
+          auditEvents: count(row.auditEvents),
+          exportsToday: count(row.exportsToday),
+          simulationsToday: count(row.simulationsToday),
+        }
+        return info
+      } catch (error) {
+        return { ...info, statsError: describe(error) }
+      }
+    },
+
+    async recordOpen() {
+      await audit('admin:open', 'admin-console', { role: operator.role })
+    },
+  }
 }

@@ -100,6 +100,29 @@ export const displayValueFor = (
 export const overlaps = (a: Bounds, b: Bounds): boolean =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 
+/** Overlapping area, floored at 1 so a thin tangency still counts as a hit. */
+const overlapPenalty = (candidate: Bounds, obstacles: Bounds[]): number => {
+  let penalty = 0
+  for (const obstacle of obstacles) {
+    if (!overlaps(candidate, obstacle)) continue
+    const overlapWidth =
+      Math.min(candidate.x + candidate.width, obstacle.x + obstacle.width) -
+      Math.max(candidate.x, obstacle.x)
+    const overlapHeight =
+      Math.min(candidate.y + candidate.height, obstacle.y + obstacle.height) -
+      Math.max(candidate.y, obstacle.y)
+    penalty += Math.max(1, overlapWidth * overlapHeight)
+  }
+  return penalty
+}
+
+const inflate = (box: Bounds, by: number): Bounds => ({
+  x: box.x - by,
+  y: box.y - by,
+  width: box.width + by * 2,
+  height: box.height + by * 2,
+})
+
 /**
  * Reference and value placed in world space, horizontal regardless of part
  * rotation. Placement is greedy against every part, wire segment and already
@@ -156,17 +179,7 @@ export function layoutComponentLabels(
     let chosen = candidates[0]
     let bestPenalty = Number.POSITIVE_INFINITY
     for (const candidate of candidates) {
-      let penalty = 0
-      for (const obstacle of obstacles) {
-        if (!overlaps(candidate, obstacle)) continue
-        const overlapWidth =
-          Math.min(candidate.x + candidate.width, obstacle.x + obstacle.width) -
-          Math.max(candidate.x, obstacle.x)
-        const overlapHeight =
-          Math.min(candidate.y + candidate.height, obstacle.y + obstacle.height) -
-          Math.max(candidate.y, obstacle.y)
-        penalty += Math.max(1, overlapWidth * overlapHeight)
-      }
+      const penalty = overlapPenalty(candidate, obstacles)
       if (penalty < bestPenalty) {
         bestPenalty = penalty
         chosen = candidate
@@ -176,6 +189,124 @@ export function layoutComponentLabels(
 
     obstacles.push({ ...chosen })
     placements.set(comp.id, { lines, box: chosen })
+  }
+
+  return placements
+}
+
+export interface NetLabelPlacement {
+  name: string
+  box: Bounds
+}
+
+/**
+ * One net-name label per named net, anchored to the longest segment of that
+ * net. Above and below are tried for horizontal copper, right and left for
+ * vertical copper; the lowest-overlap candidate wins against parts, wires,
+ * reference labels and the net labels placed before it. Longest nets are
+ * placed first so the busiest copper gets the clearest space.
+ */
+export function layoutNetLabels(
+  wires: CanvasWire[],
+  components: CanvasComponent[],
+  componentLabels?: Map<string, LabelPlacement>,
+): NetLabelPlacement[] {
+  const byName = new Map<string, CanvasWire[]>()
+  for (const wire of wires) {
+    if (!wire.netName) continue
+    const list = byName.get(wire.netName)
+    if (list) list.push(wire)
+    else byName.set(wire.netName, [wire])
+  }
+  if (byName.size === 0) return []
+
+  const obstacles: Bounds[] = []
+  for (const comp of components) {
+    obstacles.push(inflate(componentBounds(comp), 3))
+    const label = componentLabels?.get(comp.id)
+    if (label) obstacles.push(inflate(label.box, 2))
+  }
+  for (const wire of wires) {
+    for (let index = 0; index + 1 < wire.points.length; index++) {
+      const a = wire.points[index]
+      const b = wire.points[index + 1]
+      obstacles.push({
+        x: Math.min(a.x, b.x) - 3,
+        y: Math.min(a.y, b.y) - 3,
+        width: Math.abs(a.x - b.x) + 6,
+        height: Math.abs(a.y - b.y) + 6,
+      })
+    }
+  }
+
+  const nets = [...byName.entries()]
+    .map(([name, netWires]) => {
+      let length = 0
+      for (const wire of netWires) {
+        for (let index = 0; index + 1 < wire.points.length; index++) {
+          const a = wire.points[index]
+          const b = wire.points[index + 1]
+          length += Math.hypot(b.x - a.x, b.y - a.y)
+        }
+      }
+      return { name, netWires, length }
+    })
+    .sort((a, b) => b.length - a.length)
+
+  const fontSize = 8
+  const height = 11
+  const gap = 5
+  const placements: NetLabelPlacement[] = []
+
+  for (const net of nets) {
+    const width = estimateTextWidth(net.name, fontSize, true) + 6
+    const segments: Array<{ a: Point; b: Point; length: number; horizontal: boolean }> = []
+    for (const wire of net.netWires) {
+      for (let index = 0; index + 1 < wire.points.length; index++) {
+        const a = wire.points[index]
+        const b = wire.points[index + 1]
+        segments.push({
+          a,
+          b,
+          length: Math.hypot(b.x - a.x, b.y - a.y),
+          horizontal: Math.abs(b.x - a.x) >= Math.abs(b.y - a.y),
+        })
+      }
+    }
+    if (segments.length === 0) continue
+    segments.sort((a, b) => b.length - a.length)
+
+    const candidates: Bounds[] = []
+    for (const segment of segments.slice(0, 8)) {
+      const midX = (segment.a.x + segment.b.x) / 2
+      const midY = (segment.a.y + segment.b.y) / 2
+      if (segment.horizontal) {
+        candidates.push({
+          x: midX - width / 2,
+          y: midY - gap - height,
+          width,
+          height,
+        })
+        candidates.push({ x: midX - width / 2, y: midY + gap, width, height })
+      } else {
+        candidates.push({ x: midX + gap, y: midY - height / 2, width, height })
+        candidates.push({ x: midX - gap - width, y: midY - height / 2, width, height })
+      }
+    }
+
+    let chosen = candidates[0]
+    let bestPenalty = Number.POSITIVE_INFINITY
+    for (const candidate of candidates) {
+      const penalty = overlapPenalty(candidate, obstacles)
+      if (penalty < bestPenalty) {
+        bestPenalty = penalty
+        chosen = candidate
+        if (penalty === 0) break
+      }
+    }
+
+    obstacles.push({ ...chosen })
+    placements.push({ name: net.name, box: chosen })
   }
 
   return placements

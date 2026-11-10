@@ -8,6 +8,7 @@
  * router's output to the `PcbSceneInput` the 2D canvas and 3D preview consume.
  */
 import type { CanvasComponent, CanvasWire } from '../../stores/useProjectStore'
+import { useAppStore } from '../../stores/useAppStore'
 import type { Net, PlacedComponent } from '../../types'
 import { fabLayerFromId, type FabTrace } from '../manufacturing/fabExport'
 import { resolveFootprint } from '../manufacturing/footprintLibrary'
@@ -20,32 +21,34 @@ import {
   type RouterResult,
 } from '../manufacturing/autorouter'
 import type { PcbSceneInput, PcbSceneInputLayer } from './pcbScene'
+import { SCHEMATIC_UNITS_PER_MM } from '../schematic/units'
 
-/** Schematic drawing units per board millimetre. */
-export const SCHEMATIC_UNITS_PER_MM = 10
+export { SCHEMATIC_UNITS_PER_MM }
 /** Clearance between the package extent and the board outline. */
 export const BOARD_MARGIN_MM = 5
 
 /**
- * The signal rules the board is routed with — an ordinary four-layer prototype
- * fab takes 0.2 / 0.2 mm without argument. The grid is derived from them rather
- * than written beside them, because the two have to agree: see `routerGridMm`.
+ * The signal rules the board is routed with.
+ *
+ * These are the user's board settings rather than a constant, because the width
+ * a router draws, the spacing it keeps and the drill it drops a via with are the
+ * same four numbers Settings advertises and the checker enforces — one source, so
+ * a board cannot be routed at a width its own DRC report calls a violation. The
+ * defaults are an ordinary four-layer prototype fab's limits: 0.2 / 0.2 mm, a
+ * 0.3 mm drill in a 0.6 mm pad. The grid is derived from them rather than written
+ * beside them, because the two have to agree: see `routerGridMm`.
  */
-const BOARD_MIN_TRACE_WIDTH_MM = 0.2
-const BOARD_MIN_SPACING_MM = 0.2
+function boardRuleDefaults(): Pick<RouterConfig, 'minTraceWidthMm' | 'minSpacingMm' | 'viaDrillMm' | 'viaPadMm'> {
+  const { boardTraceWidthMm, boardClearanceMm, boardViaDrillMm, boardViaPadMm } = useAppStore.getState().settings
+  return {
+    minTraceWidthMm: boardTraceWidthMm,
+    minSpacingMm: boardClearanceMm,
+    viaDrillMm: boardViaDrillMm,
+    viaPadMm: boardViaPadMm,
+  }
+}
 
-/** Grid and rule set shared by the panel's button and `eda.route`. */
-const BOARD_ROUTER_DEFAULTS = {
-  gridMm: routerGridMm(BOARD_MIN_SPACING_MM, BOARD_MIN_TRACE_WIDTH_MM),
-  minTraceWidthMm: BOARD_MIN_TRACE_WIDTH_MM,
-  minSpacingMm: BOARD_MIN_SPACING_MM,
-  viaDrillMm: 0.3,
-  viaPadMm: 0.6,
-  viaPenalty: 8,
-} as const
-
-/**
- * The shared rules with a caller's overrides applied.
+/** The shared rules with a caller's overrides applied.
  *
  * A caller that tightens the clearance gets the grid that clearance asks for,
  * unless it names a grid itself — which the demos do, having measured the cell
@@ -55,7 +58,7 @@ const BOARD_ROUTER_DEFAULTS = {
 export function boardRouterRules(
   overrides: Partial<RouterConfig> = {},
 ): Omit<RouterConfig, 'boardWidthMm' | 'boardHeightMm' | 'layers'> {
-  const rules = { ...BOARD_ROUTER_DEFAULTS, ...overrides }
+  const rules = { ...boardRuleDefaults(), viaPenalty: 8, ...overrides }
   return {
     ...rules,
     gridMm: overrides.gridMm ?? routerGridMm(rules.minSpacingMm, rules.minTraceWidthMm),
@@ -102,6 +105,7 @@ export function packageBounds(components: readonly PlacedComponent[]): PackageBo
     const footprint = resolveFootprint(
       String(placedPart.properties.footprint ?? placedPart.component.name),
       typeof placedPart.component.category === 'string' ? placedPart.component.category : undefined,
+      placedPart.component.pins.length,
     )
     const halfWidth = (footprint?.dimensions.width ?? 2) / 2
     const halfDepth = (footprint?.dimensions.height ?? 1) / 2
@@ -274,6 +278,7 @@ export function sceneFromRouting(
       reference: component.reference,
       footprint: String(component.properties.footprint ?? component.component.name),
       category: typeof component.component.category === 'string' ? component.component.category : undefined,
+      pinCount: component.component.pins.length,
       x: component.position.x,
       y: component.position.y,
       rotationDeg: component.rotation,

@@ -50,6 +50,15 @@ export class AgentHarness {
     return [...this.tools.keys()];
   }
 
+  /**
+   * The tools themselves, not just their names. A model planner has to describe
+   * each one — its parameters and whether it needs approval — and reaching into
+   * a private map from the outside is how a harness quietly loses a guarantee.
+   */
+  toolSpecs(): AgentTool[] {
+    return [...this.tools.values()];
+  }
+
   auditTrail(): readonly AgentCall[] {
     return this.calls;
   }

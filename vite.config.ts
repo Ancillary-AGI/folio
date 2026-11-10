@@ -1,9 +1,27 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * Serve the operator console at `/admin` in dev and preview, the same path the
+ * checked-in host configs use. Without this, Vite's SPA fallback would answer
+ * `/admin` with the workbench document.
+ */
+function adminDocument(): Plugin {
+  const rewrite = (req: { url?: string }, _res: unknown, next: () => void) => {
+    if (req.url === '/admin' || req.url === '/admin/') req.url = '/admin.html';
+    next();
+  };
+  return {
+    name: 'folio-admin-document',
+    configureServer(server) { server.middlewares.use(rewrite); },
+    configurePreviewServer(server) { server.middlewares.use(rewrite); },
+  };
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), adminDocument()],
   server: {
     port: 5174,
     strictPort: true,
@@ -17,6 +35,12 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      // Two documents, two applications. The operator console is not a route in
+      // the workbench: a designer's bundle never contains it and never links to it.
+      input: {
+        workbench: fileURLToPath(new URL('./index.html', import.meta.url)),
+        admin: fileURLToPath(new URL('./admin.html', import.meta.url)),
+      },
       output: {
         // Split the eagerly-loaded framework vendors out of the entry chunk.
         // Everything else stays auto-assigned: a catch-all would drag lazy
