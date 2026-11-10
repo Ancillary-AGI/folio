@@ -22,13 +22,13 @@
  */
 
 /** Themes that ship today. `system` is a *preference*, not a theme. */
-export type ThemeId = 'light' | 'dark' | 'professional' | 'high-contrast'
+export type ThemeId = 'light' | 'dark' | 'professional' | 'folio-dark' | 'high-contrast'
 
 /** What the user picked in Settings. */
 export type ThemePreference = ThemeId | 'system'
 
-export const THEME_IDS: readonly ThemeId[] = ['light', 'dark', 'professional', 'high-contrast']
-export const THEME_PREFERENCES: readonly ThemePreference[] = ['light', 'dark', 'professional', 'system', 'high-contrast']
+export const THEME_IDS: readonly ThemeId[] = ['light', 'dark', 'professional', 'folio-dark', 'high-contrast']
+export const THEME_PREFERENCES: readonly ThemePreference[] = ['light', 'dark', 'professional', 'folio-dark', 'system', 'high-contrast']
 
 /**
  * Flat map of CSS custom property name → HSL triplet.
@@ -307,6 +307,103 @@ const professional: ThemeTokens = {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
+ * Folio Dark — the flagship futuristic theme. Ultra-deep near-black shell
+ * with electric blue primary accent, vivid cyan signal colour, and neon glow
+ * on active controls. Designed to look like next-gen EDA software (think
+ * redesigned Flux.ai, Altium Nexus, Cadence Virtuoso reinvented). Every
+ * foreground is verified against its surface; editor copper/wires are
+ * clearly distinct from chrome.
+ * ──────────────────────────────────────────────────────────────────────────── */
+const folioDark: ThemeTokens = {
+  // Surfaces — deepest at background, rising through canvas, card, surface
+  '--background': '224 50% 4%',
+  '--foreground': '210 60% 96%',
+  '--surface': '224 42% 7%',
+  '--surface-foreground': '210 60% 96%',
+  '--card': '224 38% 9%',
+  '--card-foreground': '210 60% 96%',
+  '--popover': '224 44% 6%',
+  '--popover-foreground': '210 60% 96%',
+
+  // Neutrals
+  '--muted': '220 30% 14%',
+  '--muted-foreground': '215 28% 72%',
+  '--accent': '220 36% 18%',
+  '--accent-foreground': '210 60% 98%',
+  '--secondary': '220 32% 16%',
+  '--secondary-foreground': '210 60% 96%',
+
+  // Brand — electric blue primary, vivid cyan secondary signal
+  '--primary': '211 100% 65%',
+  '--primary-foreground': '224 50% 4%',
+  '--destructive': '356 90% 70%',
+  '--destructive-foreground': '356 60% 10%',
+  '--success': '157 72% 60%',
+  '--success-foreground': '157 60% 7%',
+  '--warning': '38 95% 65%',
+  '--warning-foreground': '30 60% 10%',
+  '--info': '191 94% 65%',
+  '--info-foreground': '196 60% 8%',
+
+  // Lines — lighter than dark so controls are clearly edged
+  '--border': '220 28% 20%',
+  '--input': '220 26% 42%',
+  '--ring': '211 100% 65%',
+
+  // Editor sheet — the deepest surface, recessed below chrome
+  '--canvas': '224 55% 2%',
+  '--canvas-foreground': '210 60% 96%',
+  '--surface-variant': '220 36% 12%',
+  '--surface-variant-foreground': '210 60% 96%',
+  '--grid': '220 32% 10%',
+  '--grid-major': '220 26% 20%',
+  '--wire': '138 68% 56%',
+  '--bus': '268 90% 74%',
+  '--symbol': '210 56% 92%',
+  '--symbol-fill': '220 36% 18%',
+  '--symbol-outline': '211 32% 72%',
+  '--symbol-selected-fill': '211 72% 28%',
+  '--pin': '36 100% 60%',
+  '--pin-ring': '36 96% 72%',
+  '--junction': '211 100% 68%',
+  '--selection': '211 100% 65%',
+  '--hover': '191 94% 68%',
+  '--net-label': '210 56% 94%',
+  '--reference-label': '215 28% 72%',
+  '--value-label': '215 28% 72%',
+  '--canvas-error': '356 90% 70%',
+  '--canvas-warning': '38 95% 65%',
+
+  // Structural force colours
+  '--force-tension': '20 92% 64%',
+  '--force-compression': '211 90% 72%',
+  '--force-neutral': '215 24% 58%',
+
+  // Effects
+  '--overlay': '224 55% 2%',
+  '--overlay-foreground': '0 0% 98%',
+  '--shadow-color': '224 60% 1%',
+
+  // Chart series — vivid, well-separated for a dark canvas
+  '--chart-1': '211 100% 65%',
+  '--chart-2': '157 72% 60%',
+  '--chart-3': '38 95% 65%',
+  '--chart-4': '268 90% 74%',
+  '--chart-5': '191 94% 65%',
+  '--chart-6': '340 86% 72%',
+
+  // Syntax
+  '--syntax-keyword': '268 90% 76%',
+  '--syntax-type': '191 94% 70%',
+  '--syntax-string': '157 72% 60%',
+  '--syntax-number': '38 95% 65%',
+  '--syntax-comment': '215 28% 68%',
+  '--syntax-operator': '211 56% 74%',
+  '--syntax-preproc': '340 86% 72%',
+  '--syntax-builtin': '211 100% 70%',
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
  * High contrast — WCAG 2.2 AAA (7:1) for body copy on every surface. Intended
  * for accessibility profiles, low-quality panels, and bright sunlight.
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -399,6 +496,7 @@ export const THEMES: Readonly<Record<ThemeId, ThemeTokens>> = {
   light,
   dark,
   professional,
+  'folio-dark': folioDark,
   'high-contrast': highContrast,
 }
 
@@ -415,6 +513,7 @@ export const THEME_DESCRIPTORS: readonly ThemeDescriptor[] = [
   { id: 'light', label: 'Light', description: 'Bright paper-white editor for daylight work.', isDark: false },
   { id: 'dark', label: 'Dark', description: 'Recessed, low-glare shell for long sessions.', isDark: true },
   { id: 'professional', label: 'Professional', description: 'Graphite EDA surfaces with cyan and green signal accents.', isDark: true },
+  { id: 'folio-dark', label: 'Folio Dark', description: 'Flagship ultra-dark theme with electric blue accents and neon glow.', isDark: true },
   { id: 'system', label: 'System', description: 'Follow the operating system appearance.', isDark: false },
   { id: 'high-contrast', label: 'High Contrast (Accessibility)', description: 'Maximum separation for low vision and difficult lighting.', isDark: true },
 ]

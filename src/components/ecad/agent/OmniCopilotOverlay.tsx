@@ -2,38 +2,21 @@
  * OmniCopilotOverlay - Agent-Native CAD Copilot
  *
  * Futuristic AI Copilot integrated directly into the multidomain canvas.
- * Outperforms Flux Copilot with System 1 (reactive reflex) + System 2 (deep deliberative planner),
+ * System 1 (reactive reflex) + System 2 (deep deliberative planner),
  * cross-domain synthesis, IPC impedance calculations, firmware pinout generation,
  * and one-click executable engineering actions.
  */
-import React, { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import {
-  AlertCircle,
-  ArrowRight,
-  Bot,
-  Brain,
-  CheckCircle,
-  ChevronRight,
-  Cpu,
-  Download,
-  FileCode,
-  Gauge,
-  Lightbulb,
-  Maximize2,
-  Minimize2,
-  RotateCcw,
   Send,
   Sparkles,
-  Wrench,
   X,
-  Zap,
 } from 'lucide-react'
 import { useAppStore } from '../../../stores/useAppStore'
 import { useProjectStore } from '../../../stores/useProjectStore'
 import { useDesignHealthStore } from '../../../stores/useDesignHealthStore'
 import { standardComponents } from '../../../lib/componentLibrary'
-import { exportToGerber, downloadFile } from '../../../lib/exportUtils'
-import { autoroute } from '../../../lib/manufacturing/autorouter'
+import { downloadFile } from '../../../lib/exportUtils'
 import { placePart } from '../../../lib/schematic/placePart'
 
 export default function OmniCopilotOverlay() {
@@ -42,11 +25,10 @@ export default function OmniCopilotOverlay() {
     setCopilotFlyoutOpen,
     selectedComponents,
     selectedNet,
-    workspaceMode,
     setWorkspaceMode,
   } = useAppStore()
 
-  const { components, wires, updateComponent, addComponent, replaceDesign } = useProjectStore()
+  const { components, wires, addComponent } = useProjectStore()
   const healthResult = useDesignHealthStore((state) => state.result)
 
   const [promptInput, setPromptInput] = useState('')
@@ -87,8 +69,8 @@ export default function OmniCopilotOverlay() {
     if (!capDef) return
 
     const newCap = placePart(
-      components,
       capDef,
+      components,
       { x: activePart.x + 80, y: activePart.y },
       0,
     )
@@ -126,7 +108,7 @@ export default function OmniCopilotOverlay() {
         wire.connectedPins.forEach((cp) => {
           const comp = components.find((c) => c.id === cp.componentId)
           if (comp) {
-            netMap.set(`${comp.reference}_${cp.pinId}`, wire.netName)
+            netMap.set(`${comp.reference}_${cp.pinId}`, wire.netName ?? 'UNNAMED')
           }
         })
       }

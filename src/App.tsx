@@ -1725,10 +1725,17 @@ function App() {
       <a href="#workspace" className="skip-link">Skip to the workspace</a>
 
       {/* ── Header ── */}
-      <header className="app-chrome app-chrome-divider flex min-w-0 flex-shrink-0 items-center justify-between gap-2 px-4 py-2" data-tour="app-header">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+      <header className="app-chrome flex min-w-0 flex-shrink-0 items-center justify-between gap-2 px-3 py-1.5 border-b border-border/80" data-tour="app-header" style={{ minHeight: '44px' }}>
+        {/* Left: brand + project identity */}
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <HoverHelp topicId="header.projects" placement="bottom">
-            <Button variant="ghost" size="bar-icon" onClick={openProjectManager} aria-label="Projects">
+            <Button
+              variant="ghost"
+              size="bar-icon"
+              onClick={openProjectManager}
+              aria-label="Projects"
+              className="shrink-0"
+            >
               <FolderOpen />
             </Button>
           </HoverHelp>
@@ -1740,69 +1747,95 @@ function App() {
               disabled={!workspaceLibraryLabel}
               aria-label={workspaceLibraryLabel ? `Toggle ${workspaceLibraryLabel}` : 'Toggle Library'}
               aria-pressed={sidebarOpen}
+              className="shrink-0"
             >
               <Menu />
             </Button>
           </HoverHelp>
-          <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
-          <div className="flex min-w-0 items-center gap-2.5">
-            <FolioMark className="hidden h-5 w-5 flex-shrink-0 text-primary sm:block" />
-            <div className="flex min-w-0 flex-col gap-0.5">
+
+          <span className="folio-sep hidden sm:block" aria-hidden="true" />
+
+          {/* Brand mark + project name */}
+          <div className="flex min-w-0 items-center gap-2">
+            <FolioMark className="hidden h-[18px] w-[18px] shrink-0 text-primary sm:block" />
+            <div className="flex min-w-0 flex-col justify-center gap-0" style={{ lineHeight: 1.2 }}>
               <EditableProjectTitle
                 name={currentProject.name}
                 onRename={renameCurrentProject}
-                titleClassName="text-[15px] font-semibold tracking-[-0.01em]"
+                titleClassName="text-[13px] font-semibold tracking-[-0.015em] leading-tight"
               />
-              <div className="flex items-center gap-2 text-[11px] leading-none">
+              <div className="flex items-center gap-1.5 mt-0.5">
+                {/* Mode badge */}
                 <span
-                  className="inline-flex items-center gap-1.5 rounded-full border border-border/70 px-2 py-[3px] font-medium text-muted-foreground"
+                  className="folio-mode-badge"
                   title={WORKSPACE_MODE_META[workspaceMode].description}
+                  style={{ '--family-accent': `var(--chart-${groupForMode(workspaceMode) === 'design' ? '1' : groupForMode(workspaceMode) === 'electrical' ? '2' : groupForMode(workspaceMode) === 'mechanical' ? '3' : groupForMode(workspaceMode) === 'life' ? '5' : '4'})` } as React.CSSProperties}
                 >
                   <span
-                    className="inline-block h-1.5 w-1.5 rounded-full"
+                    className="inline-block h-1.5 w-1.5 rounded-full shrink-0"
                     style={{ backgroundColor: `hsl(${groupAccent(groupForMode(workspaceMode))})` }}
                     aria-hidden="true"
                   />
                   {WORKSPACE_MODE_META[workspaceMode].label}
                 </span>
+                {/* Save state */}
                 <span
-                  className={`inline-flex items-center gap-1.5 ${isDirty ? 'text-warning' : 'text-muted-foreground'}`}
+                  className={`inline-flex items-center gap-1 text-[10px] font-medium ${isDirty ? 'text-warning' : 'text-muted-foreground/70'}`}
                   role="status"
                   aria-live="polite"
                 >
                   <span
-                    className={`inline-block h-1.5 w-1.5 rounded-full ${isDirty ? 'bg-warning' : 'bg-success'}`}
+                    className={`inline-block h-1.5 w-1.5 rounded-full shrink-0 ${isDirty ? 'bg-warning cad-live-indicator' : 'bg-success'}`}
                     aria-hidden="true"
                   />
-                  {isDirty ? 'Unsaved' : offlineMode ? 'Saved locally' : 'Saved'}
+                  <span className="hidden sm:inline">{isDirty ? 'Unsaved' : offlineMode ? 'Local' : 'Saved'}</span>
                 </span>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="flex min-w-0 flex-shrink-0 items-center gap-1">
-          {/* The bar carries only what an engineer reaches every session: the
-           * assistant, history, search, help, demos, export, settings, theme.
-           * Nine icon-only controls used to sit here — two of them lookalike
-           * shields, one a refresh arrow standing in for "back" — and every one
-           * of the rest is a labelled row in the More menu below, which is
-           * available at every width rather than only under `lg`. */}
+        {/* Centre: command bar (Ctrl+K) */}
+        <div className="flex shrink justify-center px-2">
+          <HoverHelp topicId="header.palette" placement="bottom">
+            <button
+              type="button"
+              onClick={() => setShowCommandPalette(true)}
+              aria-label="Command palette — search parts, nets, commands"
+              aria-haspopup="dialog"
+              data-tour="command-palette"
+              className="shell-command-pill"
+            >
+              <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" aria-hidden="true" />
+              <span className="shell-command__label min-w-0 flex-1 truncate text-left text-muted-foreground/80">
+                Search parts, nets, commands…
+              </span>
+              <span className="shell-command__key flex shrink-0 items-center gap-0.5" aria-hidden="true">
+                <kbd className="cad-kbd">{commandKey}</kbd>
+                <kbd className="cad-kbd">K</kbd>
+              </span>
+            </button>
+          </HoverHelp>
+        </div>
+
+        {/* Right: actions */}
+        <div className="flex min-w-0 shrink-0 items-center gap-0.5">
           <HoverHelp topicId="header.assistant" placement="bottom">
             <Button
               variant={aiChatOpen ? 'default' : 'ghost'}
               size="bar"
               onClick={toggleAiChat}
-              aria-label="Design assistant"
+              aria-label="AI Design Assistant"
               aria-pressed={aiChatOpen}
               data-tour="agent-button"
-              className="gap-1.5"
+              className={`gap-1.5 ${aiChatOpen ? '' : 'hover:text-primary'}`}
             >
               <Bot />
-              <span className="hidden lg:inline">Ask</span>
+              <span className="hidden lg:inline">Ask AI</span>
             </Button>
           </HoverHelp>
-          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+
+          <span className="folio-sep" aria-hidden="true" />
 
           <div className="relative" data-tour="version-history">
             <HoverHelp topicId="header.version-history" placement="bottom">
@@ -1817,13 +1850,12 @@ function App() {
               </Button>
             </HoverHelp>
             {showVcsMenu && (
-              <div className="app-panel absolute right-0 z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-md border border-border shadow-xl">
-                <div className="p-3 border-b border-border">
+              <div className="cad-glass-panel cad-popover-enter absolute right-0 z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border shadow-2xl">
+                <div className="bg-surface/50 p-3 border-b border-border/60">
                   <h2 className="text-sm font-semibold">Version history</h2>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Content-addressed commits of the whole project — schematic, PCB, mechanical assembly,
-                    firmware and every CAD domain — kept with the project. Restore brings the design back
-                    as one consistent state.
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    Content-addressed commits of every domain — schematic, PCB, mechanical,
+                    firmware and more. Restore snaps the whole project back as one coherent state.
                   </p>
                   <form
                     className="flex gap-2 mt-3"
@@ -1832,50 +1864,52 @@ function App() {
                     <input
                       value={vcsMessage}
                       onChange={event => setVcsMessage(event.target.value)}
-                      placeholder="Commit message"
+                      placeholder="Commit message…"
                       aria-label="Commit message"
                       maxLength={120}
-                      className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                      className="min-w-0 flex-1 rounded-lg border border-input bg-background/60 px-2.5 py-1.5 text-xs focus:outline-none focus:border-ring focus:ring-0"
                     />
-                    <Button type="submit" size="sm">Commit</Button>
-                    <Button type="button" size="sm" variant="outline" onClick={createCheckpoint} title="Safety backup + commit">Back up</Button>
+                    <Button type="submit" size="sm" className="shrink-0">Commit</Button>
+                    <Button type="button" size="sm" variant="outline" onClick={createCheckpoint} title="Safety backup + commit" className="shrink-0">Backup</Button>
                   </form>
                   {vcsStatus && <p role="status" className="text-xs text-muted-foreground mt-2">{vcsStatus}</p>}
                 </div>
-                <div className="max-h-64 overflow-y-auto">
+                <div className="max-h-64 overflow-y-auto scrollbar-thin">
                   {vcsLog.length === 0 && backupList.length === 0 ? (
-                    <p className="px-3 py-4 text-sm text-muted-foreground">No commits yet. Describe the change and press Commit.</p>
+                    <p className="px-4 py-5 text-xs text-muted-foreground text-center">No commits yet. Add a message and press Commit.</p>
                   ) : (
                     <>
                     {vcsLog.map(commit => (
-                    <div key={`c-${commit.id}`} className="flex items-center gap-2 px-3 py-2 border-b border-border last:border-0">
+                    <div key={`c-${commit.id}`} className="flex items-center gap-2.5 px-3 py-2.5 border-b border-border/40 last:border-0 hover:bg-accent/40 transition-colors">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm" title={commit.message}>{commit.message}</p>
-                        <p className="text-xs text-muted-foreground">{new Date(commit.timestamp).toLocaleString()} · {commit.id.slice(0, 8)}</p>
+                        <p className="truncate text-xs font-medium" title={commit.message}>{commit.message}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{new Date(commit.timestamp).toLocaleString()} · {commit.id.slice(0, 8)}</p>
                       </div>
                       <Button
                         variant="ghost"
                         size="bar-icon"
-                        title={`Restore ${commit.message}`}
-                        aria-label={`Restore ${commit.message}`}
+                        title={`Restore "${commit.message}"`}
+                        aria-label={`Restore commit: ${commit.message}`}
                         onClick={() => void handleVcsCheckout(commit)}
+                        className="shrink-0"
                       >
                         <RotateCcw />
                       </Button>
                     </div>
                     ))}
                     {backupList.map(backup => (
-                    <div key={`b-${backup.id}`} className="flex items-center gap-2 px-3 py-2 border-b border-border last:border-0">
+                    <div key={`b-${backup.id}`} className="flex items-center gap-2.5 px-3 py-2.5 border-b border-border/40 last:border-0 hover:bg-accent/40 transition-colors">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm" title={backup.label}>{backup.label} (backup)</p>
-                        <p className="text-xs text-muted-foreground">{new Date(backup.createdAt).toLocaleString()} · {(backup.sizeBytes / 1024).toFixed(1)} KB</p>
+                        <p className="truncate text-xs font-medium" title={backup.label}>{backup.label} <span className="text-muted-foreground font-normal">(backup)</span></p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{new Date(backup.createdAt).toLocaleString()} · {(backup.sizeBytes / 1024).toFixed(1)} KB</p>
                       </div>
                       <Button
                         variant="ghost"
                         size="bar-icon"
-                        title={`Restore ${backup.label}`}
-                        aria-label={`Restore ${backup.label}`}
+                        title={`Restore backup: ${backup.label}`}
+                        aria-label={`Restore backup: ${backup.label}`}
                         onClick={() => void restoreCheckpoint(backup)}
+                        className="shrink-0"
                       >
                         <RotateCcw />
                       </Button>
@@ -1887,24 +1921,6 @@ function App() {
               </div>
             )}
           </div>
-          <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
-          <HoverHelp topicId="header.palette" placement="bottom">
-            <button
-              type="button"
-              onClick={() => setShowCommandPalette(true)}
-              aria-label="Command palette"
-              aria-haspopup="dialog"
-              data-tour="command-palette"
-              className="shell-command"
-            >
-              <Search className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-              <span className="shell-command__label">Search parts, nets, commands</span>
-              <span className="shell-command__key" aria-hidden="true">
-                <kbd className="cad-kbd">{commandKey}</kbd>
-                <kbd className="cad-kbd">K</kbd>
-              </span>
-            </button>
-          </HoverHelp>
 
           <HoverHelp topicId="header.help" placement="bottom">
             <Button
@@ -1931,33 +1947,34 @@ function App() {
                 }}
                 aria-label="Export design"
                 aria-expanded={showExportMenu}
+                className="gap-1.5"
               >
                 <Download />
                 <span className="hidden sm:inline">Export</span>
               </Button>
             </HoverHelp>
             {showExportMenu && (
-              <div className="app-panel absolute right-0 z-50 mt-2 w-56 rounded-md border border-border py-2 shadow-xl">
+              <div className="cad-glass-panel cad-popover-enter absolute right-0 z-50 mt-2 w-52 overflow-hidden rounded-xl border border-border py-1 shadow-2xl">
                 {[
                   { label: 'Export as Image', icon: Image, action: handleExportImage },
-                  { label: 'Export Drawing (SVG)', icon: FileText, action: handleExportDrawing },
-                  { label: 'Export Netlist (.net)', icon: FileText, action: handleExportNetlist },
+                  { label: 'Drawing (SVG)', icon: FileText, action: handleExportDrawing },
+                  { label: 'Netlist (.net)', icon: FileText, action: handleExportNetlist },
                   { label: 'Export JSON', icon: FileText, action: handleExportJSON },
-                  { label: 'Export Gerber (.gbr)', icon: FileText, action: handleExportGerber },
+                  { label: 'Gerber (.gbr)', icon: FileText, action: handleExportGerber },
                   { label: 'Bill of Materials', icon: List, action: handleExportBOM },
                   { label: 'Encrypted JSON…', icon: Lock, action: handleExportEncrypted },
                 ].map(({ label, icon: Icon, action }) => (
                   <button
                     key={label}
                     onClick={action}
-                    className="w-full px-4 py-2 text-left hover:bg-accent flex items-center gap-3 text-sm"
+                    className="w-full px-3.5 py-2 text-left hover:bg-accent/70 flex items-center gap-2.5 text-xs font-medium text-foreground transition-colors"
                   >
-                    <Icon size={15} />
+                    <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                     {label}
                   </button>
                 ))}
                 {exportStatus && (
-                  <p role="status" className="border-t border-border px-4 pt-2 text-xs text-muted-foreground">
+                  <p role="status" className="border-t border-border/60 px-3.5 py-2 text-[10px] text-muted-foreground">
                     {exportStatus}
                   </p>
                 )}
@@ -1968,7 +1985,7 @@ function App() {
           {/* Who else is in this project — the roster itself, not a toggle to it. */}
           <UserPresence users={othersPresent} />
 
-          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+          <span className="folio-sep" aria-hidden="true" />
           <HoverHelp topicId="header.settings" placement="bottom">
             <Button variant="ghost" size="bar-icon" onClick={() => setShowSettings(true)} aria-label="Settings">
               <Settings />
@@ -1997,13 +2014,13 @@ function App() {
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} aria-hidden="true" />
                 <div
-                  className="app-panel absolute right-0 top-full z-50 mt-1 w-64 rounded-md border border-border py-1 shadow-xl"
+                  className="cad-glass-panel cad-popover-enter absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-border py-1 shadow-2xl"
                   role="menu"
                   aria-label="More tools"
                 >
                   {moreMenuSections.map(({ group, items }) => (
                     <div key={group} role="group" aria-label={group} className="pb-1">
-                      <p className="px-3 pb-1 pt-1.5 text-[11px] font-medium text-muted-foreground">
+                      <p className="px-3.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                         {group}
                       </p>
                       {items.map(({ label, icon: Icon, action }) => (
@@ -2012,9 +2029,9 @@ function App() {
                           type="button"
                           role="menuitem"
                           onClick={() => { action(); setShowMoreMenu(false) }}
-                          className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-foreground hover:bg-accent"
+                          className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-xs font-medium text-foreground hover:bg-accent/70 transition-colors"
                         >
-                          <Icon className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                          <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                           <span className="truncate">{label}</span>
                         </button>
                       ))}
@@ -2191,62 +2208,71 @@ function App() {
             {WORKSPACE_MODE_META[workspaceMode].description}
           </span>
         )}
+        {/* Save state */}
         <span
-          className={`status-segment hidden sm:inline-flex ${isDirty ? 'text-warning' : ''}`}
+          className={`status-segment hidden sm:inline-flex ${isDirty ? 'text-warning' : 'text-muted-foreground/80'}`}
           title={isDirty ? 'Changes are held in the editor until the next save.' : 'Every change has been written to the project.'}
         >
           <span
-            className={`inline-block h-1.5 w-1.5 rounded-full ${isDirty ? 'bg-warning' : 'bg-success'}`}
+            className={`inline-block h-1.5 w-1.5 rounded-full ${isDirty ? 'bg-warning cad-live-indicator' : 'bg-success'}`}
             aria-hidden="true"
           />
           {isDirty ? 'Unsaved' : offlineMode ? 'Saved locally' : 'Saved'}
         </span>
+        {/* Storage mode */}
         <span
-          className="status-segment hidden text-muted-foreground lg:inline-flex"
+          className="status-segment hidden text-muted-foreground/70 lg:inline-flex"
           title={offlineMode
-            ? 'This build has no cloud backend configured: projects are stored on this device.'
-            : 'Projects are stored in the configured cloud backend.'}
+            ? 'No cloud backend configured: projects are stored on this device.'
+            : 'Projects are synced to the configured cloud backend.'}
         >
           {offlineMode ? (
             <HardDrive className="h-3 w-3" aria-hidden="true" />
           ) : (
-            <Cloud className="h-3 w-3" aria-hidden="true" />
+            <Cloud className="h-3 w-3 text-info" aria-hidden="true" />
           )}
           {offlineMode ? 'On device' : 'Cloud sync'}
         </span>
+        {/* Voice listening indicator */}
         {voiceListening && (
-          <span className="status-segment animate-pulse text-success">
-            <Mic className="h-3 w-3" /> Listening
+          <span className="status-segment text-success">
+            <Mic className="h-3 w-3 cad-live-indicator" aria-hidden="true" />
+            <span>Listening</span>
           </span>
         )}
+        {/* Usage sync error */}
         {usageMirrorError && (
           <span
             className="status-segment hidden text-warning md:inline-flex"
             role="status"
-            title={`The last action was recorded on this device but the deployment did not accept it: ${usageMirrorError}. Server-side usage reports and quota checks did not see it.`}
+            title={`Usage sync error: ${usageMirrorError}`}
           >
             <CloudOff className="h-3 w-3" aria-hidden="true" /> Usage not synced
           </span>
         )}
+        {/* Security alerts */}
         {activeAlertCount > 0 && (
           <button
             type="button"
             onClick={() => useAppStore.getState().setWorkspaceMode('siem')}
             title={`${activeAlertCount} active alert${activeAlertCount === 1 ? '' : 's'}${activeAlertSummary ? `: ${activeAlertSummary}` : ''}`}
             aria-label={`Open security alerts: ${activeAlertCount} active${activeAlertSummary ? ` - ${activeAlertSummary}` : ''}`}
-            className="status-segment text-destructive transition-colors hover:bg-accent"
+            className="status-segment text-destructive transition-colors hover:bg-accent/60 animate-pulse"
           >
-            <ShieldAlert className="h-3 w-3" /> {activeAlertCount} alert{activeAlertCount !== 1 ? 's' : ''}
+            <ShieldAlert className="h-3 w-3" aria-hidden="true" />
+            {activeAlertCount} alert{activeAlertCount !== 1 ? 's' : ''}
           </button>
         )}
+        {/* Limits register — right-aligned */}
         <HoverHelp topicId="nav.limits" placement="top">
           <button
             type="button"
             onClick={openLimitsRegister}
             data-tour="limits-button"
-            className="status-segment ml-auto hidden border-l border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:inline-flex"
+            className="status-segment ml-auto hidden border-l border-border/60 text-muted-foreground/70 transition-colors hover:bg-accent/60 hover:text-foreground sm:inline-flex"
           >
-            <ScrollText className="h-3 w-3" /> Limits
+            <ScrollText className="h-3 w-3" aria-hidden="true" />
+            Limits
           </button>
         </HoverHelp>
       </footer>

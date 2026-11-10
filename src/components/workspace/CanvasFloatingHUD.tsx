@@ -5,18 +5,13 @@
  * coordinates, grid snapping controls, active layer switcher, DRC health indicator,
  * and layout split controls (matching and exceeding modern tools like Flux.ai).
  */
-import React, { useCallback } from 'react'
+import { useCallback } from 'react'
 import {
-  Activity,
-  Box,
   CheckCircle2,
-  ChevronDown,
-  Columns,
   Compass,
   Grid,
   Layers,
   Maximize2,
-  Minimize2,
   RotateCcw,
   Sparkles,
   Split,
@@ -24,7 +19,7 @@ import {
   ZoomOut,
   AlertTriangle,
 } from 'lucide-react'
-import { useAppStore, type WorkspaceMode, type SplitMode } from '../../stores/useAppStore'
+import { useAppStore, type WorkspaceMode } from '../../stores/useAppStore'
 import { useDesignHealthStore } from '../../stores/useDesignHealthStore'
 
 interface CanvasFloatingHUDProps {

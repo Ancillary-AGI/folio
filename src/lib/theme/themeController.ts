@@ -29,7 +29,7 @@ export const THEME_STORAGE_KEY = 'circuit-cad-app-store'
 const DARK_QUERY = '(prefers-color-scheme: dark)'
 const CONTRAST_QUERY = '(prefers-contrast: more)'
 
-export const DEFAULT_THEME_PREFERENCE: ThemePreference = 'dark'
+export const DEFAULT_THEME_PREFERENCE: ThemePreference = 'folio-dark'
 
 /** Narrow an arbitrary persisted value into a supported preference. */
 export function normalizeThemePreference(value: unknown): ThemePreference {

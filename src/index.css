@@ -95,6 +95,16 @@
     --focus-halo: 0.38;
   }
 
+  /* Folio Dark: vivid glow effects are the visual language of this theme. */
+  [data-theme='folio-dark'] {
+    --panel-edge: 0.12;
+    --control-glow: 0.65;
+    --control-depth: 0.14;
+    --focus-halo: 0.45;
+    /* Neon-line accent hairlines at full brightness */
+    --chrome-neon-strength: 0.9;
+  }
+
   [data-theme='high-contrast'] {
     --panel-edge: 0;
     --control-glow: 0;
@@ -2563,22 +2573,496 @@
   color: inherit;
 }
 
+/* ── Futuristic Folio Dark — neon accent chrome ───────────────────────────
+ * When the flagship dark theme is active, all primary surfaces get a hairline
+ * neon edge glow, filled buttons fire a larger shadow, and the workspace nav
+ * accent hairline is brighter. These rules are purely additive — the base
+ * token system still drives every colour; these rules only tune *intensity*.
+ */
+[data-theme='folio-dark'] .app-chrome {
+  box-shadow:
+    inset 0 1px 0 hsl(var(--foreground) / 0.15),
+    0 1px 0 hsl(var(--shadow-color) / 0.9),
+    0 12px 24px -16px hsl(var(--primary) / 0.18),
+    0 0 0 0.5px hsl(var(--primary) / 0.08);
+}
+
+[data-theme='folio-dark'] .cad-workspace-nav::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    hsl(var(--primary) / 0.95) 18%,
+    hsl(var(--primary) / 0.95) 82%,
+    transparent
+  );
+  height: 1.5px;
+}
+
+[data-theme='folio-dark'] .cad-btn-primary {
+  box-shadow:
+    0 2px 16px -4px hsl(var(--primary) / 0.75),
+    0 0 0 0.5px hsl(var(--primary) / 0.3);
+}
+
+[data-theme='folio-dark'] .cad-btn-primary:hover:not(:disabled) {
+  box-shadow:
+    0 5px 24px -5px hsl(var(--primary) / 0.8),
+    0 0 0 1px hsl(var(--primary) / 0.4);
+}
+
+[data-theme='folio-dark'] .cad-rail-btn-active {
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.5),
+    0 4px 16px -4px hsl(var(--primary) / 0.7);
+}
+
+[data-theme='folio-dark'] .ws-mode--active {
+  box-shadow: inset 0 -2px 0 hsl(var(--primary));
+}
+
+[data-theme='folio-dark'] .cad-tab-active {
+  box-shadow:
+    0 -3px 12px -6px hsl(var(--primary) / 0.7),
+    inset 0 0 0 0.5px hsl(var(--primary) / 0.2);
+}
+
+[data-theme='folio-dark'] .cad-dock,
+[data-theme='folio-dark'] .cad-inspector {
+  box-shadow:
+    inset 0 1px 0 hsl(var(--foreground) / 0.14),
+    4px 0 24px -8px hsl(var(--primary) / 0.12);
+}
+
+[data-theme='folio-dark'] .cad-panel {
+  box-shadow:
+    inset 0 1px 0 hsl(var(--primary) / 0.18),
+    0 -4px 20px -8px hsl(var(--primary) / 0.08);
+}
+
+[data-theme='folio-dark'] .launcher-hero {
+  box-shadow:
+    inset 0 1px 0 hsl(var(--primary) / 0.2),
+    0 30px 60px -48px hsl(var(--primary) / 0.4),
+    0 0 0 0.5px hsl(var(--primary) / 0.12);
+}
+
+[data-theme='folio-dark'] .family-tile:hover {
+  box-shadow:
+    0 14px 30px -20px hsl(var(--primary) / 0.5),
+    0 0 0 1px hsl(var(--family-accent, var(--primary)) / 0.4);
+}
+
+[data-theme='folio-dark'] .project-card:hover {
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.35),
+    0 18px 36px -20px hsl(var(--primary) / 0.5);
+}
+
+[data-theme='folio-dark'] .cad-empty-sheet__card {
+  box-shadow:
+    inset 0 1px 0 hsl(var(--primary) / 0.2),
+    0 24px 48px -36px hsl(var(--primary) / 0.5),
+    0 0 0 0.5px hsl(var(--primary) / 0.15);
+}
+
+[data-theme='folio-dark'] .cad-empty-sheet__mark {
+  border-color: hsl(var(--primary) / 0.5);
+  background:
+    radial-gradient(circle at 30% 25%, hsl(var(--primary) / 0.4), transparent 72%),
+    hsl(var(--surface) / 0.8);
+  box-shadow: 0 0 24px -8px hsl(var(--primary) / 0.5);
+}
+
+[data-theme='folio-dark'] .status-bar {
+  box-shadow:
+    inset 0 1px 0 hsl(var(--primary) / 0.2),
+    0 -1px 0 hsl(var(--primary) / 0.08);
+}
+
+[data-theme='folio-dark'] .cad-glass-panel {
+  background-color: hsl(var(--card) / 0.82);
+  border-color: hsl(var(--primary) / 0.25);
+  box-shadow:
+    0 8px 40px -4px hsl(var(--primary) / 0.2),
+    0 0 0 0.5px hsl(var(--primary) / 0.18),
+    inset 0 1px 0 hsl(var(--primary) / 0.18);
+}
+
+[data-theme='folio-dark'] .workspace-stage {
+  background-image:
+    radial-gradient(140% 100% at 50% -10%, hsl(var(--primary) / 0.07), transparent 55%),
+    radial-gradient(80% 60% at 100% 110%, hsl(var(--chart-4) / 0.05), transparent 70%),
+    radial-gradient(70% 50% at 0% 100%, hsl(var(--chart-2) / 0.04), transparent 70%),
+    linear-gradient(hsl(var(--border) / 0.35) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--border) / 0.35) 1px, transparent 1px),
+    linear-gradient(hsl(var(--grid-major) / 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--grid-major) / 0.12) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    32px 32px,
+    32px 32px,
+    160px 160px,
+    160px 160px;
+  background-position:
+    center top, center bottom, center bottom, -1px -1px, -1px -1px, -1px -1px, -1px -1px;
+}
+
 /* ── Futuristic CAD Glassmorphism & Agentic HUD ───────────────────────────── */
 .cad-glass-panel {
   background-color: hsl(var(--card) / 0.88);
-  backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(170%);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
   border: 1px solid hsl(var(--border) / 0.7);
-  box-shadow: 0 8px 32px -4px hsl(var(--shadow-color) / 0.35),
-              inset 0 1px 0 0 hsl(var(--primary) / 0.12);
+  box-shadow:
+    0 8px 32px -4px hsl(var(--shadow-color) / 0.4),
+    inset 0 1px 0 0 hsl(var(--foreground) / var(--panel-edge)),
+    inset 0 0 0 0.5px hsl(var(--primary) / 0.08);
 }
 
 .cad-glass-pill {
   background-color: hsl(var(--card) / 0.88);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
   border: 1px solid hsl(var(--border) / 0.8);
   box-shadow: 0 4px 20px -2px hsl(var(--shadow-color) / 0.3);
+}
+
+/* ── Neon border animation for active AI/agent states ────────────────────── */
+.cad-neon-border {
+  position: relative;
+}
+
+.cad-neon-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    135deg,
+    hsl(var(--primary)),
+    hsl(var(--chart-5)),
+    hsl(var(--primary))
+  );
+  background-size: 200% 200%;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: cad-neon-rotate 3s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes cad-neon-rotate {
+  0% { background-position: 0% 0%; }
+  50% { background-position: 100% 100%; }
+  100% { background-position: 0% 0%; }
+}
+
+/* ── Agent activity ring — pulsing glow indicator ────────────────────────── */
+.cad-agent-ring {
+  position: relative;
+}
+
+.cad-agent-ring::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  border: 1.5px solid hsl(var(--primary) / 0.6);
+  animation: cad-agent-ring-pulse 2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes cad-agent-ring-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.04); }
+}
+
+/* ── Live data sparkline animation ──────────────────────────────────────── */
+@keyframes cad-data-flash {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
+}
+
+.cad-live-indicator {
+  animation: cad-data-flash 1.4s ease-in-out infinite;
+}
+
+/* ── Shimmer skeleton loader ─────────────────────────────────────────────── */
+.cad-shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 0%,
+    hsl(var(--accent)) 50%,
+    hsl(var(--muted)) 100%
+  );
+  background-size: 200% 100%;
+  animation: cad-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes cad-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Smooth panel slide-up for popovers ──────────────────────────────────── */
+@keyframes cad-slide-up {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.cad-popover-enter {
+  animation: cad-slide-up 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Status dot pulse (connected/live/syncing) ───────────────────────────── */
+@keyframes cad-dot-ping {
+  0% { transform: scale(1); opacity: 1; }
+  60% { transform: scale(1.9); opacity: 0; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+
+.cad-dot-live {
+  position: relative;
+}
+
+.cad-dot-live::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 9999px;
+  background: hsl(var(--success));
+  animation: cad-dot-ping 1.8s ease-out infinite;
+  pointer-events: none;
+}
+
+/* ── Folio Header: refined pill title badge ──────────────────────────────── */
+.folio-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.375rem;
+  padding: 0 0.5rem;
+  border-radius: 0.375rem;
+  border: 1px solid hsl(var(--border) / 0.8);
+  background: hsl(var(--surface) / 0.6);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+  transition: border-color 150ms ease, background-color 150ms ease;
+  backdrop-filter: blur(4px);
+}
+
+.folio-mode-badge:hover {
+  border-color: hsl(var(--primary) / 0.4);
+  background: hsl(var(--accent) / 0.7);
+  color: hsl(var(--foreground));
+}
+
+/* ── Workspace nav: improved family chip with icon hover glow ────────────── */
+.ws-family:hover .ws-family__icon {
+  filter: drop-shadow(0 0 4px hsl(var(--family-accent, var(--primary)) / 0.6));
+}
+
+.ws-family--active .ws-family__icon {
+  filter: drop-shadow(0 0 6px hsl(var(--family-accent, var(--primary)) / 0.8));
+}
+
+/* ── Folio Dark: animated top spectrum bar ────────────────────────────────── */
+[data-theme='folio-dark'] .app-shell::before {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--chart-1)) 0%,
+    hsl(var(--chart-5)) 25%,
+    hsl(var(--chart-2)) 50%,
+    hsl(var(--chart-4)) 75%,
+    hsl(var(--chart-1)) 100%
+  );
+  background-size: 200% 100%;
+  animation: folio-spectrum 8s linear infinite;
+  height: 2px;
+  opacity: 0.9;
+}
+
+@keyframes folio-spectrum {
+  0% { background-position: 0% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ── Improved scrollbar for folio-dark (barely visible rail) ─────────────── */
+[data-theme='folio-dark'] * {
+  scrollbar-color: hsl(var(--primary) / 0.25) transparent;
+}
+
+[data-theme='folio-dark'] *::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--primary) / 0.25);
+}
+
+[data-theme='folio-dark'] *::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--primary) / 0.5);
+}
+
+[data-theme='folio-dark'] *::-webkit-scrollbar-thumb:active {
+  background-color: hsl(var(--primary) / 0.8);
+}
+
+/* ── Mode pill: improved active indicator with underline glow ────────────── */
+[data-theme='folio-dark'] .ws-mode--active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 70%;
+  height: 1px;
+  background: hsl(var(--family-accent, var(--primary)));
+  box-shadow: 0 0 8px hsl(var(--family-accent, var(--primary)) / 0.8);
+  pointer-events: none;
+}
+
+/* ── CAD omnibar: command bar in header ──────────────────────────────────── */
+.shell-command-pill {
+  display: inline-flex;
+  height: 2rem;
+  min-width: 0;
+  flex-shrink: 1;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid hsl(var(--border) / 0.7);
+  background: hsl(var(--background) / 0.5);
+  padding: 0 0.625rem;
+  font-size: 0.6875rem;
+  color: hsl(var(--muted-foreground));
+  outline: none;
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+  backdrop-filter: blur(8px);
+  cursor: text;
+  width: clamp(10rem, 24vw, 22rem);
+}
+
+.shell-command-pill:hover {
+  border-color: hsl(var(--border));
+  background: hsl(var(--background) / 0.75);
+  color: hsl(var(--foreground));
+}
+
+.shell-command-pill:focus-visible {
+  border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
+}
+
+[data-theme='folio-dark'] .shell-command-pill {
+  border-color: hsl(var(--primary) / 0.2);
+  background: hsl(var(--background) / 0.6);
+}
+
+[data-theme='folio-dark'] .shell-command-pill:hover {
+  border-color: hsl(var(--primary) / 0.5);
+  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.15), 0 4px 16px -4px hsl(var(--primary) / 0.2);
+}
+
+@media (max-width: 1023px) {
+  .shell-command-pill {
+    width: 2rem;
+    justify-content: center;
+    padding: 0;
+    border-radius: 0.5rem;
+  }
+
+  .shell-command-pill .shell-command__label,
+  .shell-command-pill .shell-command__key {
+    display: none;
+  }
+}
+
+/* ── Improved HUD floating bar ───────────────────────────────────────────── */
+.cad-hud-pill {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-radius: 9999px;
+  border: 1px solid hsl(var(--border) / 0.7);
+  background: hsl(var(--surface) / 0.9);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  box-shadow:
+    0 4px 24px -4px hsl(var(--shadow-color) / 0.4),
+    inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
+  overflow: hidden;
+}
+
+[data-theme='folio-dark'] .cad-hud-pill {
+  border-color: hsl(var(--primary) / 0.25);
+  box-shadow:
+    0 4px 32px -4px hsl(var(--primary) / 0.25),
+    0 0 0 0.5px hsl(var(--primary) / 0.12),
+    inset 0 1px 0 hsl(var(--primary) / 0.15);
+}
+
+/* ── Context menu: improved floating panel ───────────────────────────────── */
+.cad-context-menu {
+  animation: cad-slide-up 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  box-shadow:
+    0 12px 36px -8px hsl(var(--shadow-color) / 0.5),
+    0 0 0 1px hsl(var(--border) / 0.6),
+    inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
+}
+
+/* ── Improved active tab: lifted card treatment ──────────────────────────── */
+.ws-mode--active {
+  position: relative;
+}
+
+/* ── Folio: clean separator in workbench ─────────────────────────────────── */
+.folio-sep {
+  width: 1px;
+  height: 1.25rem;
+  background: hsl(var(--border));
+  flex-shrink: 0;
+  margin: 0 0.25rem;
+}
+
+[data-theme='folio-dark'] .folio-sep {
+  background: hsl(var(--primary) / 0.2);
+}
+
+/* ── Smooth workspace transition ─────────────────────────────────────────── */
+.workspace-transition {
+  animation: cad-slide-up 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Design health panel: improved header bar ────────────────────────────── */
+[data-theme='folio-dark'] .cad-panel__bar {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--surface)),
+    hsl(var(--primary) / 0.04)
+  );
+}
+
+[data-theme='folio-dark'] .cad-panel__tab[aria-selected='true'] {
+  color: hsl(var(--primary));
+  border-bottom-color: hsl(var(--primary));
+}
+
+/* ── Library dock: improved row armed state ──────────────────────────────── */
+[data-theme='folio-dark'] .cad-lib-row-armed::before {
+  box-shadow: 0 0 12px 1px hsl(var(--primary) / 0.5);
+}
+
+/* ── Tool rail: improved active button ───────────────────────────────────── */
+[data-theme='folio-dark'] .cad-ctl--active {
+  border-color: hsl(var(--primary) / 0.6);
+  box-shadow: 0 0 12px -4px hsl(var(--primary) / 0.5);
+}
+
+[data-theme='folio-dark'] .cad-ctl--primary {
+  border-color: hsl(var(--primary) / 0.5);
+  box-shadow: 0 0 10px -4px hsl(var(--primary) / 0.4);
 }
 
 .cad-hud-floating {

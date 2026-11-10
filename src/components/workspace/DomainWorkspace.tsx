@@ -12,9 +12,6 @@ import PropertiesPanel from '../PropertiesPanel'
 import NetInspector, { type NetInspectorModel } from '../NetInspector'
 import ToolRail from './ToolRail'
 import DesignHealthPanel from './DesignHealthPanel'
-import CanvasFloatingHUD from './CanvasFloatingHUD'
-import SplitViewportEngine from './SplitViewportEngine'
-import OmniCopilotOverlay from '../ecad/agent/OmniCopilotOverlay'
 import HoverHelp from '../ui/HoverHelp'
 import { useAppStore, type WorkspaceMode } from '../../stores/useAppStore'
 import { useProjectStore } from '../../stores/useProjectStore'
@@ -140,8 +137,6 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
     requestComponentFocus,
     armedLibraryItem,
     setArmedLibraryItem,
-    splitMode,
-    secondaryWorkspace,
   } = useAppStore()
   const { components, wires, currentProject, updateComponent } = useProjectStore()
 
@@ -566,8 +561,6 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
                     style={{ '--family-accent': accent } as CSSProperties}
                     className={`ws-family ${active ? 'ws-family--active' : ''}`}
                   >
-                    {/* The hue is repeated by every family, so it stays a
-                        decorative wayfinding cue: the label is always written. */}
                     <Icon className="ws-family__icon" aria-hidden="true" />
                     <span className="ws-family__label">{group.label}</span>
                     {active && (
@@ -659,15 +652,18 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
           <div className="workspace-stage relative min-h-0 min-w-0 flex-1" data-tour="workspace-canvas">
             <Suspense
             fallback={
-              <div className="flex h-full flex-col items-center justify-center gap-3" role="status">
-                {/* A bare sentence on a black sheet reads as a broken canvas, so
-                   the wait shows the shape of what is arriving. */}
-                <div className="w-44 space-y-2" aria-hidden="true">
-                  <div className="cad-skeleton h-2 w-full" />
-                  <div className="cad-skeleton h-2 w-3/4" />
-                  <div className="cad-skeleton h-2 w-1/2" />
+              <div className="flex h-full flex-col items-center justify-center gap-4" role="status">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-primary/30 bg-surface/60"
+                    style={{ boxShadow: '0 0 20px -4px hsl(var(--primary) / 0.3)' }}>
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" aria-hidden="true" />
+                  </div>
+                  <div className="space-y-2 text-center" aria-hidden="true">
+                    <div className="cad-shimmer h-1.5 w-32 rounded-full" />
+                    <div className="cad-shimmer h-1.5 w-24 rounded-full mx-auto" />
+                  </div>
                 </div>
-                <p className="text-sm text-muted-foreground">Loading workspace…</p>
+                <p className="text-xs text-muted-foreground">Loading workspace…</p>
               </div>
             }
           >

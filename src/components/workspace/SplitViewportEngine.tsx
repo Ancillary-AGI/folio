@@ -6,8 +6,8 @@
  * with live cross-probing and floating 3D Picture-in-Picture.
  */
 import React, { useState, useRef, useCallback, type ReactNode } from 'react'
-import { Box, Columns, Maximize2, Minimize2, Split, X } from 'lucide-react'
-import { useAppStore, type SplitMode, type WorkspaceMode } from '../../stores/useAppStore'
+import { Box, Maximize2, X } from 'lucide-react'
+import { useAppStore, type WorkspaceMode } from '../../stores/useAppStore'
 
 interface SplitViewportEngineProps {
   primaryWorkspace: WorkspaceMode

@@ -4,37 +4,29 @@
  * Modernized top navigation search with natural language prompt processing,
  * fast domain switching, component/net spotlight search, and one-click agent triggers.
  */
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import {
   Activity,
-  ArrowRight,
-  Bot,
   Box,
   Cable,
   CircuitBoard,
-  Command,
   CornerDownLeft,
   Cpu,
-  FlaskConical,
   Search,
   Sparkles,
-  Wrench,
-  X,
 } from 'lucide-react'
-import { useAppStore, type WorkspaceMode } from '../../stores/useAppStore'
+import { useAppStore } from '../../stores/useAppStore'
 import { useProjectStore } from '../../stores/useProjectStore'
-import { WORKSPACE_MODE_META, WORKSPACE_MODES } from '../../lib/workspace/modes'
+import { WORKSPACE_MODES } from '../../lib/workspace/modes'
 
 interface FuturisticOmnibarProps {
   onOpenDemos: () => void
   onOpenHelp: () => void
 }
 
-export default function FuturisticOmnibar({ onOpenDemos, onOpenHelp }: FuturisticOmnibarProps) {
+export default function FuturisticOmnibar({ onOpenDemos: _onOpenDemos, onOpenHelp: _onOpenHelp }: FuturisticOmnibarProps) {
   const {
-    workspaceMode,
     setWorkspaceMode,
-    toggleCopilotFlyout,
     setCopilotFlyoutOpen,
     setSelectedComponents,
     requestComponentFocus,

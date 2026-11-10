@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
-import { Bot, Send, Trash2, Lightbulb, Cpu, Wrench, X, Loader2, Mic, MicOff, Copy, Check, AlertTriangle } from 'lucide-react'
+import { Bot, Send, Trash2, Lightbulb, Cpu, Wrench, X, Mic, MicOff, Copy, Check, AlertTriangle } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
-import { Badge } from '../ui/badge'
 import { aiService } from '../../lib/ai/aiService'
 import { nlpService } from '../../lib/nlp/nlpService'
 import { voiceController } from '../../lib/voice/controller'
@@ -220,30 +219,35 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
   }
 
   return (
-    <div className="h-full flex flex-col bg-card">
+    <div className="flex h-full flex-col bg-card">
       {/* Header */}
-      <div className="flex items-center justify-between p-3 border-b border-border">
-        <div className="flex items-center gap-2">
-          <Bot className="w-5 h-5 text-primary" />
-          <h2 className="text-sm font-semibold">Design assistant</h2>
-          <Badge variant="secondary" className="text-xs">{workspaceMode}</Badge>
+      <div className="flex shrink-0 items-center justify-between border-b border-border/60 bg-surface/50 px-3 py-2.5">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/15 text-primary"
+            style={{ boxShadow: '0 0 10px -2px hsl(var(--primary) / 0.3)' }}>
+            <Bot className="h-3.5 w-3.5" aria-hidden="true" />
+          </div>
+          <div>
+            <h2 className="text-xs font-semibold leading-tight">AI Design Assistant</h2>
+            <p className="text-[10px] text-muted-foreground capitalize leading-tight">{workspaceMode} mode</p>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={clearChat} title="Clear chat" aria-label="Clear chat">
-            <Trash2 className="w-3.5 h-3.5" />
+        <div className="flex items-center gap-0.5">
+          <Button variant="ghost" size="bar-icon" onClick={clearChat} title="Clear conversation" aria-label="Clear conversation">
+            <Trash2 />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} aria-label="Close assistant" title="Hide the assistant dock. The transcript is not kept once the dock closes.">
-            <X className="w-3.5 h-3.5" />
+          <Button variant="ghost" size="bar-icon" onClick={onClose} aria-label="Close AI assistant">
+            <X />
           </Button>
         </div>
       </div>
 
       {/* Quick actions */}
-      <div className="flex gap-1 p-2 flex-wrap border-b border-border">
+      <div className="flex shrink-0 flex-wrap gap-1 border-b border-border/60 bg-surface/30 p-2">
         {QUICK_ACTIONS.map(qa => (
           <button
             key={qa.label}
-            className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-accent hover:bg-accent/80 transition-colors"
+            className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background/50 px-2 py-1 text-[10px] font-medium text-foreground transition-colors hover:border-primary/50 hover:bg-accent/70 hover:text-primary disabled:pointer-events-none disabled:opacity-50"
             onClick={() => processQuery(qa.prompt)}
             disabled={isLoading}
           >
@@ -254,49 +258,51 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 scrollbar-thin">
         {messages.map(msg => (
           <div key={msg.id} className={`flex gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
             {/* Avatar */}
-            <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs ${
-              msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
-            }`}>
-              {msg.role === 'user' ? 'U' : <Bot className="w-3.5 h-3.5" />}
+            <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${
+              msg.role === 'user'
+                ? 'bg-primary/90 text-primary-foreground'
+                : 'border border-primary/30 bg-primary/10 text-primary'
+            }`} style={msg.role === 'assistant' ? { boxShadow: '0 0 8px -2px hsl(var(--primary) / 0.25)' } : {}}>
+              {msg.role === 'user' ? 'U' : <Bot className="h-3 w-3" aria-hidden="true" />}
             </div>
 
             {/* Bubble */}
-            <div className={`group relative max-w-[85%] ${msg.role === 'user' ? 'items-end' : 'items-start'} flex flex-col`}>
-              <div className={`rounded-lg px-3 py-2 text-sm whitespace-pre-wrap leading-relaxed ${
+            <div className={`group relative flex max-w-[85%] flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+              <div className={`rounded-xl px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap ${
                 msg.role === 'user'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-foreground'
+                  ? 'rounded-tr-sm bg-primary text-primary-foreground'
+                  : 'rounded-tl-sm border border-border/60 bg-muted/70 text-foreground'
               }`}>
                 {msg.content}
               </div>
-              <div className="flex items-center gap-2 mt-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
-                <span className="text-xs text-muted-foreground">
+              <div className="mt-1 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                <span className="text-[10px] text-muted-foreground">
                   {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
                 {msg.role === 'assistant' && (
                   <button
-                    className={`text-xs hover:text-foreground ${
+                    className={`text-[10px] transition-colors hover:text-foreground ${
                       copyFailedId === msg.id ? 'text-destructive' : 'text-muted-foreground'
                     }`}
                     onClick={() => handleCopy(msg.id, msg.content)}
                     aria-label={
                       copyFailedId === msg.id
-                        ? 'Copy failed — clipboard access denied. Press to try again.'
+                        ? 'Copy failed — clipboard access denied.'
                         : copiedId === msg.id
                           ? 'Copied to clipboard'
                           : 'Copy reply to clipboard'
                     }
                   >
                     {copyFailedId === msg.id ? (
-                      <AlertTriangle className="w-3 h-3" />
+                      <AlertTriangle className="h-3 w-3" aria-hidden="true" />
                     ) : copiedId === msg.id ? (
-                      <Check className="w-3 h-3 text-success" />
+                      <Check className="h-3 w-3 text-success" aria-hidden="true" />
                     ) : (
-                      <Copy className="w-3 h-3" />
+                      <Copy className="h-3 w-3" aria-hidden="true" />
                     )}
                   </button>
                 )}
@@ -307,11 +313,16 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
 
         {isLoading && (
           <div className="flex gap-2">
-            <div className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center">
-              <Bot className="w-3.5 h-3.5" />
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-primary"
+              style={{ boxShadow: '0 0 8px -2px hsl(var(--primary) / 0.25)' }}>
+              <Bot className="h-3 w-3" aria-hidden="true" />
             </div>
-            <div className="bg-muted rounded-lg px-3 py-2">
-              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+            <div className="rounded-xl rounded-tl-sm border border-border/60 bg-muted/70 px-3 py-2">
+              <div className="flex items-center gap-1">
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/60" style={{ animationDelay: '0ms' }} />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/60" style={{ animationDelay: '150ms' }} />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/60" style={{ animationDelay: '300ms' }} />
+              </div>
             </div>
           </div>
         )}
@@ -319,39 +330,43 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
       </div>
 
       {/* Context indicator */}
-      <div className="px-3 py-1 text-xs text-muted-foreground border-t border-border bg-muted/30">
-        Context: {components.length} components, {wires.length} wires — {workspaceMode} mode
+      <div className="shrink-0 border-t border-border/60 bg-muted/20 px-3 py-1.5 text-[10px] text-muted-foreground">
+        {components.length > 0
+          ? `${components.length} parts · ${wires.length} nets · ${workspaceMode}`
+          : `No parts placed · ${workspaceMode} mode`}
       </div>
 
-      {/* Input */}
-      <div className="p-3 border-t border-border flex gap-2">
+      {/* Input bar */}
+      <div className="shrink-0 flex items-center gap-2 border-t border-border/60 bg-surface/30 p-2.5">
         <Button
           variant={isVoice ? 'default' : 'ghost'}
-          size="icon"
-          className="h-9 w-9 flex-shrink-0"
+          size="bar-icon"
           onClick={handleVoice}
-          title={isVoice ? 'Stop the voice conversation' : 'Start the voice conversation'}
-          aria-label={isVoice ? 'Stop the voice conversation' : 'Start the voice conversation'}
+          title={isVoice ? 'Stop voice conversation' : 'Start voice conversation'}
+          aria-label={isVoice ? 'Stop voice conversation' : 'Start voice conversation'}
+          className="shrink-0"
         >
-          {isVoice ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+          {isVoice ? <MicOff /> : <Mic />}
         </Button>
-        <Input
-          ref={inputRef}
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={isVoice ? 'Listening…' : 'Ask about your design…'}
-          disabled={isLoading || isVoice}
-          className="flex-1 text-sm"
-        />
+        <div className="relative min-w-0 flex-1">
+          <Input
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={isVoice ? 'Listening…' : 'Ask about your design…'}
+            disabled={isLoading || isVoice}
+            className="h-8 w-full rounded-full border-border/70 bg-background/60 text-xs focus:border-primary/60"
+          />
+        </div>
         <Button
           onClick={handleSend}
           disabled={!input.trim() || isLoading}
-          size="icon"
-          className="h-9 w-9 flex-shrink-0"
+          size="bar-icon"
+          className="shrink-0 rounded-full"
           aria-label="Send message"
           title="Ask about the open design: analysis, part suggestions, optimisation and reliability.">
-          <Send className="w-4 h-4" />
+          <Send className="h-3.5 w-3.5" aria-hidden="true" />
         </Button>
       </div>
     </div>

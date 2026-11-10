@@ -177,6 +177,18 @@ export default {
           "40%, 50%": { opacity: 1 },
           "100%": { opacity: 0, transform: "scale(1.33)" },
         },
+        "rise-up": {
+          "0%": { opacity: 0, transform: "translateY(8px) scale(0.98)" },
+          "100%": { opacity: 1, transform: "translateY(0) scale(1)" },
+        },
+        "glow-pulse": {
+          "0%, 100%": { boxShadow: "0 0 0 0 hsl(var(--primary) / 0)" },
+          "50%": { boxShadow: "0 0 20px 2px hsl(var(--primary) / 0.4)" },
+        },
+        "spectrum": {
+          "0%": { backgroundPosition: "0% 0" },
+          "100%": { backgroundPosition: "200% 0" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -184,6 +196,10 @@ export default {
         "fade-in": "fade-in 0.2s ease-in-out",
         "slide-in": "slide-in 0.3s ease-out",
         "pulse-ring": "pulse-ring 1.5s ease-out infinite",
+        "rise-up": "rise-up 0.22s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "glow-pulse": "glow-pulse 2.5s ease-in-out infinite",
+        "spectrum": "spectrum 8s linear infinite",
+        "spin-slow": "spin 4s linear infinite",
       },
       fontFamily: {
         // The UI is set in Inter (bundled, variable): one family across labels,

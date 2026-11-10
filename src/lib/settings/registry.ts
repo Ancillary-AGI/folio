@@ -446,8 +446,8 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
 
 /** The values a first run gets, and what a reset returns to. */
 export const DEFAULT_SETTINGS: AppSettings = {
-  // Dark is the CAD-oriented first-run default; System remains an explicit choice.
-  theme: 'dark',
+  // Folio Dark is the flagship first-run default; System remains an explicit choice.
+  theme: 'folio-dark',
   animations: true,
   ambientLight: true,
   gridSize: 10,

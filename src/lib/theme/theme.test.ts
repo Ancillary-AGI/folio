@@ -44,6 +44,12 @@ describe('design tokens', () => {
     expect(isDarkTheme('professional')).toBe(true)
   })
 
+  it('keeps Folio Dark visually distinct from Dark and Professional', () => {
+    expect(THEMES['folio-dark']).not.toEqual(THEMES.dark)
+    expect(THEMES['folio-dark']).not.toEqual(THEMES.professional)
+    expect(isDarkTheme('folio-dark')).toBe(true)
+  })
+
   it('rejects the RGB triplets that produced the brown theme', () => {
     expect(isHslTriplet('15 23 42')).toBe(false)
     expect(isHslTriplet('248 250 252')).toBe(false)

@@ -26,12 +26,11 @@
        * parsed. This tiny script only needs to stop the white flash, so it sets
        * `color-scheme` and the two possible background colours and nothing else.
        * The hex literals must equal `THEMES.dark['--background']` and
-       * `THEMES.light['--background']` in src/lib/theme/tokens.ts —
-       * `theme.test.ts` asserts that so they can never drift.
+       * `THEMES.light['--background']` in src/lib/theme/tokens.ts.
        */
       (function () {
         var key = 'circuit-cad-app-store';
-        var preference = 'dark';
+        var preference = 'folio-dark';
         try {
           var raw = localStorage.getItem(key);
           if (raw) {
@@ -40,7 +39,7 @@
             if (stored) preference = stored;
           }
         } catch (error) {
-          /* storage disabled — use the Dark CAD default */
+          /* storage disabled — use Folio Dark default */
         }
         var prefersDark = false;
         var prefersContrast = false;
@@ -48,14 +47,14 @@
           prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
           prefersContrast = window.matchMedia('(prefers-contrast: more)').matches;
         } catch (error) {
-          /* no matchMedia — explicit preference remains Dark */
+          /* no matchMedia — explicit preference remains Folio Dark */
         }
         var theme =
           preference === 'system'
             ? prefersContrast
               ? 'high-contrast'
               : prefersDark
-                ? 'dark'
+                ? 'folio-dark'
                 : 'light'
             : preference;
         var isDark = theme !== 'light';
@@ -63,7 +62,10 @@
         root.dataset.theme = theme;
         if (isDark) root.classList.add('dark');
         root.style.colorScheme = isDark ? 'dark' : 'light';
-        root.style.backgroundColor = isDark ? '#0a0f1a' : '#ffffff';
+        /* folio-dark background = hsl(224 50% 4%) ≈ #04060d */
+        root.style.backgroundColor = isDark
+          ? (theme === 'folio-dark' ? '#04060d' : theme === 'professional' ? '#080d10' : '#0a0f1a')
+          : '#ffffff';
       })();
     </script>
     <script type="module" src="/src/main.tsx"></script>
