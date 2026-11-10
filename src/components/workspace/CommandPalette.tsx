@@ -173,6 +173,12 @@ export default function CommandPalette({
       { id: 'action:save', label: 'Save design snapshot', hint: `Action · ${describeShortcut('schematic.save', shortcutOverrides)}`, kind: 'action', run: onSave },
       { id: 'action:health', label: 'Design health: show or hide findings', hint: `Action · ${describeShortcut('schematic.problems', shortcutOverrides)}`, kind: 'action', run: onToggleDesignHealth },
       { id: 'action:theme', label: 'Toggle colour theme', hint: 'Action', kind: 'action', run: onToggleTheme },
+      { id: 'action:copilot', label: 'OmniCopilot: open agent-native assistant', hint: 'Action · AI Copilot', kind: 'action', run: () => useAppStore.getState().toggleCopilotFlyout() },
+      { id: 'action:split-dual', label: 'Split View: side-by-side dual canvas (Sch + PCB)', hint: 'Action · Dual Viewports', kind: 'action', run: () => useAppStore.getState().setSplitMode('split-h', 'pcb') },
+      { id: 'action:split-3d', label: 'Split View: PCB 2D + 3D photorealistic view', hint: 'Action · Dual Viewports', kind: 'action', run: () => { useAppStore.getState().setWorkspaceMode('pcb'); useAppStore.getState().setSplitMode('split-h', 'preview3d') } },
+      { id: 'action:pip-3d', label: '3D Preview: picture-in-picture floating viewport', hint: 'Action · 3D PiP', kind: 'action', run: () => useAppStore.getState().setSplitMode('pip-3d', 'preview3d') },
+      { id: 'action:split-single', label: 'View: reset to single full viewport', hint: 'Action · Single Viewport', kind: 'action', run: () => useAppStore.getState().setSplitMode('single') },
+      { id: 'action:fit', label: 'Zoom to fit design contents', hint: 'Action · Fit View', kind: 'action', run: () => window.dispatchEvent(new CustomEvent('folio:fit-view')) },
     ]
     return [...designObjects, ...workspaceCommands, ...demoCommands, ...actions]
   }, [designObjects, onOpenDemos, onOpenHelp, onOpenSettings, onOpenShortcuts, onOpenLimits, onOpenScenario, onSave, onToggleDesignHealth, onToggleTheme, shortcutOverrides])

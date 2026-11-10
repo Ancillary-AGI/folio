@@ -125,6 +125,14 @@ export interface ViewportState {
   pan: { x: number; y: number }
 }
 
+export type SplitMode = 'single' | 'split-h' | 'split-v' | 'pip-3d'
+
+export interface CursorCoords {
+  x: number
+  y: number
+  unit: 'mm' | 'mil' | 'in'
+}
+
 export type NetSelection = { name: string } | { wireId: string }
 
 export interface AppState {
@@ -167,6 +175,24 @@ export interface AppState {
   toggleSidebar: () => void
   toggleSimulationPanel: () => void
   toggleAiChat: () => void
+  
+  // Futuristic Split View & Multi-Domain Viewport Engine
+  splitMode: SplitMode
+  secondaryWorkspace: WorkspaceMode
+  splitRatio: number
+  setSplitMode: (mode: SplitMode, secondary?: WorkspaceMode) => void
+  setSplitRatio: (ratio: number) => void
+
+  // Telemetry & Floating Canvas HUD
+  cursorCoords: CursorCoords
+  setCursorCoords: (coords: Partial<CursorCoords>) => void
+  activePcbLayer: string
+  setActivePcbLayer: (layer: string) => void
+
+  // Agent-Native Copilot Flyout
+  copilotFlyoutOpen: boolean
+  toggleCopilotFlyout: () => void
+  setCopilotFlyoutOpen: (open: boolean) => void
   
   // Tool State. These four are the sheet tools the rail actually offers; the
   // board has its own tool set in the PCB panel and does not live here.
@@ -267,6 +293,29 @@ export const useAppStore = create<AppState>()(
           set((state) => ({ simulationPanelOpen: !state.simulationPanelOpen })),
         toggleAiChat: () =>
           set((state) => ({ aiChatOpen: !state.aiChatOpen })),
+
+        // Futuristic Split View & Multi-Domain Viewport Engine
+        splitMode: 'single',
+        secondaryWorkspace: 'preview3d',
+        splitRatio: 0.5,
+        setSplitMode: (splitMode, secondary) =>
+          set((state) => ({
+            splitMode,
+            secondaryWorkspace: secondary ?? state.secondaryWorkspace,
+          })),
+        setSplitRatio: (splitRatio) => set({ splitRatio: Math.max(0.2, Math.min(0.8, splitRatio)) }),
+
+        // Telemetry & Floating Canvas HUD
+        cursorCoords: { x: 0, y: 0, unit: 'mm' },
+        setCursorCoords: (coords) =>
+          set((state) => ({ cursorCoords: { ...state.cursorCoords, ...coords } })),
+        activePcbLayer: 'top',
+        setActivePcbLayer: (activePcbLayer) => set({ activePcbLayer }),
+
+        // Agent-Native Copilot Flyout
+        copilotFlyoutOpen: false,
+        toggleCopilotFlyout: () => set((state) => ({ copilotFlyoutOpen: !state.copilotFlyoutOpen })),
+        setCopilotFlyoutOpen: (copilotFlyoutOpen) => set({ copilotFlyoutOpen }),
 
         // Tool State
         activeTool: 'select',

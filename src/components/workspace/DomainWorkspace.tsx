@@ -12,6 +12,9 @@ import PropertiesPanel from '../PropertiesPanel'
 import NetInspector, { type NetInspectorModel } from '../NetInspector'
 import ToolRail from './ToolRail'
 import DesignHealthPanel from './DesignHealthPanel'
+import CanvasFloatingHUD from './CanvasFloatingHUD'
+import SplitViewportEngine from './SplitViewportEngine'
+import OmniCopilotOverlay from '../ecad/agent/OmniCopilotOverlay'
 import HoverHelp from '../ui/HoverHelp'
 import { useAppStore, type WorkspaceMode } from '../../stores/useAppStore'
 import { useProjectStore } from '../../stores/useProjectStore'
@@ -137,6 +140,8 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
     requestComponentFocus,
     armedLibraryItem,
     setArmedLibraryItem,
+    splitMode,
+    secondaryWorkspace,
   } = useAppStore()
   const { components, wires, currentProject, updateComponent } = useProjectStore()
 
