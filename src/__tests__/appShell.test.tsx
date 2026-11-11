@@ -95,13 +95,13 @@ describe('App shell', () => {
     // The launcher's family tiles are entry points, not a legend: pressing one
     // creates the project and lands on the workspace that family is built around.
     // The list has to finish reading before the tiles exist.
-    await screen.findByRole('heading', { name: 'Your Projects' })
+    await screen.findByRole('heading', { name: 'From first sketch to verified build.' })
     fireEvent.click(screen.getByRole('button', { name: /^Start a project in the Electrical family/ }))
 
     await waitFor(() => expect(useAppStore.getState().workspaceMode).toBe('control'))
     expect(screen.getByRole('button', { name: 'Control' })).toHaveAttribute('aria-current', 'page')
     expect(useProjectStore.getState().currentProject).not.toBeNull()
-    expect(screen.queryByRole('heading', { name: 'Your Projects' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'From first sketch to verified build.' })).not.toBeInTheDocument()
 
     // And the ledger says which door was used, so the count is not a guess.
     const created = getUsageEvents().filter((event) => event.kind === 'project.create')
@@ -394,7 +394,7 @@ describe('App shell', () => {
     expect(window.location.pathname).toBe(`/projects/${project!.id}`)
 
     fireEvent.click(screen.getByRole('button', { name: 'Projects' }))
-    expect(await screen.findByRole('heading', { name: 'Your Projects' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'From first sketch to verified build.' })).toBeInTheDocument()
     expect(window.location.pathname).toBe('/projects')
     expect(window.location.hash).toBe('')
     // Like the deep-link case above: creating a project mounts the schematic

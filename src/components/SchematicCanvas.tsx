@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { Stage, Layer, Rect, Line, Circle, Text, Group, Path } from 'react-konva'
-import { DraftingCompass, FlaskConical, Package, PenTool } from 'lucide-react'
+import { Bot, DraftingCompass, FlaskConical, Package, PenTool } from 'lucide-react'
 import { Component } from '../lib/supabase'
 import { useAppStore } from '../stores/useAppStore'
 import { useProjectStore, type CanvasComponent, type CanvasWire } from '../stores/useProjectStore'
@@ -2030,7 +2030,7 @@ export default function SchematicCanvas({
         </div>
       )}
       
-      {/* Empty sheet: three real doorways instead of a caption. The card is
+      {/* Empty sheet: real doorways instead of a caption. The card is
           pointer-transparent at its edges so the sheet behind still takes the
           first click; it steps aside entirely once a part is armed. */}
       {canvasComponents.length === 0 && !pendingComponent && (
@@ -2066,6 +2066,14 @@ export default function SchematicCanvas({
                   Load a demo
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => useAppStore.setState({ aiChatOpen: true })}
+                className="cad-empty-sheet__action"
+              >
+                <Bot aria-hidden="true" />
+                Ask Copilot
+              </button>
               <button
                 type="button"
                 onClick={() => setActiveTool('sketch')}

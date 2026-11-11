@@ -2084,7 +2084,7 @@ function App() {
             </div>
           )}
           {aiChatOpen && (
-            <div className="app-panel w-96 max-w-[calc(100vw-2rem)] border-l border-border max-xl:h-full">
+            <div className="app-panel w-[27rem] max-w-[calc(100vw-2rem)] border-l border-border max-xl:h-full">
               <AIChatPanel onClose={toggleAiChat} />
             </div>
           )}

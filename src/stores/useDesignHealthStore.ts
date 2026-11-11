@@ -35,7 +35,7 @@ interface DesignHealthState {
  */
 export const useDesignHealthStore = create<DesignHealthState>()((set) => ({
   result: null,
-  panelOpen: true,
+  panelOpen: false,
   tab: 'problems',
   panelHeight: 232,
   activeFindingIndex: null,

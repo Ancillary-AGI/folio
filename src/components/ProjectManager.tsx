@@ -10,7 +10,7 @@ import ConfirmDialog from './ui/ConfirmDialog'
 import { useConfirm } from './ui/useConfirm'
 import { Card, CardContent, CardHeader } from './ui/card'
 import {
-  ArrowRight, ArrowUpRight, Calendar, CircuitBoard, FlaskConical,
+  ArrowRight, ArrowUpRight, Calendar, CircuitBoard, Code2, FlaskConical,
   FolderOpen, History, Layers, Microscope, Plus, RotateCw, Search, ShieldCheck,
   Sparkles, Trash2, Wrench, X, Zap,
   type LucideIcon,
@@ -234,56 +234,93 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
           into it. The ambient field passes through the glass. ─────────────── */}
       <section className="launcher-hero" aria-labelledby="launcher-heading">
         <div className="launcher-hero__aura" aria-hidden="true" />
-        <p className="launcher-eyebrow">
-          <span className="launcher-eyebrow__dot" aria-hidden="true" />
-          Project library
-        </p>
-        <h1 id="launcher-heading" className="launcher-title">Your Projects</h1>
-        <p className="launcher-lede">
-          One workbench for circuit, board, mechanical, robotics and firmware design —
-          each domain with its own solver, its own limits and a shared project.
-        </p>
+        <div className="launcher-hero__layout">
+          <div className="launcher-hero__copy">
+            <p className="launcher-eyebrow">
+              <span className="launcher-eyebrow__dot" aria-hidden="true" />
+              Multidomain engineering studio
+            </p>
+            <h1 id="launcher-heading" className="launcher-title">From first sketch to verified build.</h1>
+            <p className="launcher-lede">
+              One connected project for electronics, mechanical design, simulation,
+              firmware and manufacturing — with engineering checks at every handoff.
+            </p>
 
-        <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-            <input
-              type="text"
-              placeholder="Search projects by name or description"
-              aria-label="Search projects"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="launcher-search"
-            />
-            {searchTerm ? (
-              <button
-                type="button"
-                onClick={() => setSearchTerm('')}
-                aria-label="Clear project search"
-                className="cad-ctl cad-ctl--icon absolute right-3 top-1/2 -translate-y-1/2"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            ) : null}
-            <span className="pointer-events-none absolute right-12 top-1/2 -translate-y-1/2 font-mono text-xs tabular-nums text-muted-foreground">
-              {searchTerm ? `${filteredProjects.length}/${projects.length}` : ''}
-            </span>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <input
+                  type="text"
+                  placeholder="Find a project by name or description"
+                  aria-label="Search projects"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="launcher-search"
+                />
+                {searchTerm ? (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    aria-label="Clear project search"
+                    className="cad-ctl cad-ctl--icon absolute right-3 top-1/2 -translate-y-1/2"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : null}
+                <span className="pointer-events-none absolute right-12 top-1/2 -translate-y-1/2 font-mono text-xs tabular-nums text-muted-foreground">
+                  {searchTerm ? `${filteredProjects.length}/${projects.length}` : ''}
+                </span>
+              </div>
+
+              <Button onClick={() => onNewProject()} className="h-12 flex-shrink-0 gap-2 rounded-xl px-5 text-sm font-semibold">
+                <Plus className="h-4 w-4" />
+                New Project
+              </Button>
+              {onOpenDemos ? (
+                <Button
+                  variant="outline"
+                  onClick={onOpenDemos}
+                  className="h-12 flex-shrink-0 gap-2 rounded-xl px-4 text-sm"
+                >
+                  <FlaskConical className="h-4 w-4" aria-hidden="true" />
+                  Explore designs
+                </Button>
+              ) : null}
+            </div>
           </div>
 
-          <Button onClick={() => onNewProject()} className="h-12 flex-shrink-0 gap-2 rounded-xl px-5 text-sm font-semibold">
-            <Plus className="h-4 w-4" />
-            New Project
-          </Button>
-          {onOpenDemos ? (
-            <Button
-              variant="outline"
-              onClick={onOpenDemos}
-              className="h-12 flex-shrink-0 gap-2 rounded-xl px-4 text-sm"
-            >
-              <FlaskConical className="h-4 w-4" aria-hidden="true" />
-              Browse demos
-            </Button>
-          ) : null}
+          <div className="launcher-hero__visual" role="img" aria-label="Engineering disciplines connected through one shared product model">
+            <div className="launcher-hero__visual-head">
+              <span>ONE PRODUCT · CONNECTED DISCIPLINES</span>
+              <span className="launcher-hero__live"><span aria-hidden="true" /> SHARED DESIGN DATA</span>
+            </div>
+            <div className="launcher-hero__diagram" aria-hidden="true">
+              <svg viewBox="0 0 480 206" role="presentation">
+                <path className="launcher-diagram__trace" d="M75 48h88v50h76m0 0h60V54h105M163 98v58h87m49-58v58h105" />
+                <path className="launcher-diagram__trace launcher-diagram__trace--soft" d="M75 48v108h88m-88 0h-26m336-102v102h-42" />
+                <circle className="launcher-diagram__node" cx="75" cy="48" r="7" />
+                <circle className="launcher-diagram__node" cx="239" cy="98" r="9" />
+                <circle className="launcher-diagram__node" cx="404" cy="54" r="7" />
+                <circle className="launcher-diagram__node" cx="163" cy="156" r="6" />
+                <circle className="launcher-diagram__node" cx="299" cy="156" r="6" />
+                <circle className="launcher-diagram__node" cx="404" cy="156" r="6" />
+                <rect className="launcher-diagram__chip" x="202" y="61" width="74" height="74" rx="13" />
+                <path className="launcher-diagram__chipline" d="M217 86h44M217 98h30M217 110h38" />
+                <path className="launcher-diagram__pin" d="M218 61v-8m14 8v-8m14 8v-8m14 8v-8m-42 90v-8m14 8v-8m14 8v-8m14 8v-8m-72-45h-8m-54 0h-8m174 0h-8m-8 0h-8m94-44h-8m-8 0h-8" />
+                <circle className="launcher-diagram__pulse" cx="239" cy="98" r="23" />
+              </svg>
+              <div className="launcher-hero__core">
+                <span className="launcher-hero__core-icon"><Layers aria-hidden="true" /></span>
+                <span><strong>Product model</strong><small>One source of truth</small></span>
+              </div>
+            </div>
+            <div className="launcher-hero__domains">
+              <span><CircuitBoard aria-hidden="true" /> Electronics</span>
+              <span><Wrench aria-hidden="true" /> Mechanical</span>
+              <span><Code2 aria-hidden="true" /> Firmware</span>
+              <span><ShieldCheck aria-hidden="true" /> Verification</span>
+            </div>
+          </div>
         </div>
 
         {/* Derived from the same registries as the workspace rail and the
@@ -324,120 +361,8 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
         </div>
       )}
 
-      {/*
-       * A level select, not a legend. The families come from the same registry
-       * that drives the workspace tab strip, and each count is derived from it, so
-       * a workspace cannot ship in the CAD and go missing from here. Pressing a
-       * tile does the thing its label says: it creates a project and opens it in
-       * that family's first workspace.
-       */}
-      <section className="mb-10" aria-labelledby="family-start-heading">
-        <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <h2 id="family-start-heading" className="launcher-section-title">
-            Start in a family
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            Creates a project and opens the first workspace of that family.
-          </p>
-        </div>
-        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
-          {WORKSPACE_GROUPS.map((family) => {
-            const firstMode = WORKSPACE_MODE_META[FIRST_MODE_BY_GROUP[family.id]]
-            const workspaceCount = MODE_COUNT_BY_GROUP[family.id]
-            const FamilyIcon = FAMILY_ICONS[family.id]
-            return (
-            <li key={family.id} className="min-w-0">
-              <button
-                type="button"
-                onClick={() => onNewProject(family.id)}
-                className="family-tile"
-                style={{ '--family-accent': groupAccent(family.id) } as React.CSSProperties}
-                aria-label={`Start a project in the ${family.label} family, opening ${firstMode.label} first`}
-              >
-                <span className="family-tile__top">
-                  <span className="family-tile__icon" aria-hidden="true">
-                    <FamilyIcon />
-                  </span>
-                  <span className="family-tile__count-badge">
-                    {workspaceCount}
-                  </span>
-                </span>
-                <span className="family-tile__label">{family.label}</span>
-                <span className="family-tile__desc">{family.description}</span>
-                <span className="family-tile__foot">
-                  Opens {firstMode.label}
-                  <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
-                </span>
-              </button>
-            </li>
-            )
-          })}
-        </ul>
-      </section>
-
-      {/* Featured scenarios: the fastest way to see a real engine run instead
-          of an empty sheet. Each loads the same scenario the gallery opens. */}
-      {onOpenDemo ? (
-        <section className="mb-10" aria-labelledby="featured-demos-heading">
-          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h2 id="featured-demos-heading" className="launcher-section-title">
-                Start from a running design
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                Every demo runs the real solver, router or exporter.
-              </p>
-            </div>
-            {onOpenDemos ? (
-              <button
-                type="button"
-                onClick={onOpenDemos}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-primary transition-colors hover:text-foreground"
-              >
-                All {DEMO_SCENARIOS.length} demos
-                <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-              </button>
-            ) : null}
-          </div>
-          <ul className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            {FEATURED_DEMO_IDS.map((id) => {
-              const scenario = DEMO_SCENARIOS.find((entry) => entry.id === id)
-              if (!scenario) return null
-              const modeMeta = WORKSPACE_MODE_META[scenario.mode]
-              return (
-                <li key={scenario.id} className="min-w-0">
-                  <article
-                    className="launcher-demo"
-                    style={{ '--family-accent': groupAccent(scenario.group) } as React.CSSProperties}
-                  >
-                    <div className="launcher-demo__top">
-                      <span className="launcher-demo__mode">
-                        <CircuitBoard className="h-3.5 w-3.5" aria-hidden="true" />
-                        {modeMeta.label}
-                      </span>
-                      <Sparkles className="h-4 w-4 text-[hsl(var(--family-accent))]" aria-hidden="true" />
-                    </div>
-                    <h3 className="launcher-demo__title">{scenario.title}</h3>
-                    <p className="launcher-demo__summary">{scenario.summary}</p>
-                    <button
-                      type="button"
-                      onClick={() => onOpenDemo(scenario)}
-                      className="launcher-demo__open"
-                      aria-label={`Open demo: ${scenario.title}`}
-                    >
-                      Open demo
-                      <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-                    </button>
-                  </article>
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-      ) : null}
-
-      {listFailure ? (
-        <Card className="text-center py-12">
+      {listFailure && (
+        <Card className="launcher-empty text-center py-12">
           <CardContent>
             <FolderOpen className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">The project list could not be read</h3>
@@ -448,42 +373,13 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
             </Button>
           </CardContent>
         </Card>
-      ) : filteredProjects.length === 0 ? (
-        <Card className="launcher-empty">
-          <CardContent>
-            <span className="launcher-empty__mark" aria-hidden="true">
-              <FolderOpen />
-            </span>
-            <h3 className="text-xl font-semibold tracking-tight text-foreground">
-              {searchTerm ? 'No projects found' : 'No projects yet'}
-            </h3>
-            <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
-              {searchTerm
-                ? 'Try adjusting your search terms'
-                : 'Create your first engineering project — from circuit to enclosure — or open a running demo above.'
-              }
-            </p>
-            {!searchTerm && (
-              <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-                <Button onClick={() => onNewProject()} className="flex items-center gap-2">
-                  <Plus className="w-4 h-4" />
-                  Create Project
-                </Button>
-                {onOpenDemos ? (
-                  <Button variant="outline" onClick={onOpenDemos} className="flex items-center gap-2">
-                    <FlaskConical className="w-4 h-4" aria-hidden="true" />
-                    Browse demos
-                  </Button>
-                ) : null}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      ) : (
-        <>
+      )}
+
+      {!listFailure && filteredProjects.length > 0 && (
+        <section className="launcher-projects" aria-labelledby="projects-list-heading">
           <div className="mb-3 flex items-baseline justify-between gap-4">
-            <h2 className="launcher-section-title">
-              {searchTerm ? 'Matching projects' : 'Recent projects'}
+            <h2 id="projects-list-heading" className="launcher-section-title">
+              {searchTerm ? 'Matching projects' : 'Pick up where you left off'}
             </h2>
             <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
               {filteredProjects.length} of {projects.length}
@@ -588,7 +484,143 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
             )
           })}
           </div>
-        </>
+        </section>
+      )}
+
+      {/*
+       * Keep discovery after a project's recent work in both visual and
+       * document order, so keyboard and screen-reader navigation tell the same
+       * story as the page.
+       */}
+      <section className="launcher-family-section mb-10" aria-labelledby="family-start-heading">
+        <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2 id="family-start-heading" className="launcher-section-title">
+            Start in a family
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Creates a project and opens the first workspace of that family.
+          </p>
+        </div>
+        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+          {WORKSPACE_GROUPS.map((family) => {
+            const firstMode = WORKSPACE_MODE_META[FIRST_MODE_BY_GROUP[family.id]]
+            const workspaceCount = MODE_COUNT_BY_GROUP[family.id]
+            const FamilyIcon = FAMILY_ICONS[family.id]
+            return (
+              <li key={family.id} className="min-w-0">
+                <button
+                  type="button"
+                  onClick={() => onNewProject(family.id)}
+                  className="family-tile"
+                  style={{ '--family-accent': groupAccent(family.id) } as React.CSSProperties}
+                  aria-label={`Start a project in the ${family.label} family, opening ${firstMode.label} first`}
+                >
+                  <span className="family-tile__top">
+                    <span className="family-tile__icon" aria-hidden="true">
+                      <FamilyIcon />
+                    </span>
+                    <span className="family-tile__count-badge">{workspaceCount}</span>
+                  </span>
+                  <span className="family-tile__label">{family.label}</span>
+                  <span className="family-tile__desc">{family.description}</span>
+                  <span className="family-tile__foot">
+                    Opens {firstMode.label}
+                    <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </section>
+
+      {onOpenDemo ? (
+        <section className="launcher-featured-section mb-10" aria-labelledby="featured-demos-heading">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h2 id="featured-demos-heading" className="launcher-section-title">
+                Start from a running design
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                Every demo runs the real solver, router or exporter.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onOpenDemos}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-primary transition-colors hover:text-foreground"
+            >
+              All {DEMO_SCENARIOS.length} demos
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </div>
+          <ul className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            {FEATURED_DEMO_IDS.map((id) => {
+              const scenario = DEMO_SCENARIOS.find((entry) => entry.id === id)
+              if (!scenario) return null
+              const modeMeta = WORKSPACE_MODE_META[scenario.mode]
+              return (
+                <li key={scenario.id} className="min-w-0">
+                  <article
+                    className="launcher-demo"
+                    style={{ '--family-accent': groupAccent(scenario.group) } as React.CSSProperties}
+                  >
+                    <div className="launcher-demo__top">
+                      <span className="launcher-demo__mode">
+                        <CircuitBoard className="h-3.5 w-3.5" aria-hidden="true" />
+                        {modeMeta.label}
+                      </span>
+                      <Sparkles className="h-4 w-4 text-[hsl(var(--family-accent))]" aria-hidden="true" />
+                    </div>
+                    <h3 className="launcher-demo__title">{scenario.title}</h3>
+                    <p className="launcher-demo__summary">{scenario.summary}</p>
+                    <button
+                      type="button"
+                      onClick={() => onOpenDemo(scenario)}
+                      className="launcher-demo__open"
+                      aria-label={`Open demo: ${scenario.title}`}
+                    >
+                      Open demo
+                      <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  </article>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      ) : null}
+
+      {!listFailure && filteredProjects.length === 0 && (
+        <Card className="launcher-empty">
+          <CardContent>
+            <span className="launcher-empty__mark" aria-hidden="true">
+              <FolderOpen />
+            </span>
+            <h3 className="text-xl font-semibold tracking-tight text-foreground">
+              {searchTerm ? 'No projects found' : 'No projects yet'}
+            </h3>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
+              {searchTerm
+                ? 'Try adjusting your search terms'
+                : 'Start with a blank project, choose an engineering family above, or open a tested design.'}
+            </p>
+            {!searchTerm && (
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                <Button onClick={() => onNewProject()} className="flex items-center gap-2">
+                  <Plus className="w-4 h-4" />
+                  Create Project
+                </Button>
+                {onOpenDemos ? (
+                  <Button variant="outline" onClick={onOpenDemos} className="flex items-center gap-2">
+                    <FlaskConical className="w-4 h-4" aria-hidden="true" />
+                    Browse demos
+                  </Button>
+                ) : null}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* The delete question is asked here, in the app's own panel. */}

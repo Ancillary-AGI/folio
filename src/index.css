@@ -788,6 +788,190 @@
     backdrop-filter: blur(14px);
   }
 
+  .launcher-hero__layout {
+    @apply relative grid items-center gap-8;
+    grid-template-columns: minmax(0, 1.12fr) minmax(20rem, 0.88fr);
+  }
+
+  .launcher-hero__copy {
+    @apply min-w-0;
+  }
+
+  .launcher-hero__copy .launcher-title {
+    max-width: 13ch;
+    font-size: clamp(2.15rem, 3.8vw, 3.2rem);
+  }
+
+  .launcher-hero__copy .launcher-lede {
+    max-width: 54ch;
+  }
+
+  .launcher-hero__visual {
+    @apply relative min-w-0 overflow-hidden rounded-xl border border-border/70 bg-background/45 p-3;
+    box-shadow:
+      inset 0 1px 0 hsl(var(--foreground) / 0.05),
+      0 20px 46px -38px hsl(var(--shadow-color) / 1);
+  }
+
+  .launcher-hero__visual-head {
+    @apply flex flex-wrap items-center justify-between gap-2 px-1 text-[9px] font-semibold tracking-[0.12em] text-muted-foreground;
+  }
+
+  .launcher-hero__live {
+    @apply inline-flex items-center gap-1.5 text-[8px] tracking-[0.08em] text-success;
+  }
+
+  .launcher-hero__live > span {
+    @apply h-1.5 w-1.5 rounded-full bg-success;
+    box-shadow: 0 0 10px hsl(var(--success) / 0.65);
+  }
+
+  .launcher-hero__diagram {
+    @apply relative mt-2 overflow-hidden rounded-lg border border-border/50;
+    background-image:
+      linear-gradient(hsl(var(--border) / 0.25) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.25) 1px, transparent 1px);
+    background-size: 18px 18px;
+    background-position: center;
+  }
+
+  .launcher-hero__diagram > svg {
+    @apply block h-auto w-full;
+    min-height: 9.5rem;
+  }
+
+  .launcher-diagram__trace,
+  .launcher-diagram__trace--soft {
+    fill: none;
+    stroke: hsl(var(--primary) / 0.7);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.5;
+  }
+
+  .launcher-diagram__trace--soft {
+    stroke: hsl(var(--chart-4) / 0.58);
+  }
+
+  .launcher-diagram__node {
+    fill: hsl(var(--background));
+    stroke: hsl(var(--primary) / 0.9);
+    stroke-width: 2;
+  }
+
+  .launcher-diagram__chip {
+    fill: hsl(var(--surface) / 0.95);
+    stroke: hsl(var(--primary) / 0.75);
+    stroke-width: 1.5;
+  }
+
+  .launcher-diagram__chipline,
+  .launcher-diagram__pin {
+    fill: none;
+    stroke: hsl(var(--primary) / 0.72);
+    stroke-linecap: round;
+    stroke-width: 1.5;
+  }
+
+  .launcher-diagram__pin {
+    stroke: hsl(var(--chart-4) / 0.75);
+  }
+
+  .launcher-diagram__pulse {
+    fill: none;
+    stroke: hsl(var(--primary) / 0.6);
+    stroke-width: 1;
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: launcher-signal-pulse 2.8s ease-out infinite;
+  }
+
+  @keyframes launcher-signal-pulse {
+    0% { opacity: 0.65; transform: scale(0.75); }
+    75%, 100% { opacity: 0; transform: scale(1.7); }
+  }
+
+  .launcher-hero__core {
+    @apply absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-lg border border-border/80 bg-card/95 px-2.5 py-2 shadow-lg;
+    box-shadow: 0 12px 28px -18px hsl(var(--shadow-color) / 0.9);
+    backdrop-filter: blur(10px);
+  }
+
+  .launcher-hero__core-icon {
+    @apply flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 text-primary;
+  }
+
+  .launcher-hero__core-icon > svg {
+    @apply h-4 w-4;
+  }
+
+  .launcher-hero__core strong,
+  .launcher-hero__core small {
+    @apply block whitespace-nowrap;
+  }
+
+  .launcher-hero__core strong {
+    @apply text-[10px] font-semibold text-foreground;
+  }
+
+  .launcher-hero__core small {
+    @apply mt-0.5 text-[9px] text-muted-foreground;
+  }
+
+  .launcher-hero__domains {
+    @apply mt-2 flex flex-wrap gap-1.5;
+  }
+
+  .launcher-hero__domains > span {
+    @apply inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/50 px-2 py-1 text-[9px] font-medium text-muted-foreground;
+  }
+
+  .launcher-hero__domains svg {
+    @apply h-3 w-3 text-primary;
+  }
+
+  .launcher-projects {
+    margin-bottom: 2.5rem;
+  }
+
+  @media (max-width: 900px) {
+    .launcher-hero__layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .launcher-hero__copy .launcher-title {
+      max-width: 17ch;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .launcher-hero {
+      @apply p-5;
+    }
+
+    .launcher-hero__layout {
+      @apply gap-5;
+    }
+
+    .launcher-hero__visual-head {
+      font-size: 8px;
+    }
+
+    .launcher-hero__diagram > svg {
+      min-height: 8rem;
+    }
+
+    .launcher-hero__domains > span {
+      font-size: 8px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .launcher-diagram__pulse {
+      animation: none;
+    }
+  }
+
   /* A slow aurora-coloured wash behind the copy: the same three brand hues the
    * shell's ambient field carries, held at low alpha so it never competes with
    * the text the contrast contract measures. Decorative only. */

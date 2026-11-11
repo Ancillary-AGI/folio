@@ -53,7 +53,7 @@ describe('ProjectManager (offline)', () => {
     const { onNewProject } = renderManager()
 
     expect(
-      await screen.findByRole('heading', { name: 'Your Projects' })
+      await screen.findByRole('heading', { name: 'From first sketch to verified build.' })
     ).toBeInTheDocument()
     expect(screen.getByText('No projects yet')).toBeInTheDocument()
 
@@ -71,6 +71,11 @@ describe('ProjectManager (offline)', () => {
 
     expect(await screen.findByText('Oscilloscope Frontend')).toBeInTheDocument()
     expect(screen.getByText('Robot Arm Controller')).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Pick up where you left off' }).compareDocumentPosition(
+        screen.getByRole('heading', { name: 'Start in a family' }),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
 
     const search = screen.getByRole('textbox', { name: 'Search projects' })
     fireEvent.change(search, { target: { value: 'oscillo' } })
@@ -210,7 +215,7 @@ describe('ProjectManager (offline)', () => {
   it('starts a project in the family whose tile was pressed', async () => {
     const onNewProject = vi.fn()
     renderManager({ onNewProject })
-    await screen.findByRole('heading', { name: 'Your Projects' })
+    await screen.findByRole('heading', { name: 'From first sketch to verified build.' })
 
     fireEvent.click(screen.getByRole('button', { name: /^Start a project in the Mechanical family/ }))
     expect(onNewProject).toHaveBeenCalledWith('mechanical')
