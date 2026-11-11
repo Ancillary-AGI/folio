@@ -272,9 +272,10 @@ describe('theme controller', () => {
     expect(normalizeThemePreference('solarized')).toBe('dark')
     expect(normalizeThemePreference('high-contrast')).toBe('high-contrast')
     expect(normalizeThemePreference('light')).toBe('light')
-    expect(normalizeThemePreference(undefined)).toBe('dark')
-    expect(normalizeThemePreference(42)).toBe('dark')
-    expect(DEFAULT_THEME_PREFERENCE).toBe('dark')
+    expect(normalizeThemePreference(undefined)).toBe('folio-dark')
+    expect(normalizeThemePreference(42)).toBe('folio-dark')
+    // The shipped default is the flagship folio-dark, not the plain dark theme.
+    expect(DEFAULT_THEME_PREFERENCE).toBe('folio-dark')
   })
 
   it('covers every declared preference in the descriptors', () => {

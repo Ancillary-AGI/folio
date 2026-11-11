@@ -27,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
 import type { PlacedComponent, Wire, Point, Net } from '../../types'
 import { useProjectStore } from '../../stores/useProjectStore'
 import { useAppStore } from '../../stores/useAppStore'
+import { useCursorTelemetry } from '../../stores/useCursorTelemetry'
 import { emcSimulationEngine, type EMCTrace } from '../../lib/emc/emcSimulation'
 import { thermalAnalysisEngine, type ThermalNode, type ThermalBoundary } from '../../lib/pcb/thermalAnalysis'
 import { acceleratedThermalDispatch } from '../../lib/acceleration/acceleratedSimulation'
@@ -702,10 +703,14 @@ function PCBCanvas({
    */
   const cursorRef = useRef<HTMLSpanElement>(null)
   const showCursor = (point: Point | null): void => {
-    if (!cursorRef.current) return
-    cursorRef.current.textContent = point
-      ? `x ${point.x.toFixed(2)}  y ${point.y.toFixed(2)} mm`
-      : ''
+    if (cursorRef.current) {
+      cursorRef.current.textContent = point
+        ? `x ${point.x.toFixed(2)}  y ${point.y.toFixed(2)} mm`
+        : ''
+    }
+    /* Mirror the position into the telemetry store the HUD reads. Unit is the
+     * board's own unit (mm); a subscriber count of one keeps the write cheap. */
+    useCursorTelemetry.getState().setPosition(point?.x ?? 0, point?.y ?? 0)
   }
 
   const margin = Math.max(4, Math.min(boardWidth, boardHeight) * 0.08)
@@ -2127,7 +2132,14 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
   const [netClasses, setNetClasses] = useState<NetClass[]>(DEFAULT_NET_CLASSES)
   /** Explicit net-to-class pins; patterns resolve every other net. */
   const [netAssignments, setNetAssignments] = useState<Record<string, string>>({})
-  const [selectedLayerId, setSelectedLayerId] = useState('top-cu')
+  /* The active-layer selection lives in the app store so the floating HUD's
+   * quick switch and this panel stay one truth; the board's DEFAULT_LAYERS id
+   * space is the contract between them. */
+  const selectedLayerId = useAppStore((state) => state.activePcbLayer)
+  const setSelectedLayerId = useCallback((next: string | ((prev: string) => string)) => {
+    const current = useAppStore.getState().activePcbLayer
+    useAppStore.getState().setActivePcbLayer(typeof next === 'function' ? next(current) : next)
+  }, [])
   const [activeTool, setActiveTool] = useState<BoardToolId>('select')
   const activeToolMeta = BOARD_TOOLS.find((tool) => tool.id === activeTool) ?? BOARD_TOOLS[0]
   const [selectedComponentIds, setSelectedComponentIds] = useState<string[]>(() => [...schematicSelection])

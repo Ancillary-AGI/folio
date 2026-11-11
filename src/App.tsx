@@ -1,10 +1,10 @@
 import { lazy, Suspense, useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
-  FolderOpen, Menu, Bot, BarChart3, Settings, Package, Users,
+  FolderOpen, PanelLeft, Bot, BarChart3, Settings, Package, Users,
   Download, Image, FileText, List, Lock, LogOut, Mic, MicOff,
-  ArrowLeft, History, RotateCcw, Moon, Sun, AlertCircle, Search,
+  ArrowLeft, History, RotateCcw, Moon, Sun, AlertCircle,
   MoreHorizontal, ShieldAlert, ShieldCheck, HelpCircle, X, ScrollText, CloudOff,
-  Cloud, HardDrive,
+  Cloud, HardDrive, Cable, MousePointer2, Grid3X3, Magnet, Wrench,
 } from 'lucide-react'
 import { Button } from './components/ui/button'
 import type { PlacedComponent, Wire, User } from './types'
@@ -67,9 +67,11 @@ import { AuroraField } from './components/brand/AuroraField'
 import VoiceCommandBar from './components/nlp/VoiceCommandBar'
 import { LoadingSpinner } from './components/ui/LoadingSpinner'
 import UserPresence from './components/collaboration/UserPresence'
+import AgentStatusPill from './components/workspace/AgentStatusPill'
+import AgentStatusSegment from './components/workspace/AgentStatusSegment'
 import { useTheme } from './lib/theme/useTheme'
 import { WORKSPACE_GROUPS, WORKSPACE_MODE_META, FIRST_MODE_BY_GROUP, groupForMode, type WorkspaceGroupId } from './lib/workspace/modes'
-import { GROUP_ACCENT_TOKENS, groupAccent } from './lib/workspace/accents'
+import { GROUP_ACCENT_TOKENS } from './lib/workspace/accents'
 import { checkQuotaCapacity, resolveQuotaRole } from './lib/admin/quotaPolicy'
 import { readOwnGovernanceRole, syncQuotaPoliciesFromCloud } from './lib/admin/quotaSync'
 import { countUsage } from './lib/admin/usageLedger'
@@ -1725,7 +1727,7 @@ function App() {
       <a href="#workspace" className="skip-link">Skip to the workspace</a>
 
       {/* ── Header ── */}
-      <header className="app-chrome flex min-w-0 flex-shrink-0 items-center justify-between gap-2 px-3 py-1.5 border-b border-border/80" data-tour="app-header" style={{ minHeight: '44px' }}>
+      <header className="app-chrome ide-header flex min-w-0 flex-shrink-0 items-center justify-between gap-2 border-b border-border/80 px-3 py-1.5" data-tour="app-header" style={{ minHeight: '46px' }}>
         {/* Left: brand + project identity */}
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <HoverHelp topicId="header.projects" placement="bottom">
@@ -1749,7 +1751,7 @@ function App() {
               aria-pressed={sidebarOpen}
               className="shrink-0"
             >
-              <Menu />
+              <PanelLeft />
             </Button>
           </HoverHelp>
 
@@ -1765,29 +1767,19 @@ function App() {
                 titleClassName="text-[13px] font-semibold tracking-[-0.015em] leading-tight"
               />
               <div className="flex items-center gap-1.5 mt-0.5">
-                {/* Mode badge */}
+                {/* Mode badge — instrument chip, no trinkets */}
                 <span
                   className="folio-mode-badge"
                   title={WORKSPACE_MODE_META[workspaceMode].description}
-                  style={{ '--family-accent': `var(--chart-${groupForMode(workspaceMode) === 'design' ? '1' : groupForMode(workspaceMode) === 'electrical' ? '2' : groupForMode(workspaceMode) === 'mechanical' ? '3' : groupForMode(workspaceMode) === 'life' ? '5' : '4'})` } as React.CSSProperties}
                 >
-                  <span
-                    className="inline-block h-1.5 w-1.5 rounded-full shrink-0"
-                    style={{ backgroundColor: `hsl(${groupAccent(groupForMode(workspaceMode))})` }}
-                    aria-hidden="true"
-                  />
                   {WORKSPACE_MODE_META[workspaceMode].label}
                 </span>
-                {/* Save state */}
+                {/* Save state — text carries the signal, nothing else */}
                 <span
-                  className={`inline-flex items-center gap-1 text-[10px] font-medium ${isDirty ? 'text-warning' : 'text-muted-foreground/70'}`}
+                  className={`inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${isDirty ? 'text-warning' : 'text-muted-foreground/60'}`}
                   role="status"
                   aria-live="polite"
                 >
-                  <span
-                    className={`inline-block h-1.5 w-1.5 rounded-full shrink-0 ${isDirty ? 'bg-warning cad-live-indicator' : 'bg-success'}`}
-                    aria-hidden="true"
-                  />
                   <span className="hidden sm:inline">{isDirty ? 'Unsaved' : offlineMode ? 'Local' : 'Saved'}</span>
                 </span>
               </div>
@@ -1795,8 +1787,8 @@ function App() {
           </div>
         </div>
 
-        {/* Centre: command bar (Ctrl+K) */}
-        <div className="flex shrink justify-center px-2">
+        {/* Centre: command bar (Ctrl+K) + live agent activity */}
+        <div className="flex shrink items-center justify-center gap-2 px-2">
           <HoverHelp topicId="header.palette" placement="bottom">
             <button
               type="button"
@@ -1806,9 +1798,10 @@ function App() {
               data-tour="command-palette"
               className="shell-command-pill"
             >
-              <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" aria-hidden="true" />
-              <span className="shell-command__label min-w-0 flex-1 truncate text-left text-muted-foreground/80">
-                Search parts, nets, commands…
+              <span className="shell-command-pill__sheen" aria-hidden="true" />
+              <span className="agent-orb" aria-hidden="true" />
+              <span className="shell-command__label min-w-0 flex-1 truncate text-left text-muted-foreground/85">
+                Ask Folio — parts, nets, workspaces, actions…
               </span>
               <span className="shell-command__key flex shrink-0 items-center gap-0.5" aria-hidden="true">
                 <kbd className="cad-kbd">{commandKey}</kbd>
@@ -1816,6 +1809,7 @@ function App() {
               </span>
             </button>
           </HoverHelp>
+          <AgentStatusPill onOpenAgents={() => useAppStore.getState().setWorkspaceMode('agents')} />
         </div>
 
         {/* Right: actions */}
@@ -1825,10 +1819,10 @@ function App() {
               variant={aiChatOpen ? 'default' : 'ghost'}
               size="bar"
               onClick={toggleAiChat}
-              aria-label="AI Design Assistant"
+              aria-label="Design assistant"
               aria-pressed={aiChatOpen}
               data-tour="agent-button"
-              className={`gap-1.5 ${aiChatOpen ? '' : 'hover:text-primary'}`}
+              className={`gap-1.5 ${aiChatOpen ? 'cad-agent-ring' : 'hover:border-primary/50 hover:text-primary'}`}
             >
               <Bot />
               <span className="hidden lg:inline">Ask AI</span>
@@ -2104,31 +2098,27 @@ function App() {
 
       {/* ── Status bar: document metrics on the sheet, workspace context elsewhere ── */}
       <footer className="status-bar" aria-label="Workspace status" data-tour="status-bar">
-        {/* Where you are: family › document. The same hue the family wears in
-            the launcher and in the workspace rail, so the breadcrumb is read
-            before the names are. */}
+        {/* Where you are: family › document, in instrument-tape caps. */}
         <span className="status-segment text-foreground" title={WORKSPACE_MODE_META[workspaceMode].description}>
-          <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ backgroundColor: `hsl(${groupAccent(groupForMode(workspaceMode))})` }}
-            aria-hidden="true"
-          />
-          <span className="cad-readout hidden lg:inline">
+          <span className="seg-label hidden lg:inline">
             {WORKSPACE_GROUPS.find((group) => group.id === groupForMode(workspaceMode))?.label}
           </span>
-          <span className="hidden text-muted-foreground lg:inline" aria-hidden="true">›</span>
+          <span className="hidden text-muted-foreground/70 lg:inline" aria-hidden="true">/</span>
           <span className="cad-readout">{WORKSPACE_MODE_META[workspaceMode].label}</span>
         </span>
         {workspaceMode === 'schematic' ? (
           <>
             <span className="status-segment">
-              Parts <span className="cad-readout">{components.length}</span>
+              <Package className="h-3 w-3 text-muted-foreground/60" aria-hidden="true" />
+              <span className="seg-label">Parts</span> <span className="cad-readout">{components.length}</span>
             </span>
             <span className="status-segment">
-              Wires <span className="cad-readout">{wires.length}</span>
+              <Cable className="h-3 w-3 text-muted-foreground/60" aria-hidden="true" />
+              <span className="seg-label">Wires</span> <span className="cad-readout">{wires.length}</span>
             </span>
             <span className="status-segment">
-              Selected <span className="cad-readout">{selectedComponents.length}</span>
+              <MousePointer2 className="h-3 w-3 text-muted-foreground/60" aria-hidden="true" />
+              <span className="seg-label">Selected</span> <span className="cad-readout">{selectedComponents.length}</span>
             </span>
             {selectedNet && selectedNetName ? (
               <button
@@ -2147,13 +2137,16 @@ function App() {
               </button>
             ) : null}
             <span className="status-segment">
-              Tool <span className="cad-readout">{activeTool}</span>
+              <Wrench className="h-3 w-3 text-muted-foreground/60" aria-hidden="true" />
+              <span className="seg-label">Tool</span> <span className="cad-readout">{activeTool}</span>
             </span>
             <span className="status-segment hidden sm:inline-flex">
-              Grid <span className="cad-readout">{settings.gridSize}</span>
+              <Grid3X3 className="h-3 w-3 text-muted-foreground/60" aria-hidden="true" />
+              <span className="seg-label">Grid</span> <span className="cad-readout">{settings.gridSize}</span>
             </span>
             <span className="status-segment hidden sm:inline-flex">
-              Snap <span className="cad-readout">{settings.snapToGrid ? 'on' : 'off'}</span>
+              <Magnet className="h-3 w-3 text-muted-foreground/60" aria-hidden="true" />
+              <span className="seg-label">Snap</span> <span className="cad-readout">{settings.snapToGrid ? 'on' : 'off'}</span>
             </span>
             <button
               type="button"
@@ -2168,35 +2161,35 @@ function App() {
               }
               className={`status-segment transition-colors hover:bg-accent ${
                 healthErrors > 0
-                  ? 'text-destructive'
+                  ? 'status-segment--crit'
                   : healthTotal > 0
-                    ? 'text-warning'
-                    : 'text-muted-foreground'
+                    ? 'status-segment--warn'
+                    : 'status-segment--ok'
               }`}
             >
               {healthTotal === 0 ? (
-                <ShieldCheck className="h-3 w-3 text-success" aria-hidden="true" />
+                <ShieldCheck className="h-3 w-3" aria-hidden="true" />
               ) : (
                 <AlertCircle className="h-3 w-3" aria-hidden="true" />
               )}
               {healthTotal === 0 ? (
-                'ERC clean'
+                <span className="seg-label">ERC clean</span>
               ) : (
                 <>
-                  <span>ERC</span>
+                  <span className="seg-label">ERC</span>
                   {healthErrors > 0 && (
-                    <span className="cad-readout text-destructive">
-                      {healthErrors} error{healthErrors === 1 ? '' : 's'}
+                    <span className="cad-readout">
+                      {healthErrors}E
                     </span>
                   )}
                   {healthWarnings > 0 && (
-                    <span className="cad-readout text-warning">
-                      {healthWarnings} warning{healthWarnings === 1 ? '' : 's'}
+                    <span className="cad-readout">
+                      {healthWarnings}W
                     </span>
                   )}
                   {healthNotices > 0 && (
                     <span className="cad-readout">
-                      {healthNotices} notice{healthNotices === 1 ? '' : 's'}
+                      {healthNotices}N
                     </span>
                   )}
                 </>
@@ -2208,20 +2201,16 @@ function App() {
             {WORKSPACE_MODE_META[workspaceMode].description}
           </span>
         )}
-        {/* Save state */}
+        {/* Save state — text only; amber when the buffer holds work */}
         <span
-          className={`status-segment hidden sm:inline-flex ${isDirty ? 'text-warning' : 'text-muted-foreground/80'}`}
+          className={`status-segment hidden sm:inline-flex ${isDirty ? 'status-segment--warn' : 'text-muted-foreground/70'}`}
           title={isDirty ? 'Changes are held in the editor until the next save.' : 'Every change has been written to the project.'}
         >
-          <span
-            className={`inline-block h-1.5 w-1.5 rounded-full ${isDirty ? 'bg-warning cad-live-indicator' : 'bg-success'}`}
-            aria-hidden="true"
-          />
-          {isDirty ? 'Unsaved' : offlineMode ? 'Saved locally' : 'Saved'}
+          <span className="seg-label">{isDirty ? 'Unsaved' : offlineMode ? 'Saved locally' : 'Saved'}</span>
         </span>
         {/* Storage mode */}
         <span
-          className="status-segment hidden text-muted-foreground/70 lg:inline-flex"
+          className="status-segment hidden text-muted-foreground/60 lg:inline-flex"
           title={offlineMode
             ? 'No cloud backend configured: projects are stored on this device.'
             : 'Projects are synced to the configured cloud backend.'}
@@ -2229,15 +2218,15 @@ function App() {
           {offlineMode ? (
             <HardDrive className="h-3 w-3" aria-hidden="true" />
           ) : (
-            <Cloud className="h-3 w-3 text-info" aria-hidden="true" />
+            <Cloud className="h-3 w-3" aria-hidden="true" />
           )}
-          {offlineMode ? 'On device' : 'Cloud sync'}
+          <span className="seg-label">{offlineMode ? 'On device' : 'Cloud sync'}</span>
         </span>
         {/* Voice listening indicator */}
         {voiceListening && (
-          <span className="status-segment text-success">
+          <span className="status-segment status-segment--ok">
             <Mic className="h-3 w-3 cad-live-indicator" aria-hidden="true" />
-            <span>Listening</span>
+            <span className="seg-label">Listening</span>
           </span>
         )}
         {/* Usage sync error */}
@@ -2247,9 +2236,12 @@ function App() {
             role="status"
             title={`Usage sync error: ${usageMirrorError}`}
           >
-            <CloudOff className="h-3 w-3" aria-hidden="true" /> Usage not synced
+            <CloudOff className="h-3 w-3" aria-hidden="true" />
+            <span className="seg-label">Usage not synced</span>
           </span>
         )}
+        {/* Always-on agent activity (renders only while work is in flight) */}
+        <AgentStatusSegment onOpenAgents={() => useAppStore.getState().setWorkspaceMode('agents')} />
         {/* Security alerts */}
         {activeAlertCount > 0 && (
           <button
@@ -2257,10 +2249,10 @@ function App() {
             onClick={() => useAppStore.getState().setWorkspaceMode('siem')}
             title={`${activeAlertCount} active alert${activeAlertCount === 1 ? '' : 's'}${activeAlertSummary ? `: ${activeAlertSummary}` : ''}`}
             aria-label={`Open security alerts: ${activeAlertCount} active${activeAlertSummary ? ` - ${activeAlertSummary}` : ''}`}
-            className="status-segment text-destructive transition-colors hover:bg-accent/60 animate-pulse"
+            className="status-segment status-segment--crit animate-pulse"
           >
             <ShieldAlert className="h-3 w-3" aria-hidden="true" />
-            {activeAlertCount} alert{activeAlertCount !== 1 ? 's' : ''}
+            <span className="cad-readout">{activeAlertCount} alert{activeAlertCount !== 1 ? 's' : ''}</span>
           </button>
         )}
         {/* Limits register — right-aligned */}
@@ -2272,7 +2264,7 @@ function App() {
             className="status-segment ml-auto hidden border-l border-border/60 text-muted-foreground/70 transition-colors hover:bg-accent/60 hover:text-foreground sm:inline-flex"
           >
             <ScrollText className="h-3 w-3" aria-hidden="true" />
-            Limits
+            <span className="seg-label">Limits</span>
           </button>
         </HoverHelp>
       </footer>

@@ -240,10 +240,11 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
               <span className="launcher-eyebrow__dot" aria-hidden="true" />
               Multidomain engineering studio
             </p>
-            <h1 id="launcher-heading" className="launcher-title">From first sketch to verified build.</h1>
+            <h1 id="launcher-heading" className="launcher-title">From first sketch to <span className="hero-accent">verified build.</span></h1>
             <p className="launcher-lede">
               One connected project for electronics, mechanical design, simulation,
-              firmware and manufacturing — with engineering checks at every handoff.
+              firmware and manufacturing — with an always-on engineering agent and
+              verified checks at every handoff.
             </p>
 
             <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -287,6 +288,11 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
                 </Button>
               ) : null}
             </div>
+            <p className="launcher-kbd-hint" aria-hidden="true">
+              <kbd className="cad-kbd">{typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.platform) ? '⌘' : 'Ctrl'}</kbd>
+              <kbd className="cad-kbd">K</kbd>
+              <span>opens the command palette from anywhere in the workbench</span>
+            </p>
           </div>
 
           <div className="launcher-hero__visual" role="img" aria-label="Engineering disciplines connected through one shared product model">

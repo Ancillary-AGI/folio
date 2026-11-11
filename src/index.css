@@ -95,14 +95,12 @@
     --focus-halo: 0.38;
   }
 
-  /* Folio Dark: vivid glow effects are the visual language of this theme. */
+  /* Folio Dark — glow on, discipline up: one accent, no instruments glowing for fun. */
   [data-theme='folio-dark'] {
-    --panel-edge: 0.12;
-    --control-glow: 0.65;
+    --panel-edge: 0.08;
+    --control-glow: 0.55;
     --control-depth: 0.14;
-    --focus-halo: 0.45;
-    /* Neon-line accent hairlines at full brightness */
-    --chrome-neon-strength: 0.9;
+    --focus-halo: 0.55;
   }
 
   [data-theme='high-contrast'] {
@@ -346,8 +344,8 @@
     background: linear-gradient(
       90deg,
       transparent,
-      hsl(var(--family-accent, var(--primary)) / 0.85) 18%,
-      hsl(var(--family-accent, var(--primary)) / 0.85) 82%,
+      hsl(var(--primary) / 0.65) 22%,
+      hsl(var(--primary) / 0.65) 78%,
       transparent
     );
   }
@@ -364,7 +362,7 @@
    * like browser tabs: the open one is lifted out of the row.
    */
   .ws-family-row {
-    @apply flex h-10 w-full min-w-0 flex-shrink-0 items-center justify-between gap-2 border-b border-border/60 px-1.5;
+    @apply flex h-12 w-full min-w-0 flex-shrink-0 items-center justify-between gap-2 border-b border-border/60 px-1.5;
   }
 
   .ws-family-rail {
@@ -599,44 +597,6 @@
     box-shadow: inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
   }
 
-  /*
-   * The shell's one search door. A 32px glass field in the header, deliberately
-   * the widest control up there: the whole workbench (28 workspaces, 40 demos,
-   * document actions) is reachable by typing into it. It collapses to its icon
-   * below `lg`, where the header would otherwise clip the project name.
-   */
-  .shell-command {
-    @apply inline-flex h-8 w-[clamp(12rem,22vw,20rem)] min-w-0 flex-shrink items-center gap-2 rounded-lg border border-border/70 bg-background/40 px-2 text-[11px] text-muted-foreground outline-none transition-[border-color,background-color,box-shadow] duration-150;
-  }
-
-  .shell-command:hover {
-    @apply border-border bg-background/70 text-foreground;
-  }
-
-  .shell-command:focus-visible {
-    border-color: hsl(var(--ring));
-    box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
-  }
-
-  .shell-command__label {
-    @apply min-w-0 flex-1 truncate text-left;
-  }
-
-  .shell-command__key {
-    @apply flex flex-shrink-0 items-center gap-0.5;
-  }
-
-  @media (max-width: 1023px) {
-    .shell-command {
-      @apply w-8 justify-center px-0;
-    }
-
-    .shell-command__label,
-    .shell-command__key {
-      display: none;
-    }
-  }
-
   /* The document's save state, stated rather than implied by an asterisk. */
   .doc-state {
     @apply inline-flex flex-shrink-0 items-center gap-1.5 text-[11px] font-medium;
@@ -818,12 +778,16 @@
   }
 
   .launcher-hero__live {
-    @apply inline-flex items-center gap-1.5 text-[8px] tracking-[0.08em] text-success;
+    @apply inline-flex items-center gap-1.5 font-mono text-[8px] uppercase text-primary/85;
+    letter-spacing: 0.22em;
   }
 
   .launcher-hero__live > span {
-    @apply h-1.5 w-1.5 rounded-full bg-success;
-    box-shadow: 0 0 10px hsl(var(--success) / 0.65);
+    @apply h-1.5 w-1.5;
+    background: hsl(var(--primary));
+    border-radius: 1px;
+    transform: rotate(45deg);
+    box-shadow: 0 0 10px hsl(var(--primary) / 0.65);
   }
 
   .launcher-hero__diagram {
@@ -1811,14 +1775,8 @@
   }
 
   .cad-empty-sheet__card {
-    @apply pointer-events-auto flex w-full max-w-[24rem] flex-col items-center rounded-xl border border-border/70 bg-card/90 px-5 py-5 text-center;
-    box-shadow:
-      inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge)),
-      0 24px 48px -36px hsl(var(--shadow-color) / 1);
-    backdrop-filter: blur(14px);
-    /* The card arrives with the workspace, not on every empty re-render: one
-     * short rise, removed for readers who ask for less motion. */
-    animation: cad-empty-sheet-in 220ms ease-out both;
+    @apply pointer-events-auto flex w-full max-w-[26rem] flex-col items-center px-6 py-6 text-center;
+    animation: cad-empty-sheet-in 240ms ease-out both;
   }
 
   @keyframes cad-empty-sheet-in {
@@ -1832,23 +1790,16 @@
     }
   }
 
-  .cad-empty-sheet__mark {
-    @apply mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-primary/30 text-primary;
-    background:
-      radial-gradient(circle at 30% 25%, hsl(var(--primary) / 0.28), transparent 72%),
-      hsl(var(--surface) / 0.8);
-  }
-
-  .cad-empty-sheet__mark > svg {
-    @apply h-5 w-5;
-  }
-
   .cad-empty-sheet__eyebrow {
-    @apply text-[11px] font-medium tracking-[0.02em] text-muted-foreground;
+    @apply mt-4 text-[10px] font-medium uppercase text-muted-foreground;
+    letter-spacing: 0.28em;
+    font-family: 'JetBrains Mono', monospace;
   }
 
   .cad-empty-sheet__title {
-    @apply mt-1 text-base font-semibold tracking-[-0.01em] text-foreground;
+    @apply mt-1.5 text-xl font-extrabold text-foreground;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
   }
 
   .cad-empty-sheet__lede {
@@ -2757,547 +2708,6 @@
   color: inherit;
 }
 
-/* ── Futuristic Folio Dark — neon accent chrome ───────────────────────────
- * When the flagship dark theme is active, all primary surfaces get a hairline
- * neon edge glow, filled buttons fire a larger shadow, and the workspace nav
- * accent hairline is brighter. These rules are purely additive — the base
- * token system still drives every colour; these rules only tune *intensity*.
- */
-[data-theme='folio-dark'] .app-chrome {
-  box-shadow:
-    inset 0 1px 0 hsl(var(--foreground) / 0.15),
-    0 1px 0 hsl(var(--shadow-color) / 0.9),
-    0 12px 24px -16px hsl(var(--primary) / 0.18),
-    0 0 0 0.5px hsl(var(--primary) / 0.08);
-}
-
-[data-theme='folio-dark'] .cad-workspace-nav::after {
-  background: linear-gradient(
-    90deg,
-    transparent,
-    hsl(var(--primary) / 0.95) 18%,
-    hsl(var(--primary) / 0.95) 82%,
-    transparent
-  );
-  height: 1.5px;
-}
-
-[data-theme='folio-dark'] .cad-btn-primary {
-  box-shadow:
-    0 2px 16px -4px hsl(var(--primary) / 0.75),
-    0 0 0 0.5px hsl(var(--primary) / 0.3);
-}
-
-[data-theme='folio-dark'] .cad-btn-primary:hover:not(:disabled) {
-  box-shadow:
-    0 5px 24px -5px hsl(var(--primary) / 0.8),
-    0 0 0 1px hsl(var(--primary) / 0.4);
-}
-
-[data-theme='folio-dark'] .cad-rail-btn-active {
-  box-shadow:
-    0 0 0 1px hsl(var(--primary) / 0.5),
-    0 4px 16px -4px hsl(var(--primary) / 0.7);
-}
-
-[data-theme='folio-dark'] .ws-mode--active {
-  box-shadow: inset 0 -2px 0 hsl(var(--primary));
-}
-
-[data-theme='folio-dark'] .cad-tab-active {
-  box-shadow:
-    0 -3px 12px -6px hsl(var(--primary) / 0.7),
-    inset 0 0 0 0.5px hsl(var(--primary) / 0.2);
-}
-
-[data-theme='folio-dark'] .cad-dock,
-[data-theme='folio-dark'] .cad-inspector {
-  box-shadow:
-    inset 0 1px 0 hsl(var(--foreground) / 0.14),
-    4px 0 24px -8px hsl(var(--primary) / 0.12);
-}
-
-[data-theme='folio-dark'] .cad-panel {
-  box-shadow:
-    inset 0 1px 0 hsl(var(--primary) / 0.18),
-    0 -4px 20px -8px hsl(var(--primary) / 0.08);
-}
-
-[data-theme='folio-dark'] .launcher-hero {
-  box-shadow:
-    inset 0 1px 0 hsl(var(--primary) / 0.2),
-    0 30px 60px -48px hsl(var(--primary) / 0.4),
-    0 0 0 0.5px hsl(var(--primary) / 0.12);
-}
-
-[data-theme='folio-dark'] .family-tile:hover {
-  box-shadow:
-    0 14px 30px -20px hsl(var(--primary) / 0.5),
-    0 0 0 1px hsl(var(--family-accent, var(--primary)) / 0.4);
-}
-
-[data-theme='folio-dark'] .project-card:hover {
-  box-shadow:
-    0 0 0 1px hsl(var(--primary) / 0.35),
-    0 18px 36px -20px hsl(var(--primary) / 0.5);
-}
-
-[data-theme='folio-dark'] .cad-empty-sheet__card {
-  box-shadow:
-    inset 0 1px 0 hsl(var(--primary) / 0.2),
-    0 24px 48px -36px hsl(var(--primary) / 0.5),
-    0 0 0 0.5px hsl(var(--primary) / 0.15);
-}
-
-[data-theme='folio-dark'] .cad-empty-sheet__mark {
-  border-color: hsl(var(--primary) / 0.5);
-  background:
-    radial-gradient(circle at 30% 25%, hsl(var(--primary) / 0.4), transparent 72%),
-    hsl(var(--surface) / 0.8);
-  box-shadow: 0 0 24px -8px hsl(var(--primary) / 0.5);
-}
-
-[data-theme='folio-dark'] .status-bar {
-  box-shadow:
-    inset 0 1px 0 hsl(var(--primary) / 0.2),
-    0 -1px 0 hsl(var(--primary) / 0.08);
-}
-
-[data-theme='folio-dark'] .cad-glass-panel {
-  background-color: hsl(var(--card) / 0.82);
-  border-color: hsl(var(--primary) / 0.25);
-  box-shadow:
-    0 8px 40px -4px hsl(var(--primary) / 0.2),
-    0 0 0 0.5px hsl(var(--primary) / 0.18),
-    inset 0 1px 0 hsl(var(--primary) / 0.18);
-}
-
-[data-theme='folio-dark'] .workspace-stage {
-  background-image:
-    radial-gradient(140% 100% at 50% -10%, hsl(var(--primary) / 0.07), transparent 55%),
-    radial-gradient(80% 60% at 100% 110%, hsl(var(--chart-4) / 0.05), transparent 70%),
-    radial-gradient(70% 50% at 0% 100%, hsl(var(--chart-2) / 0.04), transparent 70%),
-    linear-gradient(hsl(var(--border) / 0.35) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(var(--border) / 0.35) 1px, transparent 1px),
-    linear-gradient(hsl(var(--grid-major) / 0.12) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(var(--grid-major) / 0.12) 1px, transparent 1px);
-  background-size:
-    100% 100%,
-    100% 100%,
-    100% 100%,
-    32px 32px,
-    32px 32px,
-    160px 160px,
-    160px 160px;
-  background-position:
-    center top, center bottom, center bottom, -1px -1px, -1px -1px, -1px -1px, -1px -1px;
-}
-
-/* ── Futuristic CAD Glassmorphism & Agentic HUD ───────────────────────────── */
-.cad-glass-panel {
-  background-color: hsl(var(--card) / 0.88);
-  backdrop-filter: blur(18px) saturate(170%);
-  -webkit-backdrop-filter: blur(18px) saturate(170%);
-  border: 1px solid hsl(var(--border) / 0.7);
-  box-shadow:
-    0 8px 32px -4px hsl(var(--shadow-color) / 0.4),
-    inset 0 1px 0 0 hsl(var(--foreground) / var(--panel-edge)),
-    inset 0 0 0 0.5px hsl(var(--primary) / 0.08);
-}
-
-.cad-glass-pill {
-  background-color: hsl(var(--card) / 0.88);
-  backdrop-filter: blur(14px) saturate(160%);
-  -webkit-backdrop-filter: blur(14px) saturate(160%);
-  border: 1px solid hsl(var(--border) / 0.8);
-  box-shadow: 0 4px 20px -2px hsl(var(--shadow-color) / 0.3);
-}
-
-/* ── Neon border animation for active AI/agent states ────────────────────── */
-.cad-neon-border {
-  position: relative;
-}
-
-.cad-neon-border::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(
-    135deg,
-    hsl(var(--primary)),
-    hsl(var(--chart-5)),
-    hsl(var(--primary))
-  );
-  background-size: 200% 200%;
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  animation: cad-neon-rotate 3s linear infinite;
-  pointer-events: none;
-}
-
-@keyframes cad-neon-rotate {
-  0% { background-position: 0% 0%; }
-  50% { background-position: 100% 100%; }
-  100% { background-position: 0% 0%; }
-}
-
-/* ── Agent activity ring — pulsing glow indicator ────────────────────────── */
-.cad-agent-ring {
-  position: relative;
-}
-
-.cad-agent-ring::after {
-  content: '';
-  position: absolute;
-  inset: -3px;
-  border-radius: inherit;
-  border: 1.5px solid hsl(var(--primary) / 0.6);
-  animation: cad-agent-ring-pulse 2s ease-in-out infinite;
-  pointer-events: none;
-}
-
-@keyframes cad-agent-ring-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(1.04); }
-}
-
-/* ── Live data sparkline animation ──────────────────────────────────────── */
-@keyframes cad-data-flash {
-  0% { opacity: 1; }
-  50% { opacity: 0.5; }
-  100% { opacity: 1; }
-}
-
-.cad-live-indicator {
-  animation: cad-data-flash 1.4s ease-in-out infinite;
-}
-
-/* ── Shimmer skeleton loader ─────────────────────────────────────────────── */
-.cad-shimmer {
-  background: linear-gradient(
-    90deg,
-    hsl(var(--muted)) 0%,
-    hsl(var(--accent)) 50%,
-    hsl(var(--muted)) 100%
-  );
-  background-size: 200% 100%;
-  animation: cad-shimmer 1.6s ease-in-out infinite;
-}
-
-@keyframes cad-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-/* ── Smooth panel slide-up for popovers ──────────────────────────────────── */
-@keyframes cad-slide-up {
-  from { opacity: 0; transform: translateY(8px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-.cad-popover-enter {
-  animation: cad-slide-up 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-/* ── Status dot pulse (connected/live/syncing) ───────────────────────────── */
-@keyframes cad-dot-ping {
-  0% { transform: scale(1); opacity: 1; }
-  60% { transform: scale(1.9); opacity: 0; }
-  100% { transform: scale(1.9); opacity: 0; }
-}
-
-.cad-dot-live {
-  position: relative;
-}
-
-.cad-dot-live::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: 9999px;
-  background: hsl(var(--success));
-  animation: cad-dot-ping 1.8s ease-out infinite;
-  pointer-events: none;
-}
-
-/* ── Folio Header: refined pill title badge ──────────────────────────────── */
-.folio-mode-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  height: 1.375rem;
-  padding: 0 0.5rem;
-  border-radius: 0.375rem;
-  border: 1px solid hsl(var(--border) / 0.8);
-  background: hsl(var(--surface) / 0.6);
-  font-size: 0.6875rem;
-  font-weight: 500;
-  color: hsl(var(--muted-foreground));
-  transition: border-color 150ms ease, background-color 150ms ease;
-  backdrop-filter: blur(4px);
-}
-
-.folio-mode-badge:hover {
-  border-color: hsl(var(--primary) / 0.4);
-  background: hsl(var(--accent) / 0.7);
-  color: hsl(var(--foreground));
-}
-
-/* ── Workspace nav: improved family chip with icon hover glow ────────────── */
-.ws-family:hover .ws-family__icon {
-  filter: drop-shadow(0 0 4px hsl(var(--family-accent, var(--primary)) / 0.6));
-}
-
-.ws-family--active .ws-family__icon {
-  filter: drop-shadow(0 0 6px hsl(var(--family-accent, var(--primary)) / 0.8));
-}
-
-/* ── Folio Dark: animated top spectrum bar ────────────────────────────────── */
-[data-theme='folio-dark'] .app-shell::before {
-  background: linear-gradient(
-    90deg,
-    hsl(var(--chart-1)) 0%,
-    hsl(var(--chart-5)) 25%,
-    hsl(var(--chart-2)) 50%,
-    hsl(var(--chart-4)) 75%,
-    hsl(var(--chart-1)) 100%
-  );
-  background-size: 200% 100%;
-  animation: folio-spectrum 8s linear infinite;
-  height: 2px;
-  opacity: 0.9;
-}
-
-@keyframes folio-spectrum {
-  0% { background-position: 0% 0; }
-  100% { background-position: 200% 0; }
-}
-
-/* ── Improved scrollbar for folio-dark (barely visible rail) ─────────────── */
-[data-theme='folio-dark'] * {
-  scrollbar-color: hsl(var(--primary) / 0.25) transparent;
-}
-
-[data-theme='folio-dark'] *::-webkit-scrollbar-thumb {
-  background-color: hsl(var(--primary) / 0.25);
-}
-
-[data-theme='folio-dark'] *::-webkit-scrollbar-thumb:hover {
-  background-color: hsl(var(--primary) / 0.5);
-}
-
-[data-theme='folio-dark'] *::-webkit-scrollbar-thumb:active {
-  background-color: hsl(var(--primary) / 0.8);
-}
-
-/* ── Mode pill: improved active indicator with underline glow ────────────── */
-[data-theme='folio-dark'] .ws-mode--active::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 70%;
-  height: 1px;
-  background: hsl(var(--family-accent, var(--primary)));
-  box-shadow: 0 0 8px hsl(var(--family-accent, var(--primary)) / 0.8);
-  pointer-events: none;
-}
-
-/* ── CAD omnibar: command bar in header ──────────────────────────────────── */
-.shell-command-pill {
-  display: inline-flex;
-  height: 2rem;
-  min-width: 0;
-  flex-shrink: 1;
-  align-items: center;
-  gap: 0.5rem;
-  border-radius: 9999px;
-  border: 1px solid hsl(var(--border) / 0.7);
-  background: hsl(var(--background) / 0.5);
-  padding: 0 0.625rem;
-  font-size: 0.6875rem;
-  color: hsl(var(--muted-foreground));
-  outline: none;
-  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
-  backdrop-filter: blur(8px);
-  cursor: text;
-  width: clamp(10rem, 24vw, 22rem);
-}
-
-.shell-command-pill:hover {
-  border-color: hsl(var(--border));
-  background: hsl(var(--background) / 0.75);
-  color: hsl(var(--foreground));
-}
-
-.shell-command-pill:focus-visible {
-  border-color: hsl(var(--ring));
-  box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
-}
-
-[data-theme='folio-dark'] .shell-command-pill {
-  border-color: hsl(var(--primary) / 0.2);
-  background: hsl(var(--background) / 0.6);
-}
-
-[data-theme='folio-dark'] .shell-command-pill:hover {
-  border-color: hsl(var(--primary) / 0.5);
-  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.15), 0 4px 16px -4px hsl(var(--primary) / 0.2);
-}
-
-@media (max-width: 1023px) {
-  .shell-command-pill {
-    width: 2rem;
-    justify-content: center;
-    padding: 0;
-    border-radius: 0.5rem;
-  }
-
-  .shell-command-pill .shell-command__label,
-  .shell-command-pill .shell-command__key {
-    display: none;
-  }
-}
-
-/* ── Improved HUD floating bar ───────────────────────────────────────────── */
-.cad-hud-pill {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  border-radius: 9999px;
-  border: 1px solid hsl(var(--border) / 0.7);
-  background: hsl(var(--surface) / 0.9);
-  backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
-  box-shadow:
-    0 4px 24px -4px hsl(var(--shadow-color) / 0.4),
-    inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
-  overflow: hidden;
-}
-
-[data-theme='folio-dark'] .cad-hud-pill {
-  border-color: hsl(var(--primary) / 0.25);
-  box-shadow:
-    0 4px 32px -4px hsl(var(--primary) / 0.25),
-    0 0 0 0.5px hsl(var(--primary) / 0.12),
-    inset 0 1px 0 hsl(var(--primary) / 0.15);
-}
-
-/* ── Context menu: improved floating panel ───────────────────────────────── */
-.cad-context-menu {
-  animation: cad-slide-up 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  box-shadow:
-    0 12px 36px -8px hsl(var(--shadow-color) / 0.5),
-    0 0 0 1px hsl(var(--border) / 0.6),
-    inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
-}
-
-/* ── Improved active tab: lifted card treatment ──────────────────────────── */
-.ws-mode--active {
-  position: relative;
-}
-
-/* ── Folio: clean separator in workbench ─────────────────────────────────── */
-.folio-sep {
-  width: 1px;
-  height: 1.25rem;
-  background: hsl(var(--border));
-  flex-shrink: 0;
-  margin: 0 0.25rem;
-}
-
-[data-theme='folio-dark'] .folio-sep {
-  background: hsl(var(--primary) / 0.2);
-}
-
-/* ── Smooth workspace transition ─────────────────────────────────────────── */
-.workspace-transition {
-  animation: cad-slide-up 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-/* ── Design health panel: improved header bar ────────────────────────────── */
-[data-theme='folio-dark'] .cad-panel__bar {
-  background: linear-gradient(
-    90deg,
-    hsl(var(--surface)),
-    hsl(var(--primary) / 0.04)
-  );
-}
-
-[data-theme='folio-dark'] .cad-panel__tab[aria-selected='true'] {
-  color: hsl(var(--primary));
-  border-bottom-color: hsl(var(--primary));
-}
-
-/* ── Library dock: improved row armed state ──────────────────────────────── */
-[data-theme='folio-dark'] .cad-lib-row-armed::before {
-  box-shadow: 0 0 12px 1px hsl(var(--primary) / 0.5);
-}
-
-/* ── Tool rail: improved active button ───────────────────────────────────── */
-[data-theme='folio-dark'] .cad-ctl--active {
-  border-color: hsl(var(--primary) / 0.6);
-  box-shadow: 0 0 12px -4px hsl(var(--primary) / 0.5);
-}
-
-[data-theme='folio-dark'] .cad-ctl--primary {
-  border-color: hsl(var(--primary) / 0.5);
-  box-shadow: 0 0 10px -4px hsl(var(--primary) / 0.4);
-}
-
-.cad-hud-floating {
-  position: absolute;
-  z-index: 25;
-  pointer-events: auto;
-  border-radius: var(--radius);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.cad-glow-badge {
-  position: relative;
-  overflow: hidden;
-}
-
-.cad-glow-badge::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  background: radial-gradient(circle at 50% 50%, hsl(var(--primary) / 0.25), transparent 70%);
-  pointer-events: none;
-}
-
-.cad-agent-pulse {
-  animation: cad-pulse-glow 2.5s infinite ease-in-out;
-}
-
-@keyframes cad-pulse-glow {
-  0%, 100% {
-    box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
-  }
-  50% {
-    box-shadow: 0 0 16px 2px hsl(var(--primary) / 0.35);
-  }
-}
-
-.cad-split-divider {
-  width: 4px;
-  background: hsl(var(--border));
-  cursor: col-resize;
-  transition: background 0.15s ease;
-  position: relative;
-  z-index: 20;
-}
-
-.cad-split-divider:hover,
-.cad-split-divider:active {
-  background: hsl(var(--primary));
-  box-shadow: 0 0 8px hsl(var(--primary) / 0.5);
-}
-
 /* ── Forced colours (Windows High Contrast, "always use high contrast") ─────
  * The OS reassigns colour, background, border and SVG fill/stroke, which
  * silently deletes two things this shell leans on: a box-shadow focus ring,
@@ -3339,5 +2749,840 @@
 
   * {
     scrollbar-color: ButtonText ButtonFace;
+  }
+}
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Folio — "Obsidian Forge" (the only themed shell, 2026)
+ *
+ * Art direction, set by a design studio and enforced by the contrast contract:
+ *
+ *   · ONE signature accent. Molten amber — the colour of copper being poured.
+ *     Everything else is layered obsidian: blue-black surfaces, warm-grey
+ *     graphite lines, warm-white type. No second accent, no decorative hues.
+ *   · Chamfered geometry, not radii. Panels, the palette, dialogs and the HUD
+ *     carry clipped corners; buttons and chips keep a single 8px radius, so
+ *     "designed" reads as a system, never as a suggestion.
+ *   · Instrument tape, not badges. The status bar is a flight-deck readout:
+ *     micro-caps labels, tabular mono values, colour only when a value means
+ *     something (severity), never as decoration.
+ *   · Corner ticks, one hairline. Active surfaces carry four L-ticks — the
+ *     crosshair language of optical instruments — and exactly one amber
+ *     hairline glows: the active workspace's underline. Everything else
+ *     stays off until the pointer or keyboard focuses it.
+ *   · Reduced motion / transparency and high contrast exits everywhere.
+ *
+ * Token-backed only. Anything colour-bearing here is a token.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Geometry ──────────────────────────────────────────────────────────────── */
+.chamfer {
+  clip-path: polygon(0 10px, 10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+}
+
+.chamfer-sm {
+  clip-path: polygon(0 7px, 7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%);
+}
+
+/* Micro-caps instrument label: the voice of the deck. */
+.instrument-label,
+.seg-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground) / 0.72);
+  white-space: nowrap;
+}
+
+/* ── The command bar — the one lit object on the deck ─────────────────────── */
+.agent-orb {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  width: var(--orb-size, 18px);
+  height: var(--orb-size, 18px);
+  overflow: hidden;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 34% 30%, #ffe9b0 0%, #f5b53c 32%, #d97a12 62%, #5c2e05 100%);
+  box-shadow:
+    0 0 12px -2px hsl(var(--primary) / 0.7),
+    inset 0 0 6px hsl(30 60% 4%);
+}
+
+.agent-orb::before {
+  content: '';
+  position: absolute;
+  inset: -45%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg 40deg,
+    hsl(39 100% 62% / 0.9) 60deg 84deg,
+    transparent 110deg 200deg,
+    hsl(48 100% 78% / 0.85) 224deg 258deg,
+    transparent 282deg 360deg
+  );
+  animation: orb-drift 7s linear infinite;
+}
+
+.agent-orb::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: inherit;
+  background: radial-gradient(circle at 34% 30%, hsl(0 0% 100% / 0.75) 0%, transparent 44%);
+}
+
+@keyframes orb-drift {
+  to { transform: rotate(360deg); }
+}
+
+.shell-command-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: clamp(15rem, 30vw, 27rem);
+  height: 2.5rem;
+  min-width: 0;
+  flex-shrink: 1;
+  padding: 0 0.75rem 0 0.375rem;
+  font-size: 0.6875rem;
+  color: hsl(var(--muted-foreground));
+  outline: none;
+  cursor: text;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-radius: 0.75rem;
+  background:
+    linear-gradient(hsl(var(--surface) / 0.88), hsl(var(--surface) / 0.88)) padding-box,
+    linear-gradient(100deg,
+      hsl(var(--primary) / 0.75) 0%,
+      hsl(228 18% 30% / 0.6) 30%,
+      hsl(228 18% 30% / 0.6) 70%,
+      hsl(var(--primary) / 0.75) 100%) border-box;
+  border: 1px solid transparent;
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.12),
+    0 10px 34px -18px hsl(var(--primary) / 0.55),
+    inset 0 1px 0 hsl(0 0% 100% / 0.06);
+  transition: box-shadow 180ms ease, color 180ms ease;
+}
+
+.shell-command-pill:hover {
+  color: hsl(var(--foreground));
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.4),
+    0 0 28px -6px hsl(var(--primary) / 0.5),
+    0 14px 40px -18px hsl(var(--primary) / 0.65),
+    inset 0 1px 0 hsl(0 0% 100% / 0.08);
+}
+
+.shell-command-pill:focus-visible {
+  color: hsl(var(--foreground));
+  box-shadow:
+    0 0 0 2px hsl(var(--ring)),
+    0 0 32px -6px hsl(var(--primary) / 0.6),
+    inset 0 1px 0 hsl(0 0% 100% / 0.08);
+}
+
+/* A single specular sweep crossing the glass every few seconds. */
+.shell-command-pill__sheen {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.shell-command-pill__sheen::after {
+  content: '';
+  position: absolute;
+  top: -30%;
+  bottom: -30%;
+  width: 32%;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    hsl(48 100% 88% / 0.05) 42%,
+    hsl(48 100% 88% / 0.22) 50%,
+    hsl(48 100% 88% / 0.05) 58%,
+    transparent 100%
+  );
+  transform: translateX(-170%) skewX(-16deg);
+  animation: shell-sheen 6s cubic-bezier(0.35, 0, 0.2, 1) infinite;
+}
+
+@keyframes shell-sheen {
+  0%, 74% { transform: translateX(-170%) skewX(-16deg); }
+  100% { transform: translateX(520%) skewX(-16deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-command-pill__sheen::after,
+  .agent-orb::before { animation: none; }
+}
+
+@media (max-width: 1023px) {
+  .shell-command-pill {
+    width: 2.5rem;
+    justify-content: center;
+    padding: 0;
+    border-radius: 0.625rem;
+  }
+
+  .shell-command-pill .shell-command__label,
+  .shell-command-pill .shell-command__key,
+  .shell-command-pill__sheen { display: none; }
+}
+
+/* ── IDE header — a rail of glass, one lit hairline beneath it ─────────────── */
+.ide-header {
+  position: relative;
+  background: linear-gradient(180deg, hsl(var(--surface) / 0.94), hsl(var(--surface) / 0.8));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.ide-header::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: -1px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    hsl(var(--primary) / 0.5) 22%,
+    hsl(48 95% 62% / 0.65) 50%,
+    hsl(var(--primary) / 0.5) 78%,
+    transparent 100%
+  );
+  opacity: 0.7;
+}
+
+[data-theme='high-contrast'] .ide-header::after { display: none; }
+@media (forced-colors: active) { .ide-header::after { display: none; } }
+
+/* ── Workspace nav — a dial, not a ribbon ─────────────────────────────────── */
+.ws-family-rail {
+  gap: 0.25rem;
+}
+
+.ws-family {
+  flex-direction: column;
+  height: 2.75rem;
+  min-width: 4.5rem;
+  gap: 0.125rem;
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 8.5px;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground) / 0.85);
+  transition: color 160ms ease, transform 160ms ease, background-color 160ms ease;
+}
+
+.ws-family:hover {
+  background: hsl(var(--accent) / 0.6);
+  border-color: transparent;
+  color: hsl(var(--foreground));
+  transform: translateY(-1px);
+}
+
+.ws-family--active {
+  background: hsl(var(--primary) / 0.09);
+  border-color: transparent;
+  color: hsl(var(--foreground));
+  box-shadow: none;
+}
+
+.ws-family--active::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0.75rem;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: linear-gradient(90deg, transparent, hsl(var(--primary)), transparent);
+  box-shadow: 0 0 12px 0 hsl(var(--primary) / 0.6);
+}
+
+.ws-family__icon {
+  height: 1.125rem;
+  width: 1.125rem;
+  color: hsl(var(--muted-foreground) / 0.8);
+  opacity: 1;
+  transition: color 160ms ease, transform 160ms ease, filter 160ms ease;
+}
+
+.ws-family:hover .ws-family__icon {
+  color: hsl(var(--primary));
+  opacity: 1;
+  filter: none;
+  transform: translateY(-1px);
+}
+
+.ws-family--active .ws-family__icon {
+  color: hsl(var(--primary));
+  opacity: 1;
+  filter: drop-shadow(0 0 6px hsl(var(--primary) / 0.55));
+}
+
+.ws-family__label {
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+
+.ws-family__count {
+  margin-left: 0;
+  border-radius: 0;
+  background: none;
+  padding: 0;
+  font-size: 8.5px;
+  color: hsl(var(--primary) / 0.8);
+}
+
+.ws-family--active:focus-visible {
+  box-shadow: none;
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+}
+
+/* Mode rail — chamfered tabs; one amber underline, nothing else */
+.ws-mode {
+  height: 2rem;
+  margin-block: 0.25rem;
+  border-radius: 0.375rem;
+  border: 1px solid transparent;
+  padding-inline: 0.625rem;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+
+.ws-mode__icon {
+  opacity: 0.55;
+}
+
+.ws-mode:hover {
+  background: hsl(var(--accent) / 0.55);
+  border-color: transparent;
+  color: hsl(var(--foreground));
+}
+
+.ws-mode--active,
+[data-theme='folio-dark'] .ws-mode--active {
+  position: relative;
+  background: hsl(var(--primary) / 0.1);
+  border-color: transparent;
+  color: hsl(var(--foreground));
+  box-shadow: none;
+}
+
+.ws-mode--active::after,
+[data-theme='folio-dark'] .ws-mode--active::after {
+  display: block;
+  content: '';
+  position: absolute;
+  inset-inline: 0.5rem;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: hsl(var(--primary));
+  box-shadow: 0 0 10px hsl(var(--primary) / 0.55);
+}
+
+.ws-mode--active .ws-mode__icon {
+  opacity: 1;
+  color: hsl(var(--primary));
+}
+
+/* The Demos / Guide buttons — flat, bordered, hover-to-ignite */
+.cad-ctl--primary {
+  border-color: hsl(var(--primary) / 0.5);
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.08);
+}
+
+.cad-ctl--primary:hover {
+  background: hsl(var(--primary) / 0.16);
+  color: hsl(var(--primary));
+  box-shadow: 0 0 16px -6px hsl(var(--primary) / 0.5);
+}
+
+/* ── Tool rail — big targets, lit-switch active state ─────────────────────── */
+.cad-rail {
+  width: 3.25rem;
+  background: linear-gradient(180deg, hsl(var(--surface) / 0.92), hsl(var(--surface) / 0.75));
+  border-right: 1px solid hsl(var(--border) / 0.7);
+  box-shadow: none;
+}
+
+.cad-rail-btn {
+  height: 2.75rem;
+  width: 2.75rem;
+  border-radius: 0.625rem;
+  color: hsl(var(--muted-foreground) / 0.9);
+  transition: color 140ms ease, background-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.cad-rail-btn:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--accent) / 0.6);
+  transform: translateY(-1px);
+}
+
+.cad-rail-btn-active,
+[data-theme='folio-dark'] .cad-rail-btn-active {
+  background: linear-gradient(165deg, #ffc233 0%, #f59e0b 55%, #d97706 100%);
+  color: #221300;
+  box-shadow:
+    0 0 0 1px hsl(48 100% 70% / 0.6),
+    0 6px 22px -6px hsl(var(--primary) / 0.75),
+    inset 0 1px 0 hsl(0 0% 100% / 0.45);
+}
+
+.cad-rail-btn-active:hover {
+  color: #221300;
+  transform: none;
+}
+
+.cad-rail-btn-active .cad-rail-key {
+  color: hsl(30 60% 12% / 0.85);
+}
+
+.cad-rail-sep {
+  background: hsl(var(--border) / 0.8);
+  width: 1.25rem;
+}
+
+/* ── Status bar — the instrument tape ─────────────────────────────────────── */
+.status-bar {
+  height: 1.75rem;
+  background: hsl(var(--surface) / 0.85);
+  border-top: 1px solid hsl(var(--border) / 0.75);
+  box-shadow: none;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.status-segment {
+  gap: 0.375rem;
+  border-right: 1px solid hsl(var(--border) / 0.5);
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  padding-inline: 0.75rem;
+}
+
+.status-segment:hover {
+  background: hsl(var(--accent) / 0.5);
+  color: hsl(var(--foreground));
+}
+
+.status-segment .cad-readout {
+  color: hsl(var(--foreground) / 0.92);
+}
+
+.status-segment--ok { color: hsl(var(--success)); }
+.status-segment--warn { color: hsl(var(--warning)); }
+.status-segment--crit { color: hsl(var(--destructive)); }
+.status-segment--ok .cad-readout { color: hsl(var(--success)); }
+.status-segment--warn .cad-readout { color: hsl(var(--warning)); }
+.status-segment--crit .cad-readout { color: hsl(var(--destructive)); }
+.status-segment--live { color: hsl(var(--primary)); }
+
+/* Right-aligned cell that ends the tape. */
+.status-segment:last-child { border-right: 0; }
+
+/* ── HUD — one machined obsidian capsule over the sheet ───────────────────── */
+.cad-glass-pill,
+.cad-glass-panel {
+  background: hsl(var(--card) / 0.86);
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  border: 1px solid hsl(var(--border) / 0.85);
+  box-shadow:
+    0 16px 44px -18px hsl(var(--shadow-color) / 0.9),
+    inset 0 1px 0 hsl(0 0% 100% / 0.06);
+}
+
+.cad-hud-pill {
+  border-radius: 0.875rem;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(hsl(var(--card) / 0.92), hsl(var(--card) / 0.92)) padding-box,
+    linear-gradient(110deg, hsl(var(--primary) / 0.55), hsl(228 18% 26% / 0.85) 35%, hsl(228 18% 26% / 0.85) 65%, hsl(var(--primary) / 0.55)) border-box;
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  box-shadow: 0 18px 50px -14px hsl(0 0% 0% / 0.85), 0 0 26px -12px hsl(var(--primary) / 0.5);
+}
+
+.cad-hud-pill::after { display: none; }
+
+/* ── Empty sheet — the radar that waits for the first part ───────────────── */
+.cad-empty-sheet__card {
+  clip-path: polygon(0 14px, 14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%);
+  background: linear-gradient(180deg, hsl(var(--surface) / 0.72), hsl(var(--surface) / 0.45));
+  border: none;
+  box-shadow: none;
+  backdrop-filter: blur(6px);
+}
+
+.empty-radar {
+  position: relative;
+  display: flex;
+  height: 11rem;
+  width: 11rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1px solid hsl(var(--primary) / 0.28);
+  background:
+    radial-gradient(circle, transparent 0 55%, hsl(var(--primary) / 0.06) 100%);
+  overflow: hidden;
+}
+
+.empty-radar::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: conic-gradient(from 0deg,
+    transparent 0deg,
+    hsl(var(--primary) / 0.0) 285deg,
+    hsl(var(--primary) / 0.35) 330deg,
+    hsl(48 100% 72% / 0.7) 355deg,
+    transparent 360deg);
+  animation: radar-sweep 7s linear infinite;
+}
+
+.empty-radar::after {
+  content: '';
+  position: absolute;
+  inset: 18%;
+  border-radius: inherit;
+  border: 1px dashed hsl(var(--primary) / 0.3);
+}
+
+.empty-radar__mark {
+  position: relative;
+  z-index: 1;
+  color: hsl(var(--primary));
+  filter: drop-shadow(0 0 18px hsl(var(--primary) / 0.45));
+}
+
+@keyframes radar-sweep {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .empty-radar::before { animation: none; opacity: 0.4; }
+}
+
+/* ── Launcher hero — the cover, not the foyer ─────────────────────────────── */
+.launcher-shell {
+  background: hsl(var(--background));
+}
+
+.launcher-hero {
+  background:
+    radial-gradient(110% 80% at 50% -30%, hsl(var(--primary) / 0.1), transparent 55%),
+    radial-gradient(70% 55% at 88% 108%, hsl(24 80% 40% / 0.08), transparent 60%),
+    linear-gradient(hsl(var(--border) / 0.33) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--border) / 0.33) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 44px 44px, 44px 44px;
+}
+
+.launcher-title,
+[data-theme='folio-dark'] .launcher-title {
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+  background-image: none;
+  color: hsl(var(--foreground));
+  -webkit-text-fill-color: currentColor;
+}
+
+.hero-accent {
+  color: hsl(var(--primary));
+}
+
+.launcher-eyebrow {
+  color: hsl(var(--primary));
+  letter-spacing: 0.28em;
+}
+
+.launcher-eyebrow__dot {
+  background: hsl(var(--primary));
+  border-radius: 2px;
+  transform: rotate(45deg);
+  box-shadow: 0 0 10px hsl(var(--primary) / 0.6);
+}
+
+.launcher-search {
+  border-radius: 0.625rem;
+  border-color: hsl(var(--border) / 0.9);
+  background: hsl(var(--surface) / 0.65);
+}
+
+.launcher-kbd-hint {
+  color: hsl(var(--muted-foreground) / 0.75);
+}
+
+.family-tile {
+  border-radius: 0.625rem;
+  border: 1px solid hsl(var(--border) / 0.75);
+  background: linear-gradient(180deg, hsl(var(--surface) / 0.75), hsl(var(--surface) / 0.45));
+}
+
+.family-tile::before {
+  background: linear-gradient(90deg, hsl(var(--primary) / 0), hsl(var(--primary) / 0.85), hsl(var(--primary) / 0));
+  height: 1px;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.family-tile:hover {
+  transform: translateY(-2px);
+  border-color: hsl(var(--primary) / 0.45);
+  background: linear-gradient(180deg, hsl(var(--primary) / 0.09), hsl(var(--surface) / 0.5));
+  box-shadow: 0 18px 40px -22px hsl(var(--primary) / 0.4);
+}
+
+.family-tile:hover::before { opacity: 1; }
+.family-tile:hover .family-tile__icon { color: hsl(var(--primary)); }
+
+.project-card {
+  border-radius: 0.75rem;
+}
+
+.project-card:hover {
+  border-color: hsl(var(--primary) / 0.45);
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.25),
+    0 20px 44px -24px hsl(var(--primary) / 0.45);
+}
+
+/* ── Dialogs & palette — chamfered frames, deep scrims ───────────────────── */
+.modal-scrim {
+  background: hsl(var(--overlay) / 0.82);
+  backdrop-filter: blur(10px) saturate(0.8);
+  -webkit-backdrop-filter: blur(10px) saturate(0.8);
+}
+
+/* Dialogs and the palette keep their elevation: clip-path would amputate the
+ * drop shadow that separates them from the scrim, so large surfaces stay
+ * rounded and loud, chamfers stay small. */
+.cad-panel-shell,
+.app-panel.animate-rise-in {
+  border-radius: 1rem;
+  border: 1px solid hsl(var(--primary) / 0.3);
+  box-shadow:
+    0 34px 90px -22px hsl(0 0% 0% / 0.9),
+    0 0 0 1px hsl(var(--shadow-color) / 0.6),
+    0 0 55px -18px hsl(var(--primary) / 0.35),
+    inset 0 1px 0 hsl(0 0% 100% / 0.07);
+}
+
+/* Command palette rows — one amber tick marks the cursor row (attribute-driven,
+ * so no component owns a "row-active" class it might drift from) */
+li[role='option'] > button[data-active='true'] {
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--foreground));
+  box-shadow: inset 2px 0 0 hsl(var(--primary));
+}
+
+li[role='option'] > button[data-active='true'] > span:nth-child(2) {
+  color: hsl(var(--foreground));
+}
+
+.cad-search:focus-within {
+  border-color: hsl(var(--primary) / 0.5);
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.45),
+    0 0 34px -8px hsl(var(--primary) / 0.4);
+}
+
+/* ── Buttons — one radius, one gesture ───────────────────────────────────── */
+[data-theme='folio-dark'] .cad-btn-primary {
+  background-image: linear-gradient(180deg,
+    hsl(48 100% 66%) 0%,
+    hsl(39 100% 58%) 42%,
+    hsl(33 95% 47%) 100%);
+  color: #231300;
+  box-shadow:
+    0 0 0 1px hsl(48 100% 70% / 0.5),
+    0 10px 30px -10px hsl(var(--primary) / 0.75),
+    inset 0 1px 0 hsl(0 0% 100% / 0.5);
+}
+
+[data-theme='folio-dark'] .cad-btn-primary:hover:not(:disabled) {
+  box-shadow:
+    0 0 0 1px hsl(48 100% 72% / 0.65),
+    0 12px 38px -10px hsl(var(--primary) / 0.85),
+    inset 0 1px 0 hsl(0 0% 100% / 0.6);
+}
+
+/* ── Agent pill — appears only when something is burning ─────────────────── */
+.agent-pill {
+  border-radius: 0.375rem;
+  border: 1px solid hsl(var(--primary) / 0.45);
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.08em;
+  clip-path: none;
+}
+
+.agent-pill:hover {
+  background: hsl(var(--primary) / 0.18);
+  box-shadow: 0 0 18px -6px hsl(var(--primary) / 0.6);
+}
+
+/* ── Scrollbars — graphite, igniting to amber ─────────────────────────────── */
+[data-theme='folio-dark'] {
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+
+[data-theme='folio-dark'] *::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+[data-theme='folio-dark'] *::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--border));
+  border-radius: 8px;
+}
+
+[data-theme='folio-dark'] *::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--primary) / 0.45);
+}
+
+[data-theme='folio-dark'] *::-webkit-scrollbar-thumb:active {
+  background-color: hsl(var(--primary) / 0.7);
+}
+
+/* ── Mode badge — instrument chip, one mono line ─────────────────────────── */
+.folio-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.25rem;
+  padding: 0 0.5rem;
+  border-radius: 0.25rem;
+  border: 1px solid hsl(var(--border) / 0.9);
+  background: hsl(var(--surface) / 0.55);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+  transition: border-color 150ms ease, color 150ms ease;
+}
+
+.folio-mode-badge:hover {
+  border-color: hsl(var(--primary) / 0.45);
+  color: hsl(var(--foreground));
+}
+
+/* ── Companions carried forward: pulses, loading, popovers, the split seam ── */
+.cad-agent-ring {
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.6),
+    0 0 20px -4px hsl(var(--primary) / 0.65);
+}
+
+.cad-live-indicator {
+  animation: cad-live-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes cad-live-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.cad-shimmer {
+  background: linear-gradient(90deg, hsl(var(--muted)) 0%, hsl(var(--accent) / 0.8) 50%, hsl(var(--muted)) 100%);
+  background-size: 200% 100%;
+  animation: cad-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes cad-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.cad-popover-enter {
+  animation: cad-slide-up 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes cad-slide-up {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+.cad-split-divider {
+  width: 6px;
+  background: linear-gradient(180deg, transparent, hsl(var(--border)) 20%, hsl(var(--border)) 80%, transparent);
+  cursor: col-resize;
+  transition: background 160ms ease, box-shadow 160ms ease;
+  position: relative;
+  z-index: 20;
+}
+
+.cad-split-divider:hover,
+.cad-split-divider:active {
+  background: hsl(var(--primary) / 0.55);
+  box-shadow: 0 0 14px hsl(var(--primary) / 0.4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cad-live-indicator,
+  .cad-shimmer,
+  .cad-popover-enter { animation: none; }
+}
+
+/* ── folio-dark flag tune — glow down, discipline up ─────────────────────── */
+[data-theme='folio-dark'] .app-chrome {
+  box-shadow:
+    inset 0 1px 0 hsl(0 0% 100% / 0.05),
+    0 1px 0 hsl(var(--shadow-color) / 0.9),
+    0 14px 30px -22px hsl(var(--shadow-color) / 1);
+}
+
+/* ── Forced colours — the OS owns every surface ───────────────────────────── */
+[data-theme='high-contrast'] .ws-family--active,
+[data-theme='high-contrast'] .ws-mode--active {
+  border: 1px solid hsl(var(--foreground));
+  box-shadow: none;
+}
+
+[data-theme='high-contrast'] .ws-mode--active::after,
+[data-theme='high-contrast'] .ws-family--active::after {
+  display: none;
+}
+
+@media (forced-colors: active) {
+  .shell-command-pill__sheen, .empty-radar::before {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .shell-command-pill,
+  .cad-glass-pill,
+  .cad-glass-panel,
+  .status-bar,
+  .ide-header {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: hsl(var(--surface));
   }
 }

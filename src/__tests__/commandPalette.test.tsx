@@ -90,10 +90,11 @@ describe('CommandPalette', () => {
     renderPalette()
 
     expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument()
-    // Every workspace, every demo scenario, plus the eight actions: help,
+    // Every workspace, every demo scenario, plus the fourteen actions: help,
     // shortcuts, settings, gallery, capabilities and limits, save, design
-    // health, theme.
-    expect(screen.getAllByRole('option')).toHaveLength(WORKSPACE_MODES.length + DEMO_SCENARIOS.length + 8)
+    // health, theme, design assistant, and the five viewport verbs (dual split,
+    // board+3D split, floating 3D, single view, fit).
+    expect(screen.getAllByRole('option')).toHaveLength(WORKSPACE_MODES.length + DEMO_SCENARIOS.length + 14)
     expect(screen.getByRole('combobox')).toBeInTheDocument()
   })
 

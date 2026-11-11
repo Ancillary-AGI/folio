@@ -41,7 +41,7 @@ describe('AIChatPanel', () => {
     render(<AIChatPanel onClose={() => {}} />)
     expect(screen.getByText('Design assistant')).toBeInTheDocument()
     expect(screen.getByText(/I'm Folio's design assistant/)).toBeInTheDocument()
-    expect(screen.getByText('Copilot')).toBeInTheDocument()
+    expect(screen.getByText('Agent')).toBeInTheDocument()
     expect(screen.getByText(/Suggestions are advisory/)).toBeInTheDocument()
     for (const action of ['Analyze circuit', 'Suggest components', 'Optimize power', 'Review assumptions']) {
       expect(screen.getByRole('button', { name: new RegExp(action) })).toBeInTheDocument()

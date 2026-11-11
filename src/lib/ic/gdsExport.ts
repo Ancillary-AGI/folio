@@ -1,7 +1,9 @@
 /**
- * GDSII Stream Format Exporter for Silicon Tapeout.
- * Generates industry-standard binary GDSII stream files for foundry manufacturing
- * (SkyWater 130nm mask layer mapping: PRBoundary, NWell, Diff, Poly, Li1, M1..M5).
+ * GDSII Stream Format writer. Emits a genuine GDSII binary stream (version 600,
+ * excess-64 reals, correct record framing) with SkyWater 130nm layer numbers.
+ * The layout it carries is a representative floorplan row, not a placed-and-routed
+ * cell netlist — useful for inspecting the flow and its file framing, not for
+ * foundry sign-off. See limitsRegistry.ts for what this file does not do.
  */
 
 export interface GdsPolygon {

@@ -216,35 +216,18 @@ describe('App shell', () => {
     )
   })
 
-  it('ignores workbench shortcuts while the admin console route is open', async () => {
+  /*
+   * `/admin` is a separate document (admin.html) that the host serves instead of
+   * the workbench; the workbench bundle never claims it. In jsdom the SPA simply
+   * has no admin route: rendering at /admin shows the launcher, and the operator
+   * console is nowhere in it. routing.test.ts asserts the same boundary in the
+   * parser.
+   */
+  it('does not claim /admin: the console is a separate document, so the workbench shows the launcher', async () => {
     window.history.replaceState(null, '', '/admin')
     render(<App />)
-    // The console is a lazy chunk; under a full parallel suite run the default
-    // 1 s is not enough to fetch and mount it.
-    await screen.findByRole('heading', { name: 'Admin console' }, { timeout: 20000 })
-
-    // No workbench overlay is mounted on this route, so honouring the shortcut
-    // would only queue hidden open state that appears on the way back.
-    fireEvent.keyDown(window, { key: 'F1' })
-    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
-    expect(screen.queryByRole('dialog', { name: 'Help and tutorials' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Back to projects' }))
-    await screen.findByRole('button', { name: /create project/i })
-    expect(screen.queryByRole('dialog', { name: 'Help and tutorials' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument()
-  })
-
-  it('opens the admin console from a deep link and returns to projects', async () => {
-    window.history.replaceState(null, '', '/admin')
-    render(<App />)
-
-    expect(await screen.findByRole('heading', { name: 'Admin console' }, { timeout: 20000 })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Back to projects' }))
-
     expect(await screen.findByRole('button', { name: /create project/i })).toBeInTheDocument()
-    expect(window.location.pathname).toBe('/projects')
+    expect(screen.queryByRole('heading', { name: 'Admin console' })).not.toBeInTheDocument()
   })
 
   it('keeps governance out of the app chrome entirely', async () => {
@@ -647,7 +630,7 @@ describe('App shell', () => {
 
     // The restore is the app's own question now, so the test answers it the way
     // a person does: ask, then press the button that acts.
-    fireEvent.click(screen.getByRole('button', { name: 'Restore full rectifier' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Restore commit: full rectifier' }))
     const question = await screen.findByRole('dialog', { name: /Restore the commit/i })
     expect(within(question).getByText(/backup of the current state is taken first/i)).toBeInTheDocument()
     fireEvent.click(within(question).getByRole('button', { name: 'Restore commit' }))

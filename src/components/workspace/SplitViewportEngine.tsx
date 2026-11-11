@@ -57,7 +57,7 @@ export default function SplitViewportEngine({
 
         {/* Floating Picture-in-Picture 3D Preview */}
         <aside
-          className="cad-glass-panel fixed bottom-20 right-6 z-30 flex h-72 w-80 flex-col overflow-hidden rounded-2xl border border-border/80 shadow-2xl backdrop-blur-2xl"
+          className="cad-glass-panel fixed bottom-20 right-6 z-30 flex h-72 w-80 flex-col overflow-hidden chamfer border border-primary/25 shadow-2xl backdrop-blur-2xl"
           role="region"
           aria-label="Floating 3D board viewport"
         >
@@ -109,9 +109,10 @@ export default function SplitViewportEngine({
         style={{ width: `${leftPct}%` }}
         className="relative flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-border/60"
       >
-        <div className="absolute left-3 top-3 z-20 flex items-center gap-1.5 rounded-full border border-border/60 bg-card/80 px-2.5 py-0.5 text-[10px] font-semibold text-foreground backdrop-blur-md">
-          <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
-          <span>Viewport 1 • {primaryWorkspace}</span>
+        <div className="absolute left-3 top-3 z-20">
+          <div className="chamfer-sm border border-primary/30 bg-card/85 px-2.5 py-1 backdrop-blur-md">
+            <span className="instrument-label" style={{ color: 'hsl(var(--primary) / 0.9)' }}>VP1 · {primaryWorkspace}</span>
+          </div>
         </div>
         {primaryNode}
       </div>
@@ -132,9 +133,8 @@ export default function SplitViewportEngine({
         className="relative flex min-h-0 min-w-0 flex-col overflow-hidden"
       >
         <div className="absolute right-3 top-3 z-20 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 rounded-full border border-border/60 bg-card/80 px-2.5 py-0.5 text-[10px] font-semibold text-foreground backdrop-blur-md">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
-            <span>Viewport 2 • {secondaryWorkspace}</span>
+          <div className="chamfer-sm border border-border/60 bg-card/85 px-2.5 py-1 backdrop-blur-md">
+            <span className="instrument-label">VP2 · {secondaryWorkspace}</span>
           </div>
 
           <button

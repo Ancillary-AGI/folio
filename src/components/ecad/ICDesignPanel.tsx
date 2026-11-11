@@ -1,17 +1,19 @@
 /**
- * IC Design Panel — full custom IC design flow.
+ * IC Design Panel — the teaching flow for digital IC design, honestly bounded.
  *
  * Tabs:
- *  1. Logic Entry   — Verilog/VHDL HDL editor (re-uses HDLEditor)
+ *  1. Logic Entry   — Verilog/VHDL subset editor (re-uses HDLEditor)
  *  2. Synthesis     — Gate mapping, STA, area/power (logicSynthesis.ts)
  *  3. Floorplan     — Die size, core area, macro placement (siliconFloorplan.ts)
- *  4. Layout        — Standard cell placement & routing (siliconFloorplan.ts)
- *  5. Packaging     — Chip package type, bond-wire or flip-chip (chipPackaging.ts)
- *  6. GDSII Export  — Stream export for mask generation (gdsExport.ts)
+ *  4. Layout        — Representative cell rows; no legaliser or router is run
+ *  5. Packaging     — Package type, bond-wire or flip-chip (chipPackaging.ts)
+ *  6. GDSII Export  — Binary GDS stream of a representative layout
  *
- * The target process node is SkyWater SKY130 (open-source PDK) by default.
- * The flow is deterministic and every number is derived from the sky130 standard
- * cell specs in standardCellLibrary.ts — no magic constants.
+ * The synthesis map targets sky130 HD cell descriptors and the floorplan is a
+ * planning estimate. The GDSII artifact is for inspecting the flow and the
+ * file format — it is NOT DRC/LVS-clean foundry tapeout, and the panel does
+ * not claim it is. Tape-out needs a foundry PDK, a router, and sign-off decks;
+ * none of those are in this codebase yet.
  */
 
 import { useState, useCallback, useMemo, useRef } from 'react'
@@ -505,7 +507,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
     { id: 'floorplan', label: 'Floorplan', step: 'floorplan' },
     { id: 'packaging', label: 'Packaging', step: null },
     { id: 'devices', label: 'Device Lab', step: null },
-    { id: 'export', label: 'GDSII Export', step: 'export' },
+    { id: 'export', label: 'GDSII (flow artifact)', step: 'export' },
   ] as const
 
   return (
@@ -709,7 +711,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                 </div>
               )}
               <Button onClick={() => setActiveTab('export')} size="sm" className="bg-primary hover:bg-primary/90">
-                Continue → GDSII Export
+                Continue → GDSII (flow artifact)
               </Button>
             </div>
           )}
@@ -965,9 +967,14 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                 )}
               </div>
 
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                The artifact is a representative floorplan in GDSII framing with proper
+                layer numbering — for inspecting the flow. It contains no placed-and-routed
+                netlist and is not foundry sign-off; that needs a real PDK, routing and sign-off DRC/LVS.
+              </p>
               {gdsContent && (
                 <div className="bg-card rounded p-3">
-                  <p className="text-xs text-muted-foreground mb-1">GDSII summary</p>
+                  <p className="text-xs text-muted-foreground mb-1">GDSII artifact summary</p>
                   <pre className="text-xs font-mono text-success overflow-x-auto whitespace-pre-wrap">
                     {gdsContent.text}
                   </pre>

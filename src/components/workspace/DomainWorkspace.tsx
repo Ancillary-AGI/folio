@@ -12,6 +12,8 @@ import PropertiesPanel from '../PropertiesPanel'
 import NetInspector, { type NetInspectorModel } from '../NetInspector'
 import ToolRail from './ToolRail'
 import DesignHealthPanel from './DesignHealthPanel'
+import CanvasFloatingHUD from './CanvasFloatingHUD'
+import SplitViewportEngine from './SplitViewportEngine'
 import HoverHelp from '../ui/HoverHelp'
 import { useAppStore, type WorkspaceMode } from '../../stores/useAppStore'
 import { useProjectStore } from '../../stores/useProjectStore'
@@ -29,7 +31,7 @@ import {
   groupForMode,
   type WorkspaceGroupId,
 } from '../../lib/workspace/modes'
-import { groupAccent } from '../../lib/workspace/accents'
+
 import { SCHEMATIC_UNITS_PER_MM } from '../../lib/schematic/units'
 import type { Component } from '../../lib/supabase'
 import type { Schematic } from '../../types'
@@ -70,6 +72,25 @@ const ICDesignPanel = lazy(() => import('../ecad/ICDesignPanel'))
 const AgentPanel = lazy(() => import('../ecad/AgentPanel'))
 const DatasheetImporter = lazy(() => import('../ecad/DatasheetImporter'))
 const PluginMarketplace = lazy(() => import('../ecad/PluginMarketplace'))
+
+/** Shared stage skeleton — one pulsing plate, not two competing ones. */
+function StageLoading() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-4" role="status">
+      <div className="flex flex-col items-center gap-3">
+        <div className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-primary/30 bg-surface/60"
+          style={{ boxShadow: '0 0 20px -4px hsl(var(--primary) / 0.3)' }}>
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" aria-hidden="true" />
+        </div>
+        <div className="space-y-2 text-center" aria-hidden="true">
+          <div className="cad-shimmer h-1.5 w-32 rounded-full" />
+          <div className="cad-shimmer h-1.5 w-24 rounded-full mx-auto" />
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">Loading workspace…</p>
+    </div>
+  )
+}
 
 interface DomainWorkspaceProps {
   libraryComponents: Component[]
@@ -137,6 +158,9 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
     requestComponentFocus,
     armedLibraryItem,
     setArmedLibraryItem,
+    splitMode,
+    secondaryWorkspace,
+    setSplitMode,
   } = useAppStore()
   const { components, wires, currentProject, updateComponent } = useProjectStore()
 
@@ -535,6 +559,35 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
     [netModel, wires, selectNet],
   )
 
+  /* Secondary viewport for the split engine. Only the two 3D/board surfaces are
+   * meaningful seconds today; anything else or a self-pairing collapses to a
+   * single canvas rather than mounting a duplicate. */
+  const splitPairAllowed = workspaceMode === 'schematic' || workspaceMode === 'pcb' || workspaceMode === 'preview3d'
+  const effectiveSecondary = secondaryWorkspace === workspaceMode
+    ? (workspaceMode === 'preview3d' ? 'pcb' : 'preview3d')
+    : secondaryWorkspace
+  const splitSecondary = splitMode !== 'single' && splitPairAllowed ? (
+    effectiveSecondary === 'pcb' ? (
+      <Suspense fallback={<StageLoading />}>
+        <PCBDesignPanel
+          onClose={() => setSplitMode('single')}
+          onPreview3D={() => setSplitMode('pip-3d', 'preview3d')}
+          library={libraryComponents}
+          pendingComponent={null}
+          onPendingPlaced={() => {}}
+        />
+      </Suspense>
+    ) : (
+      <Suspense fallback={<StageLoading />}>
+        <Circuit3DViewer onClose={() => setSplitMode('single')} />
+      </Suspense>
+    )
+  ) : undefined
+
+  // The HUD only pays for itself where the sheet/board lives; in 3D the
+  // viewport owns its own HUD strip.
+  const showHud = workspaceMode === 'schematic' || workspaceMode === 'pcb'
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       {/* Workspace families + the modes inside the selected family. The family
@@ -544,30 +597,31 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
         className="cad-workspace-nav app-chrome relative flex w-full min-w-0 flex-shrink-0 flex-col overflow-hidden border-b border-border"
         aria-label="Workspace"
         data-tour="workspace-nav"
-        style={{ '--family-accent': groupAccent(activeGroup) } as CSSProperties}
+        style={{ '--family-accent': 'var(--primary)' } as CSSProperties}
       >
         <div className="ws-family-row">
           <div className="ws-family-rail" role="group" aria-label="Workspace families">
             {WORKSPACE_GROUPS.map((group) => {
               const Icon = GROUP_ICONS[group.id]
               const active = group.id === activeGroup
-              const accent = groupAccent(group.id)
               return (
                 <HoverHelp key={group.id} title={group.label} description={group.description} placement="bottom">
                   <button
                     type="button"
                     aria-pressed={active}
+                    aria-label={`${group.label} family, ${visibleModes.length} workspaces`}
                     onClick={() => setActiveGroup(group.id)}
-                    style={{ '--family-accent': accent } as CSSProperties}
                     className={`ws-family ${active ? 'ws-family--active' : ''}`}
                   >
                     <Icon className="ws-family__icon" aria-hidden="true" />
-                    <span className="ws-family__label">{group.label}</span>
-                    {active && (
-                      <span className="ws-family__count" aria-hidden="true">
-                        {visibleModes.length}
-                      </span>
-                    )}
+                    <span className="ws-family__label">
+                      {group.label}
+                      {active && (
+                        <span className="ws-family__count" aria-hidden="true">
+                          {' '}{visibleModes.length}
+                        </span>
+                      )}
+                    </span>
                   </button>
                 </HoverHelp>
               )
@@ -650,22 +704,11 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="workspace-stage relative min-h-0 min-w-0 flex-1" data-tour="workspace-canvas">
+            <SplitViewportEngine
+            primaryWorkspace={workspaceMode}
+            primaryNode={
             <Suspense
-            fallback={
-              <div className="flex h-full flex-col items-center justify-center gap-4" role="status">
-                <div className="flex flex-col items-center gap-3">
-                  <div className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-primary/30 bg-surface/60"
-                    style={{ boxShadow: '0 0 20px -4px hsl(var(--primary) / 0.3)' }}>
-                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" aria-hidden="true" />
-                  </div>
-                  <div className="space-y-2 text-center" aria-hidden="true">
-                    <div className="cad-shimmer h-1.5 w-32 rounded-full" />
-                    <div className="cad-shimmer h-1.5 w-24 rounded-full mx-auto" />
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground">Loading workspace…</p>
-              </div>
-            }
+            fallback={<StageLoading />}
           >
           {workspaceMode === 'schematic' && (
             <SchematicCanvas
@@ -743,6 +786,16 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
             <PluginMarketplace onClose={() => setWorkspaceMode('schematic')} />
           )}
           </Suspense>
+            }
+            secondaryNode={splitSecondary}
+            />
+            {showHud && (
+              <CanvasFloatingHUD
+                mode={workspaceMode}
+                onFitView={workspaceMode === 'schematic' ? () => window.dispatchEvent(new CustomEvent('folio:fit-view')) : undefined}
+                onTidyLayout={workspaceMode === 'schematic' ? () => window.dispatchEvent(new CustomEvent('folio:tidy-schematic')) : undefined}
+              />
+            )}
           </div>
 
           {isSchematic && healthPanelOpen && (

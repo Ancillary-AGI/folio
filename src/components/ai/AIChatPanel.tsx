@@ -222,15 +222,15 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/60 bg-surface/70 px-4 py-3">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-primary/25 bg-primary/10 text-primary"
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-primary/25 bg-primary/10"
             style={{ boxShadow: '0 0 18px -8px hsl(var(--primary) / 0.65)' }}>
-            <Bot className="h-4 w-4" aria-hidden="true" />
+            <span className="agent-orb" aria-hidden="true" />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-semibold leading-tight tracking-tight">Design assistant</h2>
               <span className="rounded border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-primary">
-                Copilot
+                Agent
               </span>
             </div>
             <p className="mt-1 truncate text-[11px] capitalize leading-tight text-muted-foreground">
@@ -279,7 +279,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
             {/* Bubble */}
             <div className={`group relative flex max-w-[85%] flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
               <span className="mb-1 px-1 text-[10px] font-medium text-muted-foreground">
-                {msg.role === 'user' ? 'You' : 'Folio Copilot'}
+                {msg.role === 'user' ? 'You' : 'Folio · Agent'}
               </span>
               <div className={`rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap ${
                 msg.role === 'user'

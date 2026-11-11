@@ -13,7 +13,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import {
   AlertCircle,
-  Bot,
   CheckCircle,
   Cloud,
   CloudOff,
@@ -106,9 +105,9 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
-        <div className="flex items-center gap-2">
-          <Bot size={16} className="text-primary" />
-          <span className="text-sm font-semibold">Engineering Agent</span>
+        <div className="flex items-center gap-2.5">
+          <span className="agent-orb" style={{ width: '16px', height: '16px' }} aria-hidden="true" />
+          <span className="text-sm font-semibold tracking-tight">Engineering Agent</span>
           <span
             className="cad-chip"
             title={cloud.configured

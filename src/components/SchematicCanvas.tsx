@@ -3,6 +3,7 @@ import { Stage, Layer, Rect, Line, Circle, Text, Group, Path } from 'react-konva
 import { Bot, DraftingCompass, FlaskConical, Package, PenTool } from 'lucide-react'
 import { Component } from '../lib/supabase'
 import { useAppStore } from '../stores/useAppStore'
+import { useCursorTelemetry } from '../stores/useCursorTelemetry'
 import { useProjectStore, type CanvasComponent, type CanvasWire } from '../stores/useProjectStore'
 import { useTheme } from '../lib/theme/useTheme'
 import { THEMES, hslTripletToRgb, rgbToHex } from '../lib/theme/tokens'
@@ -1766,6 +1767,15 @@ export default function SchematicCanvas({
       }
     : null
 
+  /* Report the mm position to the telemetry store; 10 sheet units = 1 mm
+   * (src/lib/schematic/units.ts). Skipped when the pointer is off-stage. */
+  const cursorXmm = cursorWorld ? cursorWorld.x / SCHEMATIC_UNITS_PER_MM : null
+  const cursorYmm = cursorWorld ? cursorWorld.y / SCHEMATIC_UNITS_PER_MM : null
+  useEffect(() => {
+    if (cursorXmm === null || cursorYmm === null) return
+    useCursorTelemetry.getState().setPosition(cursorXmm, cursorYmm)
+  }, [cursorXmm, cursorYmm])
+
   /* Ruler ticks in screen space; a major tick with a label every fifth step. */
   const xTicks = useMemo(() => {
     if (!settings.showRulers) return []
@@ -2036,11 +2046,13 @@ export default function SchematicCanvas({
       {canvasComponents.length === 0 && !pendingComponent && (
         <div className="cad-empty-sheet">
           <div className="cad-empty-sheet__card">
-            <span className="cad-empty-sheet__mark" aria-hidden="true">
-              <DraftingCompass />
+            <span className="empty-radar" aria-hidden="true">
+              <span className="empty-radar__mark">
+                <DraftingCompass className="h-9 w-9" />
+              </span>
             </span>
             <p className="cad-empty-sheet__eyebrow">A4 · Sheet 1 of 1</p>
-            <h2 className="cad-empty-sheet__title">Empty sheet</h2>
+            <h2 className="cad-empty-sheet__title">The sheet is yours</h2>
             <p className="cad-empty-sheet__lede">
               Drop a part onto the grid, open a worked example, or sketch the idea and let
               Folio read it onto the sheet.
@@ -2072,7 +2084,7 @@ export default function SchematicCanvas({
                 className="cad-empty-sheet__action"
               >
                 <Bot aria-hidden="true" />
-                Ask Copilot
+                Ask the assistant
               </button>
               <button
                 type="button"

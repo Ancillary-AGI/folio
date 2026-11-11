@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { ArrowRight, Cable, Command, CornerDownLeft, Cpu, FlaskConical, Search, type LucideIcon } from 'lucide-react'
+import { ArrowRight, Cable, Command, CornerDownLeft, Cpu, FlaskConical, type LucideIcon } from 'lucide-react'
 import { DEMO_SCENARIOS, type DemoScenario } from '../../lib/demo/demoScenarios'
 import { loadDemoScenario } from '../../lib/demo/loadDemo'
 import { WORKSPACE_GROUPS, WORKSPACE_MODES, WORKSPACE_MODE_META } from '../../lib/workspace/modes'
@@ -173,10 +173,10 @@ export default function CommandPalette({
       { id: 'action:save', label: 'Save design snapshot', hint: `Action · ${describeShortcut('schematic.save', shortcutOverrides)}`, kind: 'action', run: onSave },
       { id: 'action:health', label: 'Design health: show or hide findings', hint: `Action · ${describeShortcut('schematic.problems', shortcutOverrides)}`, kind: 'action', run: onToggleDesignHealth },
       { id: 'action:theme', label: 'Toggle colour theme', hint: 'Action', kind: 'action', run: onToggleTheme },
-      { id: 'action:copilot', label: 'OmniCopilot: open agent-native assistant', hint: 'Action · AI Copilot', kind: 'action', run: () => useAppStore.getState().toggleCopilotFlyout() },
-      { id: 'action:split-dual', label: 'Split View: side-by-side dual canvas (Sch + PCB)', hint: 'Action · Dual Viewports', kind: 'action', run: () => useAppStore.getState().setSplitMode('split-h', 'pcb') },
+      { id: 'action:assistant', label: 'Design assistant: open the AI partner', hint: 'Action · AI', kind: 'action', run: () => useAppStore.getState().toggleAiChat() },
+      { id: 'action:split-dual', label: 'Split View: side-by-side dual canvas (Sch + PCB)', hint: 'Action · Dual Viewports', kind: 'action', run: () => { useAppStore.getState().setWorkspaceMode('schematic'); useAppStore.getState().setSplitMode('split-h', 'pcb') } },
       { id: 'action:split-3d', label: 'Split View: PCB 2D + 3D photorealistic view', hint: 'Action · Dual Viewports', kind: 'action', run: () => { useAppStore.getState().setWorkspaceMode('pcb'); useAppStore.getState().setSplitMode('split-h', 'preview3d') } },
-      { id: 'action:pip-3d', label: '3D Preview: picture-in-picture floating viewport', hint: 'Action · 3D PiP', kind: 'action', run: () => useAppStore.getState().setSplitMode('pip-3d', 'preview3d') },
+      { id: 'action:pip-3d', label: '3D Preview: picture-in-picture floating viewport', hint: 'Action · 3D PiP', kind: 'action', run: () => { const mode = useAppStore.getState().workspaceMode; if (mode !== 'schematic' && mode !== 'pcb' && mode !== 'preview3d') useAppStore.getState().setWorkspaceMode('pcb'); useAppStore.getState().setSplitMode('pip-3d', 'preview3d') } },
       { id: 'action:split-single', label: 'View: reset to single full viewport', hint: 'Action · Single Viewport', kind: 'action', run: () => useAppStore.getState().setSplitMode('single') },
       { id: 'action:fit', label: 'Zoom to fit design contents', hint: 'Action · Fit View', kind: 'action', run: () => window.dispatchEvent(new CustomEvent('folio:fit-view')) },
     ]
@@ -278,8 +278,8 @@ export default function CommandPalette({
             full-bleed header row, the halo would bloom over the dialog's own
             rounded border and read as a second window. */}
         <div className="border-b border-border p-2">
-          <div className="cad-search flex h-10 items-center gap-2.5 rounded-lg border border-input bg-background px-3">
-            <Search className="h-4 w-4 flex-shrink-0 text-primary/70" aria-hidden="true" />
+          <div className="cad-search flex h-11 items-center gap-2.5 rounded-xl border border-input bg-background px-3">
+            <span className="agent-orb" aria-hidden="true" />
             <input
               ref={inputRef}
               type="text"
@@ -329,14 +329,16 @@ export default function CommandPalette({
                     data-active={index === activeIndex}
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => run(command)}
-                    className={`flex w-full items-center gap-3 px-3 py-1.5 text-left transition-colors ${
+                    className={`mx-1.5 flex w-[calc(100%-0.75rem)] items-center gap-3 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
                       index === activeIndex ? 'bg-accent text-accent-foreground' : 'text-foreground'
                     }`}
                   >
-                    <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-sm border border-border ${
-                      command.kind === 'demo' || isDesignObject(command.kind)
-                        ? 'text-primary'
-                        : 'text-muted-foreground'
+                    <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border transition-colors ${
+                      index === activeIndex
+                        ? 'border-primary/40 bg-primary/15 text-primary'
+                        : command.kind === 'demo' || isDesignObject(command.kind)
+                          ? 'border-border text-primary'
+                          : 'border-border text-muted-foreground'
                     }`}>
                       <Icon className="h-3.5 w-3.5" aria-hidden="true" />
                     </span>

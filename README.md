@@ -5,7 +5,7 @@ simulation, robotics and embedded development. The workbench runs without a
 backend unless you explicitly configure one; no account is required for
 standalone use.
 
-**Status:** active development. Lint, both typechecks, 2,581 tests across 251
+**Status:** active development. Lint, both typechecks, ~3,700 tests across 327
 files, the icon-button accessibility audit, and the production build all pass.
 
 ---
@@ -99,6 +99,27 @@ rules); it makes no model or network call, and its output is advisory.
   entirely in the high-contrast theme and under forced colours, paints two soft
   CSS tints where WebGL is unavailable, and switches off from
   **Settings → General → Ambient light field**.
+- **Shell 2.0 — Aurora Glass**: the header, workspace nav, tool rail and status
+  bar are translucent glass over the aurora field with a specular edge and a
+  gradient hairline; the tool rail's armed tool glows like a lit switch; the
+  workspace families and modes are pill rails in the family hue; and dialogs
+  open over a deeper, blurred scrim. Every glow honours reduced motion,
+  reduced transparency, high contrast and forced colours.
+- **The agent orb**: the header's centre search is a live conic-spectrum orb
+  with a slow sheen and a gradient hairline — one keystroke (**Ctrl/⌘+K**) from
+  anywhere. The command palette carries the orb, grouped sections and coherent
+  agent actions (Design assistant, dual split, board+3D, floating 3D, fit).
+- **Floating telemetry HUD** (schematic and PCB): one machined glass capsule —
+  live cursor millimetres (mm/mil/in), shared snap toggle, schematic grid
+  presets, zoom/fit/tidy, DRC pulse, active copper-layer quick switch wired to
+  the board panel, and the viewport split/PiP cycle. Every control on it is
+  live; sections that don't apply in a mode aren't rendered.
+- **Split viewport engine**: from the HUD, the palette or the status bar, mount
+  a draggable dual canvas (schematic ∥ PCB ∥ 3D) or a picture-in-picture 3D
+  viewport with its own toolbar.
+- **Always-on agent, surfaced**: a header pill and status-bar segment that
+  appear only while agent jobs are queued/running or awaiting your approval;
+  one click opens the agent workspace.
 - A contextual status bar reports the active mode, schematic metrics, theme and
   unsaved state.
 
@@ -450,7 +471,7 @@ npm run lint            # ESLint, zero warnings
 npm run a11y:buttons    # every icon-only button has an accessible name
 npm run typecheck       # app TypeScript
 npm run typecheck:node  # Vite/build config TypeScript
-npm test                # Vitest, 2,581 tests / 251 files
+npm test                # Vitest, 3,700 tests / 327 files
 npm run build           # production build
 npm run verify          # all of the gates above, in order
 npm run preview         # preview the build on port 4173

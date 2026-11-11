@@ -127,12 +127,6 @@ export interface ViewportState {
 
 export type SplitMode = 'single' | 'split-h' | 'split-v' | 'pip-3d'
 
-export interface CursorCoords {
-  x: number
-  y: number
-  unit: 'mm' | 'mil' | 'in'
-}
-
 export type NetSelection = { name: string } | { wireId: string }
 
 export interface AppState {
@@ -183,17 +177,10 @@ export interface AppState {
   setSplitMode: (mode: SplitMode, secondary?: WorkspaceMode) => void
   setSplitRatio: (ratio: number) => void
 
-  // Telemetry & Floating Canvas HUD
-  cursorCoords: CursorCoords
-  setCursorCoords: (coords: Partial<CursorCoords>) => void
+  // Active PCB copper layer (floating HUD quick switch)
   activePcbLayer: string
   setActivePcbLayer: (layer: string) => void
 
-  // Agent-Native Copilot Flyout
-  copilotFlyoutOpen: boolean
-  toggleCopilotFlyout: () => void
-  setCopilotFlyoutOpen: (open: boolean) => void
-  
   // Tool State. These four are the sheet tools the rail actually offers; the
   // board has its own tool set in the PCB panel and does not live here.
   activeTool: 'select' | 'wire' | 'delete' | 'sketch'
@@ -305,17 +292,11 @@ export const useAppStore = create<AppState>()(
           })),
         setSplitRatio: (splitRatio) => set({ splitRatio: Math.max(0.2, Math.min(0.8, splitRatio)) }),
 
-        // Telemetry & Floating Canvas HUD
-        cursorCoords: { x: 0, y: 0, unit: 'mm' },
-        setCursorCoords: (coords) =>
-          set((state) => ({ cursorCoords: { ...state.cursorCoords, ...coords } })),
-        activePcbLayer: 'top',
+        // Active PCB copper layer (floating HUD quick switch)
+        // Active PCB copper layer — the same id space as the board panel's
+        // DEFAULT_LAYERS; the floating HUD's quick switch mirrors it.
+        activePcbLayer: 'top-cu',
         setActivePcbLayer: (activePcbLayer) => set({ activePcbLayer }),
-
-        // Agent-Native Copilot Flyout
-        copilotFlyoutOpen: false,
-        toggleCopilotFlyout: () => set((state) => ({ copilotFlyoutOpen: !state.copilotFlyoutOpen })),
-        setCopilotFlyoutOpen: (copilotFlyoutOpen) => set({ copilotFlyoutOpen }),
 
         // Tool State
         activeTool: 'select',

@@ -54,8 +54,11 @@ export interface PdkTechnologyNode {
 }
 
 /**
- * SkyWater 130nm High-Density (sky130_fd_sc_hd) PDK Profile
- * Real open-source silicon tapeout rules (Tiny Tapeout / Efabless compatible).
+ * SkyWater 130nm High-Density (sky130_fd_sc_hd) PDK Profile — flow-education
+ * values for the in-browser synthesis path. Dimensions are the published
+ * open PDK figures; the cell table is hand-entered, not extracted from the
+ * foundry, so treat every timing/power number as indicative. This profile
+ * does not make any output foundry sign-off.
  */
 export const SKY130_PDK: PdkTechnologyNode = {
   name: 'SkyWater 130nm HD',

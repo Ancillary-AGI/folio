@@ -91,7 +91,7 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
       'Board-scale nets: a few hundred unknowns. There is no sparse or iterative Krylov solver, so a million-node IC netlist is out of scope rather than merely slow.',
       'Models are transcribed from published reference equations and the bundled vendor catalogue. No foundry model certification is claimed.',
       'A topology that stays singular on every pass returns no solution at all; it is never reported as a solved 0 V answer.',
-      'The supported .model subset is declared by the parser: .subckt, .include and .lib are reported as unsupported, never silently folded into a model.',
+      '.subckt/.ends subcircuits, X-instance calls, .param and .func are flattened at parse time with hierarchical reachability checks (spiceHierarchy.test.ts pins the behaviour). .lib and .include files remain unsupported — the deck must arrive self-contained or be flattened before it reaches this engine.',
     ],
     validatedBy: [
       'src/lib/simulation/spiceEngine.test.ts',

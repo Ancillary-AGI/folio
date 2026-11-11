@@ -139,7 +139,10 @@ describe('PCBDesignPanel', () => {
     // The panel adopts a stored routed layout on mount, so each test starts
     // from a clean board rather than inheriting the previous test's copper.
     useProjectStore.setState({ components: [], wires: [], pcbLayout: null })
-    useAppStore.setState({ selectedComponents: [] })
+    // The active layer now lives in the app store (the floating HUD quick
+    // switch shares it), so unlike the old panel-local useState it outlives
+    // one mounted panel — pin it back to the default for every test.
+    useAppStore.setState({ selectedComponents: [], activePcbLayer: 'top-cu' })
   })
 
   afterEach(() => {

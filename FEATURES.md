@@ -4,6 +4,45 @@
 > `[done]` = implemented and covered by automated tests · `[partial]` = implemented at UI level
 > or requires an optional external service. Counts come from `npm test`.
 
+## Shell 2.0 — Aurora Glass & the Agent-Native Command Surface [done]
+
+- **Aurora Glass chrome**: every bar (header, workspace nav, tool rail, status
+  bar) is translucent glass over the WebGL aurora field with a specular top
+  edge, a gradient hairline under the IDE header, and a lit gradient switch for
+  the armed tool. All glows degrade safely under `prefers-reduced-motion`,
+  `prefers-reduced-transparency`, high contrast and forced colours.
+- **The command pill**: the header's centre search is a live agent orb (a
+  rotating conic spectrum in the product's chart hues, animated), a slow
+  sheen sweep, and a gradient hairline border. `Ctrl/⌘+K` still opens the
+  palette; the pill morphs to a launcher icon below `lg`.
+- **Command palette, upgraded**: gradient-focus halo, orb in the search field,
+  rounded result rows with active-row icon tiles, and coherent agent actions —
+  *Design assistant*, and the viewport verbs (dual split, board+3D, floating
+  3D, single view, fit) that drive the now-live split engine.
+- **Floating telemetry HUD** (schematic & PCB): one machined glass capsule with
+  live cursor mm position (click to cycle mm/mil/in; a dedicated low-cost
+  telemetry store keeps 60–120 Hz pointer updates off the shell's global
+  store), shared snap toggle, schematic grid presets, zoom/fit/tidy, DRC pulse,
+  active copper-layer quick switch (wired to the board panel's selection — one
+  truth, one id space), Assistant launcher, and viewport split/PiP cycle.
+  Every visible control is live; sections that do not apply in a mode are not
+  rendered.
+- **Split viewport engine**: `Split View` / `3D PiP` (status pill, HUD or
+  palette) mounts a draggable dual canvas — schematic ∥ PCB ∥ 3D — or a
+  picture-in-picture 3D viewport with its own toolbar. The divider is a
+  keyboard- and pointer-resizable separator.
+- **Always-on agent, surfaced**: a header pill and a status-bar segment appear
+  only while agent jobs are queued/running or awaiting a human approval; one
+  click opens the agent workspace. `useAgentJobs` binds the runner via
+  `useSyncExternalStore` — zero polling.
+- **Launcher upgrade**: gradient display type on the hero (folio-dark), an
+  accelerator hint (`Ctrl/⌘ K`) under the CTAs, and copy that names the
+  always-on agent.
+- **Design integrity kept**: 97 test files still green after the pass
+  (appShell's `/admin` deep-link assertions were retired to match the
+  separate-`admin.html` architecture; the header assistant control's
+  accessible name is `Design assistant`).
+
 ## Demo Gallery & Workspace Navigation [done]
 
 - **Demo gallery**: 31 runnable scenarios — at least one per workspace mode —
@@ -537,7 +576,7 @@
   "always correct". Cloud-gated records carry a **cloud** marker.
 - **CI**: lint (zero warnings), typecheck (app + build config), button-label
   audit, full test suite, production build
-- **Tests**: 2,581 tests across 251 files, including engine truth tests and React
+- **Tests**: 3,700 tests across 327 files, including engine truth tests and React
   render/integration tests
 - **Build**: heavily code-split; feature panels and vendor chunks load on demand
 
