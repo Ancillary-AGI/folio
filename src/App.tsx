@@ -3,7 +3,7 @@ import {
   FolderOpen, PanelLeft, Bot, BarChart3, Settings, Package, Users,
   Download, Image, FileText, List, Lock, LogOut, Mic, MicOff,
   ArrowLeft, History, RotateCcw, Moon, Sun, AlertCircle,
-  MoreHorizontal, ShieldAlert, ShieldCheck, HelpCircle, X, ScrollText, CloudOff,
+  MoreHorizontal, ShieldAlert, ShieldCheck, HelpCircle, X, ScrollText, Send, CloudOff,
   Cloud, HardDrive, Cable, MousePointer2, Grid3X3, Magnet, Wrench, CircleUserRound,
 } from 'lucide-react'
 import { Button } from './components/ui/button'
@@ -77,8 +77,8 @@ import { AuroraField } from './components/brand/AuroraField'
 import VoiceCommandBar from './components/nlp/VoiceCommandBar'
 import { LoadingSpinner } from './components/ui/LoadingSpinner'
 import LocalProfileGate from './components/LocalProfileGate'
-import CommunityTemplates from './components/community/CommunityTemplates'
 import CommunityPage from './components/community/CommunityPage'
+import PublishDesignDialog from './components/community/PublishDesignDialog'
 import { useLocalProfileStore, useActiveProfile } from './stores/useLocalProfileStore'
 import UserPresence from './components/collaboration/UserPresence'
 import AgentStatusPill from './components/workspace/AgentStatusPill'
@@ -246,6 +246,7 @@ function App() {
   const [vcsStatus, setVcsStatus] = useState('')
   const [backupList, setBackupList] = useState<ProjectBackup[]>([])
   const [showProjectManager, setShowProjectManager] = useState(false)
+  const [publishOpen, setPublishOpen] = useState(false)
   const [showCommunity, setShowCommunity] = useState(() => currentRoute().isCommunity)
   const [notice, setNotice] = useState('')
   const [demoBusy, setDemoBusy] = useState<string | null>(null)
@@ -1750,6 +1751,7 @@ function App() {
       items: [
         { label: 'Collaboration', icon: Users, action: () => setShowCollaborativePanel(true) },
         { label: 'Plugins', icon: Package, action: openPluginPanel },
+        { label: 'Publish to community', icon: Send, action: () => setPublishOpen(true) },
         { label: 'Back to Projects', icon: ArrowLeft, action: backToProjects },
       ],
     },
@@ -1854,6 +1856,9 @@ function App() {
    */
   const overlayStack = (
     <Suspense fallback={panelFallback}>
+      {publishOpen && (
+        <PublishDesignDialog open onClose={() => setPublishOpen(false)} />
+      )}
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} onRestartOnboarding={restartOnboarding} />}
       {showDemoGallery && (
         <DemoGallery
@@ -2015,17 +2020,24 @@ function App() {
           onOpenDemos={() => setShowDemoGallery(true)}
           onOpenDemo={(scenario) => { void openDemoScenario(scenario) }}
         />
-        {/* Community templates — the gallery graduates from curated demos to
-            things people built and gave away. */}
+        {/* Community designs belong to the community page, not the project
+            landing. One link, not a grid users didn't ask for. */}
         <div className="mx-auto w-full max-w-6xl px-4 pb-16 sm:px-6">
-          <CommunityTemplates
-            onOpenTemplate={handleOpenTemplate}
-            onImportFile={adoptImportedFile}
-            onBrowseAll={() => {
+          <button
+            type="button"
+            onClick={() => {
               navigateTo(COMMUNITY_ROUTE)
               setShowCommunity(true)
             }}
-          />
+            className="flex w-full flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border border-border/70 bg-card/50 px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-accent"
+            aria-label="Open the community designs page"
+          >
+            <span className="min-w-0">
+              <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Community</span>
+              <span className="mt-0.5 block text-sm font-semibold text-foreground">Browse community designs →</span>
+            </span>
+            <span className="flex-shrink-0 text-[11px] text-muted-foreground">Open, inspect and make yours</span>
+          </button>
         </div>
         {overlayStack}
         {demoBusyOverlay}
