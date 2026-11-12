@@ -6,8 +6,19 @@ export interface OfflineProject extends Project {
 
 const storageKey = 'folio.offlineProjects'
 
-/** Monotonic per-process suffix for locally created project ids. */
-let offlineProjectSeq = 0
+/** Random project id — ~62 bits of entropy, alphanumeric, URL-safe. */
+function randomProjectId(): string {
+  const bytes = new Uint8Array(8)
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes)
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256)
+  }
+  return Array.from(bytes)
+    .map((value) => value.toString(36).padStart(2, '0'))
+    .join('')
+    .slice(0, 12)
+}
 
 const readProjects = (): OfflineProject[] => {
   if (typeof localStorage === 'undefined') return []
@@ -41,9 +52,8 @@ export const offlineProjectStore = {
 
   create(userId: string, name: string): OfflineProject {
     const now = new Date().toISOString()
-    offlineProjectSeq += 1
     const project: OfflineProject = {
-      id: `p-${Date.now().toString(36)}-${offlineProjectSeq.toString(36)}`,
+      id: `p-${randomProjectId()}`,
       user_id: userId,
       name,
       description: 'Engineering project',
