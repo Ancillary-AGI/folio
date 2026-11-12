@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Folio — From words to the fab floor</title>
-<meta name="description" content="Folio is the AI-native, cross-domain engineering workbench: schematic, simulation, PCB, fabrication — one project, one agent, tested end to end. Open source demos ship in the box; publish and share community projects." />
+<meta name="description" content="Folio is the AI-native, cross-domain engineering workbench: schematic, simulation, PCB, fabrication — one project, one agent, tested end to end. Open-source demos ship in the box; publish and share community projects." />
 <meta name="theme-color" content="#07080D" />
 <meta property="og:title" content="Folio — From words to the fab floor" />
 <meta property="og:description" content="One AI-native engineering workbench: schematic, simulation, PCB, fabrication, verification — across domains. Free on your machine. Open-source demos in the box." />
@@ -33,6 +33,8 @@
 <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
 <style>
 @font-face { font-family: 'InterVariable'; src: url('/fonts/InterVariable.woff2') format('woff2'); font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; src: url('/fonts/JetBrainsMono-Bold.woff2') format('woff2'); font-weight: 700; font-display: swap; }
 * { margin: 0; box-sizing: border-box; }
 :root {
   --bg: #07080D;
@@ -48,258 +50,238 @@
   --ok: #53C88F;
 }
 html { scroll-behavior: smooth; }
-body {
-  background: var(--bg);
-  color: var(--ink);
-  font-family: 'InterVariable', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  line-height: 1.55;
-  -webkit-font-smoothing: antialiased;
-}
-.wrap { width: min(1200px, calc(100% - 3rem)); margin-inline: auto; }
-.mono { font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; letter-spacing: .22em; text-transform: uppercase; font-size: .68rem; color: var(--mute); }
+body { background: var(--bg); color: var(--ink); font-family: 'InterVariable', system-ui, -apple-system, 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; line-height: 1.6; }
+.wrap { width: min(1180px, calc(100% - 2.5rem)); margin-inline: auto; }
 a { color: inherit; }
+.mono { font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; font-size: .68rem; letter-spacing: .18em; text-transform: uppercase; color: var(--mute); }
 
-/* ── Nav ── */
-nav { position: sticky; top: 0; z-index: 10; border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(14px); }
-nav .wrap { height: 3.75rem; display: flex; align-items: center; justify-content: space-between; gap: 2rem; }
-.brand { display: flex; align-items: center; gap: .6rem; text-decoration: none; }
-.brand svg { height: 22px; width: auto; }
-.brand b { font-size: .95rem; letter-spacing: -.02em; }
-nav ul { list-style: none; display: flex; gap: 1.5rem; align-items: center; }
-nav ul a { text-decoration: none; color: var(--mute); font-size: .82rem; transition: color .15s; }
-nav ul a:hover { color: var(--ink); }
-.btn { display: inline-flex; align-items: center; gap: .5rem; height: 2.5rem; padding: 0 1.1rem; border-radius: .625rem; background: linear-gradient(180deg,#FFC233,#E08900); color: #221300; font-weight: 700; font-size: .82rem; letter-spacing: -.01em; text-decoration: none; transition: filter .15s; }
-.btn:hover { filter: brightness(1.08); }
+/* ── Nav ───────────────────────────── */
+nav { position: sticky; top: 0; z-index: 10; height: 4rem; border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); background: color-mix(in srgb, var(--bg) 80%, transparent); backdrop-filter: blur(14px); }
+nav .wrap { height: 100%; display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; }
+.brand { display: flex; align-items: center; gap: .55rem; text-decoration: none; font-weight: 800; font-size: 1rem; letter-spacing: -.02em; }
+.brand svg { height: 20px; width: auto; }
+.nav-links { display: flex; gap: 1.4rem; align-items: center; list-style: none; padding: 0; }
+.nav-links a { text-decoration: none; color: var(--mute); font-size: .84rem; font-weight: 500; transition: color .15s; }
+.nav-links a:hover { color: var(--ink); }
+@media (max-width: 880px) { .nav-links { display: none; } }
+.nav-actions { display: flex; gap: .5rem; align-items: center; }
+
+/* ── Buttons ───────────────────────── */
+.btn { display: inline-flex; align-items: center; gap: .5rem; height: 2.5rem; padding: 0 1.1rem; border-radius: .5rem; background: var(--amber); color: #221300; font-family: 'InterVariable', system-ui, sans-serif; font-weight: 700; font-size: .82rem; text-decoration: none; border: 0; cursor: pointer; transition: filter .15s; }
+.btn:hover { filter: brightness(1.1); }
 .btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); font-weight: 600; }
-.btn-ghost:hover { border-color: var(--amber); color: var(--amber-pale); filter: none; }
+.btn-ghost:hover { border-color: #3A3B47; color: var(--ink); }
+.btn-lg { height: 3.1rem; padding: 0 1.4rem; font-size: .95rem; border-radius: .55rem; }
+.btn-link { display: inline-flex; align-items: center; gap: .35rem; color: var(--mute); text-decoration: none; font-size: .84rem; font-weight: 500; }
+.btn-link:hover { color: var(--ink); }
 
-/* ── Hero ── */
-.hero { position: relative; padding: 6rem 0 4.5rem; overflow: hidden; }
+/* ── Hero ───────────────────────────── */
+.hero { position: relative; padding: 7rem 0 4.5rem; overflow: hidden; }
 .hero::before { content: ''; position: absolute; inset: 0; background:
-  radial-gradient(90% 70% at 50% -20%, color-mix(in srgb, var(--amber) 14%, transparent), transparent 60%),
+  radial-gradient(100% 70% at 50% -25%, color-mix(in srgb, var(--amber) 13%, transparent), transparent 55%),
   linear-gradient(var(--line) 1px, transparent 1px),
   linear-gradient(90deg, var(--line) 1px, transparent 1px);
-  background-size: 100% 100%, 44px 44px, 44px 44px; mask-image: radial-gradient(120% 90% at 50% 0%, black, transparent); pointer-events: none; }
+  background-size: 100% 100%, 48px 48px, 48px 48px;
+  mask-image: radial-gradient(130% 90% at 50% 0%, black, transparent 75%); pointer-events: none; }
 .hero .wrap { position: relative; text-align: center; }
-.eyebrow { display: inline-flex; align-items: center; gap: .6rem; padding: .35rem .8rem; border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent); border-radius: 9999px; color: var(--amber-pale); font-family: 'JetBrains Mono', monospace; font-size: .66rem; letter-spacing: .22em; text-transform: uppercase; margin-bottom: 1.5rem; }
-.eyebrow i { width: .45rem; height: .45rem; background: var(--amber); transform: rotate(45deg); box-shadow: 0 0 10px var(--amber); }
-h1 { font-size: clamp(2.6rem, 6.4vw, 4.6rem); line-height: 1.02; letter-spacing: -.04em; font-weight: 800; }
-h1 em { font-style: normal; color: var(--amber); }
-.lede { max-width: 46rem; margin: 1.5rem auto 0; color: var(--mute); font-size: 1.05rem; }
-.cta { margin-top: 2.25rem; display: flex; gap: .8rem; justify-content: center; flex-wrap: wrap; }
-.btn-lg { height: 3.25rem; padding: 0 1.5rem; font-size: .95rem; }
-.stats { margin: 3.5rem auto 0; display: flex; gap: 0; justify-content: center; flex-wrap: wrap; border: 1px solid var(--line); border-radius: .75rem; overflow: hidden; max-width: 56rem; }
-.stat { flex: 1 1 8rem; padding: 1rem 1.5rem; background: color-mix(in srgb, var(--card) 55%, transparent); }
-.stat + .stat { border-left: 1px solid var(--line); }
-.stat b { display: block; font-family: 'JetBrains Mono', monospace; font-size: 1.5rem; font-weight: 600; letter-spacing: -.02em; }
-.stat span { font-size: .68rem; color: var(--mute); letter-spacing: .14em; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
+h1 { font-size: clamp(2.4rem, 6.5vw, 4.8rem); line-height: 1.02; letter-spacing: -.045em; font-weight: 800; }
+h1 em { color: var(--amber); font-style: normal; }
+.lede { max-width: 38rem; margin: 1.4rem auto 0; color: var(--mute); font-size: 1.08rem; line-height: 1.55; }
+.cta { margin-top: 2.25rem; display: flex; gap: .75rem; justify-content: center; flex-wrap: wrap; }
+.hero-note { margin-top: 1.4rem; color: var(--mute2); font-size: .74rem; letter-spacing: .01em; }
 
-/* ── Sections ── */
-section { padding: 4.5rem 0; }
-.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 2rem; margin-bottom: 2rem; }
-h2 { font-size: clamp(1.5rem, 3vw, 2.2rem); letter-spacing: -.03em; line-height: 1.1; }
-.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .8rem; }
-@media (max-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } nav ul { display: none; } }
-@media (max-width: 560px) { .grid, .stats { grid-template-columns: 1fr; flex-direction: column; } .stat + .stat { border-left: 0; border-top: 1px solid var(--line); } }
-.tile { background: var(--card); border: 1px solid var(--line); border-radius: .75rem; padding: 1.25rem; }
-.tile h3 { font-size: .95rem; letter-spacing: -.01em; margin-bottom: .35rem; }
-.tile p { color: var(--mute); font-size: .8rem; }
-.tile .mono { display: block; margin-bottom: .5rem; color: var(--mute2); }
+/* ── Discipline strip ─────────────── */
+.strip { border-block: 1px solid var(--line); padding: 1rem 0; }
+.strip-inner { display: flex; gap: 2.5rem; justify-content: center; flex-wrap: wrap; }
+.strip-item { display: flex; align-items: center; gap: .5rem; color: var(--mute2); font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
 
-/* ── Pipeline ── */
-.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: .8rem; counter-reset: step; }
-@media (max-width: 900px) { .steps { grid-template-columns: 1fr; } }
-.step { border: 1px solid var(--line); border-radius: .75rem; padding: 1.5rem; position: relative; background: linear-gradient(180deg, color-mix(in srgb, var(--amber) 5%, transparent), transparent 45%); }
-.step::before { counter-increment: step; content: '0' counter(step); font-family: 'JetBrains Mono', monospace; font-size: .7rem; letter-spacing: .2em; color: var(--amber); }
-.step h3 { margin: .4rem 0 .3rem; font-size: 1rem; }
-.step p { color: var(--mute); font-size: .82rem; }
+/* ── Sections ─────────────────────── */
+section { padding: 5rem 0; }
+.section-head { margin-bottom: 2.5rem; }
+.section-head p { color: var(--mute); margin-top: .5rem; max-width: 34rem; font-size: .95rem; }
+h2 { font-size: clamp(1.6rem, 3.2vw, 2.3rem); letter-spacing: -.03em; line-height: 1.12; font-weight: 800; }
 
-/* ── Templates ── */
-.templates { display: grid; grid-template-columns: repeat(3, 1fr); gap: .8rem; }
-@media (max-width: 900px) { .templates { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 560px) { .templates { grid-template-columns: 1fr; } }
-.tpl { border: 1px solid var(--line); border-radius: .75rem; overflow: hidden; text-decoration: none; transition: border-color .15s, transform .15s; display: flex; flex-direction: column; }
-.tpl:hover { border-color: color-mix(in srgb, var(--amber) 55%, transparent); transform: translateY(-2px); }
-.tpl-head { height: 7rem; display: flex; align-items: flex-end; padding: 1rem; background:
-  radial-gradient(120% 90% at 50% -20%, color-mix(in srgb, var(--amber) 22%, transparent), transparent 60%),
-  linear-gradient(color-mix(in srgb, var(--line) 55%, transparent) 1px, transparent 1px),
-  linear-gradient(90deg, color-mix(in srgb, var(--line) 55%, transparent) 1px, transparent 1px),
-  var(--surface);
-  background-size: 100% 100%, 18px 18px, 18px 18px, 100% 100%; }
-.tpl-head span { font-family: 'JetBrains Mono', monospace; font-size: .58rem; letter-spacing: .2em; color: var(--amber-pale); text-transform: uppercase; }
-.tpl-body { padding: .8rem 1rem 1rem; }
-.tpl-body h3 { font-size: .85rem; }
-.tpl-body p { font-size: .72rem; color: var(--mute); margin-top: .2rem; }
-.license { display: flex; justify-content: space-between; align-items: center; margin-top: .6rem; font-size: .62rem; font-family: 'JetBrains Mono', monospace; color: var(--mute2); letter-spacing: .12em; text-transform: uppercase; }
+/* ── Product showcase (a real window, not a claim) ── */
+.product { border: 1px solid var(--line); border-radius: .75rem; overflow: hidden; background: #0E0D12; box-shadow: 0 60px 120px -40px rgba(0,0,0,.7); }
+.product-bar { display: flex; align-items: center; gap: .45rem; padding: .6rem .8rem; border-bottom: 1px solid var(--line); background: var(--surface); }
+.product-dot { width: .55rem; height: .55rem; border-radius: 50%; background: #2A2A34; }
+.product-bar span { font-family: 'JetBrains Mono', monospace; font-size: .62rem; color: var(--mute2); letter-spacing: .1em; margin-left: .4rem; }
+.product-body { display: grid; grid-template-columns: 1.1fr .9fr; }
+@media (max-width: 900px) { .product-body { grid-template-columns: 1fr; } }
+.product-copy { padding: 2rem; }
+.product-copy h3 { font-size: 1.2rem; letter-spacing: -.02em; }
+.product-copy p { color: var(--mute); font-size: .86rem; margin-top: .5rem; }
+.product-copy ul { margin: 1rem 0 0; padding: 0; list-style: none; font-size: .82rem; color: var(--mute); }
+.product-copy li { padding: .25rem 0; }
+.product-copy b { color: var(--ink); }
+.product-screen { border-left: 1px solid var(--line); padding: 1.25rem; display: flex; align-items: center; justify-content: center; background: #101418; }
+@media (max-width: 900px) { .product-screen { border-left: 0; border-top: 1px solid var(--line); } }
 
-/* ── Principles ── */
-.honest { display: grid; grid-template-columns: repeat(3, 1fr); gap: .8rem; }
-@media (max-width: 900px) { .honest { grid-template-columns: 1fr; } }
-
-/* ── Onboarding walkthrough ── */
-.walk { border: 1px solid var(--line); border-radius: .9rem; overflow: hidden; background: var(--card); }
-.walk-steps { display: grid; grid-template-columns: repeat(6, 1fr); border-bottom: 1px solid var(--line); }
-@media (max-width: 900px) { .walk-steps { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 560px) { .walk-steps { grid-template-columns: repeat(2, 1fr); } }
-.walk-step { appearance: none; background: transparent; border: 0; padding: .8rem .5rem; color: var(--mute); font-family: 'JetBrains Mono', monospace; font-size: .62rem; letter-spacing: .14em; text-transform: uppercase; cursor: pointer; border-right: 1px solid var(--line); transition: color .15s, background .15s; }
+/* ── Walkthrough ─────────────────── */
+.walk { border: 1px solid var(--line); border-radius: .75rem; overflow: hidden; background: var(--card); }
+.walk-steps { display: flex; gap: 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.walk-step { border: 0; background: transparent; color: var(--mute); padding: .7rem .9rem; font-family: 'JetBrains Mono', monospace; font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; cursor: pointer; border-right: 1px solid var(--line); white-space: nowrap; transition: background .15s, color .15s; }
 .walk-step:last-child { border-right: 0; }
 .walk-step:hover { color: var(--ink); }
 .walk-step[aria-selected='true'] { background: color-mix(in srgb, var(--amber) 12%, transparent); color: var(--amber-pale); box-shadow: inset 0 -2px 0 var(--amber); }
-.walk-panel { display: none; grid-template-columns: 1fr 1fr; min-height: 16rem; }
+.walk-panel { display: none; grid-template-columns: 1fr 1fr; min-height: 17rem; }
 @media (max-width: 900px) { .walk-panel { grid-template-columns: 1fr; } }
 .walk-panel[aria-hidden='false'] { display: grid; }
-.walk-copy { padding: 1.5rem 1.75rem; }
-.walk-copy .k { display: inline-block; font-family: 'JetBrains Mono', monospace; font-size: .6rem; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent); border-radius: .25rem; padding: .15rem .4rem; margin-bottom: .6rem; }
-.walk-copy h3 { font-size: 1.05rem; letter-spacing: -.02em; }
-.walk-copy p { color: var(--mute); font-size: .82rem; margin-top: .4rem; }
-.walk-copy ul { margin-top: .7rem; padding-left: 1.1rem; color: var(--mute); font-size: .8rem; }
-.walk-copy li { margin-top: .25rem; }
+.walk-copy { padding: 1.5rem; }
+.walk-copy .k { display: inline-block; font-family: 'JetBrains Mono', monospace; font-size: .58rem; letter-spacing: .16em; text-transform: uppercase; color: var(--amber-pale); border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent); border-radius: .25rem; padding: .15rem .4rem; margin-bottom: .6rem; }
+.walk-copy h3 { font-size: 1rem; letter-spacing: -.02em; }
+.walk-copy p { color: var(--mute); font-size: .84rem; margin-top: .4rem; }
+.walk-copy ul { margin-top: .6rem; padding-left: 1.1rem; color: var(--mute); font-size: .82rem; }
 .walk-visual { border-left: 1px solid var(--line); display: flex; align-items: center; justify-content: center; padding: 1rem; background: var(--surface); }
 @media (max-width: 900px) { .walk-visual { border-left: 0; border-top: 1px solid var(--line); } }
-.walk-visual svg { width: 100%; max-width: 26rem; height: auto; }
 
-/* ── Pricing ── */
-.plans { display: grid; grid-template-columns: repeat(4, 1fr); gap: .8rem; }
-@media (max-width: 1100px) { .plans { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 560px) { .plans { grid-template-columns: 1fr; } }
-.plan { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: .9rem; padding: 1.4rem 1.3rem; background: var(--card); }
-.plan--hot { border-color: color-mix(in srgb, var(--amber) 55%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--amber) 30%, transparent), 0 24px 50px -30px color-mix(in srgb, var(--amber) 60%, transparent); }
-.plan-badge { align-self: flex-start; font-family: 'JetBrains Mono', monospace; font-size: .58rem; letter-spacing: .18em; text-transform: uppercase; color: #221300; background: linear-gradient(180deg,#FFC233,#E08900); border-radius: .25rem; padding: .2rem .45rem; margin-bottom: .6rem; }
-.plan h3 { font-size: .95rem; letter-spacing: -.01em; }
-.plan-price { margin: .6rem 0 .1rem; font-size: 1.9rem; font-weight: 800; letter-spacing: -.03em; }
-.plan-price small { font-size: .72rem; font-weight: 500; color: var(--mute); letter-spacing: 0; }
-.plan-sub { font-size: .72rem; color: var(--mute); margin-bottom: .8rem; }
-.plan ul { list-style: none; padding: 0; margin: 0 0 1rem; font-size: .78rem; color: var(--mute); }
-.plan li { padding: .28rem 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
-.plan li:last-child { border-bottom: 0; }
-.plan li b { color: var(--ink); font-weight: 600; }
-.plan .btn { margin-top: auto; width: 100%; justify-content: center; }
-.plan .btn-ghost { background: transparent; border: 1px solid var(--line); color: var(--ink); }
-.plan .btn-ghost:hover { border-color: var(--amber); color: var(--amber-pale); }
-.pricing-note { margin-top: .9rem; color: var(--mute2); font-size: .72rem; }
+/* ── Templates ─────────────────────── */
+.tpl-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .7rem; }
+@media (max-width: 900px) { .tpl-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .tpl-grid { grid-template-columns: 1fr; } }
+.tpl { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: .6rem; overflow: hidden; text-decoration: none; transition: border-color .15s, transform .15s; }
+.tpl:hover { border-color: #3A3B47; transform: translateY(-2px); }
+.tpl-head { height: 5.5rem; display: flex; align-items: flex-end; padding: .9rem 1rem; background:
+  linear-gradient(color-mix(in srgb, var(--line) 55%, transparent) 1px, transparent 1px),
+  linear-gradient(90deg, color-mix(in srgb, var(--line) 55%, transparent) 1px, transparent 1px), var(--surface);
+  background-size: 16px 16px, 100% 100%; }
+.tpl-head span { font-family: 'JetBrains Mono', monospace; font-size: .55rem; letter-spacing: .15em; color: var(--amber-pale); text-transform: uppercase; }
+.tpl-body { padding: .85rem 1rem 1rem; }
+.tpl-body h3 { font-size: .85rem; font-weight: 700; }
+.tpl-body p { font-size: .74rem; color: var(--mute); margin-top: .25rem; }
+.tpl-license { margin-top: .5rem; font-size: .58rem; font-family: 'JetBrains Mono', monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--mute2); }
 
-/* ── Principles ── */
-h2 small { display: block; font-family: 'JetBrains Mono', monospace; font-size: .66rem; letter-spacing: .22em; text-transform: uppercase; color: var(--amber); margin-bottom: .5rem; }
+/* ── FAQ ────────────────────────────── */
+.faq { max-width: 46rem; }
+.faq-item + .faq-item { border-top: 1px solid var(--line); }
+.faq-item summary { list-style: none; cursor: pointer; padding: 1.1rem 0; font-weight: 600; font-size: .92rem; display: flex; justify-content: space-between; gap: 1rem; }
+.faq-item summary::-webkit-details-marker { display: none; }
+.faq-item summary::after { content: '+'; color: var(--mute2); transition: transform .15s; }
+.faq-item[open] summary::after { content: '–'; }
+.faq-item p { padding: 0 0 1.1rem; color: var(--mute); font-size: .86rem; line-height: 1.6; }
 
-/* ── Footer ── */
-footer { border-top: 1px solid var(--line); padding: 1.5rem 0 2rem; color: var(--mute2); font-size: .72rem; }
+/* ── Footer ────────────────────────── */
+footer { border-top: 1px solid var(--line); padding: 2rem 0; color: var(--mute2); font-size: .78rem; }
 footer .wrap { display: flex; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap; }
+footer a { color: var(--mute); text-decoration: none; }
+footer a:hover { color: var(--ink); }
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; border-radius: .25rem; }
 </style>
 </head>
 <body>
 
-<nav>
+<nav aria-label="Folio">
   <div class="wrap">
-    <a class="brand" href="/" aria-label="Folio home">
-      <svg viewBox="0 0 96 96" aria-hidden="true"><rect width="96" height="96" rx="20" fill="#0E0D12"/><path fill="#F5A524" fill-rule="evenodd" d="M10 0H58L96 38V86L86 96H10L0 86V10ZM26 20H64L70 26V40H46V46H56L62 52V64H46V82H26Z"/></svg>
-      <b>Folio</b>
+    <a class="brand" href="/" aria-label="Folio — home">
+      <svg viewBox="0 0 96 96" aria-hidden="true"><rect width="96" height="96" rx="18" fill="#0E0D12"/><path fill="#F5A524" fill-rule="evenodd" d="M10 0H58L96 38V86L86 96H10L0 86V10ZM26 20H64L70 26V40H46V46H56L62 52V64H46V82H26Z"/></svg>
+      Folio
     </a>
-    <ul>
-      <li><a href="/#disciplines">Capabilities</a></li>
-      <li><a href="/#tour">Tour</a></li>
+    <ul class="nav-links">
+      <li><a href="#product">Product</a></li>
+      <li><a href="#tour">Tour</a></li>
+      <li><a href="#community">Community</a></li>
       <li><a href="/pricing">Pricing</a></li>
-      <li><a href="/#templates">Templates</a></li>
     </ul>
-    <a class="btn btn-ghost" href="/app">Sign in</a>
-    <a class="btn" href="/app">Sign up free</a>
+    <div class="nav-actions">
+      <a class="btn btn-ghost" href="/app">Log in</a>
+      <a class="btn" href="/app">Sign up free</a>
+    </div>
   </div>
 </nav>
 
 <header class="hero">
   <div class="wrap">
-    <span class="eyebrow"><i></i>Multidomain Engineering Studio</span>
-    <h1>From <em>words</em> to the<br /><em>fab floor.</em></h1>
-    <p class="lede">Folio is the AI-native, cross-domain engineering workbench: circuit, board, control, RF, mechanical, robotics and life-systems design in one connected project — with a real SPICE-class solver, a real grid router, and an agent that does the clicking while you keep the engineering.</p>
+    <h1>Hardware engineering,<br><em>end to end.</em></h1>
+    <p class="lede">Schematic, board, enclosure, firmware and fabrication — one connected project, verified by real solvers. An agent does the clicking while you keep the engineering.</p>
     <div class="cta">
       <a class="btn btn-lg" href="/app">Create your free account</a>
       <a class="btn btn-lg btn-ghost" href="/app">Sign in</a>
     </div>
-    <p class="mono" style="margin-top:.9rem;font-size:.78rem;color:var(--mute2)">Already have an account? <a href="/app" style="color:var(--amber-pale);text-decoration:underline;text-underline-offset:2px">Sign in →</a></p>
-    <div class="stats" role="group" aria-label="Folio by the numbers">
-      <div class="stat"><b>28</b><span>Workspaces</span></div>
-      <div class="stat"><b>40</b><span>Guided demos</span></div>
-      <div class="stat"><b>~3,800</b><span>Tests, growing</span></div>
-      <div class="stat"><b>6</b><span>Disciplines</span></div>
-    </div>
+    <p class="hero-note">Free forever on your machine. No card required.</p>
   </div>
 </header>
 
-<section id="disciplines">
+<div class="strip" aria-hidden="true">
+  <div class="wrap strip-inner">
+    <span class="strip-item">Electronics</span>
+    <span class="strip-item">Mechanical</span>
+    <span class="strip-item">Firmware</span>
+    <span class="strip-item">Verification</span>
+  </div>
+</div>
+
+<section id="product" aria-label="The product">
   <div class="wrap">
     <div class="section-head">
-      <h2><small>One project, every domain</small>Every discipline,<br />one source of truth.</h2>
-      <p class="mono">28 workspaces · shared model</p>
+      <h2>One sheet.<br>One board. One artifact.</h2>
+      <p>The same component catalogue, solver and geometry serve the schematic, the PCB and the enclosure. Cross-domain edits land coherently — or they refuse and name the reason.</p>
     </div>
-    <div class="grid">
-      <div class="tile"><span class="mono">Electronics</span><h3>Circuit → board → fab</h3><p>Schematic with undo/redo, a SPICE-class solver (Gummel-Poon, Level-1 MOSFET), A* autorouter, DRC-gated Gerber/Excellon/PnP/BOM export as one zip.</p></div>
-      <div class="tile"><span class="mono">Control &amp; Machines</span><h3>Model &amp; close the loop</h3><p>Transfer functions, Bode/Nyquist margins, PID with anti-windup and auto-tune, machine dynamics for DC/BLDC/stepper drives.</p></div>
-      <div class="tile"><span class="mono">RF &amp; Photonics</span><h3>Front-ends that link up</h3><p>Butterworth ladder synthesis, link budgets, antenna studies, S-parameter cascades, optical OOK budgets — every rule stated, none fudged.</p></div>
-      <div class="tile"><span class="mono">Mechanical &amp; Structures</span><h3>Loads, trusses, enclosures</h3><p>Direct-stiffness truss solver with reactions and buckling verdicts, Bar/beam closed forms, STEP enclosure export fitted to your board.</p></div>
-      <div class="tile"><span class="mono">Robotics &amp; Embedded</span><h3>Machines that move</h3><p>DH chains, Jacobians, damped-least-squares IK, motor models, board programming for Raspberry Pi, HIL test benches.</p></div>
-      <div class="tile"><span class="mono">Life Systems</span><h3>Living systems, honestly</h3><p>Mass-action kinetics, gene circuits, Hodgkin-Huxley, two-compartment PK — physiology you can read, never a black box.</p></div>
+
+    <div class="product">
+      <div class="product-bar"><span class="product-dot"></span><span class="product-dot"></span><span class="product-dot"></span><span>buck-usb-c — Schematic · Folio</span></div>
+      <div class="product-body">
+        <div class="product-copy">
+          <h3>2× cell buck, 3.3 V at 2 A</h3>
+          <p>A real example, shipped as a curated CC-BY template. Topology, part selection, passives, compensation and PCB are worked examples — not marketing mock-ups. Open it, break it, fix it.</p>
+          <ul>
+            <li><b>6 parts</b> · LM2596-class synchronous buck</li>
+            <li><b>Transient</b> run shows OUT within 50 mV of setpoint</li>
+            <li><b>DRC-gated</b> Gerber + Excellon + centroid + BOM, CRC-verified</li>
+          </ul>
+        </div>
+        <div class="product-screen">
+          <svg viewBox="0 0 320 180" role="img" aria-label="Schematic fragment of the buck template" style="width:100%;max-width:26rem;height:auto"><rect width="320" height="180" rx="8" fill="#15141A" stroke="#232430"/><path d="M60 120 H140 M120 120 V60 M120 60 H250" fill="none" stroke="#F5A524" stroke-width="1.5"/><path d="M250 120 H280" fill="none" stroke="#F5A524" stroke-width="1.5"/><circle cx="140" cy="120" r="2.5" fill="#F5A524"/><rect x="76" y="42" width="40" height="14" fill="#1B1A20" stroke="#F5A524"/><text x="81" y="53" fill="#FFF" font-family="InterVariable, sans-serif" font-size="9">LM2596</text><rect x="190" y="104" width="44" height="14" fill="#1B1A20" stroke="#F5A524"/><text x="196" y="115" fill="#FFF" font-family="InterVariable, sans-serif" font-size="9">FB 3.3k</text><circle cx="280" cy="120" r="2.5" fill="#F5A524"/><text x="20" y="24" fill="#A8A299" font-family="JetBrains Mono, monospace" font-size="8">buck-usb-c / sheet 1</text></svg>
+        </div>
+      </div>
     </div>
   </div>
 </section>
 
-<section id="pipeline" style="background: var(--surface); border-block: 1px solid var(--line);">
+<section id="tour" aria-label="Guided tour">
   <div class="wrap">
     <div class="section-head">
-      <h2><small>The pipeline</small>Three moves<br />to a manufacturable board.</h2>
-      <a class="btn btn-ghost" href="/app">Open the workbench</a>
-    </div>
-    <div class="steps">
-      <div class="step"><h3>Describe it</h3><p>“Two-cell buck, 3.3 V at 2 A, USB-C in, differential pair on the data lines.” The assistant drafts the parts, the netlist and the placement — every choice visible and editable.</p></div>
-      <div class="step"><h3>Review it</h3><p>The workbench runs ERC, the solver, and the DRC after every edit. The agent proposes; you approve. Nothing reaches the fab gate without the checks clearing.</p></div>
-      <div class="step"><h3>Ship it</h3><p>One click: Gerber RS-274X per film, Excellon with blind/buried spans, centroid, BOM — one verified <code>folio-fab-package.zip</code>. The checks never lie about being checks.</p></div>
-    </div>
-  </div>
-</section>
-
-<section id="tour">
-  <div class="wrap">
-    <div class="section-head">
-      <h2><small>The tour</small>Your first board,<br />six moves.</h2>
-      <a class="btn btn-ghost" href="/app">Start free</a>
+      <h2>Describe it.<br>Ship it.</h2>
+      <p>One command does the whole loop — a guided example walks the real schematic, solver, router and fab gate. Nothing pretends.</p>
     </div>
     <div class="walk">
       <div class="walk-steps" role="tablist" aria-label="Folio product tour">
-        <button class="walk-step" role="tab" id="tour-tab-1" aria-selected="true" aria-controls="tour-panel-1">01 · Describe</button>
-        <button class="walk-step" role="tab" id="tour-tab-2" aria-selected="false" aria-controls="tour-panel-2">02 · Synthesize</button>
-        <button class="walk-step" role="tab" id="tour-tab-3" aria-selected="false" aria-controls="tour-panel-3">03 · Check</button>
-        <button class="walk-step" role="tab" id="tour-tab-4" aria-selected="false" aria-controls="tour-panel-4">04 · Route</button>
-        <button class="walk-step" role="tab" id="tour-tab-5" aria-selected="false" aria-controls="tour-panel-5">05 · See it</button>
-        <button class="walk-step" role="tab" id="tour-tab-6" aria-selected="false" aria-controls="tour-panel-6">06 · Ship</button>
+        <button class="walk-step" role="tab" id="tour-tab-1" aria-selected="true" aria-controls="tour-panel-1">1. Describe</button>
+        <button class="walk-step" role="tab" id="tour-tab-2" aria-selected="false" aria-controls="tour-panel-2">2. Synthesize</button>
+        <button class="walk-step" role="tab" id="tour-tab-3" aria-selected="false" aria-controls="tour-panel-3">3. Check</button>
+        <button class="walk-step" role="tab" id="tour-tab-4" aria-selected="false" aria-controls="tour-panel-4">4. Route</button>
+        <button class="walk-step" role="tab" id="tour-tab-5" aria-selected="false" aria-controls="tour-panel-5">5. See it</button>
+        <button class="walk-step" role="tab" id="tour-tab-6" aria-selected="false" aria-controls="tour-panel-6">6. Ship</button>
       </div>
       <div class="walk-panel" role="tabpanel" id="tour-panel-1" aria-labelledby="tour-tab-1" aria-hidden="false">
         <div class="walk-copy">
-          <span class="k">01 · Describe</span>
+          <span class="k">1 · Describe</span>
           <h3>Say it in plain words</h3>
-          <p>“Two-cell buck, 3.3 V at 2 A, USB-C in, differential pair on the data lines.”</p>
-          <ul><li>The assistant drafts parts, nets and placement</li><li>Every choice is visible, editable and undoable</li><li>No black box — the plan is readable before you accept it</li></ul>
+          <p>"Two-cell buck, 3.3 V at 2 A, USB-C in, differential pair on the data lines."</p>
+          <ul><li>The assistant drafts parts, nets and placement</li><li>Every choice is visible, editable and undoable</li><li>The plan is readable before you accept it</li></ul>
         </div>
-        <div class="walk-visual"><svg viewBox="0 0 320 150" role="img" aria-label="Chat exchange in the assistant"><rect x="8" y="10" width="304" height="130" rx="10" fill="#15141A" stroke="#232430"/><rect x="22" y="26" width="190" height="16" rx="8" fill="#2A2418"/><text x="30" y="37" fill="#FFD98A" font-family="JetBrains Mono, monospace" font-size="9">LM2596 · 5.1 kΩ FB down · 33 µH</text><rect x="22" y="52" width="230" height="16" rx="8" fill="#232430"/><text x="30" y="63" fill="#A8A299" font-family="JetBrains Mono, monospace" font-size="9">2 × LPDDR4x pairs · 48 MHz ref</text><rect x="22" y="78" width="150" height="30" rx="6" fill="none" stroke="#F5A524" stroke-dasharray="4 3"/><text x="30" y="96" fill="#FFD98A" font-family="JetBrains Mono, monospace" font-size="9">⏎ accept plan</text></svg></div>
+        <div class="walk-visual"><svg viewBox="0 0 320 150" role="img" aria-label="Chat exchange in the assistant"><rect x="8" y="10" width="304" height="130" rx="10" fill="#15141A" stroke="#232430"/><rect x="22" y="26" width="170" height="15" rx="8" fill="#2A2418"/><text x="30" y="37" fill="#FFD98A" font-family="JetBrains Mono, monospace" font-size="9">buck-usb-c · LM2596 · 3.3 V @ 2 A</text><rect x="22" y="52" width="210" height="15" rx="8" fill="#232430"/><text x="30" y="63" fill="#A8A299" font-family="JetBrains Mono, monospace" font-size="9">2 × LPDDR4x · 48 MHz ref</text><rect x="22" y="77" width="140" height="30" rx="6" fill="none" stroke="#F5A524" stroke-dasharray="4 3"/><text x="30" y="95" fill="#FFD98A" font-family="JetBrains Mono, monospace" font-size="9">accept plan</text></svg></div>
       </div>
       <div class="walk-panel" role="tabpanel" id="tour-panel-2" aria-labelledby="tour-tab-2" aria-hidden="true">
         <div class="walk-copy">
-          <span class="k">02 · Synthesize</span>
+          <span class="k">2 · Synthesize</span>
           <h3>The sheet builds itself</h3>
-          <p>The schematic lands on the grid: symbols, values, references, net labels — all tied to the real catalogue, all yours to edit.</p>
-          <ul><li>ERC fires after every edit, not at the end</li><li>Every part is placed, unplaced is an error</li><li>Undo any single move, not just whole demos</li></ul>
+          <p>The schematic lands on the grid: symbols, values, references, net labels — all tied to the catalogue, all yours to edit.</p>
+          <ul><li>ERC fires after every edit</li><li>Every unplaced part is an error</li><li>Undo any single move, not just whole demos</li></ul>
         </div>
         <div class="walk-visual"><svg viewBox="0 0 320 150" role="img" aria-label="Generated schematic sheet"><rect x="8" y="10" width="304" height="130" rx="10" fill="#15141A" stroke="#232430"/><line x1="30" y1="40" x2="120" y2="40" stroke="#F5A524" stroke-width="1.6"/><line x1="120" y1="40" x2="120" y2="75" stroke="#F5A524" stroke-width="1.6"/><line x1="120" y1="75" x2="230" y2="75" stroke="#F5A524" stroke-width="1.6"/><rect x="55" y="32" width="34" height="16" fill="#1B1A20" stroke="#F5A524"/><text x="61" y="43" fill="#FFF" font-family="JetBrains Mono, monospace" font-size="8">C1</text><rect x="155" y="67" width="40" height="16" fill="#1B1A20" stroke="#F5A524"/><text x="161" y="78" fill="#FFF" font-family="JetBrains Mono, monospace" font-size="8">R1 1k</text><circle cx="230" cy="75" r="3" fill="#F5A524"/><text x="22" y="120" fill="#6E6A61" font-family="JetBrains Mono, monospace" font-size="8">ERC · 0 errors · 0 warnings</text></svg></div>
       </div>
       <div class="walk-panel" role="tabpanel" id="tour-panel-3" aria-labelledby="tour-tab-3" aria-hidden="true">
         <div class="walk-copy">
-          <span class="k">03 · Check</span>
+          <span class="k">3 · Check</span>
           <h3>Checks after every keystroke</h3>
-          <p>ERC finds unconnected pins, driver conflicts, power-to-ground shorts. Simulation runs DC, transient, AC, noise and Monte Carlo.</p>
-          <ul><li>Every finding names the pin, the net and the rule</li><li>F8 steps through findings; click to locate</li><li>Sim traces are computed, not drawn</li></ul>
+          <p>ERC finds unconnected pins and driver conflicts. Simulation runs DC, transient, AC, noise and Monte Carlo — every finding names the pin, the net and the rule.</p>
+          <ul><li>F8 steps through findings; click to locate</li><li>Traces are computed, never drawn</li><li>Health panel reviews every sheet on change</li></ul>
         </div>
         <div class="walk-visual"><svg viewBox="0 0 320 150" role="img" aria-label="Design health panel"><rect x="8" y="10" width="304" height="130" rx="10" fill="#15141A" stroke="#232430"/><circle cx="34" cy="34" r="9" fill="#1F3A2A" stroke="#53C88F"/><text x="34" y="38" fill="#53C88F" font-size="11" text-anchor="middle">✓</text><text x="52" y="38" fill="#A8A299" font-family="JetBrains Mono, monospace" font-size="9">No findings on this sheet</text><line x1="22" y1="54" x2="298" y2="54" stroke="#232430"/><path d="M22 118 L70 86 L110 98 L150 52 L198 74 L236 44 L298 90" fill="none" stroke="#F5A524" stroke-width="1.6"/><text x="22" y="132" fill="#6E6A61" font-family="JetBrains Mono, monospace" font-size="8">V(OUT) · transient · 0 → 5 ms · Monte Carlo n=32</text></svg></div>
       </div>
       <div class="walk-panel" role="tabpanel" id="tour-panel-4" aria-labelledby="tour-tab-4" aria-hidden="true">
         <div class="walk-copy">
-          <span class="k">04 · Route</span>
+          <span class="k">4 · Route</span>
           <h3>Copper you can inspect</h3>
           <p>Grid-placed router on the real board; every net either routes or is named. No copper invented, ever.</p>
           <ul><li>52 / 66 nets on the mainboard demo, measured</li><li>Poured planes on inner films, with anti-pads</li><li>DRC gates the ship decision — not a checkbox</li></ul>
@@ -308,16 +290,16 @@ footer .wrap { display: flex; justify-content: space-between; gap: 1.5rem; flex-
       </div>
       <div class="walk-panel" role="tabpanel" id="tour-panel-5" aria-labelledby="tour-tab-5" aria-hidden="true">
         <div class="walk-copy">
-          <span class="k">05 · See it</span>
+          <span class="k">5 · See it</span>
           <h3>The board in 3D, not a drawing</h3>
           <p>Orbit the exact board you routed — parts, copper, silk, connectors. Export STEP for enclosure design.</p>
-          <ul><li>Same geometry the fab sees</li><li>STEP export, mechanical fit check</li><li>Split viewport: schematic ∥ 3D, or floating PiP</li></ul>
+          <ul><li>Same geometry the fab sees</li><li>STEP export, mechanical fit check</li><li>Split viewport: schematic ∥ 3D, or PiP</li></ul>
         </div>
         <div class="walk-visual"><svg viewBox="0 0 320 150" role="img" aria-label="3D board preview"><g transform="translate(160 78)"><polygon points="-110,20 110,20 96,34 -96,34" fill="#1B1A20" stroke="#F5A524" stroke-opacity=".5"/><polygon points="-110,20 110,20 110,-6 -110,-6" fill="#26221C" stroke="#F5A524" stroke-opacity=".3"/><rect x="-78" y="-24" width="36" height="16" rx="2" fill="#0E0D12" stroke="#F5A524"/><rect x="-18" y="-34" width="56" height="24" rx="2" fill="#0E0D12" stroke="#FFD98A"/><rect x="48" y="-20" width="26" height="12" rx="2" fill="#0E0D12" stroke="#C97B2D"/></g></svg></div>
       </div>
       <div class="walk-panel" role="tabpanel" id="tour-panel-6" aria-labelledby="tour-tab-6" aria-hidden="true">
         <div class="walk-copy">
-          <span class="k">06 · Ship</span>
+          <span class="k">6 · Ship</span>
           <h3>One zip. Every film.</h3>
           <p>Gerber RS-274X, Excellon, centroid, BOM — DRC-gated, CRC-verified, one archive.</p>
           <ul><li>Works offline — no service, no upload, no telemetry</li><li>BOM with cost &amp; lifecycle status</li><li>Publish as a CC-BY template for others to open</li></ul>
@@ -328,110 +310,57 @@ footer .wrap { display: flex; justify-content: space-between; gap: 1.5rem; flex-
   </div>
 </section>
 
-<section id="templates">
+<section id="community" aria-label="Community">
   <div class="wrap">
     <div class="section-head">
-      <h2><small>Community templates</small>Built on what people<br />already proved.</h2>
-      <p class="mono">CC-BY · open &amp; build</p>
+      <h2>Proven designs,<br>open for your fork.</h2>
+      <p>CC-BY templates under <a href="/app/community">the community page</a> — clone, inspect, learn, ship.</p>
     </div>
-    <div class="templates">
-      <a class="tpl" href="/app"><div class="tpl-head"><span>Rectifier · 0 → gerber</span></div><div class="tpl-body"><h3>Half-wave rectifier, start to finish</h3><p>Schematic → transient → PCB → 3D → BOM → fab package. The reference circuit for new users.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
-      <a class="tpl" href="/app"><div class="tpl-head"><span>Mainboard · 8-Layer</span></div><div class="tpl-body"><h3>Laptop mainboard, laid out</h3><p>56 packages, BGA-256 SoC, LPDDR4x pairs, HDI escape routing — the honest limit of an in-browser A* router, measured.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
-      <a class="tpl" href="/app"><div class="tpl-head"><span>Four-Layer · 4L</span></div><div class="tpl-body"><h3>Four-layer controller board</h3><p>Poured planes with named nets, plane anti-pads, thermal spokes stated — the fab vocabulary you actually use.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
-      <a class="tpl" href="/app"><div class="tpl-head"><span>Control · PID</span></div><div class="tpl-body"><h3>Motor speed loop with PID</h3><p>Tune a DC motor against measured step response; auto-tune with Z-N, SIMC, relay or model-reference search.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
-      <a class="tpl" href="/app"><div class="tpl-head"><span>Robotics · DH</span></div><div class="tpl-body"><h3>Two-link robotic arm</h3><p>Forward/inverse kinematics, Jacobians, damped least-squares, trajectory through obstacles.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
-      <a class="tpl" href="/app"><div class="tpl-head"><span>Structure · Truss</span></div><div class="tpl-body"><h3>Pratt &amp; Howe trusses</h3><p>Determinate joints, reaction closure, Euler buckling, and an A3 drawing from the solver — not from a template.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
+    <div class="tpl-grid">
+      <a class="tpl" href="/app/community"><div class="tpl-head"><span>Rectifier</span></div><div class="tpl-body"><h3>Half-wave rectifier, start to gerber</h3><p>The reference circuit: transient, routing, BOM, fab gate — every stage demonstrated.</p><div class="tpl-license">Folio team · CC-BY</div></div></a>
+      <a class="tpl" href="/app/community"><div class="tpl-head"><span>Mainboard</span></div><div class="tpl-body"><h3>Laptop mainboard, 8-layer</h3><p>56 packages, BGA-256 SoC, LPDDR4x pairs, HDI escape routing — the honest limit of an in-browser A* router, measured.</p><div class="tpl-license">Folio team · CC-BY</div></div></a>
+      <a class="tpl" href="/app/community"><div class="tpl-head"><span>Control</span></div><div class="tpl-body"><h3>Motor speed loop with PID</h3><p>Tune a DC motor against measured step response; auto-tune with Z-N, SIMC, relay or model-reference search.</p><div class="tpl-license">Folio team · CC-BY</div></div></a>
+      <a class="tpl" href="/app/community"><div class="tpl-head"><span>Robotics</span></div><div class="tpl-body"><h3>Two-link robotic arm</h3><p>Forward/inverse kinematics, Jacobians, damped least-squares, trajectory through obstacles.</p><div class="tpl-license">Folio team · CC-BY</div></div></a>
+      <a class="tpl" href="/app/community"><div class="tpl-head"><span>RF</span></div><div class="tpl-body"><h3>Butterworth low-pass ladder</h3><p>g-valued sections, scaling, S-parameter cascades — every tolerance and edge case named.</p><div class="tpl-license">Folio team · CC-BY</div></div></a>
+      <a class="tpl" href="/app/community"><div class="tpl-head"><span>Structures</span></div><div class="tpl-body"><h3>Pratt &amp; Howe trusses</h3><p>Determinate joints, reaction closure, Euler buckling, and an A3 drawing from one click of the solver.</p><div class="tpl-license">Folio team · CC-BY</div></div></a>
     </div>
-    <p style="margin-top:1.25rem;color:var(--mute2);font-size:.78rem">Community publishing is live: release a project you built as a CC-licensed template, and anyone can open it in their workspace and make it theirs — design in, credit kept. The adoption count travels with the template.</p>
   </div>
 </section>
 
-<section id="pricing">
+<section id="faq" aria-label="Questions">
   <div class="wrap">
     <div class="section-head">
-      <h2><small>Plans</small>Free on your machine.<br />Inquiry for teams.</h2>
-      <p class="mono">No card required to start</p>
+      <h2>Straight answers.</h2>
     </div>
-    <div class="plans">
-      <div class="plan">
-        <h3>Local</h3>
-        <p class="plan-price">$0<small> / forever</small></p>
-        <p class="plan-sub">Everything, on your machine. No account, no upload.</p>
-        <ul>
-          <li><b>Unlimited</b> projects, exports, simulations</li>
-          <li><b>28 workspaces</b> · <b>40 demos</b></li>
-          <li>Encrypted export · AES-256</li>
-          <li>CC-BY community templates, free to open</li>
-          <li>Offline sharing as .folio-template.json</li>
-        </ul>
-        <a class="btn btn-ghost" href="/app">Start free</a>
-      </div>
-      <div class="plan">
-        <h3>Pro</h3>
-        <p class="plan-price">$19<small> / user / mo</small></p>
-        <p class="plan-sub">Everything Local, plus the cloud-only doors.</p>
-        <ul>
-          <li><b>Cloud sync</b> — projects follow you</li>
-          <li><b>Publish</b> CC-BY / CC0 templates</li>
-          <li><b>Open</b> community designs in one click</li>
-          <li>Priority simulation queue</li>
-          <li>Usage ledger mirrored to your account</li>
-        </ul>
-        <a class="btn btn-ghost" href="/app">Start Pro trial</a>
-      </div>
-      <div class="plan plan--hot">
-        <span class="plan-badge">For teams</span>
-        <h3>Team</h3>
-        <p class="plan-price">$49<small> / user / mo</small></p>
-        <p class="plan-sub">Engineer quotas, operator controls, shared templates.</p>
-        <ul>
-          <li><b>Engineer quotas</b> — 100 projects · 200 exports/d · 1,000 sims/d · 2 GB</li>
-          <li>Shared team templates &amp; libraries</li>
-          <li>Admin console — members, policies, audit</li>
-          <li>Usage reporting &amp; export</li>
-          <li>Viewer seats at reduced quota</li>
-        </ul>
-        <a class="btn" href="/app">Start team trial</a>
-      </div>
-      <div class="plan">
-        <h3>Enterprise</h3>
-        <p class="plan-price">Custom</p>
-        <p class="plan-sub">Private deployment, SSO, unlimited quotas, SLA.</p>
-        <ul>
-          <li><b>SSO / SAML</b> &amp; directory sync</li>
-          <li>Private deployment — your VPC, your data</li>
-          <li><b>Unlimited</b> engineer quotas</li>
-          <li>Data-residency &amp; retention controls</li>
-          <li>Priority support, named engineer</li>
-        </ul>
-        <a class="btn btn-ghost" href="mailto:founder@folio.dev?subject=Folio%20Enterprise">Talk to us</a>
-      </div>
-    </div>
-    <p class="pricing-note">Pricing is illustrative until billing ships — the Local tier is real and unlimited today, and the limits above are the exact ones the app enforces. No seat minimums on Pro. Team requires a signed agreement.</p>
-  </div>
-</section>
-
-<section id="principles" style="border-top: 1px solid var(--line);">
-  <div class="wrap">
-    <div class="section-head"><h2><small>Principles</small>Honest by construction.</h2></div>
-    <div class="honest">
-      <div class="tile"><span class="mono">Computed, not mocked</span><h3>Every number is worked</h3><p>Solvers, routers and checkers are real code with published methods and machine-checked test counts. No screenshots of analysis; no “AI confidence”.</p></div>
-      <div class="tile"><span class="mono">Limits, stated</span><h3>Refusals, not guesses</h3><p>When Folio won’t model something, it says so — in the app, in the docs, in the register. A blank is better than a fabricated answer.</p></div>
-      <div class="tile"><span class="mono">Yours to build on</span><h3>Open by default</h3><p>Demos are CC-BY seeds you can fork. App is yours offline; publish when you’re proud of it, and get forked like a repo.</p></div>
+    <div class="faq">
+      <details class="faq-item" open>
+        <summary>Is Folio actually free?</summary>
+        <p>Yes. The standalone build runs the whole stack on your machine — schematic, solver, router, DRC, fab package, simulations — with no account, no subscription and no telemetry. Pro and Team add the cloud doors: hosted storage, publishing and the admin console, at announced prices.</p>
+      </details>
+      <details class="faq-item">
+        <summary>Does it work offline?</summary>
+        <p>Completely. Projects, checkpoints, exports, simulations and community templates all live on your machine. Publishing to the community needs a deployment — that's a cloud service, and it's honest about being one.</p>
+      </details>
+      <details class="faq-item">
+        <summary>What is the agent actually doing?</summary>
+        <p>It calls the same tools you call — placing parts, wiring pins, running the solver, reading ERC findings — then reports what it did. Every step is visible, reversible, and names its assumptions. Nothing it does is hidden from you, and nothing it can't do is claimed either.</p>
+      </details>
+      <details class="faq-item">
+        <summary>How is this different from a photo of a board?</summary>
+        <p>Every demo and template is a real project: real solver, real router, real DRC gate, real fab package. The tests are the contract. Count them.</p>
+      </details>
     </div>
   </div>
 </section>
 
 <footer>
   <div class="wrap">
-    <span>Folio — the AI-native engineering workbench. Built by Adamman King. Templates CC-BY-4.0.</span>
-    <span><a href="/app" style="color:var(--amber-pale);text-decoration:none">Open Folio →</a></span>
+    <span>Folio — the AI-native engineering workbench. Templates CC-BY-4.0.</span>
+    <span><a href="/app">Open Folio →</a> · <a href="/pricing">Pricing</a> · <a href="mailto:founder@folio.dev">Contact</a></span>
   </div>
 </footer>
 
 <script>
-/* Product tour — authentic to the app's own surfaces: real tab semantics,
- * no fake animation, keyboard navigable. */
 (function () {
   var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
   if (tabs.length === 0) return;
