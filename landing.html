@@ -392,7 +392,7 @@ footer a:hover { color: var(--ink); }
     <div class="section-head">
       <h2>Questions an engineer<br>actually asks.</h2>
     </div>
-    <div class="faq">
+    <div class="faq" id="faq-list" data-fallback="baked">
       <details class="faq-item" open>
         <summary>Is the simulator a real SPICE, or a visual approximation?</summary>
         <p>A real SPICE. MNA with Newton–Raphson companion stamps, Gummel–Poon BJTs with Early voltages and junction capacitances, and level-1 Shichman–Hodges MOSFETs with body effect, channel-length modulation and gate capacitances. JFET level-1, op-amp companions and vendor model cards are all parsed and evaluated; the vendor library ships the actual IRF540N, 2N7000 and 2N3055 parameters.</p>
@@ -444,6 +444,42 @@ footer a:hover { color: var(--ink); }
     <span><a href="/app">Open Folio →</a> · <a href="/pricing">Pricing</a> · <a href="mailto:founder@folio.dev">Contact</a></span>
   </div>
 </footer>
+
+<script>
+/* Hydrate the FAQ from the live deployment when one is configured: the
+ * operator manages entries in the admin console, the public site reads them
+ * through the public anon key, and offline falls back to the baked-in copy.
+ * If anything fails, the baked copy stays — never a half-rendered section. */
+(function () {
+  var urlMeta = document.querySelector('meta[name="supabase-url"]');
+  var anonMeta = document.querySelector('meta[name="supabase-anon"]');
+  var list = document.getElementById('faq-list');
+  if (!urlMeta || !anonMeta || !list) return;
+  var endpoint = urlMeta.content.replace(/\/$/, '') + '/rest/v1/faq_entries?select=question,answer,position,published&published=eq.true&order=position.asc,id.asc';
+
+  fetch(endpoint, {
+    headers: { apikey: anonMeta.content, Accept: 'application/json' },
+  })
+    .then(function (res) { if (!res.ok) throw new Error('FAQ request failed'); return res.json(); })
+    .then(function (rows) {
+      if (!Array.isArray(rows) || rows.length === 0) return;
+      list.innerHTML = '';
+      rows.forEach(function (row, index) {
+        var details = document.createElement('details');
+        details.className = 'faq-item';
+        if (index === 0) details.open = true;
+        var summary = document.createElement('summary');
+        summary.textContent = String(row.question || '');
+        var p = document.createElement('p');
+        p.textContent = String(row.answer || '');
+        details.appendChild(summary);
+        details.appendChild(p);
+        list.appendChild(details);
+      });
+    })
+    .catch(function () { /* keep the baked-in copy */ });
+})();
+</script>
 
 <script>
 (function () {

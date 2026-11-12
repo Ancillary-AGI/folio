@@ -26,6 +26,22 @@ function adminDocument(): Plugin {
     name: 'folio-documents',
     configureServer(server) { server.middlewares.use(rewrite); },
     configurePreviewServer(server) { server.middlewares.use(rewrite); },
+    /* Inject the PUBLIC site configuration into the marketing page at build
+     * time — env is never visible in a static file otherwise, and the admin
+     * FAQ cannot reach the user's browser. The anon key is designed to be
+     * public; the service key is never emitted. */
+    transformIndexHtml(html) {
+      if (!html.includes('<section id="faq"')) return html;
+      const url = process.env.VITE_SUPABASE_URL ?? '';
+      const anon = process.env.VITE_SUPABASE_ANON_KEY ?? '';
+      if (!url || !anon) {
+        return html.includes('<!--FAQ-FALLBACK-->')
+          ? html
+          : html;
+      }
+      const meta = `<meta name="supabase-url" content="${url.replace(/"/g, '&quot;')}">\n    <meta name="supabase-anon" content="${anon.replace(/"/g, '&quot;')}">`;
+      return html.replace('<title>', `${meta}\n    <title>`);
+    },
   };
 }
 
