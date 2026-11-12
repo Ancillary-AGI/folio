@@ -4,44 +4,51 @@
 > `[done]` = implemented and covered by automated tests · `[partial]` = implemented at UI level
 > or requires an optional external service. Counts come from `npm test`.
 
-## Shell 2.0 — Aurora Glass & the Agent-Native Command Surface [done]
+## Shell — Obsidian Forge & the Agentic Command Surface [done]
 
-- **Aurora Glass chrome**: every bar (header, workspace nav, tool rail, status
-  bar) is translucent glass over the WebGL aurora field with a specular top
-  edge, a gradient hairline under the IDE header, and a lit gradient switch for
-  the armed tool. All glows degrade safely under `prefers-reduced-motion`,
-  `prefers-reduced-transparency`, high contrast and forced colours.
-- **The command pill**: the header's centre search is a live agent orb (a
-  rotating conic spectrum in the product's chart hues, animated), a slow
-  sheen sweep, and a gradient hairline border. `Ctrl/⌘+K` still opens the
-  palette; the pill morphs to a launcher icon below `lg`.
-- **Command palette, upgraded**: gradient-focus halo, orb in the search field,
-  rounded result rows with active-row icon tiles, and coherent agent actions —
+- **Obsidian Forge chrome**: layered obsidian surfaces, warm-grey graphite
+  hairlines, one signature accent (molten amber). Chamfered geometry carries
+  its own border through the cut (padding-box/border-box two-layer background).
+  Every glow respects reduced motion, reduced transparency, high contrast and
+  forced colours. No decorative colour anywhere — colour means severity.
+- **The agent orb**: the header's centre command pill carries a molten
+  conic-spectrum orb; one keystroke (`Ctrl/⌘+K`) opens the palette from
+  anywhere. Below `lg` the pill collapses to a launcher icon.
+- **Instrument-tape status bar**: micro-caps labels, tabular mono values,
+  colour only as data (ERC/TC/alert severity), never decoration.
+- **The command palette**: gradient-focus halo, orb in the search field,
+  rounded rows with an amber cursor tick, and coherent agent actions —
   *Design assistant*, and the viewport verbs (dual split, board+3D, floating
   3D, single view, fit) that drive the now-live split engine.
-- **Floating telemetry HUD** (schematic & PCB): one machined glass capsule with
-  live cursor mm position (click to cycle mm/mil/in; a dedicated low-cost
-  telemetry store keeps 60–120 Hz pointer updates off the shell's global
-  store), shared snap toggle, schematic grid presets, zoom/fit/tidy, DRC pulse,
-  active copper-layer quick switch (wired to the board panel's selection — one
-  truth, one id space), Assistant launcher, and viewport split/PiP cycle.
-  Every visible control is live; sections that do not apply in a mode are not
-  rendered.
-- **Split viewport engine**: `Split View` / `3D PiP` (status pill, HUD or
-  palette) mounts a draggable dual canvas — schematic ∥ PCB ∥ 3D — or a
-  picture-in-picture 3D viewport with its own toolbar. The divider is a
-  keyboard- and pointer-resizable separator.
-- **Always-on agent, surfaced**: a header pill and a status-bar segment appear
-  only while agent jobs are queued/running or awaiting a human approval; one
+- **Floating telemetry HUD** (schematic & PCB): live cursor mm position
+  (click to cycle mm/mil/in; a dedicated low-cost telemetry store keeps
+  60–120 Hz pointer updates off the shell's global store), shared snap
+  toggle, schematic grid presets, zoom/fit/tidy, DRC pulse, active
+  copper-layer quick switch (one truth, one id space with the board
+  panel), Assistant launcher, and viewport split/PiP cycle.
+- **Split viewport engine**: `Split View` / `3D PiP` (HUD or palette)
+  mounts a draggable dual canvas — schematic ∥ PCB ∥ 3D — or a
+  picture-in-picture 3D viewport with its own toolbar.
+- **Always-on agent, surfaced**: a header pill and a status-bar segment
+  appear only while agent jobs are queued/running or awaiting approval; one
   click opens the agent workspace. `useAgentJobs` binds the runner via
-  `useSyncExternalStore` — zero polling.
-- **Launcher upgrade**: gradient display type on the hero (folio-dark), an
-  accelerator hint (`Ctrl/⌘ K`) under the CTAs, and copy that names the
-  always-on agent.
-- **Design integrity kept**: 97 test files still green after the pass
-  (appShell's `/admin` deep-link assertions were retired to match the
-  separate-`admin.html` architecture; the header assistant control's
-  accessible name is `Design assistant`).
+  `useSyncExternalStore`.
+- **Fab package in one zip**: the PCB panel emits `folio-fab-package.zip` —
+  every film, drill, mask, silk, centroid and BOM, DRC-gated, CRC-32 verified
+  by a dependency-free STORE-method writer (`zipStore.ts`); proven end to end
+  by the golden-path test (demo → routed → gated → archived → bytes checked).
+- **Local-first profile** (standalone): the first launch asks who is driving
+  — a name stored on the device, nothing leaves it. Cloud keeps the real
+  auth gate. appShell/demoLoadBusy seed the profile in boot; `localProfileGate`
+  proves the gate.
+- **Community templates** (launcher): fork a proven design — curated CC-BY
+  seeds fork through the demo loader; cloud-published templates fork with
+  credit and a usage event (`template.fork`, mirrored to the console);
+  offline, export/import `.folio-template.json`. See **Community** in the
+  "Start from proven designs" launcher section.
+- **Landing page**: `/landing` (source `landing.html`) — the public front
+  door: capabilities, real numbers (28 workspaces, 40 demos, ~3,800 tests),
+  the three-move pipeline, principles. No stock copy, no fabricated claims.
 
 ## Demo Gallery & Workspace Navigation [done]
 

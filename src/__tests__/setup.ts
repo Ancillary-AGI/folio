@@ -1,7 +1,8 @@
 // Test setup file
-import { afterEach } from 'vitest';
+import { afterEach, beforeEach } from 'vitest';
 import { cleanup, configure } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { useLocalProfileStore } from '../stores/useLocalProfileStore';
 
 /*
  * 208 files run on a saturated machine, so a React flush that is
@@ -14,6 +15,13 @@ configure({ asyncUtilTimeout: 4000 });
 // Cleanup after each test
 afterEach(() => {
   cleanup();
+});
+
+// The standalone build gates project creation behind a local profile; the
+// shell suites boot as a signed-in local owner by default so the gate is
+// invisible to them. The gate suite clears this in its own setup.
+beforeEach(() => {
+  useLocalProfileStore.setState({ profile: { name: 'Test User', email: 'test@folio.app' } });
 });
 
 // Mock window.matchMedia

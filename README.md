@@ -35,11 +35,20 @@ rules); it makes no model or network call, and its output is advisory.
 
 ### Demos and navigation
 
-- **Demo gallery** (header **Demos**, or **Ctrl/⌘+Shift+D**): 31 runnable
-  scenarios covering every one of the 25 workspace modes, searchable and grouped
+- **Local-first profile** (standalone builds): the first launch asks who is
+  driving — a name and optional email, stored on the device; nothing leaves it.
+  Cloud deployments keep the real account gate.
+- **Demo gallery** (header **Demos**, or **Ctrl/⌘+Shift+D**): 40 runnable
+  scenarios, one per workspace family and counting, searchable and grouped
   by family. A scenario seeds the stores or stages a one-shot request for the
   panel that owns the feature, so the demo exercises the real engine rather than
   a screenshot.
+- **Community templates** (launcher → **Start from proven designs**):
+  CC-BY-4.0 templates to fork into your own workspace — the curated set ships
+  in the box and forks through the same loader the gallery uses; designs
+  published to the Folio cloud fork with credit; export/import a
+  `.folio-template.json` anytime to share by hand. See
+  [landing.html](landing.html) → `/landing` when served.
 - The half-wave rectifier demos share one board: schematic → transient → PCB →
   autorouted 3-D scene → BOM audit → HIL → digital twin.
 - **Grouped workspaces**: Design, Electrical, Mechanical and Operations families

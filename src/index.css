@@ -3618,3 +3618,81 @@ li[role='option'] > button[data-active='true'] > span:nth-child(2) {
     background: hsl(var(--surface));
   }
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Community templates — the launcher's fork-a-proven-design section
+ * Forge treatment: hairline borders, amber only where action lives.
+ * ──────────────────────────────────────────────────────────────────────────── */
+  .launcher-community {
+    @apply mb-10;
+  }
+
+  .launcher-community__head {
+    @apply mb-3 flex flex-wrap items-end justify-between gap-3;
+  }
+
+  .launcher-community__sub {
+    @apply w-full max-w-lg text-xs leading-relaxed text-muted-foreground;
+  }
+
+  .launcher-community__actions {
+    @apply flex flex-shrink-0 items-center gap-1.5;
+  }
+
+  .launcher-community__feedback {
+    @apply mb-2 text-xs;
+  }
+
+  .launcher-community__grid {
+    @apply grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4;
+  }
+
+  .launcher-community__card {
+    @apply flex min-h-[10.5rem] flex-col rounded-xl border border-border/70 bg-surface/50 p-3;
+    transition: border-color 160ms ease, transform 160ms ease;
+  }
+
+  .launcher-community__card:hover {
+    border-color: hsl(var(--primary) / 0.45);
+    transform: translateY(-2px);
+  }
+
+  .launcher-community__card-head {
+    @apply mb-2 flex items-center justify-between gap-2;
+  }
+
+  .launcher-community__discipline {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8.5px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground) / 0.75);
+  }
+
+  .launcher-community__license {
+    @apply rounded border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-primary;
+  }
+
+  .launcher-community__title {
+    @apply text-[13px] font-semibold leading-snug text-foreground;
+  }
+
+  .launcher-community__desc {
+    @apply mt-1 text-[11px] leading-relaxed text-muted-foreground;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .launcher-community__foot {
+    @apply mt-auto flex items-center justify-between gap-2 border-t border-border/60 pt-2;
+  }
+
+  .launcher-community__meta {
+    @apply min-w-0 truncate text-[10px] text-muted-foreground/80;
+  }
+
+  .launcher-community__note {
+    @apply mt-3 text-[11px] leading-relaxed text-muted-foreground/70;
+  }

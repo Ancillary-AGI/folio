@@ -28,6 +28,8 @@ export const USAGE_KINDS = [
   /** The guide was closed or skipped before the last step. */
   'onboarding.exit',
   'admin.open',
+  /** A community template was forked into a new project. */
+  'template.fork',
 ] as const
 
 export type UsageKind = (typeof USAGE_KINDS)[number]

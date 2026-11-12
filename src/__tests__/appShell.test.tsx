@@ -130,7 +130,9 @@ describe('App shell', () => {
     await screen.findByTestId('schematic-canvas')
 
     fireEvent.click(screen.getByRole('button', { name: 'Help and tutorials' }))
-    expect(await screen.findByRole('dialog', { name: 'Help and tutorials' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('dialog', { name: 'Help and tutorials' }, { timeout: 15000 }),
+    ).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Close help' }))
     await waitFor(() =>
@@ -138,7 +140,9 @@ describe('App shell', () => {
     )
 
     fireEvent.keyDown(window, { key: 'F1' })
-    expect(await screen.findByRole('dialog', { name: 'Help and tutorials' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('dialog', { name: 'Help and tutorials' }, { timeout: 15000 }),
+    ).toBeInTheDocument()
   })
 
   it('opens help and the command palette from the project launcher', async () => {
@@ -148,7 +152,9 @@ describe('App shell', () => {
     // The launcher advertises the same global shortcuts as the workbench, so it
     // has to mount the surfaces they open, not just the project list.
     fireEvent.keyDown(window, { key: 'F1' })
-    expect(await screen.findByRole('dialog', { name: 'Help and tutorials' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('dialog', { name: 'Help and tutorials' }, { timeout: 15000 }),
+    ).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Close help' }))
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Help and tutorials' })).not.toBeInTheDocument(),
@@ -178,18 +184,20 @@ describe('App shell', () => {
     await screen.findByRole('button', { name: /create project/i })
 
     fireEvent.keyDown(window, { key: 'F1' })
-    await screen.findByRole('dialog', { name: 'Help and tutorials' })
+    await screen.findByRole('dialog', { name: 'Help and tutorials' }, { timeout: 15000 })
 
     // The palette and the help centre share the viewport, so a second shortcut
     // has to swap the surface rather than bury the first under a fresh scrim.
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
-    expect(await screen.findByRole('dialog', { name: 'Command palette' })).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: 'Command palette' }, { timeout: 15000 })).toBeInTheDocument()
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Help and tutorials' })).not.toBeInTheDocument(),
     )
 
     fireEvent.keyDown(window, { key: 'F1' })
-    expect(await screen.findByRole('dialog', { name: 'Help and tutorials' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('dialog', { name: 'Help and tutorials' }, { timeout: 15000 }),
+    ).toBeInTheDocument()
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument(),
     )

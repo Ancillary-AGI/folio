@@ -40,6 +40,7 @@ export default defineConfig({
       input: {
         workbench: fileURLToPath(new URL('./index.html', import.meta.url)),
         admin: fileURLToPath(new URL('./admin.html', import.meta.url)),
+        landing: fileURLToPath(new URL('./landing.html', import.meta.url)),
       },
       output: {
         // Split the eagerly-loaded framework vendors out of the entry chunk.

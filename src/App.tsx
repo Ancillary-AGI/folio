@@ -66,6 +66,9 @@ import FolioLogo, { FolioMark } from './components/brand/FolioLogo'
 import { AuroraField } from './components/brand/AuroraField'
 import VoiceCommandBar from './components/nlp/VoiceCommandBar'
 import { LoadingSpinner } from './components/ui/LoadingSpinner'
+import LocalProfileGate from './components/LocalProfileGate'
+import CommunityTemplates from './components/community/CommunityTemplates'
+import { useLocalProfileStore } from './stores/useLocalProfileStore'
 import UserPresence from './components/collaboration/UserPresence'
 import AgentStatusPill from './components/workspace/AgentStatusPill'
 import AgentStatusSegment from './components/workspace/AgentStatusSegment'
@@ -200,10 +203,16 @@ function generateUserColor(userId: string): string {
 function App() {
   // A standalone deployment boots into its workspace administrator; there is no
   // account to sign in to, so users never hit a login gate.
+  const localProfile = useLocalProfileStore((state) => state.profile)
   const [user, setUser] = useState<User | null>(() =>
     isSupabaseConfigured
       ? null
-      : { id: 'offline-local', name: 'Workspace Owner', email: 'owner@folio.app', role: 'owner' },
+      : {
+          id: 'offline-local',
+          name: useLocalProfileStore.getState().profile?.name ?? 'Workspace Owner',
+          email: useLocalProfileStore.getState().profile?.email ?? 'owner@folio.app',
+          role: 'owner',
+        },
   )
   const offlineMode = !isSupabaseConfigured
   const [showSettings, setShowSettings] = useState(false)
@@ -262,8 +271,7 @@ function App() {
   useEffect(() => subscribeUsageMirror(() => setUsageMirrorError(getLastCloudUsageError() ?? '')), [])
 
   // The right-hand drawer is one slot: opening a tool replaces whatever is there.
-  const openPluginPanel = () => {
-    useAppStore.setState({ simulationPanelOpen: false, aiChatOpen: false })
+  const openPluginPanel = () => {    useAppStore.setState({ simulationPanelOpen: false, aiChatOpen: false })
     setShowCollaborativePanel(false)
     setShowPluginPanel(true)
   }
@@ -768,6 +776,27 @@ function App() {
     if (!useProjectStore.getState().currentProject) await handleNewProject()
     return Boolean(useProjectStore.getState().currentProject)
   }
+
+  /* Community templates fork through the same creation path as demos: make a
+   * clean project, then decide what it becomes. The name arrives with the
+   * template — a fork named after the design it forks, never "New Project". */
+  const renameProjectTo = useCallback((name: string) => {
+    const state = useProjectStore.getState()
+    if (state.currentProject) {
+      useProjectStore.setState({ currentProject: { ...state.currentProject, name } })
+    }
+  }, [])
+  const openCuratedDemo = useCallback(
+    async (demoId: string) => {
+      const scenario = DEMO_SCENARIOS.find((entry) => entry.id === demoId)
+      if (scenario && (await openDemoScenario(scenario))) {
+        recordPlatformUsage('template.fork', user, offlineMode, { scenario: scenario.id })
+      }
+    },
+    // openDemoScenario is redeclared each render; read it as a ref of behaviour.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
 
   /*
    * One entry point for loading a demo, so the busy state cannot be forgotten by
@@ -1653,6 +1682,11 @@ function App() {
 
   if (!user) return <AuthForm onAuthSuccess={() => {}} />
 
+  /* The standalone deployment's front door: no cloud account exists, so
+   * designing starts only after a local profile is claimed. Cloud deployments
+   * are already gated above by the real auth flow. */
+  if (offlineMode && !localProfile) return <LocalProfileGate />
+
   if (!currentProject || showProjectManager) {
     return (
       <div className="launcher-shell flex min-h-screen flex-col bg-background">
@@ -1695,6 +1729,15 @@ function App() {
           onOpenDemos={() => setShowDemoGallery(true)}
           onOpenDemo={(scenario) => { void openDemoScenario(scenario) }}
         />
+        {/* Community templates — the gallery graduates from curated demos to
+            things people built and gave away. */}
+        <div className="mx-auto w-full max-w-6xl px-4 pb-16 sm:px-6">
+          <CommunityTemplates
+            onPrepareForkProject={ensureProject}
+            onOpenDemo={(demoId) => void openCuratedDemo(demoId)}
+            onForked={(template) => renameProjectTo(template.name)}
+          />
+        </div>
         {overlayStack}
         {demoBusyOverlay}
         {showOnboarding && (
