@@ -86,6 +86,24 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
     }
   }
 
+  const handleGitHubAuth = async () => {
+    setError('')
+    setLoading(true)
+
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'github',
+        options: {
+          redirectTo: window.location.origin,
+        },
+      })
+      if (error) throw error
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'An error occurred')
+      setLoading(false)
+    }
+  }
+
   return (
     <main className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
@@ -207,14 +225,15 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
               </div>
             </div>
 
-            <Button
+            <div className="mt-4 flex flex-col gap-2">
+              <Button
               type="button"
               variant="outline"
               onClick={handleGoogleAuth}
               disabled={loading}
-              className="w-full mt-4"
+              className="w-full"
             >
-              <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" aria-hidden="true">
                 <path
                   fill="currentColor"
                   d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -232,8 +251,36 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
                   d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                 />
               </svg>
-              Google
+              Continue with Google
             </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleGitHubAuth}
+              disabled={loading}
+              className="w-full"
+            >
+              <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 .5C5.7.5.7 5.5.7 11.8c0 5 3.2 9.3 7.7 10.8.6.1.8-.2.8-.5v-2c-3.1.7-3.8-1.3-3.8-1.3-.5-1.3-1.2-1.7-1.2-1.7-1-.7.1-.7.1-.7 1.1.1 1.7 1.2 1.7 1.2 1 2 2.7 1.4 3.3 1 .1-.8.4-1.4.7-1.7-2.5-.3-5.2-1.3-5.2-5.6 0-1.2.4-2.3 1.1-3.1-.1-.3-.5-1.5.1-3.1 0 0 .9-.3 3 1.2a10.4 10.4 0 0 1 5.5 0c2.1-1.5 3-1.2 3-1.2.6 1.6.2 2.8.1 3.1.7.8 1.1 1.9 1.1 3.1 0 4.3-2.7 5.3-5.2 5.6.4.4.8 1.1.8 2.2v3.3c0 .3.2.6.8.5 4.5-1.5 7.7-5.8 7.7-10.8C23.3 5.5 18.3.5 12 .5z"/>
+              </svg>
+              Continue with GitHub
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              disabled
+              title="X Industries SSO ships with the X Industries identity provider rollout."
+              aria-label="X Industries SSO — for X Industries employees; shipping when the identity provider rollout lands."
+              className="w-full cursor-not-allowed opacity-50"
+            >
+              <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M4 4h7l4 7-5.5 9H4l5.5-9L4 4zm9 0h7l-4 6-3-6z"/>
+              </svg>
+              Continue with X Industries
+            </Button>
+          </div>
           </div>
 
           <div className="mt-6 text-center">

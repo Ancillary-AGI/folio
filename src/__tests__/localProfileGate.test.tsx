@@ -25,18 +25,17 @@ describe('Local profile gate', () => {
   it('stands between the designer and the launcher until a profile is claimed', async () => {
     render(<App />)
 
-    expect(screen.getByRole('heading', { name: 'Folio Engineering Workbench' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Create your workspace' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /from first sketch/i })).not.toBeInTheDocument()
 
     // An empty name cannot create a workspace.
     expect(screen.getByRole('button', { name: /create workspace/i })).toBeDisabled()
 
     fireEvent.change(screen.getByLabelText('Your name'), { target: { value: 'Ada Lovelace' } })
-    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'ada@example.com' } })
     fireEvent.click(screen.getByRole('button', { name: /create workspace/i }))
 
     expect(await screen.findByRole('heading', { name: 'From first sketch to verified build.' })).toBeInTheDocument()
-    expect(useLocalProfileStore.getState().profile).toEqual({ name: 'Ada Lovelace', email: 'ada@example.com' })
+    expect(useLocalProfileStore.getState().profile).toEqual({ name: 'Ada Lovelace', email: '' })
   })
 
   it('persists the profile across a remount — the gate opens once', async () => {
@@ -47,6 +46,6 @@ describe('Local profile gate', () => {
 
     render(<App />)
     expect(await screen.findByRole('heading', { name: 'From first sketch to verified build.' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: "Folio Engineering Workbench" })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: "Create your workspace" })).not.toBeInTheDocument()
   })
 })

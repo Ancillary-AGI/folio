@@ -265,7 +265,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
           <div className="launcher-hero__copy">
             <p className="launcher-eyebrow">
               <span className="launcher-eyebrow__dot" aria-hidden="true" />
-              Multidomain engineering studio
+              Engineering workbench
             </p>
             <h1 id="launcher-heading" className="launcher-title">From first sketch to <span className="hero-accent">verified build.</span></h1>
             <p className="launcher-lede">
@@ -281,7 +281,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
                   rows={2}
                   value={brief}
                   onChange={(event) => setBrief(event.target.value)}
-                  placeholder="Describe what you want to build… @ files, paste images"
+                  placeholder="Describe what you want to build"
                   aria-label="Describe your project"
                   className="launcher-composer__input"
                   onKeyDown={(event) => {
