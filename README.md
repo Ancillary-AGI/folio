@@ -53,12 +53,13 @@ rules); it makes no model or network call, and its output is advisory.
   autorouted 3-D scene → BOM audit → HIL → digital twin.
 - **Grouped workspaces**: Design, Electrical, Mechanical and Operations families
   with icons and descriptions instead of a flat tab ribbon.
-- **Clean, linkable routes**: `/projects/:id/pcb`, `/projects/:id/agents`,
-  `/agents`, `/projects`, plus the separate `/admin` console — no `#` fragments.
-  Reload and Back/Forward preserve the project and workspace; legacy `#/…`
-  bookmarks are rewritten on boot. The workbench deliberately stays one
-  code-split SPA because the sheet, board, undo history and agent sessions are
-  shared live state; see
+- **Clean, linkable routes**: the website lives at `/` and `/pricing`; the
+  workbench lives under `/app`: `/app`, `/app/projects`, `/app/projects/:id/pcb`,
+  `/app/community`, `/app/agents` — no `#` fragments. Reload and Back/Forward
+  preserve the project and workspace; legacy `#/…` and pre-`/app` bookmarks are
+  rewritten on boot. The workbench deliberately stays one code-split SPA
+  because the sheet, board, undo history and agent sessions are shared live
+  state; see
   [docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md#url-scheme-and-why-the-workbench-stays-one-spa).
 - **Command palette** (**Ctrl/⌘+K**): search and run any workspace mode, demo or
   document action with the keyboard, including the capabilities and limits
@@ -74,15 +75,15 @@ rules); it makes no model or network call, and its output is advisory.
   actual panel buttons plus what to look for. Steps are self-checked and say so;
   progress is stored locally and resumable. Demos that a tutorial is built on
   carry a **Guided** chip in the gallery.
-- **Guided tour** (first run, replayable from Settings): thirteen steps with an
-  animated spotlight — pulsing halo, corner brackets and a caret that points at
-  the control being described — that switches workspaces as it goes and persists
-  or resumes progress. The steps that teach a gesture (wiring, chart zoom/pan,
-  3D orbit) leave the app live so you can try them inside the tour; the rest are
-  modal. Arrow keys, Esc, clickable step dots and a tab trap work; reduced-motion
-  users get instant positioning and no halo. While no design is open the card
-  offers to create one, and taking it carries the guide into the workspace the
-  next steps point at. A coach mark never sits on the control it is describing:
+- **Guided tour** (first run, replayable from Settings): thirteen steps, one idea
+  per screen, with a chapter rail (Orientation → Capture → Prove it → Make it
+  physical → Connect it → Delegate & govern) and a single thin progress line.
+  A bracket spotlight follows the control being described as it switches
+  workspaces; gesture steps are live, the rest are modal. Arrow keys, Esc and a
+  tab trap work; reduced-motion users get instant positioning. While no design
+  is open the card offers to create one, and taking it carries the guide into
+  the workspace the next steps point at. A coach mark never sits on the control
+  it is describing:
   it docks in whichever corner leaves that control in the clear, folds the stage
   checklist away on a short window to buy that room, and gives up the spotlight
   rather than draw brackets underneath the card. Closing the guide early

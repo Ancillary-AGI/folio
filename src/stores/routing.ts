@@ -7,23 +7,27 @@
  * vendor bundles. Routes therefore describe views inside one app, and heavy
  * workspaces stay code-split behind their existing lazy imports.
  *
- *   /                          project landing, or the open project's sheet
- *   /agents                    a workspace before a project is chosen
- *   /projects                  project list
- *   /projects/:id              that project's schematic
- *   /projects/:id/simulation   …and every other workspace
- *   /community                 community templates — search, open, publish
+ *   /app                      the project landing, or the open project's sheet
+ *   /app/simulation           a workspace before a project is chosen
+ *   /app/projects             project list
+ *   /app/projects/:id         that project's schematic
+ *   /app/projects/:id/pcb      …and every other workspace
+ *   /app/community            community templates — search, open, publish
  *
- * URLs are server-independent. A static host must rewrite unknown paths to
- * `index.html`; the checked-in host configs provide that fallback. Legacy
- * `#/pcb?project=…` bookmarks are rewritten once on boot.
+ * The product lives under /app so the site root can be the marketing site
+ * served from landing.html. URLs are server-independent. A static host must
+ * rewrite unknown paths to `index.html`; the checked-in host configs provide
+ * that fallback for /app/*. Legacy `#/pcb?project=…` bookmarks are rewritten
+ * once on boot, and un-prefixed legacy paths redirect to /app.
  */
 import type { WorkspaceMode } from './useAppStore';
 
-export const PROJECTS_ROUTE = '/projects';
-export const COMMUNITY_ROUTE = '/community';
+export const APP_BASE = '/app';
+export const PROJECTS_ROUTE = `${APP_BASE}/projects`;
+export const COMMUNITY_ROUTE = `${APP_BASE}/community`;
 
-export const WORKSPACE_ROUTES: Readonly<Record<WorkspaceMode, string>> = {
+/** Internal (unprefixed) mode→path pairs; APP_ROUTES prefixes them. */
+const INTERNAL_WORKSPACE_ROUTES: Readonly<Record<WorkspaceMode, string>> = {
   schematic: '/',
   simulation: '/simulation',
   control: '/control',
@@ -54,18 +58,25 @@ export const WORKSPACE_ROUTES: Readonly<Record<WorkspaceMode, string>> = {
   plugins: '/plugins',
 };
 
+export const WORKSPACE_ROUTES: Readonly<Record<WorkspaceMode, string>> = Object.fromEntries(
+  Object.entries(INTERNAL_WORKSPACE_ROUTES).map(([mode, route]) => [
+    mode,
+    route === '/' ? APP_BASE : `${APP_BASE}${route}`,
+  ]),
+) as Record<WorkspaceMode, string>;
+
 const ROUTE_TO_MODE: Readonly<Record<string, WorkspaceMode>> = Object.fromEntries(
-  Object.entries(WORKSPACE_ROUTES).map(([mode, route]) => [route, mode as WorkspaceMode]),
+  Object.entries(INTERNAL_WORKSPACE_ROUTES).map(([mode, route]) => [route, mode as WorkspaceMode]),
 );
 
 export interface LocationRoute {
   /** Workspace encoded by the URL, or null for the project list / unknown paths. */
   mode: WorkspaceMode | null;
-  /** Project id from `/projects/:id/…` or the legacy `?project=` query. */
+  /** Project id from `/app/projects/:id/…` or the legacy `?project=` query. */
   projectId: string | null;
-  /** True only for `/projects`. */
+  /** True only for `/app/projects`. */
   isProjectList: boolean;
-  /** True only for `/community`. */
+  /** True only for `/app/community`. */
   isCommunity: boolean;
 }
 
@@ -79,7 +90,7 @@ function decodeSegment(value: string): string {
 
 /** True when a string is a defined workspace mode. */
 export function isWorkspaceMode(value: string): value is WorkspaceMode {
-  return Object.prototype.hasOwnProperty.call(WORKSPACE_ROUTES, value);
+  return Object.prototype.hasOwnProperty.call(INTERNAL_WORKSPACE_ROUTES, value);
 }
 
 /** Canonical path for a workspace, optionally scoped to a project. */
@@ -87,7 +98,7 @@ export function workspacePath(mode: WorkspaceMode, projectId?: string | null): s
   const route = WORKSPACE_ROUTES[mode];
   if (!projectId) return route;
   const base = `${PROJECTS_ROUTE}/${encodeURIComponent(projectId)}`;
-  return route === '/' ? base : `${base}${route}`;
+  return route === APP_BASE ? base : `${base}${route.slice(APP_BASE.length)}`;
 }
 
 /**
@@ -97,21 +108,26 @@ export function workspacePath(mode: WorkspaceMode, projectId?: string | null): s
  */
 export function parseRoute(pathname: string, search = ''): LocationRoute {
   const segments = pathname.split('/').filter(Boolean);
-  if (segments[0] === COMMUNITY_ROUTE.slice(1) && segments.length === 1) {
+  // The product lives under APP_BASE; everything else is not ours to route.
+  if (segments[0] !== APP_BASE.slice(1)) {
+    return { mode: null, projectId: null, isProjectList: false, isCommunity: false };
+  }
+  const rest = segments.slice(1);
+  if (rest[0] === 'community' && rest.length === 1) {
     return { mode: null, projectId: null, isProjectList: false, isCommunity: true };
   }
-  if (segments[0] === PROJECTS_ROUTE.slice(1)) {
-    if (segments.length === 1) {
+  if (rest[0] === 'projects') {
+    if (rest.length === 1) {
       return { mode: null, projectId: null, isProjectList: true, isCommunity: false };
     }
-    const projectId = decodeSegment(segments[1]);
-    if (segments.length === 2) {
+    const projectId = decodeSegment(rest[1]);
+    if (rest.length === 2) {
       return { mode: 'schematic', projectId, isProjectList: false, isCommunity: false };
     }
-    const mode = ROUTE_TO_MODE[`/${segments.slice(2).join('/')}`] ?? 'schematic';
+    const mode = ROUTE_TO_MODE[`/${rest.slice(2).join('/')}`] ?? 'schematic';
     return { mode, projectId, isProjectList: false, isCommunity: false };
   }
-  const mode = ROUTE_TO_MODE[`/${segments.join('/')}`] ?? null;
+  const mode = ROUTE_TO_MODE[`/${rest.join('/')}`] ?? null;
   if (!mode) return { mode: null, projectId: null, isProjectList: false, isCommunity: false };
   return {
     mode,

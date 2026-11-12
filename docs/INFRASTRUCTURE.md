@@ -169,19 +169,25 @@ panel only.
 
 | Path | Screen |
 | --- | --- |
-| `/` | project landing, or the open project's schematic |
-| `/projects` | project list |
-| `/projects/:projectId` | that project's schematic |
-| `/projects/:projectId/<workspace>` | e.g. `/projects/abc/pcb`, `/projects/abc/agents` |
-| `/<workspace>` | workspace before a project is chosen (e.g. `/agents`) |
+| `/` | the public website (marketing site at `landing.html`) |
+| `/pricing` | dedicated pricing page (`pricing.html`) |
+| `/app` | project landing, or the open project's schematic — the CAD gate |
+| `/app/projects` | project list |
+| `/app/projects/:projectId` | that project's schematic |
+| `/app/projects/:projectId/<workspace>` | e.g. `/app/projects/abc/pcb`, `/app/projects/abc/agents` |
+| `/app/<workspace>` | workspace before a project is chosen (e.g. `/app/agents`) |
+| `/console` | user console — profile, usage, plan & limits, local data |
+| `/admin` | staff console |
 
-Paths use the History API, so there is no `#` in the address bar; reload and
-Back/Forward preserve the workspace and project. Old `#/pcb?project=abc`
-bookmarks are rewritten once on boot. Offline deep links reopen the local
-project directly; cloud projects wait for sign-in. Unknown paths normalise to
-`/projects`. The server contract is one line: unknown paths return
-`index.html`, while hashed files under `/assets/` are served (and cached)
-directly.
+The product lives under `/app` so the public site can own the root. Paths use
+the History API, so there is no `#` in the address bar; reload and Back/Forward
+preserve the workspace and project. Old `#/pcb?project=abc` bookmarks are
+rewritten once on boot, and pre-`/app` paths redirect server-side. Offline
+deep links reopen the local project directly; cloud projects wait for
+sign-in. Unknown paths on the CAD mount normalise to `/app/projects`; unknown
+paths outside it land on the marketing site. The server contract is one
+line: `/app/*` serves `index.html`, everything else is static with the
+checked-in host fallbacks.
 
 ### Why not a cloud desktop / VPS per user?
 

@@ -165,7 +165,7 @@ describe('App shell', () => {
   })
 
   it('names the project list in the tab title instead of a workspace', async () => {
-    window.history.replaceState(null, '', '/projects')
+    window.history.replaceState(null, '', '/app/projects')
     render(<App />)
     await screen.findByRole('button', { name: /create project/i })
 
@@ -365,7 +365,7 @@ describe('App shell', () => {
   it('keeps the deep-linked workspace encoded in the URL', async () => {
     // A bookmarked/reloaded tab must win over the persisted default mode; the
     // URL writer previously fired before the location reader and snapped this to /.
-    window.history.replaceState(null, '', '/bom')
+    window.history.replaceState(null, '', '/app/bom')
     render(<App />)
     fireEvent.click((await screen.findAllByRole('button', { name: /new project/i }))[0])
 
@@ -382,11 +382,11 @@ describe('App shell', () => {
 
     const project = useProjectStore.getState().currentProject
     expect(project).not.toBeNull()
-    expect(window.location.pathname).toBe(`/projects/${project!.id}`)
+    expect(window.location.pathname).toBe(`/app/projects/${project!.id}`)
 
     fireEvent.click(screen.getByRole('button', { name: 'Projects' }))
     expect(await screen.findByRole('heading', { name: 'From first sketch to verified build.' })).toBeInTheDocument()
-    expect(window.location.pathname).toBe('/projects')
+    expect(window.location.pathname).toBe('/app/projects')
     expect(window.location.hash).toBe('')
     // Like the deep-link case above: creating a project mounts the schematic
     // workspace chunk and the project list unmounts it.

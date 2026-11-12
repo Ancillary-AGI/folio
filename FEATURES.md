@@ -59,18 +59,21 @@
   measured"; paid plans and credits honestly marked as not shipped), Data (key-by-key
   byte accounting plus a full JSON download of the device's folio.* keys).
   Signed-out state reuses the same gate as the workbench.
-- **Community templates** (launcher + `/community`): open a proven design —
+- **Community templates** (launcher + `/app/community`): open a proven design —
   it opens attributed and read-only in the workbench and becomes the user's
   own project when they make it theirs (never before). Curated CC-BY seeds
   open through the demo loader; cloud-published designs open with credit;
   adoption records a usage event (`template.fork`, the ledger's internal name).
   Offline, export/import `.folio-template.json`. The launcher section links to
-  the dedicated `/community` page (search, discipline filters, Featured /
+  the dedicated `/app/community` page (search, discipline filters, Featured /
   Most copied / Newest / A–Z, full grid, publish and import paths);
   source `src/components/community/`.
-- **Landing page**: `/landing` (source `landing.html`) — the public front
-  door: capabilities, real numbers (28 workspaces, 40 demos, ~3,800 tests),
-  the three-move pipeline, principles. No stock copy, no fabricated claims.
+- **Public website** (`/` + `/pricing`): two static, SEO-optimised pages — the
+  front door (`landing.html`: capabilities, real numbers, the three-move
+  pipeline, principles) and a dedicated pricing page with the tiers exactly as
+  the app enforces them plus an honest FAQ (billing ships later, Local is
+  free). The workbench lives at `/app`; `/console` is the user's account
+  surface; `/admin` is staff-only. No stock copy, no fabricated claims.
 
 ## Demo Gallery & Workspace Navigation [done]
 
@@ -547,17 +550,19 @@
   board-size and snap rows above used to leave the drawing exactly 0px tall.
 - **Units & behavior**: metric/imperial, animation toggle, autosave interval,
   onboarding replay
-- **Guided tour**: thirteen-step first-run walkthrough with an animated spotlight —
-  pulsing halo, viewfinder brackets and a caret aimed at the control each step
-  describes — that follows real controls across workspaces, reveals the component
+- **Guided tour**: thirteen-step walkthrough — one idea per screen, a chapter-rail
+  (Orientation … Delegate & govern) and a single thin progress line; no cards
+  inside cards, no duplicated counters. Step highlighting is an animated
+  spotlight with viewfinder brackets and a caret aimed at the control each step
+  describes — it follows real controls across workspaces, reveals the component
   library, and persists or resumes progress. Gesture steps (wiring, chart zoom,
   3D orbit) stay live so you can try them mid-tour; the rest are modal. Keyboard
-  arrows, Esc, clickable step dots, tab trapping and reduced-motion support. The
-  card offers to create a project for as long as no design is open, docks in the
-  corner that keeps its target visible rather than covering it (folding its
-  checklist on short windows), and a guide closed early is recorded as an exit
-  counting the steps actually opened.
-  The final step hands off to the limits register instead of a completion screen.
+  arrows, Esc, clickable chapter rail and tab trapping. The card offers to
+  create a project for as long as no design is open, docks in the corner that
+  keeps its target visible rather than covering it (folding its checklist on
+  short windows), and a guide closed early is recorded as an exit counting the
+  steps actually opened. The final step hands off to the limits register instead
+  of a completion screen.
 - **Accessibility**: keyboard-operable toolbars; every icon-only button must have
   an accessible name, enforced by `npm run a11y:buttons` in CI, and `npm run
   a11y:contract` additionally pins the 24px target floor, the scrolling tool

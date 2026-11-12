@@ -9,7 +9,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import {
-  ArrowLeft, Download, Upload, Send, FolderOpen, Loader2, Search, SearchX, Sparkles, LogIn,
+  ArrowLeft, Download, Upload, Send, FolderOpen, Loader2, Search, SearchX, Sparkles,
 } from 'lucide-react'
 import { Button } from '../ui/button'
 import FolioLogo from '../brand/FolioLogo'
@@ -23,12 +23,8 @@ import CommunityTemplateDialogs from './CommunityTemplateDialogs'
 import { licenseLabel, type Discipline, type CommunityTemplate } from '../../lib/community/community'
 
 interface CommunityPageProps extends UseCommunityTemplatesOptions {
-  /** Returns to the project list. Required when signed in; guests have nowhere to go back to. */
-  onBack?: () => void
-  /** False for signed-out visitors: publish is account-gated, and editing signs them in. */
-  signedIn?: boolean
-  /** Called when a visitor asks to join mid-browse. Required when signedIn is false. */
-  onSignInRequest?: () => void
+  /** Returns to the project list. */
+  onBack: () => void
 }
 
 type SortKey = 'featured' | 'copies' | 'newest' | 'name'
@@ -52,7 +48,7 @@ function matchesQuery(template: CommunityTemplate, query: string): boolean {
   return query.toLowerCase().split(/\s+/).filter(Boolean).every((token) => haystack.includes(token))
 }
 
-export default function CommunityPage({ onBack, onOpenTemplate, onImportFile, signedIn = true, onSignInRequest }: CommunityPageProps) {
+export default function CommunityPage({ onBack, onOpenTemplate, onImportFile }: CommunityPageProps) {
   const controller = useCommunityTemplates({ onOpenTemplate, onImportFile })
   const { allTemplates, cloudMode, loading, loadError, feedback, openBusy, open, exportTemplate } = controller
   const publish = controller.publish
@@ -120,27 +116,12 @@ export default function CommunityPage({ onBack, onOpenTemplate, onImportFile, si
             showTagline
           />
           <div className="flex items-center gap-2">
-            {!signedIn && onSignInRequest && (
-              <Button size="sm" onClick={onSignInRequest} className="gap-1.5" aria-label="Sign in to make designs yours">
-                <LogIn className="h-4 w-4" aria-hidden="true" />
-                Sign in
-              </Button>
-            )}
-            {signedIn && onBack && (
-              <Button variant="outline" size="sm" onClick={onBack} className="gap-2" aria-label="Back to projects">
-                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                Back to projects
-              </Button>
-            )}
+            <Button variant="outline" size="sm" onClick={onBack} className="gap-2" aria-label="Back to projects">              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+              Back to projects
+            </Button>
           </div>
         </div>
       </header>
-
-      {!signedIn && (
-        <div role="status" className="relative z-10 w-full border-b border-primary/20 bg-primary/5 px-4 py-2 text-center text-[11px] font-medium text-muted-foreground">
-          You're browsing — open any design to look inside it. Make it yours to edit, and your sign-in opens the way.
-        </div>
-      )}
 
       <main className="relative z-10 mx-auto w-full max-w-6xl flex-1 px-4 pb-16 sm:px-6">
         {/* Hero — what this page is, for the person who just landed here. */}
@@ -205,17 +186,13 @@ export default function CommunityPage({ onBack, onOpenTemplate, onImportFile, si
               ))}
             </select>
             <div className="flex items-center gap-1.5">
-            {signedIn && (
-              <>
-                <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => importDialog.setOpen(true)} aria-label="Import a template file">
-                  <Upload className="h-3.5 w-3.5" aria-hidden="true" /> Import
-                </Button>
-                <Button variant="ghost" size="sm" className="gap-1.5" onClick={exportTemplate} aria-label="Export the current design as a template file">
-                  <Download className="h-3.5 w-3.5" aria-hidden="true" /> Export
-                </Button>
-              </>
-            )}
-              {cloudMode && signedIn && (
+              <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => importDialog.setOpen(true)} aria-label="Import a template file">
+                <Upload className="h-3.5 w-3.5" aria-hidden="true" /> Import
+              </Button>
+              <Button variant="ghost" size="sm" className="gap-1.5" onClick={exportTemplate} aria-label="Export the current design as a template file">
+                <Download className="h-3.5 w-3.5" aria-hidden="true" /> Export
+              </Button>
+              {cloudMode && (
                 <Button size="sm" className="gap-1.5" onClick={() => publish.setOpen(true)} aria-label="Publish the current design to the community">
                   <Send className="h-3.5 w-3.5" aria-hidden="true" /> Publish
                 </Button>
@@ -259,41 +236,48 @@ export default function CommunityPage({ onBack, onOpenTemplate, onImportFile, si
         {/* The grid. */}
         {visible.length > 0 ? (
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-busy={loading}>
-            {visible.map((template) => (
-              <article key={template.id} className="flex flex-col rounded-xl border border-border/70 bg-card/60 p-4 transition-colors hover:border-primary/40">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-full border border-border/70 bg-background/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{DISCIPLINE_LABEL[template.discipline]}</span>
-                    <span className="text-[10px] font-medium text-muted-foreground/80">{licenseLabel(template.license)}</span>
-                  </div>
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/60">
-                    {template.source === 'curated' ? 'Folio' : 'Community'}
+            {visible.map((template) => {
+              const busy = openBusy === template.id
+              return (
+                <button
+                  key={template.id}
+                  type="button"
+                  onClick={() => void open(template)}
+                  disabled={busy}
+                  aria-label={`Open ${template.name}`}
+                  aria-busy={busy}
+                  className="group flex flex-col rounded-xl border border-border/70 bg-card/60 p-4 text-left transition-colors hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-80"
+                >
+                  <span className="flex w-full items-center justify-between gap-2">
+                    <span className="flex items-center gap-2">
+                      <span className="rounded-full border border-border/70 bg-background/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{DISCIPLINE_LABEL[template.discipline]}</span>
+                      <span className="text-[10px] font-medium text-muted-foreground/80">{licenseLabel(template.license)}</span>
+                    </span>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/60">
+                      {template.source === 'curated' ? 'Folio' : 'Community'}
+                    </span>
                   </span>
-                </div>
-                <h2 className="mt-2.5 text-sm font-bold leading-snug text-foreground">{template.name}</h2>
-                <p className="mt-1 line-clamp-3 flex-1 text-xs leading-relaxed text-muted-foreground">{template.description}</p>
-                <div className="mt-3 flex items-center justify-between gap-2 border-t border-border/60 pt-3">
-                  <span className="min-w-0 truncate text-[10px] text-muted-foreground/80">
-                    {template.source === 'curated'
-                      ? 'Folio team · ships in the box'
-                      : `${template.authorName} · ${template.clonedCount} opened${template.clonedCount === 1 ? '' : 's'}`}
+                  <span className="mt-2.5 block text-sm font-bold leading-snug text-foreground group-hover:text-primary transition-colors">{template.name}</span>
+                  <span className="mt-1 line-clamp-3 flex-1 block text-xs leading-relaxed text-muted-foreground">{template.description}</span>
+                  <span className="mt-3 flex w-full items-center justify-between gap-2 border-t border-border/60 pt-3">
+                    <span className="min-w-0 truncate text-[10px] text-muted-foreground/80">
+                      {template.source === 'curated'
+                        ? 'Folio team · ships in the box'
+                        : `${template.authorName} · ${template.clonedCount} opened${template.clonedCount === 1 ? '' : 's'}`}
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="flex flex-shrink-0 items-center gap-1.5 text-[11px] font-semibold text-primary"
+                    >
+                      {busy
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <FolderOpen className="h-3.5 w-3.5" />}
+                      {busy ? 'Opening…' : 'Open design'}
+                    </span>
                   </span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-shrink-0 gap-1.5"
-                    onClick={() => void open(template)}
-                    disabled={openBusy === template.id}
-                    aria-label={`Open ${template.name}`}
-                  >
-                    {openBusy === template.id
-                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                      : <FolderOpen className="h-3.5 w-3.5" aria-hidden="true" />}
-                    Open design
-                  </Button>
-                </div>
-              </article>
-            ))}
+                </button>
+              )
+            })}
           </div>
         ) : (
           <div className="mt-16 flex flex-col items-center gap-3 text-center">
@@ -317,7 +301,7 @@ export default function CommunityPage({ onBack, onOpenTemplate, onImportFile, si
               </p>
             </div>
           </div>
-          {cloudMode && signedIn && (
+          {cloudMode && (
             <Button className="mt-3 flex-shrink-0 gap-1.5 sm:mt-0" onClick={() => publish.setOpen(true)}>
               <Send className="h-4 w-4" aria-hidden="true" /> Publish your design
             </Button>

@@ -1,0 +1,12 @@
+# The website is public; the product and the consoles are not for crawlers.
+User-agent: *
+Allow: /
+Allow: /pricing
+Disallow: /app
+Disallow: /app/
+Disallow: /console
+Disallow: /admin
+Disallow: /landing.html
+
+# Sitemap: add once a canonical origin is known, e.g.
+# Sitemap: https://<origin>/sitemap.xml

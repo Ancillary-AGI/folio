@@ -179,13 +179,13 @@ export default function ConsoleApp() {
         </ul>
         <div className="mt-auto pt-6">
           <a
-            href="/landing.html"
+            href="/"
             className="block rounded-lg px-3 py-2 text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             Folio — the product website →
           </a>
           <a
-            href="/"
+            href="/app"
             className="flex items-center gap-2 rounded-lg px-3 py-2 text-[11px] font-semibold text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
@@ -204,7 +204,7 @@ export default function ConsoleApp() {
           </div>
           <div className="flex flex-shrink-0 items-center gap-2">
             <a
-              href="/"
+              href="/app"
               className="hidden h-8 items-center gap-2 rounded-md border border-border/70 px-3 text-[11px] font-semibold text-muted-foreground transition-colors hover:text-foreground sm:inline-flex"
             >
               Open workbench

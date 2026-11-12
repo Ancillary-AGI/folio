@@ -985,18 +985,6 @@
     box-shadow: 0 0 0 3px hsl(var(--ring) / var(--focus-halo));
   }
 
-  .launcher-stats {
-    @apply relative mt-7 flex flex-wrap gap-x-8 gap-y-3 border-t border-border/70 pt-5;
-  }
-
-  .launcher-stats dt {
-    @apply text-xs font-medium text-muted-foreground;
-  }
-
-  .launcher-stats dd {
-    @apply mt-1 text-2xl font-semibold tracking-[-0.02em] tabular-nums text-foreground;
-  }
-
   .launcher-section-title {
     @apply text-sm font-semibold tracking-[-0.01em] text-foreground;
   }
@@ -3648,13 +3636,25 @@ li[role='option'] > button[data-active='true'] > span:nth-child(2) {
   }
 
   .launcher-community__card {
-    @apply flex min-h-[10.5rem] flex-col rounded-xl border border-border/70 bg-surface/50 p-3;
+    @apply flex min-h-[10.5rem] w-full cursor-pointer flex-col rounded-xl border border-border/70 bg-surface/50 p-3 text-left;
+    font: inherit;
+    color: inherit;
     transition: border-color 160ms ease, transform 160ms ease;
   }
 
   .launcher-community__card:hover {
     border-color: hsl(var(--primary) / 0.45);
     transform: translateY(-2px);
+  }
+
+  .launcher-community__card:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  .launcher-community__card:disabled {
+    cursor: wait;
+    opacity: 0.8;
   }
 
   .launcher-community__card-head {

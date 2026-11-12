@@ -202,37 +202,31 @@ const stepIndexById = (id: string) => {
 }
 
 describe('onboarding tour behaviour', () => {
-  it('makes every step reachable from the chapter rail and marks the current one', () => {
+  it('offers every chapter from the rail and marks the current one', () => {
     const currentIndex = stepIndexById('editor-tools')
     const { setStepIndex } = renderTour(currentIndex)
 
-    const dots = screen.getAllByRole('button', { name: /(Current|Reviewed|Upcoming) step\b/ })
-    expect(dots).toHaveLength(ONBOARDING_STEP_COUNT)
-    const current = screen.getByRole('button', { name: /^Current step:/ })
+    const chapterButtons = screen.getAllByRole('button', { name: /chapter: / })
+    expect(chapterButtons).toHaveLength(ONBOARDING_CHAPTERS.length)
+    const current = screen.getByRole('button', { name: /^Current chapter: Capture/ })
     expect(current).toHaveAttribute('aria-current', 'step')
-    // Visited steps stay one click away instead of trapping the user in order.
-    expect(screen.getByRole('button', { name: /^Reviewed step 1:/ })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: new RegExp(`^Upcoming step ${currentIndex + 2}:`) }))
-    expect(setStepIndex).toHaveBeenCalledWith(currentIndex + 1)
+    expect(screen.getByRole('button', { name: /^Reviewed chapter: Orientation/ })).toBeInTheDocument()
+    // The rail jumps to the first step of the chosen chapter.
+    const firstProve = ONBOARDING_STEPS.findIndex((entry) => entry.chapter === 'prove')
+    fireEvent.click(screen.getByRole('button', { name: /^Upcoming chapter: Prove it/ }))
+    expect(setStepIndex).toHaveBeenCalledWith(firstProve)
   })
 
-  it('names the current chapter and previews the next step or chapter', () => {
+  it('names the current chapter, step number and overall progress', () => {
     renderTour(stepIndexById('schematic'))
-    expect(screen.getByText(/Chapter 2 of 6/)).toBeInTheDocument()
-    expect(screen.getByText(/Step 1 of 2 in this chapter/)).toBeInTheDocument()
-    expect(screen.getByText('Next in this chapter')).toBeInTheDocument()
-    expect(screen.getByText('The rail holds the gestures, the keys hold the rail')).toBeInTheDocument()
+    expect(screen.getAllByText(/Capture/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/Step 1 of 2 ·/)).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', String(stepIndexById('schematic') + 1))
   })
 
-  it('announces the workspace it travels to when a step switches modes', () => {
-    const settings = useAppStore.getState().settings
-    useAppStore.setState({
-      workspaceMode: 'schematic',
-      settings: { ...settings, animations: true },
-    })
+  it('switches the workspace that the step teaches', () => {
+    useAppStore.setState({ workspaceMode: 'schematic' })
     renderTour(stepIndexById('waveforms'))
-    expect(screen.getByText('Now entering')).toBeInTheDocument()
-    expect(screen.getByText('Simulation')).toBeInTheDocument()
     expect(useAppStore.getState().workspaceMode).toBe('simulation')
   })
 
@@ -278,7 +272,7 @@ describe('onboarding tour behaviour', () => {
       const dialog = screen.getByRole('dialog')
       expect(dialog).not.toHaveAttribute('aria-modal')
       expect(dialog.parentElement?.className).toContain('pointer-events-none')
-      expect(screen.getByText(/Live step/)).toBeInTheDocument()
+      expect(screen.getByText(/Try it now/)).toBeInTheDocument()
       expect(document.querySelector('.tour-caret')).not.toBeNull()
       expect(document.querySelectorAll('.tour-bracket')).toHaveLength(4)
       unmount()
@@ -289,12 +283,12 @@ describe('onboarding tour behaviour', () => {
       const second = renderTour(live)
       expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'true')
       expect(screen.getByRole('dialog').parentElement?.className).not.toContain('pointer-events-none')
-      expect(screen.queryByText(/Live step/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Try it now/)).not.toBeInTheDocument()
       second.unmount()
 
       renderTour(0)
       expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'true')
-      expect(screen.queryByText(/Live step/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Try it now/)).not.toBeInTheDocument()
     } finally {
       host.remove()
     }
@@ -306,7 +300,7 @@ describe('onboarding tour behaviour', () => {
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 500 })
     try {
       const { unmount } = renderTour(index)
-      const summary = screen.getByText(new RegExp(`In this stage \\(${ONBOARDING_STEPS[index].checklist.length}\\)`))
+      const summary = screen.getByText(new RegExp(`What you will do \\(${ONBOARDING_STEPS[index].checklist.length}\\)`))
       const details = summary.closest('details')
       expect(details).not.toBeNull()
       // Folded by default, so the card can shrink enough to leave its target visible.
@@ -319,8 +313,8 @@ describe('onboarding tour behaviour', () => {
 
     // A window with room keeps the list in the open, where it costs nothing.
     renderTour(index)
-    expect(screen.getByRole('heading', { name: 'In this stage' })).toBeInTheDocument()
-    expect(screen.queryByText(/In this stage \(/)).not.toBeInTheDocument()
+    expect(screen.getByText('What you will do')).toBeInTheDocument()
+    expect(screen.queryByText(/What you will do \(/)).not.toBeInTheDocument()
   })
 })
 

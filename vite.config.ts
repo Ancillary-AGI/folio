@@ -3,19 +3,27 @@ import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Serve the operator console at `/admin` and the user console at `/console`
- * in dev and preview, the same paths the checked-in host configs use.
- * Without this, Vite's SPA fallback would answer them with the workbench
- * document.
+ * Serve the documents at the same paths the checked-in host configs use.
+ * Without this, Vite's SPA fallback would answer `/admin` or `/pricing` with
+ * the workbench document, and `/app/...` with nothing deep-linkable.
  */
 function adminDocument(): Plugin {
+  const EXACT: Record<string, string> = {
+    '/app': '/index.html',
+    '/': '/landing.html',
+    '/pricing': '/pricing.html',
+    '/admin': '/admin.html',
+    '/console': '/console.html',
+    '/landing': '/landing.html',
+  };
   const rewrite = (req: { url?: string }, _res: unknown, next: () => void) => {
-    if (req.url === '/admin' || req.url === '/admin/') req.url = '/admin.html';
-    if (req.url === '/console' || req.url === '/console/') req.url = '/console.html';
+    const path = (req.url ?? '').split('?')[0].replace(/\/$/, '') || '/';
+    if (path.startsWith('/app/')) req.url = '/index.html';
+    else if (EXACT[path]) req.url = EXACT[path];
     next();
   };
   return {
-    name: 'folio-admin-document',
+    name: 'folio-documents',
     configureServer(server) { server.middlewares.use(rewrite); },
     configurePreviewServer(server) { server.middlewares.use(rewrite); },
   };
@@ -37,12 +45,16 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      // Two documents, two applications. The operator console is not a route in
-      // the workbench: a designer's bundle never contains it and never links to it.
+      // Five documents, four applications: the marketing site (landing +
+      // pricing), the instrument (the workbench), the operator console, and the
+      // user console. Neither console is a route in the workbench: a designer's
+      // bundle never contains either, and the workbench never links to the
+      // operator console.
       input: {
         workbench: fileURLToPath(new URL('./index.html', import.meta.url)),
         admin: fileURLToPath(new URL('./admin.html', import.meta.url)),
         landing: fileURLToPath(new URL('./landing.html', import.meta.url)),
+        pricing: fileURLToPath(new URL('./pricing.html', import.meta.url)),
         console: fileURLToPath(new URL('./console.html', import.meta.url)),
       },
       output: {

@@ -246,7 +246,6 @@ function App() {
   const [vcsStatus, setVcsStatus] = useState('')
   const [backupList, setBackupList] = useState<ProjectBackup[]>([])
   const [showProjectManager, setShowProjectManager] = useState(false)
-  const [signInWall, setSignInWall] = useState(false)
   const [showCommunity, setShowCommunity] = useState(() => currentRoute().isCommunity)
   const [notice, setNotice] = useState('')
   const [demoBusy, setDemoBusy] = useState<string | null>(null)
@@ -476,9 +475,11 @@ function App() {
     setOnboardingStep(step)
   }, [])
 
+  /* The guide is a tour around the CAD, not the launcher or the website: it
+   * starts when a design is first open, never on the project list. */
   useEffect(() => {
-    if (user && !hasCompletedOnboarding()) openTour(readOnboardingStep(ONBOARDING_STEP_COUNT))
-  }, [openTour, user])
+    if (user && currentProject && !hasCompletedOnboarding()) openTour(readOnboardingStep(ONBOARDING_STEP_COUNT))
+  }, [openTour, user, currentProject])
 
   useEffect(() => {
     if (!user) return
@@ -836,7 +837,6 @@ function App() {
    * scratch. Discarding throws the session away without persisting anything.
    */
   const previewCounter = useRef(0)
-  const pendingAdoptRef = useRef(false)
   const preview = useCommunityPreviewStore((state) => state.preview)
   const previewActive = preview !== null
   const previewFlash = useCommunityPreviewStore((state) => state.flash)
@@ -981,13 +981,7 @@ function App() {
   /* The one moment a preview becomes a project. */
   const adoptPreview = useCallback(async () => {
     const current = useCommunityPreviewStore.getState().preview
-    if (!current) return
-    if (!user) {
-      // Browsers see the middleware; the adoption resumes after sign-in.
-      pendingAdoptRef.current = true
-      setSignInWall(true)
-      return
-    }
+    if (!current || !user) return
     const payload = liveSnapshot()
     const ok = await persistAdoptedDesign(current.name, current.authorName, payload)
     if (!ok) return
@@ -996,15 +990,6 @@ function App() {
     useCommunityPreviewStore.getState().clear()
     setNotice(`“${current.name}” is yours — edit away.`)
   }, [offlineMode, persistAdoptedDesign, user])
-
-  // Signing in with an adoption pending completes it — the middleware did its job.
-  useEffect(() => {
-    if (pendingAdoptRef.current && user) {
-      pendingAdoptRef.current = false
-      setSignInWall(false)
-      void adoptPreview()
-    }
-  }, [user, adoptPreview])
 
   /* Import is ownership from the first click — a file in hand is the user's. */
   const adoptImportedFile = useCallback(async (
@@ -1947,36 +1932,10 @@ function App() {
   const demoBusyOverlay = demoBusy ? <DemoLoadingOverlay title={demoBusy} /> : null
 
   /*
-   * The middleware every public surface bounces to the moment it wants to become
-   * an account action: browsing a community design needs no identity, adopting
-   * one does. Completing sign-in resumes the pending adoption.
+   * The community browse surface requires identity like everything else in the
+   * workbench: no local profile (standalone) or cloud session (deployed), no CAD.
+   * Cloud deployments therefore render the hosted auth gate here too.
    */
-  if (signInWall) {
-    return (
-      <AuthForm onAuthSuccess={() => {
-        setSignInWall(false)
-        // The pending-adoption effect completes the fork once the session lands.
-      }} />
-    )
-  }
-
-  /* Cloud deployments let the community browse without an account — designs are
-   * public by intent. Everything inside the CAD still requires one. */
-  if (!user && !offlineMode && currentRoute().isCommunity) {
-    return (
-      <div className="launcher-shell flex min-h-screen flex-col bg-background">
-        <AuroraField />
-        <CommunityPage
-          signedIn={false}
-          onSignInRequest={() => setSignInWall(true)}
-          onOpenTemplate={handleOpenTemplate}
-          onImportFile={adoptImportedFile}
-        />
-        {demoBusyOverlay}
-      </div>
-    )
-  }
-
   if (!user) return <AuthForm onAuthSuccess={() => {}} />
 
   /* The standalone deployment's front door: no cloud account exists, so
@@ -2070,18 +2029,6 @@ function App() {
         </div>
         {overlayStack}
         {demoBusyOverlay}
-        {showOnboarding && (
-          <OnboardingTour
-            onClose={closeOnboarding}
-            onCreateProject={() => { void handleNewProject() }}
-            onLoadSampleCircuit={() => { void handleLoadSampleCircuit() }}
-            onLoadDemoBoard={() => { void handleLoadDemoBoard() }}
-            onOpenLimits={openLimitsRegister}
-            hasProject={Boolean(currentProject)}
-            stepIndex={onboardingStep}
-            setStepIndex={showTourStep}
-          />
-        )}
       </div>
     )
   }

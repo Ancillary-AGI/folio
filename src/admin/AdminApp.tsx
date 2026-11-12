@@ -70,7 +70,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 function WorkbenchLink() {
   return (
     <a
-      href="/"
+      href="/app"
       className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline"
     >
       Open the engineering workbench <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />

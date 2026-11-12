@@ -13,15 +13,8 @@ import {
   ONBOARDING_STEPS,
   stepPositionInChapter,
 } from '../lib/onboarding/onboardingSteps'
-import { WORKSPACE_MODE_META } from '../lib/workspace/modes'
 import { computeTourLayout, computeTourCaret, type TourCaret, type TourRect } from '../lib/onboarding/tourLayout'
 
-/**
- * How the guide ended. The ledger distinguishes these because "the engineer
- * finished the curriculum" and "they closed the card on step two" are different
- * facts, and the admin console renders them apart. How many steps were opened is
- * counted by the shell, which owns the step state.
- */
 export type TourExitReason = 'finished' | 'skipped' | 'dismissed'
 
 export interface OnboardingTourProps {
@@ -37,14 +30,6 @@ export interface OnboardingTourProps {
 
 const EMPTY_VIEWPORT = { width: 1280, height: 800 }
 
-/*
- * A card pinned to the viewport's max height leaves no room for the spotlight
- * beside it, so on a short window every step degrades into a blocking modal.
- * Below this height the stage checklist folds behind a disclosure, which buys
- * back the height a bottom or side placement needs. When even that is not
- * enough, the step presents itself as the teaching card it really is rather
- * than drawing brackets underneath the card.
- */
 const COMPACT_VIEWPORT_HEIGHT = 620
 
 function readViewport() {
@@ -65,20 +50,12 @@ function sameRect(a: TourRect | null, b: TourRect | null) {
   return a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height
 }
 
-/**
- * The caret is a 12 px rotated square, so only one axis is set per side; the
- * CSS variant owns the offset that pins it to the facing edge.
- */
 function caretStyle(caret: TourCaret): CSSProperties {
   return caret.side === 'top' || caret.side === 'bottom'
     ? { left: caret.along }
     : { top: caret.along }
 }
 
-/**
- * Corner brackets drawn around the spotlight; the four L-shapes read as a
- * viewfinder. Offsets are inline because the entry animation owns `transform`.
- */
 const BRACKETS = [
   { id: 'tl', sides: 'border-t-2 border-l-2', style: { top: -4, left: -4 } },
   { id: 'tr', sides: 'border-t-2 border-r-2', style: { top: -4, right: -4 } },
@@ -86,6 +63,23 @@ const BRACKETS = [
   { id: 'br', sides: 'border-b-2 border-r-2', style: { bottom: -4, right: -4 } },
 ] as const
 
+/** Short chapter names for the rail — the card width cannot hold all six in full. */
+const RAIL_LABEL: Record<string, string> = {
+  orientation: 'Orient',
+  capture: 'Capture',
+  prove: 'Prove',
+  physical: 'Build',
+  connect: 'Connect',
+  govern: 'Govern',
+}
+
+/**
+ * The guide.
+ *
+ * One idea per screen, stated once. The chapter rail and a single thin
+ * progress line carry the journey; nothing competes with the step. Motion is
+ * limited to one staggered fade per step; everything else stays still.
+ */
 export default function OnboardingTour({
   onClose,
   onCreateProject,
@@ -101,8 +95,6 @@ export default function OnboardingTour({
   const step = ONBOARDING_STEPS[activeIndex]
   const { chapter, ordinal: chapterOrdinal } = chapterForStep(activeIndex)
   const chapterPosition = stepPositionInChapter(activeIndex)
-  const nextStep = ONBOARDING_STEPS[activeIndex + 1]
-  const nextChapter = nextStep ? chapterForStep(activeIndex + 1) : null
   const isLast = activeIndex === ONBOARDING_STEPS.length - 1
   const showSampleAction = step.action === 'load-sample-circuit'
   const showLimitsAction = step.action === 'open-limits'
@@ -110,44 +102,17 @@ export default function OnboardingTour({
   const [targetRect, setTargetRect] = useState<TourRect | null>(null)
   const [cardSize, setCardSize] = useState({ width: 0, height: 0 })
   const [viewport, setViewport] = useState(readViewport)
-  // Respect the app-level motion preference as well as the OS setting.
   const animations = useAppStore((state) => state.settings.animations)
   const motionClass = animations ? 'duration-500 ease-out motion-reduce:transition-none' : ''
-  /*
-   * Travelling between workspaces is the one moment the tour asks the user to
-   * re-orient, so the destination is named while the shell swaps panels. The
-   * cue is keyed by a serial: revisiting a mode replays it instead of silently
-   * looking like nothing happened.
-   */
-  const [travel, setTravel] = useState<{ id: number; chapter: string; workspace: string } | null>(null)
-  const lastMode = useRef(useAppStore.getState().workspaceMode)
-  const travelSerial = useRef(0)
 
   useEffect(() => {
-    const previousMode = lastMode.current
-    lastMode.current = step.mode
+    /* The mode switch happens here rather than in the data so the workspace
+     * always matches the step on screen. */
     useAppStore.getState().setWorkspaceMode(step.mode)
-    // A step can only point at the library once it is on screen; revealing it
-    // here is less surprising than a coach mark that silently loses its target.
     if (step.target === 'component-library') useAppStore.setState({ sidebarOpen: true })
     writeOnboardingStep(activeIndex)
-    if (!animations || previousMode === step.mode) return
-    travelSerial.current += 1
-    setTravel({
-      id: travelSerial.current,
-      chapter: `${chapterOrdinal} · ${chapter.label}`,
-      workspace: WORKSPACE_MODE_META[step.mode].label,
-    })
-    const timer = window.setTimeout(() => setTravel(null), 1000)
-    return () => window.clearTimeout(timer)
-  }, [step.mode, step.target, activeIndex, animations, chapterOrdinal, chapter.label])
+  }, [step.mode, step.target, activeIndex])
 
-  /*
-   * Targets can mount after the card (lazy workspace chunks, a mode the step
-   * just switched to, the sidebar opening). Measure now, then poll for a short
-   * while and keep listening to layout changes so the spotlight follows the
-   * real element instead of a guessed position.
-   */
   useEffect(() => {
     const selectors = [step.target, step.fallbackTarget].filter((value): value is string => Boolean(value))
     if (selectors.length === 0) {
@@ -158,8 +123,6 @@ export default function OnboardingTour({
     let frame = 0
     let observed: Element | null = null
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => update()) : null
-    /* Duplicated controls (desktop header vs compact menu) can coexist in the
-     * DOM; pick the one that is actually laid out at this viewport width. */
     const query = () => {
       for (const selector of selectors) {
         const elements = document.querySelectorAll<HTMLElement>(`[data-tour="${selector}"]`)
@@ -172,12 +135,6 @@ export default function OnboardingTour({
     const update = () => {
       if (cancelled) return
       const element = query()
-      /*
-       * The observer has to follow the element the tour really matched. A lazy
-       * workspace chunk mounts its canvas after this effect ran, and a viewport
-       * crossing swaps the desktop control for its compact twin — observing only
-       * whatever existed at setup would leave the spotlight tracking a stale node.
-       */
       if (observer && element !== observed) {
         if (observed) observer.unobserve(observed)
         if (element) observer.observe(element)
@@ -240,13 +197,8 @@ export default function OnboardingTour({
     [layout, cardSize.height, targetRect],
   )
 
-  /*
-   * A live step lets the engineer perform the gesture being taught instead of
-   * reading about it, so the card is keyed per step and every block re-mounts
-   * and re-rises in sequence. With motion off the same content is static.
-   */
-  const riseClass = animations ? 'animate-rise-in' : ''
-  const riseDelay = (delay: number): CSSProperties | undefined =>
+  const fadeClass = animations ? 'animate-rise-in' : ''
+  const fadeDelay = (delay: number): CSSProperties | undefined =>
     animations ? { animationDelay: `${delay}ms` } : undefined
 
   const goTo = useCallback(
@@ -255,11 +207,6 @@ export default function OnboardingTour({
     },
     [setStepIndex],
   )
-  /*
-   * The reason is the only thing the card reports: how many steps were opened is
-   * counted by the shell, which owns the step state, so a count can never be
-   * claimed by the component that is being closed.
-   */
   const exit = useCallback((reason: TourExitReason) => onClose(reason), [onClose])
   const advance = useCallback(() => {
     if (isLast) exit('finished')
@@ -270,42 +217,23 @@ export default function OnboardingTour({
     goTo(activeIndex + 1)
   }, [activeIndex, goTo, hasProject, onCreateProject])
 
-  /* The registry is the tour's hand-off, so opening it closes the guide: an
-   * engineer reading the limits of a solver is past being shown around, and a
-   * coach mark hovering over that panel would only get in the way. */
   const openLimits = useCallback(() => {
-    // Closing first is what keeps the ledger single-entry: the shell then knows
-    // the guide was finished rather than interrupted on the way to the register.
     exit('finished')
     onOpenLimits()
   }, [exit, onOpenLimits])
 
-  /*
-   * A live step only means something when its target is actually on screen: on
-   * the project launcher the schematic step has no sheet to play with, so the
-   * tour falls back to a plain modal card instead of promising a gesture.
-   */
   const isLiveStep = Boolean(step.handsOn && layout.spotlight)
 
   const compact = viewport.height < COMPACT_VIEWPORT_HEIGHT
 
-  /*
-   * Project creation is a choice, never a side effect of pressing Next. It is
-   * offered for as long as no design is open: a guide resumed on the launcher has
-   * no sheet, rail or canvas to spotlight, so every remaining step would otherwise
-   * stay a picture of the tool instead of the tool.
-   */
+  /* Project creation is a choice, never a side effect of pressing Next. It is
+   * offered for as long as no design is open. */
   const needsProject = !hasProject
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); exit('dismissed'); return }
       if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return
-      /*
-       * On a live step the canvas keeps its own keys (arrows pan a chart, R
-       * resets it). Only steal arrows while focus is inside the card, otherwise
-       * the tour would swallow the very gesture it is teaching.
-       */
       const root = dialogRef.current
       const focusIsOurs =
         event.target instanceof Node && root !== null && root.contains(event.target)
@@ -343,14 +271,10 @@ export default function OnboardingTour({
     }
   }, [])
 
-  const stageChecklist = (
-    <ul className="mt-2 space-y-1.5">
-      {step.checklist.map((item, index) => (
-        <li
-          key={item}
-          className={`flex gap-2.5 text-sm leading-relaxed text-card-foreground ${riseClass}`}
-          style={riseDelay(240 + index * 70)}
-        >
+  const checklist = (
+    <ul className="mt-3 space-y-2">
+      {step.checklist.map((item) => (
+        <li key={item} className="flex items-start gap-2.5 text-[13px] leading-relaxed text-card-foreground/90">
           <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
           <span>{item}</span>
         </li>
@@ -359,39 +283,13 @@ export default function OnboardingTour({
   )
 
   return (
-    <div
-      className={`fixed inset-0 z-[100] ${isLiveStep ? 'pointer-events-none' : ''}`}
-      role="presentation"
-    >
-      {/* No-target steps behave like a modal; targeted steps dim everything
-       * except the spotlight and keep outside clicks inert so a stray click
-       * cannot silently end the tour mid-step. A live step dims far less: the
-       * app underneath it is meant to be operated, not admired. */}
-      {layout.spotlight ? (
-        <div className="absolute inset-0" aria-hidden="true" />
-      ) : (
+    <div className={`fixed inset-0 z-[100] ${isLiveStep ? 'pointer-events-none' : ''}`} role="presentation">
+      {!layout.spotlight && (
         <div
           className={`pointer-events-auto absolute inset-0 bg-overlay/70 backdrop-blur-[1px] ${animations ? 'animate-fade-in' : ''}`}
           onClick={() => exit('dismissed')}
           aria-hidden="true"
         />
-      )}
-
-      {/* Inter-workspace travel: the shell swaps panels underneath while this
-        * names where the guide just arrived. Pointer-transparent, because the
-        * card and the target stay usable during the 1 s cue. */}
-      {travel && (
-        <div key={travel.id} aria-hidden="true" className="pointer-events-none fixed inset-0 motion-reduce:hidden">
-          <div className="tour-travel-sweep absolute inset-0" />
-          <div className="absolute inset-x-0 top-20 flex justify-center px-4">
-            <div className="tour-travel-chip flex items-center gap-2.5 rounded-full border border-primary/40 bg-surface/95 px-4 py-2 shadow-2xl backdrop-blur">
-              <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Now entering</span>
-              <span className="text-xs font-semibold text-card-foreground">{travel.chapter}</span>
-              <span className="h-3 w-px bg-border" />
-              <span className="text-xs font-semibold text-primary">{travel.workspace}</span>
-            </div>
-          </div>
-        </div>
       )}
 
       {layout.spotlight && (
@@ -406,14 +304,6 @@ export default function OnboardingTour({
             boxShadow: `0 0 0 9999px hsl(var(--overlay) / ${isLiveStep ? 0.4 : 0.72})`,
           }}
         >
-          {/* Slow halo: one pulsing ring is the only movement on screen, so the
-            * eye lands on the target before it reads the card. */}
-          {animations && (
-            <div
-              key={`halo-${step.id}`}
-              className="tour-halo absolute inset-0 rounded-xl"
-            />
-          )}
           {BRACKETS.map((bracket) => (
             <span
               key={`${step.id}-${bracket.id}`}
@@ -427,8 +317,6 @@ export default function OnboardingTour({
       <div
         ref={dialogRef}
         role="dialog"
-        /* A live step leaves the rest of the app operable, so it must not claim
-         * to be modal — screen readers would hide the canvas being taught. */
         aria-modal={isLiveStep ? undefined : true}
         aria-labelledby="onboarding-title"
         aria-describedby="onboarding-summary"
@@ -438,7 +326,7 @@ export default function OnboardingTour({
           top: layout.card.top,
           left: layout.card.left,
           width: layout.card.width,
-          maxHeight: 'min(36rem, calc(100vh - 2rem))',
+          maxHeight: 'min(34rem, calc(100vh - 2rem))',
         }}
       >
         {caret && (
@@ -449,82 +337,89 @@ export default function OnboardingTour({
             aria-hidden="true"
           />
         )}
-        <div className="flex flex-shrink-0 items-center justify-between gap-3 overflow-hidden rounded-t-xl border-b border-border bg-surface px-4 py-3">
+
+        {/* One line of orientation, then nothing else. */}
+        <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 overflow-hidden rounded-t-xl border-b border-border bg-surface px-5 py-4">
           <div className="flex min-w-0 items-center gap-3">
             <span
               key={`icon-${step.id}`}
-              className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground ${animations ? 'animate-rise-in' : ''}`}
+              className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground ${fadeClass}`}
               aria-hidden="true"
             >
               <StepIcon className="h-5 w-5" />
             </span>
             <div className="min-w-0">
-              <p className="truncate text-[11px] font-medium text-muted-foreground">
-                <span className="text-primary">Chapter {chapterOrdinal} of {ONBOARDING_CHAPTERS.length}</span>
-                <span aria-hidden="true"> · </span>{chapter.label}
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-primary">
+                {chapter.label} <span className="text-muted-foreground">· {chapterOrdinal} of {ONBOARDING_CHAPTERS.length}</span>
               </p>
-              <p className="truncate text-sm font-semibold text-surface-foreground">
-                Step {chapterPosition.position} of {chapterPosition.size} in this chapter
-                <span className="font-normal text-muted-foreground"> · {activeIndex + 1}/{ONBOARDING_STEPS.length} overall</span>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Step {chapterPosition.position} of {chapterPosition.size} · <span className="tabular-nums">{activeIndex + 1} of {ONBOARDING_STEPS.length}</span>
               </p>
             </div>
           </div>
-          <div className="flex flex-shrink-0 items-center gap-3">
-            <div
-              className="h-1.5 w-24 overflow-hidden rounded-full bg-muted sm:w-32"
-              role="progressbar"
-              aria-valuemin={1}
-              aria-valuemax={ONBOARDING_STEPS.length}
-              aria-valuenow={activeIndex + 1}
-              aria-label={`Step ${activeIndex + 1} of ${ONBOARDING_STEPS.length}`}
-            >
-              <div className={`h-full bg-primary ${animations ? 'transition-[width] duration-300 motion-reduce:transition-none' : ''}`} style={{ width: `${((activeIndex + 1) / ONBOARDING_STEPS.length) * 100}%` }} />
-            </div>
-            <Button variant="ghost" size="icon" onClick={() => exit('dismissed')} aria-label="Close the guide" title="Leave the guide. What you have already done stays done.">
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
+          <Button variant="ghost" size="icon" onClick={() => exit('dismissed')} aria-label="Close the guide" title="Leave the guide. What you have already done stays done.">
+            <X className="h-4 w-4" />
+          </Button>
         </div>
+
+        {/* Thin progress line sits right under the header. */}
+        <div
+          className="h-0.5 w-full flex-shrink-0 bg-muted"
+          role="progressbar"
+          aria-valuemin={1}
+          aria-valuemax={ONBOARDING_STEPS.length}
+          aria-valuenow={activeIndex + 1}
+          aria-label={`Step ${activeIndex + 1} of ${ONBOARDING_STEPS.length}`}
+        >
+          <div className={`h-full bg-primary ${animations ? 'transition-[width] duration-300 motion-reduce:transition-none' : ''}`} style={{ width: `${((activeIndex + 1) / ONBOARDING_STEPS.length) * 100}%` }} />
+        </div>
+
         <p className="sr-only" role="status" aria-live="polite">
           Step {activeIndex + 1} of {ONBOARDING_STEPS.length}: {step.title}
         </p>
+
         <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
-          <div key={step.id} className="px-4 py-4">
-            <h2 id="onboarding-title" className={`text-lg font-semibold leading-snug text-card-foreground ${riseClass}`} style={riseDelay(0)}>{step.title}</h2>
-            <p id="onboarding-summary" className={`mt-1.5 text-sm font-medium text-primary ${riseClass}`} style={riseDelay(60)}>{step.summary}</p>
-            <p className={`mt-3 text-sm leading-relaxed text-card-foreground/90 ${riseClass}`} style={riseDelay(120)}>{step.detail}</p>
+          <div key={step.id} className="px-5 py-5">
+            <h2 id="onboarding-title" className={`text-2xl font-extrabold leading-tight tracking-[-0.02em] text-card-foreground ${fadeClass}`} style={fadeDelay(0)}>
+              {step.title}
+            </h2>
+            <p id="onboarding-summary" className={`mt-2 text-sm font-semibold text-primary ${fadeClass}`} style={fadeDelay(60)}>
+              {step.summary}
+            </p>
+            <p className={`mt-3 text-[15px] leading-relaxed text-card-foreground/90 ${fadeClass}`} style={fadeDelay(120)}>
+              {step.detail}
+            </p>
+
             {isLiveStep && (
-              <div className={`mt-3 flex items-start gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 ${riseClass}`} style={riseDelay(180)}>
+              <div className={`mt-4 flex items-start gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 ${fadeClass}`} style={fadeDelay(180)}>
                 <Hand className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
                 <p className="text-xs leading-relaxed text-card-foreground">
-                  Live step — nothing is locked. Do it on the highlighted control now, then press Continue.
+                  Try it now on the highlighted control — the app is live behind this card.
                 </p>
               </div>
             )}
+
             {compact ? (
-              /* A short window has no room for both a full-height card and the
-               * control it describes, so the list folds away behind a disclosure
-               * and the spotlight keeps its space. The body is keyed per step, so
-               * every new step starts folded again. */
-              <details className={`group mt-4 ${riseClass}`} style={riseDelay(200)}>
-                <summary className="flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground">
+              <details className={`group mt-4 ${fadeClass}`} style={fadeDelay(220)}>
+                <summary className="flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground">
                   <ChevronDown
                     className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none"
                     aria-hidden="true"
                   />
-                  In this stage ({step.checklist.length})
+                  What you will do ({step.checklist.length})
                 </summary>
-                {stageChecklist}
+                {checklist}
               </details>
             ) : (
-              <>
-                <h3 className={`mt-4 text-[11px] font-medium text-muted-foreground ${riseClass}`} style={riseDelay(200)}>In this stage</h3>
-                {stageChecklist}
-              </>
+              <div className="mt-4 border-t border-border/60 pt-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">What you will do</p>
+                {checklist}
+              </div>
             )}
+
             {showSampleAction && (
-              <div className={`mt-4 rounded-md border border-primary/40 bg-primary/5 p-3 ${riseClass}`} style={riseDelay(480)}>
-                <h3 className="text-sm font-semibold text-card-foreground">Run a known circuit</h3>
+              <div className={`mt-4 rounded-md border border-primary/40 bg-primary/5 p-3 ${fadeClass}`} style={fadeDelay(320)}>
+                <p className="text-sm font-semibold text-card-foreground">Run a known circuit</p>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                   Loads the tested 1N5817 half-wave rectifier (6 parts, 4 nets): the transient run shows OUT
                   riding the positive half-cycle and never swinging negative, and the fab export ships with
@@ -537,8 +432,8 @@ export default function OnboardingTour({
               </div>
             )}
             {showLimitsAction && (
-              <div className={`mt-4 rounded-md border border-primary/40 bg-primary/5 p-3 ${riseClass}`} style={riseDelay(480)}>
-                <h3 className="text-sm font-semibold text-card-foreground">Take the register with you</h3>
+              <div className={`mt-4 rounded-md border border-primary/40 bg-primary/5 p-3 ${fadeClass}`} style={fadeDelay(320)}>
+                <p className="text-sm font-semibold text-card-foreground">Take the register with you</p>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                   {CAPABILITY_RECORDS.length} records, each naming the method, the test files and the not-modelled
                   list for one family of results. Filter it to the workspace you are in, or search a solver name.
@@ -548,79 +443,43 @@ export default function OnboardingTour({
                 </Button>
               </div>
             )}
-            {nextStep && (
-              <div
-                className={`mt-4 flex items-start gap-2.5 rounded-md border border-border bg-surface/60 px-3 py-2 ${riseClass}`}
-                style={riseDelay(440)}
-              >
-                <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
-                <div className="min-w-0">
-                  <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                    {nextStep.chapter !== step.chapter && nextChapter
-                      ? `Next chapter · ${nextChapter.chapter.label}`
-                      : 'Next in this chapter'}
-                  </p>
-                  <p className="truncate text-xs font-medium text-card-foreground">{nextStep.title}</p>
-                </div>
-              </div>
-            )}
           </div>
         </div>
-        {/* Step rail: grouped by chapter, so progress reads as a story rather
-          * than a row of thirteen anonymous dots. Every step stays one click
-          * away, and the current one widens within its chapter group. */}
-        <div className="flex flex-shrink-0 flex-wrap items-center justify-center gap-x-2.5 gap-y-2 border-t border-border bg-surface/60 px-4 py-2.5">
+
+        {/* Chapter rail — one short word per chapter, the whole curriculum in view. */}
+        <div className="flex flex-shrink-0 items-center justify-center gap-1 border-t border-border bg-surface/60 px-3 py-2">
           {ONBOARDING_CHAPTERS.map((chapterEntry) => {
             const indices = chapterStepIndices(chapterEntry.id)
             if (indices.length === 0) return null
+            const firstIndex = indices[0]
+            const done = indices.every((index) => index < activeIndex)
             const activeChapter = step.chapter === chapterEntry.id
             return (
-              <div
+              <button
                 key={chapterEntry.id}
-                role="group"
-                aria-label={`${chapterEntry.label} chapter`}
+                type="button"
+                onClick={() => goTo(firstIndex)}
                 title={chapterEntry.promise}
-                className={`flex items-center gap-1 border-l border-border pl-2.5 first:border-l-0 first:pl-0 ${
-                  activeChapter ? '' : 'opacity-75 hover:opacity-100'
+                aria-current={activeChapter ? 'step' : undefined}
+                aria-label={`${activeChapter ? 'Current chapter: ' : done ? 'Reviewed chapter: ' : 'Upcoming chapter: '}${chapterEntry.label}`}
+                className={`rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  activeChapter
+                    ? 'bg-primary/15 text-primary'
+                    : done
+                      ? 'text-muted-foreground hover:text-foreground'
+                      : 'text-muted-foreground/60 hover:text-foreground'
                 }`}
               >
-                {indices.map((index) => {
-                  const entry = ONBOARDING_STEPS[index]
-                  const state = index < activeIndex ? 'done' : index === activeIndex ? 'current' : 'todo'
-                  return (
-                    <button
-                      key={entry.id}
-                      type="button"
-                      onClick={() => goTo(index)}
-                      aria-current={state === 'current' ? 'step' : undefined}
-                      aria-label={
-                        state === 'current'
-                          ? `Current step: ${entry.title}`
-                          : `${state === 'done' ? 'Reviewed' : 'Upcoming'} step ${index + 1}: ${entry.title}`
-                      }
-                      title={`${chapterEntry.label}: ${entry.title}`}
-                      className={`tour-step-dot h-1.5 rounded-full border border-transparent ${
-                        state === 'current'
-                          ? 'w-7 bg-primary'
-                          : state === 'done'
-                            ? 'w-3.5 bg-primary/45 hover:bg-primary/70'
-                            : 'w-3.5 bg-muted hover:bg-border'
-                      }`}
-                    />
-                  )
-                })}
-              </div>
+                {RAIL_LABEL[chapterEntry.id] ?? chapterEntry.label}
+              </button>
             )
           })}
         </div>
-        {/* CAD-wizard footer: shared classes, never hand-rolled per dialog. */}
+
+        {/* Footer — the only two decisions on screen. */}
         <div className="cad-footer-row flex-shrink-0">
-          <Button variant="ghost" size="sm" onClick={() => exit('skipped')}>Skip the guide</Button>
+          <Button variant="ghost" size="sm" onClick={() => exit('skipped')}>Skip</Button>
           <div className="cad-action-pair">
-            {/* While no design is open the inert Back slot carries the
-              * non-mutating forward move instead — the same thing the right-arrow
-              * key already does. Before this, only the pointer path could create a
-              * project and the keyboard path could not, for one and the same step. */}
             {needsProject ? (
               <Button variant="outline" size="sm" onClick={advance}>Keep reading</Button>
             ) : (
@@ -640,7 +499,7 @@ export default function OnboardingTour({
             )}
           </div>
         </div>
-        <p className="flex-shrink-0 overflow-hidden rounded-b-xl border-t border-border px-4 py-2 text-[11px] leading-relaxed text-muted-foreground">
+        <p className="flex-shrink-0 overflow-hidden rounded-b-xl border-t border-border px-5 py-2 text-[10px] leading-relaxed text-muted-foreground/80">
           Arrow keys move between steps, Esc closes. Always validate critical results independently before fabrication or before connecting real hardware.
         </p>
       </div>

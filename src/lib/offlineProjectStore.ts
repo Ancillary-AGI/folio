@@ -43,7 +43,7 @@ export const offlineProjectStore = {
     const now = new Date().toISOString()
     offlineProjectSeq += 1
     const project: OfflineProject = {
-      id: `local-${Date.now()}-${offlineProjectSeq}`,
+      id: `p-${Date.now().toString(36)}-${offlineProjectSeq.toString(36)}`,
       user_id: userId,
       name,
       description: 'Engineering project',

@@ -6,6 +6,29 @@
 <title>Folio — From words to the fab floor</title>
 <meta name="description" content="Folio is the AI-native, cross-domain engineering workbench: schematic, simulation, PCB, fabrication — one project, one agent, tested end to end. Open source demos ship in the box; publish and share community projects." />
 <meta name="theme-color" content="#07080D" />
+<meta property="og:title" content="Folio — From words to the fab floor" />
+<meta property="og:description" content="One AI-native engineering workbench: schematic, simulation, PCB, fabrication, verification — across domains. Free on your machine. Open-source demos in the box." />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Folio" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Folio — From words to the fab floor" />
+<meta name="twitter:description" content="One AI-native engineering workbench: schematic, simulation, PCB, fabrication, verification — across domains." />
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Folio",
+  "applicationCategory": "EngineeringApplication",
+  "operatingSystem": "Web",
+  "description": "AI-native, cross-domain engineering workbench: schematic, simulation, PCB, fabrication, mechanical, verification — one project, one agent, tested end to end.",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD",
+    "description": "Local tier is free and unlimited on the designer's machine."
+  }
+}
+</script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
 <style>
@@ -167,17 +190,17 @@ footer .wrap { display: flex; justify-content: space-between; gap: 1.5rem; flex-
 
 <nav>
   <div class="wrap">
-    <a class="brand" href="/landing.html" aria-label="Folio home">
+    <a class="brand" href="/" aria-label="Folio home">
       <svg viewBox="0 0 96 96" aria-hidden="true"><rect width="96" height="96" rx="20" fill="#0E0D12"/><path fill="#F5A524" fill-rule="evenodd" d="M10 0H58L96 38V86L86 96H10L0 86V10ZM26 20H64L70 26V40H46V46H56L62 52V64H46V82H26Z"/></svg>
       <b>Folio</b>
     </a>
     <ul>
-      <li><a href="/landing.html#disciplines">Capabilities</a></li>
-      <li><a href="/landing.html#tour">Tour</a></li>
-      <li><a href="/landing.html#pricing">Plans</a></li>
-      <li><a href="/landing.html#templates">Templates</a></li>
+      <li><a href="/#disciplines">Capabilities</a></li>
+      <li><a href="/#tour">Tour</a></li>
+      <li><a href="/pricing">Pricing</a></li>
+      <li><a href="/#templates">Templates</a></li>
     </ul>
-    <a class="btn" href="/">Sign up free</a>
+    <a class="btn" href="/app">Sign up free</a>
   </div>
 </nav>
 
@@ -187,8 +210,8 @@ footer .wrap { display: flex; justify-content: space-between; gap: 1.5rem; flex-
     <h1>From <em>words</em> to the<br /><em>fab floor.</em></h1>
     <p class="lede">Folio is the AI-native, cross-domain engineering workbench: circuit, board, control, RF, mechanical, robotics and life-systems design in one connected project — with a real SPICE-class solver, a real grid router, and an agent that does the clicking while you keep the engineering.</p>
     <div class="cta">
-      <a class="btn btn-lg" href="/">Create your free account</a>
-      <a class="btn btn-lg btn-ghost" href="/">Explore the workbench</a>
+      <a class="btn btn-lg" href="/app">Create your free account</a>
+      <a class="btn btn-lg btn-ghost" href="/app">Explore the workbench</a>
     </div>
     <div class="stats" role="group" aria-label="Folio by the numbers">
       <div class="stat"><b>28</b><span>Workspaces</span></div>
@@ -220,7 +243,7 @@ footer .wrap { display: flex; justify-content: space-between; gap: 1.5rem; flex-
   <div class="wrap">
     <div class="section-head">
       <h2><small>The pipeline</small>Three moves<br />to a manufacturable board.</h2>
-      <a class="btn btn-ghost" href="/">Open the workbench</a>
+      <a class="btn btn-ghost" href="/app">Open the workbench</a>
     </div>
     <div class="steps">
       <div class="step"><h3>Describe it</h3><p>“Two-cell buck, 3.3 V at 2 A, USB-C in, differential pair on the data lines.” The assistant drafts the parts, the netlist and the placement — every choice visible and editable.</p></div>
@@ -234,7 +257,7 @@ footer .wrap { display: flex; justify-content: space-between; gap: 1.5rem; flex-
   <div class="wrap">
     <div class="section-head">
       <h2><small>The tour</small>Your first board,<br />six moves.</h2>
-      <a class="btn btn-ghost" href="/">Start free</a>
+      <a class="btn btn-ghost" href="/app">Start free</a>
     </div>
     <div class="walk">
       <div class="walk-steps" role="tablist" aria-label="Folio product tour">
@@ -310,12 +333,12 @@ footer .wrap { display: flex; justify-content: space-between; gap: 1.5rem; flex-
       <p class="mono">CC-BY · open &amp; build</p>
     </div>
     <div class="templates">
-      <a class="tpl" href="/"><div class="tpl-head"><span>Rectifier · 0 → gerber</span></div><div class="tpl-body"><h3>Half-wave rectifier, start to finish</h3><p>Schematic → transient → PCB → 3D → BOM → fab package. The reference circuit for new users.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
-      <a class="tpl" href="/"><div class="tpl-head"><span>Mainboard · 8-Layer</span></div><div class="tpl-body"><h3>Laptop mainboard, laid out</h3><p>56 packages, BGA-256 SoC, LPDDR4x pairs, HDI escape routing — the honest limit of an in-browser A* router, measured.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
-      <a class="tpl" href="/"><div class="tpl-head"><span>Four-Layer · 4L</span></div><div class="tpl-body"><h3>Four-layer controller board</h3><p>Poured planes with named nets, plane anti-pads, thermal spokes stated — the fab vocabulary you actually use.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
-      <a class="tpl" href="/"><div class="tpl-head"><span>Control · PID</span></div><div class="tpl-body"><h3>Motor speed loop with PID</h3><p>Tune a DC motor against measured step response; auto-tune with Z-N, SIMC, relay or model-reference search.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
-      <a class="tpl" href="/"><div class="tpl-head"><span>Robotics · DH</span></div><div class="tpl-body"><h3>Two-link robotic arm</h3><p>Forward/inverse kinematics, Jacobians, damped least-squares, trajectory through obstacles.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
-      <a class="tpl" href="/"><div class="tpl-head"><span>Structure · Truss</span></div><div class="tpl-body"><h3>Pratt &amp; Howe trusses</h3><p>Determinate joints, reaction closure, Euler buckling, and an A3 drawing from the solver — not from a template.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
+      <a class="tpl" href="/app"><div class="tpl-head"><span>Rectifier · 0 → gerber</span></div><div class="tpl-body"><h3>Half-wave rectifier, start to finish</h3><p>Schematic → transient → PCB → 3D → BOM → fab package. The reference circuit for new users.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
+      <a class="tpl" href="/app"><div class="tpl-head"><span>Mainboard · 8-Layer</span></div><div class="tpl-body"><h3>Laptop mainboard, laid out</h3><p>56 packages, BGA-256 SoC, LPDDR4x pairs, HDI escape routing — the honest limit of an in-browser A* router, measured.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
+      <a class="tpl" href="/app"><div class="tpl-head"><span>Four-Layer · 4L</span></div><div class="tpl-body"><h3>Four-layer controller board</h3><p>Poured planes with named nets, plane anti-pads, thermal spokes stated — the fab vocabulary you actually use.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
+      <a class="tpl" href="/app"><div class="tpl-head"><span>Control · PID</span></div><div class="tpl-body"><h3>Motor speed loop with PID</h3><p>Tune a DC motor against measured step response; auto-tune with Z-N, SIMC, relay or model-reference search.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
+      <a class="tpl" href="/app"><div class="tpl-head"><span>Robotics · DH</span></div><div class="tpl-body"><h3>Two-link robotic arm</h3><p>Forward/inverse kinematics, Jacobians, damped least-squares, trajectory through obstacles.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
+      <a class="tpl" href="/app"><div class="tpl-head"><span>Structure · Truss</span></div><div class="tpl-body"><h3>Pratt &amp; Howe trusses</h3><p>Determinate joints, reaction closure, Euler buckling, and an A3 drawing from the solver — not from a template.</p><div class="license"><span>Folio team · CC-BY</span><span>Open →</span></div></div></a>
     </div>
     <p style="margin-top:1.25rem;color:var(--mute2);font-size:.78rem">Community publishing is live: release a project you built as a CC-licensed template, and anyone can open it in their workspace and make it theirs — design in, credit kept. The adoption count travels with the template.</p>
   </div>
@@ -339,7 +362,7 @@ footer .wrap { display: flex; justify-content: space-between; gap: 1.5rem; flex-
           <li>CC-BY community templates, free to open</li>
           <li>Offline sharing as .folio-template.json</li>
         </ul>
-        <a class="btn btn-ghost" href="/">Start free</a>
+        <a class="btn btn-ghost" href="/app">Start free</a>
       </div>
       <div class="plan">
         <h3>Pro</h3>
@@ -352,7 +375,7 @@ footer .wrap { display: flex; justify-content: space-between; gap: 1.5rem; flex-
           <li>Priority simulation queue</li>
           <li>Usage ledger mirrored to your account</li>
         </ul>
-        <a class="btn btn-ghost" href="/">Start Pro trial</a>
+        <a class="btn btn-ghost" href="/app">Start Pro trial</a>
       </div>
       <div class="plan plan--hot">
         <span class="plan-badge">For teams</span>
@@ -366,7 +389,7 @@ footer .wrap { display: flex; justify-content: space-between; gap: 1.5rem; flex-
           <li>Usage reporting &amp; export</li>
           <li>Viewer seats at reduced quota</li>
         </ul>
-        <a class="btn" href="/">Start team trial</a>
+        <a class="btn" href="/app">Start team trial</a>
       </div>
       <div class="plan">
         <h3>Enterprise</h3>
@@ -400,7 +423,7 @@ footer .wrap { display: flex; justify-content: space-between; gap: 1.5rem; flex-
 <footer>
   <div class="wrap">
     <span>Folio — the AI-native engineering workbench. Built by Adamman King. Templates CC-BY-4.0.</span>
-    <span><a href="/" style="color:var(--amber-pale);text-decoration:none">Open Folio →</a></span>
+    <span><a href="/app" style="color:var(--amber-pale);text-decoration:none">Open Folio →</a></span>
   </div>
 </footer>
 
