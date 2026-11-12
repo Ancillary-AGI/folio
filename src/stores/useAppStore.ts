@@ -183,6 +183,12 @@ export interface AppState {
 
   // Tool State. These four are the sheet tools the rail actually offers; the
   // board has its own tool set in the PCB panel and does not live here.
+  // One-shot handoff: the launcher's composer writes a brief here when the
+  // user starts a project by describing it; the assistant consumes it once on
+  // mount and clears it. Not persisted — it is a moment, not a setting.
+  pendingAssistantPrompt: string | null
+  setPendingAssistantPrompt: (prompt: string | null) => void
+  
   activeTool: 'select' | 'wire' | 'delete' | 'sketch'
   setActiveTool: (tool: 'select' | 'wire' | 'delete' | 'sketch') => void
   
@@ -297,6 +303,10 @@ export const useAppStore = create<AppState>()(
         // DEFAULT_LAYERS; the floating HUD's quick switch mirrors it.
         activePcbLayer: 'top-cu',
         setActivePcbLayer: (activePcbLayer) => set({ activePcbLayer }),
+
+        // One-shot handoff from the launcher composer to the assistant
+        pendingAssistantPrompt: null,
+        setPendingAssistantPrompt: (pendingAssistantPrompt) => set({ pendingAssistantPrompt }),
 
         // Tool State
         activeTool: 'select',

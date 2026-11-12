@@ -33,6 +33,12 @@ interface ProjectManagerProps {
   onOpenDemos?: () => void
   /** Loads a scenario straight from the launcher (the shell creates the project). */
   onOpenDemo?: (scenario: DemoScenario) => void
+  /**
+   * Agent-first entry point: the composer submits a plain-language brief and
+   * the shell creates a project from it, names it, and starts the assistant
+   * with that brief already on the table.
+   */
+  onBriefSubmit?: (brief: string, scaffold: 'electronics' | 'embedded') => void
 }
 
 /** Icons for the five workspace families, matching the rail in the workbench. */
@@ -43,6 +49,13 @@ const FAMILY_ICONS: Readonly<Record<WorkspaceGroupId, LucideIcon>> = {
   life: Microscope,
   ops: ShieldCheck,
 }
+
+/** Brief chips the launcher offers — each is a real starting point, not a slogan. */
+const IDEA_CHIPS = [
+  'USB-C buck, 3.3 V @ 2 A, PCBWay 2-layer',
+  'ESP32 plant monitor, BME280 over I2C',
+  'Motor speed loop with encoder, PID-tuned',
+] as const
 
 /**
  * Scenarios the launcher can open directly. One per family that a newcomer can
@@ -64,11 +77,13 @@ function relativeTime(value: string | Date): string {
   return new Date(value).toLocaleDateString()
 }
 
-export default function ProjectManager({ onSelectProject, onNewProject, onProjectRenamed, offlineMode = false, onOpenDemos, onOpenDemo }: ProjectManagerProps) {
+export default function ProjectManager({ onSelectProject, onNewProject, onProjectRenamed, offlineMode = false, onOpenDemos, onOpenDemo, onBriefSubmit }: ProjectManagerProps) {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [projectError, setProjectError] = useState<string | null>(null)
+  const [brief, setBrief] = useState('')
+  const [scaffold, setScaffold] = useState<'electronics' | 'embedded'>('electronics')
   // The one question this surface asks: a delete that cannot be undone.
   const { spec: confirmSpec, confirm, resolve: resolveConfirm } = useConfirm()
 
@@ -105,6 +120,18 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
     setProjectError(null)
     setLoading(true)
     void loadProjects()
+  }
+
+  /* The composer is a real doorway: a brief goes in, and the shell creates a
+   * project, names it from the brief, and starts the assistant with it. If the
+   * host cannot create projects (tests, embed), the composer is visible but
+   * inert rather than dishonestly pretending to work. */
+  const handleBriefSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const text = brief.trim()
+    if (text.length < 3 || !onBriefSubmit) return
+    onBriefSubmit(text, scaffold)
+    setBrief('')
   }
 
   const handleDeleteProject = async (project: Project, e: React.MouseEvent) => {
@@ -242,12 +269,72 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
             </p>
             <h1 id="launcher-heading" className="launcher-title">From first sketch to <span className="hero-accent">verified build.</span></h1>
             <p className="launcher-lede">
-              One connected project for electronics, mechanical design, simulation,
-              firmware and manufacturing — with an always-on engineering agent and
-              verified checks at every handoff.
+              Describe the board in one line — the agent drafts the circuit,
+              routes it, checks every handoff and hands you a fab package.
+              You keep the engineering; it does the legwork.
             </p>
 
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <form className="launcher-composer" onSubmit={handleBriefSubmit} aria-label="Describe your project">
+              <div className="launcher-composer__row">
+                <Sparkles className="launcher-composer__orb" aria-hidden="true" />
+                <textarea
+                  rows={2}
+                  value={brief}
+                  onChange={(event) => setBrief(event.target.value)}
+                  placeholder="Describe what you want to build… @ files, paste images"
+                  aria-label="Describe your project"
+                  className="launcher-composer__input"
+                  onKeyDown={(event) => {
+                    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                      event.preventDefault()
+                      event.currentTarget.form?.requestSubmit()
+                    }
+                  }}
+                />
+                <button
+                  type="submit"
+                  className="launcher-composer__submit"
+                  aria-label="Create from brief"
+                  disabled={brief.trim().length < 3}
+                >
+                  <ArrowRight className="h-5 w-5" aria-hidden="true" />
+                </button>
+              </div>
+              <div className="launcher-composer__meta">
+                <div className="launcher-composer__scaffold" role="group" aria-label="Project type">
+                  <button
+                    type="button"
+                    className="launcher-composer__scaffold-option"
+                    aria-pressed={scaffold === 'electronics'}
+                    onClick={() => setScaffold('electronics')}
+                  >
+                    Electronics
+                  </button>
+                  <button
+                    type="button"
+                    className="launcher-composer__scaffold-option"
+                    aria-pressed={scaffold === 'embedded'}
+                    onClick={() => setScaffold('embedded')}
+                  >
+                    Electronics + firmware
+                  </button>
+                </div>
+                <div className="launcher-composer__suggestions" aria-label="Example briefs">
+                  {IDEA_CHIPS.map((idea) => (
+                    <button
+                      key={idea}
+                      type="button"
+                      className="launcher-composer__suggestion"
+                      onClick={() => setBrief(idea)}
+                    >
+                      {idea}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </form>
+
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
               <div className="relative min-w-0 flex-1">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                 <input

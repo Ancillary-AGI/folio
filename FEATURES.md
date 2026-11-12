@@ -29,6 +29,13 @@
 - **Split viewport engine**: `Split View` / `3D PiP` (HUD or palette)
   mounts a draggable dual canvas — schematic ∥ PCB ∥ 3D — or a
   picture-in-picture 3D viewport with its own toolbar.
+- **Describe-first home** (launcher): the live control above the fold is a
+  composer — type the hardware in one line, pick *Electronics* or
+  *Electronics + firmware*, press **Create from brief**, and the shell
+  creates the project, names it from the brief, and starts the design
+  assistant with that brief on the table. The composer is wired —
+  `pendingAssistantPrompt` in the app store is consumed by the assistant
+  exactly once on mount.
 - **Always-on agent, surfaced**: a header pill and a status-bar segment
   appear only while agent jobs are queued/running or awaiting approval; one
   click opens the agent workspace. `useAgentJobs` binds the runner via
@@ -585,7 +592,7 @@
   "always correct". Cloud-gated records carry a **cloud** marker.
 - **CI**: lint (zero warnings), typecheck (app + build config), button-label
   audit, full test suite, production build
-- **Tests**: 3,700 tests across 327 files, including engine truth tests and React
+- **Tests**: ~3,800 tests across 329 files, run per-shard (shard 1/4 and 2/4 green; full single-process run pending CI capacity), including engine truth tests and React
   render/integration tests
 - **Build**: heavily code-split; feature panels and vendor chunks load on demand
 

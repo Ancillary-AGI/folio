@@ -150,6 +150,19 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
     }
   }, [components, wires, workspaceMode, addMessage])
 
+  /* The launcher composer hands over the user's brief exactly once, on mount,
+   * so the project it just created opens with the conversation already
+   * started instead of a dead composer. */
+  const pendingAssistantPrompt = useAppStore((state) => state.pendingAssistantPrompt)
+  useEffect(() => {
+    if (!pendingAssistantPrompt) return
+    const brief = pendingAssistantPrompt
+    useAppStore.getState().setPendingAssistantPrompt(null)
+    void processQuery(brief)
+    // Mount-only: a re-render must not re-send the brief.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const handleSend = () => {
     const q = input.trim()
     if (!q || isLoading) return

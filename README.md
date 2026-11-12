@@ -5,8 +5,9 @@ simulation, robotics and embedded development. The workbench runs without a
 backend unless you explicitly configure one; no account is required for
 standalone use.
 
-**Status:** active development. Lint, both typechecks, ~3,700 tests across 327
-files, the icon-button accessibility audit, and the production build all pass.
+**Status:** active development. Lint and both typechecks pass; the suite runs per-shard
+(~1,900 tests in shard 2/4 green). Full start-to-finish run not yet completed on
+CI hardware — treat the count as growing, not as certified green.
 
 ---
 
@@ -108,16 +109,20 @@ rules); it makes no model or network call, and its output is advisory.
   entirely in the high-contrast theme and under forced colours, paints two soft
   CSS tints where WebGL is unavailable, and switches off from
   **Settings → General → Ambient light field**.
-- **Shell 2.0 — Aurora Glass**: the header, workspace nav, tool rail and status
-  bar are translucent glass over the aurora field with a specular edge and a
-  gradient hairline; the tool rail's armed tool glows like a lit switch; the
-  workspace families and modes are pill rails in the family hue; and dialogs
-  open over a deeper, blurred scrim. Every glow honours reduced motion,
-  reduced transparency, high contrast and forced colours.
+- **Shell — Obsidian Forge**: layered obsidian surfaces with one signature
+  accent (molten amber), chamfered geometry whose border follows the cut, an
+  instrument-tape status bar, pill workspace dial, heat-map family tiles, and
+  a deep-scrim system. Every glow honours reduced motion, reduced
+  transparency, high contrast and forced colours.
+- **Describe-first home** (launcher): the one live control above the fold is
+  a composer — type the hardware in one line, pick **Electronics** or
+  **Electronics + firmware**, press **Create from brief**, and the shell
+  creates the project, names it from the brief, and starts the design
+  assistant with that brief on the table.
 - **The agent orb**: the header's centre search is a live conic-spectrum orb
-  with a slow sheen and a gradient hairline — one keystroke (**Ctrl/⌘+K**) from
-  anywhere. The command palette carries the orb, grouped sections and coherent
-  agent actions (Design assistant, dual split, board+3D, floating 3D, fit).
+  with a slow sheen — one keystroke (**Ctrl/⌘+K**) from anywhere. The command
+  palette carries the orb, grouped sections and coherent agent actions
+  (Design assistant, dual split, board+3D, floating 3D, fit).
 - **Floating telemetry HUD** (schematic and PCB): one machined glass capsule —
   live cursor millimetres (mm/mil/in), shared snap toggle, schematic grid
   presets, zoom/fit/tidy, DRC pulse, active copper-layer quick switch wired to
@@ -482,7 +487,7 @@ npm run lint            # ESLint, zero warnings
 npm run a11y:buttons    # every icon-only button has an accessible name
 npm run typecheck       # app TypeScript
 npm run typecheck:node  # Vite/build config TypeScript
-npm test                # Vitest, 3,700 tests / 327 files
+npm test                # Vitest · run shard-by-shard; full suite pending CI capacity
 npm run build           # production build
 npm run verify          # all of the gates above, in order
 npm run preview         # preview the build on port 4173

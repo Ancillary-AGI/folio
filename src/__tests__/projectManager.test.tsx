@@ -22,19 +22,22 @@ const renderManager = (overrides: {
   onNewProject?: () => void
   onProjectRenamed?: (project: unknown) => void
   offlineMode?: boolean
+  onBriefSubmit?: (brief: string, scaffold: 'electronics' | 'embedded') => void
 } = {}) => {
   const onSelectProject = overrides.onSelectProject ?? vi.fn()
   const onNewProject = overrides.onNewProject ?? vi.fn()
   const onProjectRenamed = overrides.onProjectRenamed ?? vi.fn()
+  const onBriefSubmit = overrides.onBriefSubmit ?? vi.fn()
   const utils = render(
     <ProjectManager
       onSelectProject={onSelectProject as never}
       onNewProject={onNewProject}
+      onBriefSubmit={onBriefSubmit}
       onProjectRenamed={onProjectRenamed as never}
       offlineMode={overrides.offlineMode ?? true}
     />
   )
-  return { ...utils, onSelectProject, onNewProject, onProjectRenamed }
+  return { ...utils, onSelectProject, onNewProject, onProjectRenamed, onBriefSubmit }
 }
 
 describe('ProjectManager (offline)', () => {
@@ -62,6 +65,34 @@ describe('ProjectManager (offline)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Create Project' }))
     expect(onNewProject).toHaveBeenCalledTimes(2)
+  })
+
+  it('submits a brief from the composer with the chosen scaffold', async () => {
+    const onBriefSubmit = vi.fn()
+    renderManager({ onBriefSubmit })
+
+    const brief = screen.getByRole('textbox', { name: 'Describe your project' })
+    // A one-character brief is not a project yet.
+    expect(screen.getByRole('button', { name: 'Create from brief' })).toBeDisabled()
+
+    fireEvent.change(brief, { target: { value: 'USB-C buck converter, 3.3 V at 2 A' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Electronics + firmware' }))
+    expect(screen.getByRole('button', { name: 'Electronics + firmware' })).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create from brief' }))
+    expect(onBriefSubmit).toHaveBeenCalledTimes(1)
+    expect(onBriefSubmit).toHaveBeenCalledWith('USB-C buck converter, 3.3 V at 2 A', 'embedded')
+    // The composer clears after submitting so the next project starts clean.
+    expect(screen.getByRole('textbox', { name: 'Describe your project' })).toHaveValue('')
+  })
+
+  it('fills the composer from an example chip instead of submitting it', () => {
+    const onBriefSubmit = vi.fn()
+    renderManager({ onBriefSubmit })
+
+    fireEvent.click(screen.getByRole('button', { name: 'ESP32 plant monitor, BME280 over I2C' }))
+    expect(screen.getByRole('textbox', { name: 'Describe your project' })).toHaveValue('ESP32 plant monitor, BME280 over I2C')
+    expect(onBriefSubmit).not.toHaveBeenCalled()
   })
 
   it('lists stored projects and filters them through the search box', async () => {

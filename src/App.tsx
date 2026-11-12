@@ -669,6 +669,7 @@ function App() {
     uid: string,
     storage: 'local' | 'cloud',
     family?: WorkspaceGroupId,
+    workspaceMode?: WorkspaceMode,
   ) => {
     useProjectStore.setState({
       components: [], wires: [], firmwareCode: '', simulationRuns: [], pcbLayout: null,
@@ -679,16 +680,35 @@ function App() {
     useAppStore.getState().setZoom(1)
     useAppStore.getState().setPan({ x: 0, y: 0 })
     if (family) useAppStore.getState().setWorkspaceMode(FIRST_MODE_BY_GROUP[family])
+    else if (workspaceMode) useAppStore.getState().setWorkspaceMode(workspaceMode)
     setCurrentProject(project)
     setShowProjectManager(false)
     recordPlatformUsage('project.create', user, offlineMode, { name: project.name, storage, family: family ?? 'default' })
     siemService.logAuditEvent({ user: uid, action: 'project:create', resource: project.id, details: { name: project.name, family } })
   }
 
-  const handleNewProject = async (family?: WorkspaceGroupId) => {
+  /* A project name a human would keep: the first few words of the brief,
+   * capitalised — never the 132-character prompt. */
+  const deriveProjectName = (brief: string): string => {
+    const first = brief.trim().split(/\s+/).slice(0, 6).join(' ')
+    if (!first) return `New Project ${new Date().toLocaleDateString()}`
+    const named = `${first.charAt(0).toUpperCase()}${first.slice(1)}`
+    return named.length > 58 ? `${named.slice(0, 57)}…` : named
+  }
+
+  /* The handshake: after a brief creates a project, the assistant opens with
+   * the conversation already started — the user lands on a working session,
+   * not an empty workspace and a blinking cursor. */
+  const startBriefConversation = (brief: string) => {
+    useAppStore.getState().setPendingAssistantPrompt(brief)
+    useAppStore.setState({ aiChatOpen: true })
+  }
+
+  const handleNewProject = async (family?: WorkspaceGroupId, brief?: string, mode?: WorkspaceMode) => {
     if (!user) return
     const uid = user.id
     setNotice('')
+    const name = brief ? deriveProjectName(brief) : `New Project ${new Date().toLocaleDateString()}`
     let projectCount = offlineProjectStore.list().filter((entry) => entry.user_id === uid).length
     if (!offlineMode) {
       const { count } = await supabase.from('projects').select('id', { count: 'exact', head: true }).eq('user_id', uid)
@@ -702,21 +722,24 @@ function App() {
       return
     }
     if (offlineMode) {
-      const project = offlineProjectStore.create(uid, `New Project ${new Date().toLocaleDateString()}`)
-      enterNewProject(project, project.canvas_data ?? null, uid, 'local', family)
+      const project = offlineProjectStore.create(uid, name)
+      enterNewProject(project, project.canvas_data ?? null, uid, 'local', family, mode)
+      if (brief) startBriefConversation(brief)
       return
     }
     try {
       const { data, error } = await supabase.from('projects').insert({
         user_id: uid,
-        name: `New Project ${new Date().toLocaleDateString()}`,
-        description: 'Engineering design project',
+        name,
+        description: brief ?? 'Engineering design project',
       }).select().single()
       if (error) throw error
       await supabase.from('schematics').insert({ project_id: data.id, name: 'Main Schematic', order_index: 0 })
-      enterNewProject(data, null, uid, 'cloud', family)
+      enterNewProject(data, null, uid, 'cloud', family, mode)
+      if (brief) startBriefConversation(brief)
     } catch (err) {
       console.error('Error creating project:', err)
+      setNotice('Could not create the project. Check your connection and try again.')
     }
   }
 
@@ -1724,6 +1747,9 @@ function App() {
         <ProjectManager
           onSelectProject={handleSelectProject}
           onNewProject={handleNewProject}
+          onBriefSubmit={(brief, scaffold) => {
+            void handleNewProject(undefined, brief, scaffold === 'embedded' ? 'embedded' : 'schematic')
+          }}
           onProjectRenamed={handleProjectRenamed}
           offlineMode={offlineMode}
           onOpenDemos={() => setShowDemoGallery(true)}
