@@ -1,8 +1,9 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Activity, AlertTriangle, ChevronDown, Database, FileDown, Gauge, LogOut,
-  RefreshCw, Search, Shield, Users, Wrench, X, type LucideIcon,
+  RefreshCw, Search, Shield, Users, Wrench, X, BookOpen, type LucideIcon,
 } from 'lucide-react'
+import FaqPanel from './FaqPanel'
 import { Button } from '../components/ui/button'
 import { FolioMark } from '../components/brand/FolioLogo'
 import type { Account, AdminApi, AuditEntry, DeploymentInfo } from '../lib/admin/adminService'
@@ -21,13 +22,14 @@ import { summarizeUsage, usageByAccount, type UsageEvent, type UsageKind } from 
  * read from the deployment; nothing here is inferred from this browser.
  */
 
-type SectionId = 'accounts' | 'usage' | 'quotas' | 'audit' | 'deployment'
+type SectionId = 'accounts' | 'usage' | 'quotas' | 'audit' | 'deployment' | 'faq'
 
 const SECTIONS: Array<{ id: SectionId; label: string; icon: LucideIcon }> = [
   { id: 'accounts', label: 'Accounts', icon: Users },
   { id: 'usage', label: 'Usage', icon: Activity },
   { id: 'quotas', label: 'Quotas', icon: Gauge },
   { id: 'audit', label: 'Audit trail', icon: Shield },
+  { id: 'faq', label: 'FAQ', icon: BookOpen },
   { id: 'deployment', label: 'Deployment', icon: Database },
 ]
 
@@ -1040,6 +1042,12 @@ export default function AdminConsole({ operator, api, onSignOut }: AdminConsoleP
                   </div>
                 )}
               </Card>
+            </section>
+          )}
+
+          {section === 'faq' && (
+            <section role="tabpanel" id="admin-panel-faq" aria-labelledby="admin-tab-faq" className="space-y-4">
+              <FaqPanel api={api} onReload={() => { void load() }} />
             </section>
           )}
 

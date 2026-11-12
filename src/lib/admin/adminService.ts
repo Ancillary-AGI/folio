@@ -97,6 +97,15 @@ function count(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0
 }
 
+export interface FaqEntry {
+  id: string
+  question: string
+  answer: string
+  position: number
+  published: boolean
+  updatedAt: number
+}
+
 export interface AdminApi {
   listAccounts(): Promise<{ accounts: Account[]; error?: string }>
   setRole(accountId: string, role: AdminRole): Promise<MutationResult>
@@ -107,6 +116,9 @@ export interface AdminApi {
   loadAudit(limit?: number): Promise<{ entries: AuditEntry[]; error?: string }>
   loadDeployment(): Promise<DeploymentInfo>
   recordOpen(): Promise<void>
+  listFaq(): Promise<{ entries: FaqEntry[]; error?: string }>
+  saveFaq(entry: Omit<FaqEntry, 'id' | 'updatedAt'> & { id?: string }): Promise<MutationResult>
+  deleteFaq(id: string): Promise<MutationResult>
 }
 
 export function createAdminApi(db: SupabaseClient, operator: Operator): AdminApi {
@@ -347,6 +359,64 @@ export function createAdminApi(db: SupabaseClient, operator: Operator): AdminApi
 
     async recordOpen() {
       await audit('admin:open', 'admin-console', { role: operator.role })
+    },
+
+    async listFaq() {
+      try {
+        const { data, error } = await db
+          .from('faq_entries')
+          .select('id,question,answer,position,published,updated_at')
+          .order('position', { ascending: true })
+          .order('id', { ascending: true })
+        if (error) return { entries: [], error: error.message }
+        const entries = (data ?? []).map((raw) => {
+          const row = raw as Record<string, unknown>
+          const at = timestamp(row.updated_at)
+          return {
+            id: String(row.id ?? ''),
+            question: String(row.question ?? ''),
+            answer: String(row.answer ?? ''),
+            position: Number(row.position ?? 0) || 0,
+            published: row.published !== false,
+            updatedAt: at ?? Date.now(),
+          }
+        }).filter((entry) => entry.id.length > 0)
+        return { entries }
+      } catch (error) {
+        return { entries: [], error: describe(error) }
+      }
+    },
+
+    async saveFaq({ id, question, answer, position, published }) {
+      if (!question.trim() || !answer.trim()) {
+        return { ok: false, error: 'FAQ entries need a question and an answer.' }
+      }
+      try {
+        if (id) {
+          const { error } = await db.from('faq_entries')
+            .update({ question: question.trim(), answer: answer.trim(), position, published })
+            .eq('id', id)
+          if (error) return { ok: false, error: error.message }
+          return audited(await audit('admin:faq_update', id, { position, published }), 'FAQ entry')
+        }
+        const { error } = await db.from('faq_entries')
+          .insert({ question: question.trim(), answer: answer.trim(), position, published })
+        if (error) return { ok: false, error: error.message }
+        return audited(await audit('admin:faq_create', question.trim().slice(0, 80), { position, published }), 'FAQ entry')
+      } catch (error) {
+        return { ok: false, error: describe(error) }
+      }
+    },
+
+    async deleteFaq(id) {
+      if (!id) return { ok: false, error: 'Pick an entry first.' }
+      try {
+        const { error } = await db.from('faq_entries').delete().eq('id', id)
+        if (error) return { ok: false, error: error.message }
+        return audited(await audit('admin:faq_delete', id, {}), 'FAQ entry')
+      } catch (error) {
+        return { ok: false, error: describe(error) }
+      }
     },
   }
 }

@@ -121,6 +121,9 @@ function fakeApi(overrides: Overrides = {}) {
       policies = { ...policies, [role]: { ...limits } }
       return { ok: true }
     }),
+    listFaq: vi.fn(async (): Promise<{ entries: Array<{ id: string; question: string; answer: string; position: number; published: boolean; updatedAt: number }>; error?: string }> => ({ entries: [] })),
+    saveFaq: vi.fn(async (): Promise<MutationResult> => ({ ok: true })),
+    deleteFaq: vi.fn(async (): Promise<MutationResult> => ({ ok: true })),
   }
   const api: AdminApi = calls
   return { api, calls }
