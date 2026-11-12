@@ -58,8 +58,9 @@ a { color: inherit; }
 /* ── Nav ───────────────────────────── */
 nav { position: sticky; top: 0; z-index: 10; height: 4rem; border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); background: color-mix(in srgb, var(--bg) 80%, transparent); backdrop-filter: blur(14px); }
 nav .wrap { height: 100%; display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; }
-.brand { display: flex; align-items: center; gap: .55rem; text-decoration: none; font-weight: 800; font-size: 1rem; letter-spacing: -.02em; }
-.brand svg { height: 20px; width: auto; }
+.brand { display: flex; align-items: center; gap: .55rem; text-decoration: none; }
+.brand svg:first-child { height: 22px; width: auto; }
+.brand svg:last-child { height: 15px; width: auto; }
 .nav-links { display: flex; gap: 1.4rem; align-items: center; list-style: none; padding: 0; }
 .nav-links a { text-decoration: none; color: var(--mute); font-size: .84rem; font-weight: 500; transition: color .15s; }
 .nav-links a:hover { color: var(--ink); }
@@ -69,8 +70,8 @@ nav .wrap { height: 100%; display: flex; align-items: center; justify-content: s
 /* ── Buttons ───────────────────────── */
 .btn { display: inline-flex; align-items: center; gap: .5rem; height: 2.5rem; padding: 0 1.1rem; border-radius: .5rem; background: var(--amber); color: #221300; font-family: 'InterVariable', system-ui, sans-serif; font-weight: 700; font-size: .82rem; text-decoration: none; border: 0; cursor: pointer; transition: filter .15s; }
 .btn:hover { filter: brightness(1.1); }
-.btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); font-weight: 600; }
-.btn-ghost:hover { border-color: #3A3B47; color: var(--ink); }
+.btn-ghost { background: #15141A; color: var(--ink); border: 1px solid #2E2E38; font-weight: 600; }
+.btn-ghost:hover { border-color: #3A3B47; color: var(--ink); background: #1A1A22; }
 .btn-lg { height: 3.1rem; padding: 0 1.4rem; font-size: .95rem; border-radius: .55rem; }
 .btn-link { display: inline-flex; align-items: center; gap: .35rem; color: var(--mute); text-decoration: none; font-size: .84rem; font-weight: 500; }
 .btn-link:hover { color: var(--ink); }
@@ -173,8 +174,8 @@ footer a:hover { color: var(--ink); }
 <nav aria-label="Folio">
   <div class="wrap">
     <a class="brand" href="/" aria-label="Folio — home">
-      <svg viewBox="0 0 96 96" aria-hidden="true"><rect width="96" height="96" rx="18" fill="#0E0D12"/><path fill="#F5A524" fill-rule="evenodd" d="M10 0H58L96 38V86L86 96H10L0 86V10ZM26 20H64L70 26V40H46V46H56L62 52V64H46V82H26Z"/></svg>
-      Folio
+      <svg viewBox="0 0 96 96" aria-hidden="true"><path fill="#F5A524" fill-rule="evenodd" d="M10 0H58L96 38V86L86 96H10L0 86V10ZM26 20H64L70 26V40H46V46H56L62 52V64H46V82H26Z"/></svg>
+      <svg viewBox="0 0 408 100" role="img" aria-label="FOLIO" style="height:15px;width:auto"><path fill="#F2ECDF" d="M0 0H57L66 9V22H22V39H49L58 48V61H22V100H0Z"/><path fill="#F2ECDF" fill-rule="evenodd" d="M102 0H162L174 12V88L162 100H102L90 88V12ZM115 22H149L152 25V75L149 78H115L112 75V25Z"/><path fill="#F2ECDF" d="M198 0H220V78H262V90L252 100H198Z"/><path fill="#F2ECDF" d="M284 0H294L300 6V94L294 100H284L278 94V6Z"/><path fill="#F2ECDF" fill-rule="evenodd" d="M336 0H396L408 12V88L396 100H336L324 88V12ZM349 22H383L386 25V75L383 78H349L346 75V25Z"/></svg>
     </a>
     <ul class="nav-links">
       <li><a href="#product">Product</a></li>
@@ -330,24 +331,40 @@ footer a:hover { color: var(--ink); }
 <section id="faq" aria-label="Questions">
   <div class="wrap">
     <div class="section-head">
-      <h2>Straight answers.</h2>
+      <h2>Questions an engineer<br>actually asks.</h2>
     </div>
     <div class="faq">
       <details class="faq-item" open>
-        <summary>Is Folio actually free?</summary>
-        <p>Yes. The standalone build runs the whole stack on your machine — schematic, solver, router, DRC, fab package, simulations — with no account, no subscription and no telemetry. Pro and Team add the cloud doors: hosted storage, publishing and the admin console, at announced prices.</p>
+        <summary>Is the simulator a real SPICE, or a visual approximation?</summary>
+        <p>A real SPICE. MNA with Newton–Raphson companion stamps, Gummel–Poon BJTs with Early voltages and junction capacitances, and level-1 Shichman–Hodges MOSFETs with body effect, channel-length modulation and gate capacitances. JFET level-1, op-amp companions and vendor model cards are all parsed and evaluated; the vendor library ships the actual IRF540N, 2N7000 and 2N3055 parameters.</p>
       </details>
       <details class="faq-item">
-        <summary>Does it work offline?</summary>
-        <p>Completely. Projects, checkpoints, exports, simulations and community templates all live on your machine. Publishing to the community needs a deployment — that's a cloud service, and it's honest about being one.</p>
+        <summary>Is the router really routing, or is it coloured lines?</summary>
+        <p>It routes. A rip-up-and-retry A* grid router runs on the real board geometry against the nets your schematic declared. Vias go inside declared via-span rules, skew is measured for the DDR and byte-lane groups it handles, and whatever it cannot route is reported by net and layer — not drawn anyway. It is not a general-purpose auto-router like Allegro; it routes typical boards and names the ones it cannot.</p>
       </details>
       <details class="faq-item">
-        <summary>What is the agent actually doing?</summary>
-        <p>It calls the same tools you call — placing parts, wiring pins, running the solver, reading ERC findings — then reports what it did. Every step is visible, reversible, and names its assumptions. Nothing it does is hidden from you, and nothing it can't do is claimed either.</p>
+        <summary>What won't the agent do?</summary>
+        <p>Invent component values, claim the simulation passed when it has not, add nets you did not agree to, or run signal integrity or thermal analysis — neither exists in Folio, and neither will be faked. When it cannot do the job, it says so and stops. It places parts, wires traces, annotates nets, runs the solver, reads ERC, opens the DRC and writes the fab package — the same tools you open by hand.</p>
       </details>
       <details class="faq-item">
-        <summary>How is this different from a photo of a board?</summary>
-        <p>Every demo and template is a real project: real solver, real router, real DRC gate, real fab package. The tests are the contract. Count them.</p>
+        <summary>Is the local build really free, or will it start charging?</summary>
+        <p>Free indefinitely. The standalone build has no account, no upload, no telemetry — it cannot accept payment and it will not start tomorrow. Pro and Team add the cloud doors only: hosted sync, the publish button, the admin console. Local stays unlimited and stays free.</p>
+      </details>
+      <details class="faq-item">
+        <summary>Where is my design right now?</summary>
+        <p>On your disk. Projects, checkpoints, VCS branches, exports and simulations all live in this browser's local storage on this machine. Exports are plain files — Gerber, Excellon, CSV, STEP — never a proprietary blob a vendor can hold hostage. You can encrypt any export with a passphrase before moving it between computers.</p>
+      </details>
+      <details class="faq-item">
+        <summary>What does Folio ship to a fab house?</summary>
+        <p>Gerber RS-274X per film, Excellon with blind/buried span support, centroid CSV for SMT assembly, BOM with lifecycle status, and a DRC printout. The Gerbers are CRC-verified with a dependency-free STORE writer. If a fab house won't accept the files, you will find out before you spend money — from the DRC list.</p>
+      </details>
+      <details class="faq-item">
+        <summary>What does it cost today?</summary>
+        <p>Nothing. Pro at $19 and Team at $49 per user per month are announced pricing for when billing exists — not a charge that starts today. Enterprise is a signed conversation: private deployment, SSO, dedicated seats, SLA. There is no license server, no phone-home check, and no expiry date on the offline build.</p>
+      </details>
+      <details class="faq-item">
+        <summary>How is Folio tested?</summary>
+        <p>The gate is npm run verify and it fails the build. It covers type-check, strict lint with zero allowed warnings, accessibility checks (icon-button names against 460+ files), and thousands of assertions across 338 test files — solver accuracy pinned against closed-form references, router steered through cases known not to fit, DRC violations firing at the exact geometry that causes them, CRC32 on every byte of a fab package. “It looks like it works” is not a test, so we do not accept it as one.</p>
       </details>
     </div>
   </div>
