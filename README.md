@@ -44,12 +44,11 @@ rules); it makes no model or network call, and its output is advisory.
   by family. A scenario seeds the stores or stages a one-shot request for the
   panel that owns the feature, so the demo exercises the real engine rather than
   a screenshot.
-- **Community templates** (launcher → **Start from proven designs**):
-  CC-BY-4.0 templates to fork into your own workspace — the curated set ships
-  in the box and forks through the same loader the gallery uses; designs
-  published to the Folio cloud fork with credit; export/import a
-  `.folio-template.json` anytime to share by hand. See
-  [landing.html](landing.html) → `/landing` when served.
+- **Community templates** (launcher → **Start from proven designs**, and the
+  dedicated [`/community`](#) page): CC-BY templates — open one and it lands
+  attributed and read-only in the workbench; it becomes your project only
+  when you choose to make it yours. Curated seeds ship in the box, cloud
+  designs open with credit, and `.folio-template.json` travels by hand anytime.
 - The half-wave rectifier demos share one board: schematic → transient → PCB →
   autorouted 3-D scene → BOM audit → HIL → digital twin.
 - **Grouped workspaces**: Design, Electrical, Mechanical and Operations families
@@ -415,10 +414,14 @@ rules); it makes no model or network call, and its output is advisory.
 
 ### Admin console
 
-- **Admin console** at `/admin` — the labelled button in the launcher header, or
-  the same entry under **Project** in the workbench's More menu, for a governing
-  role only. It is a sibling surface to the CAD workspaces and opens with or
-  without a project loaded.
+- **Admin console** at `/admin` — a sibling document for staff who operate the
+  deployment. No workbench or launcher link reaches it; it opens by typing
+  `/admin`. Access is the `profiles` row's role (owner/admin), and the tables
+  behind it are operator-only by row-level security.
+- **User console** at `/console` — a sibling document for the people who use
+  Folio: identity, the device's usage ledger, plan and limits, and a JSON
+  download of local data. A person with an account opens this one; it is
+  linked from the workbench header (person icon).
 - **Local mode**: the device owner is the administrator. The console reports
   people, the device's usage ledger, quota policies, the SIEM audit trail, and
   the real environment (storage estimate, agent-runner capability).

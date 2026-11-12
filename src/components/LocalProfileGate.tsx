@@ -1,18 +1,17 @@
 /**
- * The standalone deployment's front door.
+ * The standalone deployment's sign-in.
  *
- * Shown once, before anything else, on deployments with no configured cloud:
- * the designer names themselves — nothing leaves the machine — and the studio
- * unlocks. When the Folio cloud is configured the hosted auth gate
- * (Google, GitHub, X Industries, email) is the door instead; this screen
- * remains the offline fallback.
+ * A device-local identity picker: choose who is working, or claim a new
+ * identity. No server is involved; nothing leaves this machine. When the
+ * Folio cloud is configured the hosted gate (Google, GitHub, X Industries,
+ * email) is the door instead and this screen stays out of the way.
  */
 import { useState, type FormEvent } from 'react'
-import { ArrowRight, AlertCircle } from 'lucide-react'
+import { ArrowRight, AlertCircle, Plus, X } from 'lucide-react'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
-import FolioLogo, { FolioMark } from './brand/FolioLogo'
+import FolioLogo from './brand/FolioLogo'
 import { useLocalProfileStore } from '../stores/useLocalProfileStore'
 
 const GOOGLE_PATH = (
@@ -36,88 +35,146 @@ const XINDUSTRIES_PATH = (
   </svg>
 )
 
+const CLOUD_TITLE = 'Set VITE_SUPABASE_URL to enable hosted accounts with Google, GitHub and X Industries.'
+
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '').join('') || '?'
+}
+
 export default function LocalProfileGate() {
-  const setProfile = useLocalProfileStore((state) => state.setProfile)
-  const [name, setName] = useState('')
+  const profiles = useLocalProfileStore((state) => state.profiles)
+  const setActiveProfile = useLocalProfileStore((state) => state.setActiveProfile)
+  const addProfile = useLocalProfileStore((state) => state.addProfile)
+  const removeProfile = useLocalProfileStore((state) => state.removeProfile)
+
+  const [createOpen, setCreateOpen] = useState(profiles.length === 0)
+  const [newName, setNewName] = useState('')
   const [error, setError] = useState('')
-  const nameValid = name.trim().length >= 2
+  const nameValid = newName.trim().length >= 2
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (!nameValid) return
-    setProfile({ name: name.trim(), email: '' })
+    try {
+      addProfile(newName)
+      setNewName('')
+      setError('')
+      setCreateOpen(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'That name was refused.')
+    }
   }
 
-  const ssoDisabledTitle = 'Configure the Folio cloud (VITE_SUPABASE_URL) to enable sign-in with this provider.'
+  const hasProfiles = profiles.length > 0
 
   return (
-    <main className="launcher-shell flex min-h-screen items-center justify-center bg-background px-6" aria-label="Create your workspace">
+    <main className="launcher-shell flex min-h-screen items-center justify-center bg-background px-6" aria-label="Sign in to Folio">
       <div className="w-full max-w-md">
-        <div className="flex items-center gap-3">
-          <FolioMark className="h-10 w-10 text-primary" />
-          <FolioLogo showTagline markClassName="hidden" wordmarkClassName="h-5" />
-        </div>
+        <FolioLogo markClassName="h-9 w-9 text-primary" wordmarkClassName="h-4 text-foreground" showTagline />
 
         <h1 className="mt-8 text-2xl font-extrabold tracking-[-0.03em] text-foreground">
-          Create your workspace
+          {hasProfiles ? 'Who is working?' : 'Create your workspace'}
         </h1>
         <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-          One name — it stamps every commit and checkpoint. Designs stay on this
-          device until you publish them.
+          {hasProfiles
+            ? 'Choose a profile to sign in, or add a new one.'
+            : 'One name — it stamps every commit and checkpoint. Designs stay on this device until you publish them.'}
         </p>
 
-        <form onSubmit={submit} className="mt-6 space-y-4" aria-label="Create your workspace">
-          <div>
-            <Label htmlFor="profile-name">Your name</Label>
-            <Input
-              id="profile-name"
-              autoFocus
-              autoComplete="name"
-              value={name}
-              onChange={(event) => { setName(event.target.value); setError('') }}
-              placeholder="Ada Lovelace"
-              maxLength={120}
-              required
-              aria-invalid={name.length > 0 && !nameValid ? 'true' : undefined}
-              className="mt-1.5"
-            />
-          </div>
+        {hasProfiles && (
+          <ul className="mt-6 grid grid-cols-3 gap-2" aria-label="Local profiles">
+            {profiles.map((profile) => (
+              <li key={profile.id} className="group relative">
+                <button
+                  type="button"
+                  onClick={() => setActiveProfile(profile.id)}
+                  aria-label={`Sign in as ${profile.name}`}
+                  className="group flex w-full flex-col items-center gap-1.5 rounded-xl border border-border/70 bg-card/50 px-2 pb-2.5 pt-3 transition-colors hover:border-primary/50 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span aria-hidden="true" className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/15 text-[13px] font-bold tracking-wide text-primary">
+                    {initialsOf(profile.name)}
+                  </span>
+                  <span className="w-full truncate text-center text-[11px] font-medium text-foreground">
+                    {profile.name}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeProfile(profile.id)}
+                  aria-label={`Forget profile ${profile.name}`}
+                  className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/20 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100"
+                >
+                  <X className="h-3 w-3" aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
 
-          {error && (
-            <p role="alert" className="flex items-start gap-2 text-xs text-destructive">
-              <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-              {error}
-            </p>
-          )}
-
-          <Button type="submit" className="h-11 w-full gap-2 text-sm font-semibold" disabled={!nameValid}>
-            Create workspace
-            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+        {createOpen ? (
+          <form onSubmit={submit} className="mt-4 space-y-3" aria-label="Create a new profile">
+            <div>
+              <Label htmlFor="profile-name">Your name</Label>
+              <Input
+                id="profile-name"
+                autoFocus={!hasProfiles}
+                autoComplete="name"
+                value={newName}
+                onChange={(event) => { setNewName(event.target.value); setError('') }}
+                placeholder="Ada Lovelace"
+                maxLength={120}
+                required
+                aria-invalid={newName.length > 0 && !nameValid ? 'true' : undefined}
+                className="mt-1.5"
+              />
+            </div>
+            {error && (
+              <p role="alert" className="flex items-start gap-2 text-xs text-destructive">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+                {error}
+              </p>
+            )}
+            <div className="flex items-center gap-2">
+              <Button type="submit" className="h-10 flex-1 gap-2 text-sm font-semibold" disabled={!nameValid}>
+                Create workspace
+                <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </Button>
+              {hasProfiles && (
+                <Button type="button" variant="ghost" size="default" onClick={() => { setCreateOpen(false); setError(''); setNewName('') }}>
+                  Cancel
+                </Button>
+              )}
+            </div>
+          </form>
+        ) : (
+          <Button variant="outline" className="mt-4 w-full gap-2" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            New profile
           </Button>
-        </form>
+        )}
 
         <div className="mt-6">
           <div className="relative">
             <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border" /></div>
-            <div className="relative flex justify-center"><span className="bg-background px-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground/80">Or continue with</span></div>
+            <div className="relative flex justify-center"><span className="bg-background px-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground/80">Or use a cloud account</span></div>
           </div>
 
           <div className="mt-4 grid grid-cols-3 gap-2">
             {[
-              { label: 'Google', icon: GOOGLE_PATH, title: ssoDisabledTitle },
-              { label: 'GitHub', icon: GITHUB_PATH, title: ssoDisabledTitle },
-              { label: 'X Industries', icon: XINDUSTRIES_PATH, title: 'X Industries SSO — for X Industries employees, when the identity provider ships.' },
-            ].map(({ label, icon, title }) => (
+              { label: 'Google', icon: GOOGLE_PATH },
+              { label: 'GitHub', icon: GITHUB_PATH },
+              { label: 'X Industries', icon: XINDUSTRIES_PATH },
+            ].map(({ label, icon }) => (
               <button
                 key={label}
                 type="button"
                 disabled
-                title={title}
-                aria-label={`${label} sign-in — ${title}`}
+                title={CLOUD_TITLE}
+                aria-label={`${label} sign-in — ${CLOUD_TITLE}`}
                 className="flex h-11 cursor-not-allowed flex-col items-center justify-center gap-0.5 rounded-lg border border-border/70 bg-card/40 text-muted-foreground/50"
               >
                 {icon}
-                <span className="text-[8px] font-medium uppercase tracking-[0.14em]">{label.split(' ')[0]}</span>
+                <span className="text-[8px] font-medium uppercase tracking-[0.14em]">{label}</span>
               </button>
             ))}
           </div>

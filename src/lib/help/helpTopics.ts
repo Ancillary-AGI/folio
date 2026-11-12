@@ -181,6 +181,12 @@ export const HELP_TOPICS = [
     shortcutId: 'settings.open',
   },
   {
+    id: 'header.console',
+    group: 'header',
+    title: 'Account console',
+    description: 'Your account: who you are, what this device recorded, your plan and limits, and a download of your local data. Opens the console — a separate page from the CAD.',
+  },
+  {
     id: 'header.plugins',
     group: 'header',
     title: 'Plugins',

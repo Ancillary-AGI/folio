@@ -17,9 +17,12 @@ vi.mock('../components/SchematicCanvas', () => ({
 import App from '../App'
 import { useLocalProfileStore } from '../stores/useLocalProfileStore'
 
+const ADA = { id: 'ada', name: 'Ada Lovelace', createdAt: 1 }
+const GRACE = { id: 'grace', name: 'Grace Hopper', createdAt: 2 }
+
 describe('Local profile gate', () => {
   beforeEach(() => {
-    useLocalProfileStore.setState({ profile: null })
+    useLocalProfileStore.setState({ profiles: [], activeProfileId: null })
   })
 
   it('stands between the designer and the launcher until a profile is claimed', async () => {
@@ -35,17 +38,30 @@ describe('Local profile gate', () => {
     fireEvent.click(screen.getByRole('button', { name: /create workspace/i }))
 
     expect(await screen.findByRole('heading', { name: 'From first sketch to verified build.' })).toBeInTheDocument()
-    expect(useLocalProfileStore.getState().profile).toEqual({ name: 'Ada Lovelace', email: '' })
+    const state = useLocalProfileStore.getState()
+    const active = state.profiles.find((profile) => profile.id === state.activeProfileId)
+    expect(active?.name).toBe('Ada Lovelace')
   })
 
-  it('persists the profile across a remount — the gate opens once', async () => {
-    useLocalProfileStore.setState({ profile: { name: 'Grace Hopper', email: '' } })
+  it('offers the stored profiles and signs into the one that is picked', async () => {
+    useLocalProfileStore.setState({ profiles: [ADA, GRACE], activeProfileId: null })
+    render(<App />)
+
+    expect(screen.getByRole('heading', { name: 'Who is working?' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in as Grace Hopper' }))
+    expect(await screen.findByRole('heading', { name: 'From first sketch to verified build.' })).toBeInTheDocument()
+    expect(useLocalProfileStore.getState().activeProfileId).toBe('grace')
+  })
+
+  it('persists the active profile across a remount — the gate opens once', async () => {
+    useLocalProfileStore.setState({ profiles: [GRACE], activeProfileId: 'grace' })
     const { unmount } = render(<App />)
     expect(await screen.findByRole('heading', { name: 'From first sketch to verified build.' })).toBeInTheDocument()
     unmount()
 
     render(<App />)
     expect(await screen.findByRole('heading', { name: 'From first sketch to verified build.' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: "Create your workspace" })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Who is working?' })).not.toBeInTheDocument()
   })
 })

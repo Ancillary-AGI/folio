@@ -47,7 +47,7 @@ const USAGE_KIND_LABELS: Record<UsageKind, string> = {
   'onboarding.complete': 'Guided tour finished',
   'onboarding.exit': 'Guided tour ended early',
   'admin.open': 'Admin console opened',
-  'template.fork': 'Community template forked',
+  'template.fork': 'Community design made theirs',
 }
 
 const KIND_OPTIONS: Array<{ value: 'all' | UsageKind; label: string }> = [

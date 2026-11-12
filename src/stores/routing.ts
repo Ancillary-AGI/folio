@@ -12,6 +12,7 @@
  *   /projects                  project list
  *   /projects/:id              that project's schematic
  *   /projects/:id/simulation   …and every other workspace
+ *   /community                 community templates — search, open, publish
  *
  * URLs are server-independent. A static host must rewrite unknown paths to
  * `index.html`; the checked-in host configs provide that fallback. Legacy
@@ -20,6 +21,7 @@
 import type { WorkspaceMode } from './useAppStore';
 
 export const PROJECTS_ROUTE = '/projects';
+export const COMMUNITY_ROUTE = '/community';
 
 export const WORKSPACE_ROUTES: Readonly<Record<WorkspaceMode, string>> = {
   schematic: '/',
@@ -63,6 +65,8 @@ export interface LocationRoute {
   projectId: string | null;
   /** True only for `/projects`. */
   isProjectList: boolean;
+  /** True only for `/community`. */
+  isCommunity: boolean;
 }
 
 function decodeSegment(value: string): string {
@@ -93,30 +97,34 @@ export function workspacePath(mode: WorkspaceMode, projectId?: string | null): s
  */
 export function parseRoute(pathname: string, search = ''): LocationRoute {
   const segments = pathname.split('/').filter(Boolean);
+  if (segments[0] === COMMUNITY_ROUTE.slice(1) && segments.length === 1) {
+    return { mode: null, projectId: null, isProjectList: false, isCommunity: true };
+  }
   if (segments[0] === PROJECTS_ROUTE.slice(1)) {
     if (segments.length === 1) {
-      return { mode: null, projectId: null, isProjectList: true };
+      return { mode: null, projectId: null, isProjectList: true, isCommunity: false };
     }
     const projectId = decodeSegment(segments[1]);
     if (segments.length === 2) {
-      return { mode: 'schematic', projectId, isProjectList: false };
+      return { mode: 'schematic', projectId, isProjectList: false, isCommunity: false };
     }
     const mode = ROUTE_TO_MODE[`/${segments.slice(2).join('/')}`] ?? 'schematic';
-    return { mode, projectId, isProjectList: false };
+    return { mode, projectId, isProjectList: false, isCommunity: false };
   }
   const mode = ROUTE_TO_MODE[`/${segments.join('/')}`] ?? null;
-  if (!mode) return { mode: null, projectId: null, isProjectList: false };
+  if (!mode) return { mode: null, projectId: null, isProjectList: false, isCommunity: false };
   return {
     mode,
     projectId: new URLSearchParams(search).get('project') || null,
     isProjectList: false,
+    isCommunity: false,
   };
 }
 
 /** The route described by the current address bar. */
 export function currentRoute(): LocationRoute {
   if (typeof window === 'undefined') {
-    return { mode: null, projectId: null, isProjectList: false };
+    return { mode: null, projectId: null, isProjectList: false, isCommunity: false };
   }
   return parseRoute(window.location.pathname, window.location.search);
 }

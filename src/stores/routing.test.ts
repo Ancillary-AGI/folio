@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   WORKSPACE_ROUTES,
+  COMMUNITY_ROUTE,
   currentRoute,
   normalizeLegacyUrl,
   navigateTo,
@@ -25,11 +26,29 @@ describe('workspace routing', () => {
       mode: 'agents',
       projectId: null,
       isProjectList: false,
+      isCommunity: false,
     });
     expect(parseRoute('/')).toEqual({
       mode: 'schematic',
       projectId: null,
       isProjectList: false,
+      isCommunity: false,
+    });
+  });
+
+  it('parses the dedicated community page', () => {
+    expect(COMMUNITY_ROUTE).toBe('/community');
+    expect(parseRoute('/community')).toEqual({
+      mode: null,
+      projectId: null,
+      isProjectList: false,
+      isCommunity: true,
+    });
+    expect(parseRoute('/community/')).toEqual({
+      mode: null,
+      projectId: null,
+      isProjectList: false,
+      isCommunity: true,
     });
   });
 
@@ -38,16 +57,19 @@ describe('workspace routing', () => {
       mode: null,
       projectId: null,
       isProjectList: true,
+      isCommunity: false,
     });
     expect(parseRoute('/projects/p1')).toEqual({
       mode: 'schematic',
       projectId: 'p1',
       isProjectList: false,
+      isCommunity: false,
     });
     expect(parseRoute('/projects/p1/pcb')).toEqual({
       mode: 'pcb',
       projectId: 'p1',
       isProjectList: false,
+      isCommunity: false,
     });
   });
 
@@ -56,11 +78,13 @@ describe('workspace routing', () => {
       mode: 'schematic',
       projectId: 'p1',
       isProjectList: false,
+      isCommunity: false,
     });
     expect(parseRoute('/projects/p1/not-a-workspace')).toEqual({
       mode: 'schematic',
       projectId: 'p1',
       isProjectList: false,
+      isCommunity: false,
     });
   });
 
@@ -71,6 +95,7 @@ describe('workspace routing', () => {
       mode: 'agents',
       projectId: 'folder/with space',
       isProjectList: false,
+      isCommunity: false,
     });
   });
 
@@ -79,6 +104,7 @@ describe('workspace routing', () => {
       mode: 'pcb',
       projectId: 'abc',
       isProjectList: false,
+      isCommunity: false,
     });
   });
 
@@ -90,17 +116,19 @@ describe('workspace routing', () => {
       mode: null,
       projectId: null,
       isProjectList: false,
+      isCommunity: false,
     });
     expect(Object.values(WORKSPACE_ROUTES)).not.toContain('/admin');
   });
 
   it('returns an unknown result for unrecognised paths', () => {
     window.history.replaceState(null, '', '/nope');
-    expect(currentRoute()).toEqual({ mode: null, projectId: null, isProjectList: false });
+    expect(currentRoute()).toEqual({ mode: null, projectId: null, isProjectList: false, isCommunity: false });
     expect(parseRoute('/nope')).toEqual({
       mode: null,
       projectId: null,
       isProjectList: false,
+      isCommunity: false,
     });
   });
 
@@ -113,11 +141,19 @@ describe('workspace routing', () => {
       mode: 'preview3d',
       projectId: 'p1',
       isProjectList: false,
+      isCommunity: false,
     });
     expect(projectIdFromLocation()).toBe('p1');
 
     writeWorkspaceRoute('schematic', null);
     expect(window.location.pathname).toBe('/');
+    expect(projectIdFromLocation()).toBeNull();
+  });
+
+  it('writes /community to the address bar without a project', () => {
+    navigateTo(COMMUNITY_ROUTE);
+    expect(window.location.pathname).toBe('/community');
+    expect(currentRoute().isCommunity).toBe(true);
     expect(projectIdFromLocation()).toBeNull();
   });
 

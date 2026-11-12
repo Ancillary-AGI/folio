@@ -21,7 +21,10 @@ afterEach(() => {
 // shell suites boot as a signed-in local owner by default so the gate is
 // invisible to them. The gate suite clears this in its own setup.
 beforeEach(() => {
-  useLocalProfileStore.setState({ profile: { name: 'Test User', email: 'test@folio.app' } });
+  useLocalProfileStore.setState({
+    profiles: [{ id: 'test-profile', name: 'Test User', createdAt: Date.now() }],
+    activeProfileId: 'test-profile',
+  });
 });
 
 // Mock window.matchMedia

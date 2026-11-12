@@ -4,11 +4,20 @@ import {
   Download, Image, FileText, List, Lock, LogOut, Mic, MicOff,
   ArrowLeft, History, RotateCcw, Moon, Sun, AlertCircle,
   MoreHorizontal, ShieldAlert, ShieldCheck, HelpCircle, X, ScrollText, CloudOff,
-  Cloud, HardDrive, Cable, MousePointer2, Grid3X3, Magnet, Wrench,
+  Cloud, HardDrive, Cable, MousePointer2, Grid3X3, Magnet, Wrench, CircleUserRound,
 } from 'lucide-react'
 import { Button } from './components/ui/button'
 import type { PlacedComponent, Wire, User } from './types'
 import { supabase, isSupabaseConfigured, type Project, type Schematic, type Component } from './lib/supabase'
+import {
+  CURATED_DEMO_BY_TEMPLATE_ID,
+  applyTemplateFile,
+  fetchCommunityFork,
+  licenseLabel,
+  type CommunityTemplate,
+  type CommunityTemplateFile,
+} from './lib/community/community'
+import { useCommunityPreviewStore } from './stores/useCommunityPreviewStore'
 import { offlineProjectStore } from './lib/offlineProjectStore'
 import { standardComponents } from './lib/componentLibrary'
 import { libraryForMode } from './lib/library/catalog'
@@ -34,6 +43,7 @@ import { isEditableTarget, matchesShortcut } from './lib/keymap/shortcuts'
 import {
   currentRoute,
   navigateTo,
+  COMMUNITY_ROUTE,
   PROJECTS_ROUTE,
   subscribeToRoute,
   writeWorkspaceRoute,
@@ -68,7 +78,8 @@ import VoiceCommandBar from './components/nlp/VoiceCommandBar'
 import { LoadingSpinner } from './components/ui/LoadingSpinner'
 import LocalProfileGate from './components/LocalProfileGate'
 import CommunityTemplates from './components/community/CommunityTemplates'
-import { useLocalProfileStore } from './stores/useLocalProfileStore'
+import CommunityPage from './components/community/CommunityPage'
+import { useLocalProfileStore, useActiveProfile } from './stores/useLocalProfileStore'
 import UserPresence from './components/collaboration/UserPresence'
 import AgentStatusPill from './components/workspace/AgentStatusPill'
 import AgentStatusSegment from './components/workspace/AgentStatusSegment'
@@ -201,16 +212,16 @@ function generateUserColor(userId: string): string {
 }
 
 function App() {
-  // A standalone deployment boots into its workspace administrator; there is no
-  // account to sign in to, so users never hit a login gate.
-  const localProfile = useLocalProfileStore((state) => state.profile)
+  // Identity comes before designing. The hosted auth gate is the door on
+  // cloud deployments; the local profile picker is the door on standalone ones.
+  const localProfile = useActiveProfile()
   const [user, setUser] = useState<User | null>(() =>
     isSupabaseConfigured
       ? null
       : {
           id: 'offline-local',
-          name: useLocalProfileStore.getState().profile?.name ?? 'Workspace Owner',
-          email: useLocalProfileStore.getState().profile?.email ?? 'owner@folio.app',
+          name: useLocalProfileStore.getState().profiles.find(p => p.id === useLocalProfileStore.getState().activeProfileId)?.name ?? 'Workspace Owner',
+          email: 'owner@folio.local',
           role: 'owner',
         },
   )
@@ -235,6 +246,8 @@ function App() {
   const [vcsStatus, setVcsStatus] = useState('')
   const [backupList, setBackupList] = useState<ProjectBackup[]>([])
   const [showProjectManager, setShowProjectManager] = useState(false)
+  const [signInWall, setSignInWall] = useState(false)
+  const [showCommunity, setShowCommunity] = useState(() => currentRoute().isCommunity)
   const [notice, setNotice] = useState('')
   const [demoBusy, setDemoBusy] = useState<string | null>(null)
   const [showPluginPanel, setShowPluginPanel] = useState(false)
@@ -683,6 +696,8 @@ function App() {
     else if (workspaceMode) useAppStore.getState().setWorkspaceMode(workspaceMode)
     setCurrentProject(project)
     setShowProjectManager(false)
+    setShowCommunity(false)
+    useCommunityPreviewStore.getState().clear()
     recordPlatformUsage('project.create', user, offlineMode, { name: project.name, storage, family: family ?? 'default' })
     siemService.logAuditEvent({ user: uid, action: 'project:create', resource: project.id, details: { name: project.name, family } })
   }
@@ -800,32 +815,238 @@ function App() {
     return Boolean(useProjectStore.getState().currentProject)
   }
 
-  /* Community templates fork through the same creation path as demos: make a
-   * clean project, then decide what it becomes. The name arrives with the
-   * template — a fork named after the design it forks, never "New Project". */
-  const renameProjectTo = useCallback((name: string) => {
-    const state = useProjectStore.getState()
-    if (state.currentProject) {
-      useProjectStore.setState({ currentProject: { ...state.currentProject, name } })
-    }
-  }, [])
-  const openCuratedDemo = useCallback(
-    async (demoId: string) => {
-      const scenario = DEMO_SCENARIOS.find((entry) => entry.id === demoId)
-      if (scenario && (await openDemoScenario(scenario))) {
-        recordPlatformUsage('template.fork', user, offlineMode, { scenario: scenario.id })
-      }
-    },
-    // openDemoScenario is redeclared each render; read it as a ref of behaviour.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  )
+  /*
+   * Adopting a community design persists the design under the template's name,
+   * never "New Project" — the adoption path owns that, and nothing else renames.
+   */
 
   /*
    * One entry point for loading a demo, so the busy state cannot be forgotten by
    * a caller: the gallery, the palette and a tutorial re-seeding its own demo all
    * route through here and all show the same pause.
    */
+  /*
+   * Community designs open first, own later.
+   *
+   * Opening never creates a project: the design is applied to the live stores
+   * under an attributed synthetic shell that exists only in memory. The action
+   * guard in `useProjectStore` renders every edit inert and routes it to the
+   * banner ("make it yours"), which is the only point at which a project row is
+   * created — with the design carried over as it stands, never re-applied from
+   * scratch. Discarding throws the session away without persisting anything.
+   */
+  const previewCounter = useRef(0)
+  const pendingAdoptRef = useRef(false)
+  const preview = useCommunityPreviewStore((state) => state.preview)
+  const previewActive = preview !== null
+  const previewFlash = useCommunityPreviewStore((state) => state.flash)
+
+  const liveSnapshot = () => {
+    const live = useProjectStore.getState()
+    return {
+      components: live.components,
+      wires: live.wires,
+      firmwareCode: live.firmwareCode,
+      simulationRuns: live.simulationRuns,
+      pcbLayout: live.pcbLayout,
+      mechanicalParts: live.mechanicalParts,
+      domainDesigns: live.domainDesigns,
+      viewport: useAppStore.getState().viewport,
+    }
+  }
+
+  /** Payload persist to the same keys `handleSave` writes, so a reload round-trips. */
+  const liveSnapshotFromFile = (file: CommunityTemplateFile): Record<string, unknown> => ({
+    components: file.design.components,
+    wires: file.design.wires,
+    firmwareCode: file.design.firmwareCode || '',
+    simulationRuns: file.design.simulationRuns ?? [],
+    pcbLayout: file.design.pcbLayout ?? null,
+    mechanicalParts: file.design.mechanicalParts ?? [],
+    domainDesigns: file.design.domainDesigns ?? {},
+    viewport: useAppStore.getState().viewport,
+  })
+
+  const resetWorkingDesign = () => {
+    useProjectStore.setState({
+      components: [], wires: [], firmwareCode: '', simulationRuns: [], pcbLayout: null,
+      simulationResults: [], isSimulating: false, liveFrame: null, isDirty: false,
+      currentSchematic: null,
+    })
+  }
+
+  const syntheticPreviewShell = (template: CommunityTemplate): Project => {
+    previewCounter.current += 1
+    const now = new Date().toISOString()
+    return {
+      id: `preview-${Date.now().toString(36)}-${previewCounter.current}`,
+      user_id: user?.id ?? 'guest',
+      name: template.name,
+      description: `Community design by ${template.authorName}`,
+      created_at: now,
+      updated_at: now,
+    }
+  }
+
+  /* Open a template as an attributed, read-only design. Throws with a readable
+   * message when it cannot be opened; the caller owns the feedback surface. */
+  const beginCommunityPreview = useCallback(async (template: CommunityTemplate) => {
+    let file: CommunityTemplateFile | null = null
+    let demoId: string | null = null
+    if (template.source === 'curated') {
+      demoId = CURATED_DEMO_BY_TEMPLATE_ID[template.id] ?? null
+      if (!demoId) throw new Error('This seed has no openable design.')
+    } else {
+      const result = await fetchCommunityFork(template.id)
+      if (!result.ok || !result.canvasData) {
+        throw new Error(result.error ?? 'This template could not be read. You may be offline, or the host refused the payload.')
+      }
+      file = result.canvasData
+    }
+
+    // Snapshot first — a failed open must hand the user their design back.
+    const priorDesign = liveSnapshot()
+    const priorProject = useProjectStore.getState().currentProject
+
+    // Swap in the attributed synthetic shell — nothing is persisted.
+    resetWorkingDesign()
+    useProjectStore.setState({ currentProject: syntheticPreviewShell(template) })
+
+    if (file) {
+      if (!applyTemplateFile(file)) {
+        useProjectStore.setState({ ...priorDesign, currentProject: priorProject })
+        throw new Error('This template is malformed and was not applied.')
+      }
+    } else {
+      const scenario = DEMO_SCENARIOS.find((entry) => entry.id === demoId)
+      if (!scenario) {
+        useProjectStore.setState({ ...priorDesign, currentProject: priorProject })
+        throw new Error('This seed has no openable design.')
+      }
+      loadDemoScenario(scenario)
+    }
+    useAppStore.getState().setWorkspaceMode(template.workspaceMode)
+    useCommunityPreviewStore.getState().begin({
+      name: template.name,
+      authorName: template.authorName,
+      license: template.license,
+      templateId: template.id,
+      source: template.source,
+      demoId: demoId ?? undefined,
+      workspaceMode: template.workspaceMode,
+      origin: currentRoute().isCommunity ? 'community' : 'launcher',
+    })
+    setShowProjectManager(false)
+    setShowCommunity(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resetWorkingDesign is a closure over stores only
+  }, [user])
+
+  const handleOpenTemplate = useCallback(async (template: CommunityTemplate) => {
+    await beginCommunityPreview(template)
+  }, [beginCommunityPreview])
+
+  /* Persist a design that already lives in the stores as a real project.
+   * Shared by adopting a preview and importing a hand-carried file. */
+  const persistAdoptedDesign = useCallback(async (
+    name: string,
+    authorName: string,
+    payload: Record<string, unknown>,
+  ): Promise<boolean> => {
+    if (offlineMode) {
+      const created = offlineProjectStore.create(user?.id ?? 'offline-local', name)
+      offlineProjectStore.saveCanvas(created.id, payload)
+      useProjectStore.setState({ currentProject: created })
+      return true
+    }
+    try {
+      const { data, error } = await supabase.from('projects').insert({
+        user_id: user?.id,
+        name,
+        description: `Community design by ${authorName}`,
+      }).select().single()
+      if (error) throw error
+      const { error: schematicError } = await supabase.from('schematics').insert({
+        project_id: data.id, name: 'Main Schematic', order_index: 0, canvas_data: payload,
+      })
+      if (schematicError) throw schematicError
+      useProjectStore.setState({ currentProject: data as unknown as Project })
+      return true
+    } catch (err) {
+      console.error('Could not create the project', err)
+      setNotice('Could not make it yours — check your connection and try again.')
+      return false
+    }
+  }, [offlineMode, user])
+
+  /* The one moment a preview becomes a project. */
+  const adoptPreview = useCallback(async () => {
+    const current = useCommunityPreviewStore.getState().preview
+    if (!current) return
+    if (!user) {
+      // Browsers see the middleware; the adoption resumes after sign-in.
+      pendingAdoptRef.current = true
+      setSignInWall(true)
+      return
+    }
+    const payload = liveSnapshot()
+    const ok = await persistAdoptedDesign(current.name, current.authorName, payload)
+    if (!ok) return
+    useProjectStore.getState().markClean()
+    recordPlatformUsage('template.fork', user, offlineMode, { template: current.templateId, source: current.source })
+    useCommunityPreviewStore.getState().clear()
+    setNotice(`“${current.name}” is yours — edit away.`)
+  }, [offlineMode, persistAdoptedDesign, user])
+
+  // Signing in with an adoption pending completes it — the middleware did its job.
+  useEffect(() => {
+    if (pendingAdoptRef.current && user) {
+      pendingAdoptRef.current = false
+      setSignInWall(false)
+      void adoptPreview()
+    }
+  }, [user, adoptPreview])
+
+  /* Import is ownership from the first click — a file in hand is the user's. */
+  const adoptImportedFile = useCallback(async (
+    file: CommunityTemplateFile,
+    template: CommunityTemplate,
+  ) => {
+    const payload = liveSnapshotFromFile(file)
+    resetWorkingDesign()
+    applyTemplateFile(file)
+    const ok = await persistAdoptedDesign(template.name, template.authorName, payload)
+    if (!ok) return
+    if (user) {
+      recordPlatformUsage('template.fork', user, offlineMode, { template: template.id, source: 'import' })
+    }
+    setShowProjectManager(false)
+    setShowCommunity(false)
+    setNotice(`“${template.name}” imported as your project.`)
+  }, [offlineMode, persistAdoptedDesign, user])
+
+  const discardCommunityPreview = useCallback(() => {
+    const origin = useCommunityPreviewStore.getState().preview?.origin
+    useCommunityPreviewStore.getState().clear()
+    resetWorkingDesign()
+    useProjectStore.setState({ currentProject: null })
+    if (origin === 'community') {
+      setShowCommunity(true)
+      setShowProjectManager(false)
+      navigateTo(COMMUNITY_ROUTE)
+      return
+    }
+    setShowProjectManager(true)
+    setShowCommunity(false)
+    navigateTo(PROJECTS_ROUTE)
+  }, [])
+
+  useEffect(() => {
+    // Auto-clear the refusal flash; the banner re-shows it on the next refused edit.
+    if (!previewFlash) return
+    const id = window.setTimeout(() => useCommunityPreviewStore.getState().clearFlash(), 4500)
+    return () => window.clearTimeout(id)
+  }, [previewFlash])
+  
   const runDemoLoad = async (scenario: DemoScenario): Promise<void> => {
     setDemoBusy(scenario.title)
     try {
@@ -940,6 +1161,7 @@ function App() {
   }
 
   const handleSelectProject = async (project: Project) => {
+    useCommunityPreviewStore.getState().clear()
     try {
       let schematic: Schematic | null = null
       let savedCanvas: Record<string, unknown> | null = null
@@ -1017,6 +1239,7 @@ function App() {
    * screen and shows the reason under it, so a failed rename never looks saved.
    */
   const renameCurrentProject = async (nextName: string) => {
+    if (previewActive) throw new Error('Make it yours before renaming.')
     const project = currentProject
     if (!project) throw new Error('No project is open to rename.')
     const trimmed = nextName.trim()
@@ -1052,6 +1275,12 @@ function App() {
   useEffect(() => {
     const applyLocation = () => {
       const route = currentRoute()
+      if (route.isCommunity) {
+        setShowCommunity(true)
+        setShowProjectManager(false)
+        return
+      }
+      setShowCommunity(false)
       if (route.isProjectList) {
         setShowProjectManager(true)
         return
@@ -1098,11 +1327,17 @@ function App() {
    */
   const routeProjectId = currentProject?.id ?? null
   useEffect(() => {
-    if (!routeProjectId || showProjectManager) return
+    // The community page (and a read-only community preview holding a synthetic
+    // shell) are their own URLs — never rewrite them back to a workspace.
+    if (!routeProjectId || showProjectManager || showCommunity || previewActive) return
     writeWorkspaceRoute(workspaceMode, routeProjectId)
-  }, [routeProjectId, workspaceMode, showProjectManager])
+  }, [routeProjectId, workspaceMode, showProjectManager, showCommunity, previewActive])
 
   const handleSave = useCallback(async (data: Record<string, unknown>) => {
+    if (previewActive) {
+      setNotice('This is someone else’s design — make it yours before saving.')
+      return
+    }
     if (!currentProject) return
     // Canvas autosave sends only components/wires/viewport. Merge the rest of
     // the working design so moving a part cannot drop the firmware, simulation
@@ -1135,7 +1370,7 @@ function App() {
     } catch (err) {
       console.error('Error saving:', err)
     }
-  }, [currentProject, offlineMode, markClean, user])
+  }, [currentProject, offlineMode, markClean, user, previewActive])
 
   const getCheckpointData = () => buildCheckpointPayload()
 
@@ -1171,6 +1406,10 @@ function App() {
   }
 
   const handleVcsCommit = () => {
+    if (previewActive) {
+      setNotice('This is someone else’s design — make it yours before committing.')
+      return
+    }
     if (!currentProject) return
     const message = vcsMessage.trim() || `Commit ${new Date().toLocaleString()}`
     try {
@@ -1273,6 +1512,10 @@ function App() {
   }
 
   const createCheckpoint = () => {
+    if (previewActive) {
+      setNotice('This is someone else’s design — make it yours before checkpointing.')
+      return
+    }
     if (!currentProject) return
     const label = `Checkpoint ${new Date().toLocaleString()}`
     const checkpoint = backupService.createBackup(currentProject.id, getCheckpointData(), label)
@@ -1703,12 +1946,61 @@ function App() {
    */
   const demoBusyOverlay = demoBusy ? <DemoLoadingOverlay title={demoBusy} /> : null
 
+  /*
+   * The middleware every public surface bounces to the moment it wants to become
+   * an account action: browsing a community design needs no identity, adopting
+   * one does. Completing sign-in resumes the pending adoption.
+   */
+  if (signInWall) {
+    return (
+      <AuthForm onAuthSuccess={() => {
+        setSignInWall(false)
+        // The pending-adoption effect completes the fork once the session lands.
+      }} />
+    )
+  }
+
+  /* Cloud deployments let the community browse without an account — designs are
+   * public by intent. Everything inside the CAD still requires one. */
+  if (!user && !offlineMode && currentRoute().isCommunity) {
+    return (
+      <div className="launcher-shell flex min-h-screen flex-col bg-background">
+        <AuroraField />
+        <CommunityPage
+          signedIn={false}
+          onSignInRequest={() => setSignInWall(true)}
+          onOpenTemplate={handleOpenTemplate}
+          onImportFile={adoptImportedFile}
+        />
+        {demoBusyOverlay}
+      </div>
+    )
+  }
+
   if (!user) return <AuthForm onAuthSuccess={() => {}} />
 
   /* The standalone deployment's front door: no cloud account exists, so
    * designing starts only after a local profile is claimed. Cloud deployments
    * are already gated above by the real auth flow. */
   if (offlineMode && !localProfile) return <LocalProfileGate />
+
+  if (showCommunity) {
+    return (
+      <>
+        <CommunityPage
+          onBack={() => {
+            navigateTo(PROJECTS_ROUTE)
+            setShowCommunity(false)
+            setShowProjectManager(true)
+          }}
+          onOpenTemplate={handleOpenTemplate}
+          onImportFile={adoptImportedFile}
+        />
+        {overlayStack}
+        {demoBusyOverlay}
+      </>
+    )
+  }
 
   if (!currentProject || showProjectManager) {
     return (
@@ -1732,6 +2024,15 @@ function App() {
               </HoverHelp>
               <HoverHelp topicId="header.settings" placement="bottom">
                 <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} aria-label="Settings"><Settings className="h-4 w-4" /></Button>
+              </HoverHelp>
+              <HoverHelp topicId="header.console" placement="bottom">
+                <a
+                  href="/console"
+                  aria-label="Open your account console"
+                  className="flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <CircleUserRound className="h-5 w-5" aria-hidden="true" />
+                </a>
               </HoverHelp>
               {!offlineMode && (
                 <HoverHelp topicId="header.sign-out" placement="bottom">
@@ -1759,9 +2060,12 @@ function App() {
             things people built and gave away. */}
         <div className="mx-auto w-full max-w-6xl px-4 pb-16 sm:px-6">
           <CommunityTemplates
-            onPrepareForkProject={ensureProject}
-            onOpenDemo={(demoId) => void openCuratedDemo(demoId)}
-            onForked={(template) => renameProjectTo(template.name)}
+            onOpenTemplate={handleOpenTemplate}
+            onImportFile={adoptImportedFile}
+            onBrowseAll={() => {
+              navigateTo(COMMUNITY_ROUTE)
+              setShowCommunity(true)
+            }}
           />
         </div>
         {overlayStack}
@@ -2054,6 +2358,15 @@ function App() {
               <Settings />
             </Button>
           </HoverHelp>
+          <HoverHelp topicId="header.console" placement="bottom">
+            <a
+              href="/console"
+              aria-label="Open your account console"
+              className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <CircleUserRound className="h-[18px] w-[18px]" aria-hidden="true" />
+            </a>
+          </HoverHelp>
           <HoverHelp topicId="header.theme" placement="bottom">
             <Button variant="ghost" size="bar-icon" onClick={toggleTheme} aria-label={themeToggleLabel}>
               {themeIcon}
@@ -2108,6 +2421,31 @@ function App() {
       </header>
 
       <NoticeBanner message={notice} onDismiss={() => setNotice('')} />
+
+      {/* Community design in preview: attribution, the license it arrived
+          under, the one action that makes it the user's, and a way back. */}
+      {preview && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 border-b border-primary/25 bg-primary/10 px-4 py-1.5 text-[11px] font-medium text-foreground"
+        >
+          <span className="min-w-0">
+            <span className="font-bold text-primary">Community design</span>
+            <span className="text-muted-foreground"> — by {preview.authorName} · {licenseLabel(preview.license)}</span>
+          </span>
+          {previewFlash && (
+            <span className="truncate font-semibold text-amber-500">{previewFlash}</span>
+          )}
+          <span className="flex items-center gap-2">
+            <Button size="sm" className="h-7 gap-1 px-3 text-[11px]" onClick={() => void adoptPreview()}>
+              Make it mine
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={discardCommunityPreview}>
+              Discard design
+            </Button>
+          </span>
+        </div>
+      )}
 
       {voiceOpen && <VoiceCommandBar onClose={closeVoiceBar} />}
 

@@ -3,6 +3,7 @@ import { devtools } from 'zustand/middleware'
 import { Component, Project, Schematic } from '../lib/supabase'
 import { generateId } from '../lib/utils'
 import { useAppStore } from './useAppStore'
+import { guardDesignMutation } from './useCommunityPreviewStore'
 import type { PcbSceneInput } from '../lib/pcb/pcbScene'
 import {
   createDefaultMechanicalParts,
@@ -184,29 +185,38 @@ export const useProjectStore = create<ProjectState>()(
     pcbLayout: null,
     // A routed or edited board is project data like any other: without the
     // dirty flag the designer's copper never reaches the autosave.
-    setPcbLayout: (layout) => set({ pcbLayout: layout, isDirty: true }),
+    setPcbLayout: (layout) => {
+      if (guardDesignMutation()) return
+      set({ pcbLayout: layout, isDirty: true })
+    },
 
     mechanicalParts: createDefaultMechanicalParts(),
-    setMechanicalParts: (next) =>
+    setMechanicalParts: (next) => {
+      if (guardDesignMutation()) return
       set((state) => ({
         mechanicalParts: typeof next === 'function' ? next(state.mechanicalParts) : next,
         isDirty: true,
-      })),
+      }))
+    },
 
     domainDesigns: {},
-    setDomainDesign: (key, value) =>
+    setDomainDesign: (key, value) => {
+      if (guardDesignMutation()) return
       set((state) => ({
         domainDesigns: { ...state.domainDesigns, [key]: value },
         isDirty: true,
-      })),
+      }))
+    },
     
     // Component management
     addComponent: (component) => {
+      if (guardDesignMutation()) return
       pushUndo()
       set((state) => ({ components: [...state.components, component], isDirty: true }))
     },
     
     updateComponent: (id, updates) => {
+      if (guardDesignMutation()) return
       pushUndo()
       set((state) => ({
         components: state.components.map((comp) =>
@@ -217,6 +227,7 @@ export const useProjectStore = create<ProjectState>()(
     },
     
     removeComponent: (id) => {
+      if (guardDesignMutation()) return
       pushUndo()
       set((state) => ({
         components: state.components.filter((comp) => comp.id !== id),
@@ -227,7 +238,8 @@ export const useProjectStore = create<ProjectState>()(
       }))
     },
     
-    duplicateComponent: (id) =>
+    duplicateComponent: (id) => {
+      if (guardDesignMutation()) return
       set((state) => {
         const original = state.components.find((comp) => comp.id === id)
         if (!original) return state
@@ -244,15 +256,18 @@ export const useProjectStore = create<ProjectState>()(
           components: [...state.components, duplicate],
           isDirty: true
         }
-      }),
+      })
+    },
     
     // Wire management
     addWire: (wire) => {
+      if (guardDesignMutation()) return
       pushUndo()
       set((state) => ({ wires: [...state.wires, wire], isDirty: true }))
     },
     
     updateWire: (id, updates) => {
+      if (guardDesignMutation()) return
       pushUndo()
       set((state) => ({
         wires: state.wires.map((wire) =>
@@ -263,10 +278,12 @@ export const useProjectStore = create<ProjectState>()(
     },
     
     removeWire: (id) => {
+      if (guardDesignMutation()) return
       pushUndo()
       set((state) => ({ wires: state.wires.filter((wire) => wire.id !== id), isDirty: true }))
     },
     replaceDesign: (next) => {
+      if (guardDesignMutation()) return
       pushUndo()
       // Deep-clone the incoming sheet so a caller reusing its arrays cannot
       // mutate committed canvas state through a later edit.
@@ -288,12 +305,14 @@ export const useProjectStore = create<ProjectState>()(
       })
     },
     undo: () => {
+      if (guardDesignMutation()) return
       const prev = undoStack.pop()
       if (!prev) return
       redoStack.push(takeSnapshot())
       set({ components: prev.components, wires: prev.wires, isDirty: true })
     },
     redo: () => {
+      if (guardDesignMutation()) return
       const next = redoStack.pop()
       if (!next) return
       undoStack.push(takeSnapshot())
@@ -352,7 +371,10 @@ export const useProjectStore = create<ProjectState>()(
 
     // Firmware code lives with the design so commits/saves include it
     firmwareCode: '',
-    setFirmwareCode: (code) => set({ firmwareCode: code, isDirty: true }),
+    setFirmwareCode: (code) => {
+      if (guardDesignMutation()) return
+      set({ firmwareCode: code, isDirty: true })
+    },
 
     // Simulation run history (kept alongside the design, survives save/load)
     simulationRuns: [],

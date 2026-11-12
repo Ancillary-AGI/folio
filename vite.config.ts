@@ -3,13 +3,15 @@ import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Serve the operator console at `/admin` in dev and preview, the same path the
- * checked-in host configs use. Without this, Vite's SPA fallback would answer
- * `/admin` with the workbench document.
+ * Serve the operator console at `/admin` and the user console at `/console`
+ * in dev and preview, the same paths the checked-in host configs use.
+ * Without this, Vite's SPA fallback would answer them with the workbench
+ * document.
  */
 function adminDocument(): Plugin {
   const rewrite = (req: { url?: string }, _res: unknown, next: () => void) => {
     if (req.url === '/admin' || req.url === '/admin/') req.url = '/admin.html';
+    if (req.url === '/console' || req.url === '/console/') req.url = '/console.html';
     next();
   };
   return {
@@ -41,6 +43,7 @@ export default defineConfig({
         workbench: fileURLToPath(new URL('./index.html', import.meta.url)),
         admin: fileURLToPath(new URL('./admin.html', import.meta.url)),
         landing: fileURLToPath(new URL('./landing.html', import.meta.url)),
+        console: fileURLToPath(new URL('./console.html', import.meta.url)),
       },
       output: {
         // Split the eagerly-loaded framework vendors out of the entry chunk.

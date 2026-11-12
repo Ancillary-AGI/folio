@@ -48,11 +48,26 @@
   — a name stored on the device, nothing leaves it. Cloud keeps the real
   auth gate. appShell/demoLoadBusy seed the profile in boot; `localProfileGate`
   proves the gate.
-- **Community templates** (launcher): fork a proven design — curated CC-BY
-  seeds fork through the demo loader; cloud-published templates fork with
-  credit and a usage event (`template.fork`, mirrored to the console);
-  offline, export/import `.folio-template.json`. See **Community** in the
-  "Start from proven designs" launcher section.
+- **User console** (`/console`, source `console.html` + `src/console/`): the
+  account surface for the people who use Folio, a separate document like
+  `/landing` (website) and `/admin` (staff operations). Overview (identity,
+  30-day rollup from the real ledger, device storage), Account (local profile
+  switch/add/forget in standalone; email + sign-out in cloud; X Industries
+  listed as unavailable, never faked), Usage (7/14/30/90-day windows, agent
+  runs, simulations, adoptions, daily bars, capped 5,000-event ledger), Plan &
+  limits (the policy the app actually enforces; storage explicitly "not
+  measured"; paid plans and credits honestly marked as not shipped), Data (key-by-key
+  byte accounting plus a full JSON download of the device's folio.* keys).
+  Signed-out state reuses the same gate as the workbench.
+- **Community templates** (launcher + `/community`): open a proven design —
+  it opens attributed and read-only in the workbench and becomes the user's
+  own project when they make it theirs (never before). Curated CC-BY seeds
+  open through the demo loader; cloud-published designs open with credit;
+  adoption records a usage event (`template.fork`, the ledger's internal name).
+  Offline, export/import `.folio-template.json`. The launcher section links to
+  the dedicated `/community` page (search, discipline filters, Featured /
+  Most copied / Newest / A–Z, full grid, publish and import paths);
+  source `src/components/community/`.
 - **Landing page**: `/landing` (source `landing.html`) — the public front
   door: capabilities, real numbers (28 workspaces, 40 demos, ~3,800 tests),
   the three-move pipeline, principles. No stock copy, no fabricated claims.

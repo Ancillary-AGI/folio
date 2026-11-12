@@ -28,7 +28,7 @@ export const USAGE_KINDS = [
   /** The guide was closed or skipped before the last step. */
   'onboarding.exit',
   'admin.open',
-  /** A community template was forked into a new project. */
+  /** A community design was adopted into the user's own projects. */
   'template.fork',
 ] as const
 
