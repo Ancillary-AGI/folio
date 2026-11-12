@@ -13,7 +13,7 @@ import {
   Layers,
   Maximize2,
   RotateCcw,
-  Sparkles,
+  Bot,
   Split,
   ZoomIn,
   ZoomOut,
@@ -292,7 +292,7 @@ export default function CanvasFloatingHUD({ mode, onFitView, onTidyLayout }: Can
                 : 'bg-primary/15 text-primary hover:bg-primary/25 hover:shadow-md'
             }`}
           >
-            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+            <Bot className="h-3.5 w-3.5" aria-hidden="true" />
             <span>Assistant</span>
           </button>
         </div>

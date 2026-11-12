@@ -9,7 +9,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import {
-  ArrowLeft, Download, Upload, Send, FolderOpen, Loader2, Search, SearchX, Sparkles,
+  ArrowLeft, Download, Upload, Send, FolderOpen, Loader2, Search, SearchX, Inbox,
 } from 'lucide-react'
 import { Button } from '../ui/button'
 import FolioLogo from '../brand/FolioLogo'
@@ -291,7 +291,7 @@ export default function CommunityPage({ onBack, onOpenTemplate, onImportFile }: 
         {/* Footer — the call to contribute, honest about what exists. */}
         <div className="mt-10 rounded-xl border border-primary/25 bg-primary/5 p-5 sm:flex sm:items-center sm:justify-between sm:gap-6">
           <div className="flex items-start gap-3">
-            <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" aria-hidden="true" />
+            <Inbox className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" aria-hidden="true" />
             <div>
               <h2 className="text-sm font-bold text-foreground">Built something worth copying?</h2>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">

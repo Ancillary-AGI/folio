@@ -2,7 +2,7 @@
  * Overview — the page you open first: who you are, what this month holds,
  * and the three numbers this device actually knows.
  */
-import { ArrowRight, Gauge, Hammer, History, Sparkles } from 'lucide-react'
+import { ArrowRight, Gauge, Hammer, History, ShieldCheck } from 'lucide-react'
 import { resolvePlan, usageRollup, formatBytes, storageSnapshot } from '../consoleData'
 import type { User } from '../../types'
 import type { LocalProfile } from '../../stores/useLocalProfileStore'
@@ -87,7 +87,7 @@ export default function OverviewSection({ offlineMode, user, localProfile, onOpe
       {/* What lives where — the sentence every honest console should say out loud. */}
       <div className="rounded-xl border border-primary/25 bg-primary/5 p-4">
         <div className="flex items-start gap-3">
-          <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" aria-hidden="true" />
+          <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" aria-hidden="true" />
           <p className="text-xs leading-relaxed text-muted-foreground">
             {offlineMode
               ? 'Everything you do in Folio stays on this device: projects, design history, the usage ledger. There is no server metering you and no sync to another machine — yet. Use Data → download your local copy if you want a backup.'

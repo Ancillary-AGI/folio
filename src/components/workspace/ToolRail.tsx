@@ -1,4 +1,4 @@
-﻿import {
+import {
   MousePointer,
   Pencil,
   Trash2,
@@ -14,7 +14,7 @@
   Save,
   CircuitBoard,
   Activity,
-  Wand2,
+  LayoutGrid,
   ShieldCheck,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
@@ -192,7 +192,7 @@ export default function ToolRail({ onSave }: ToolRailProps) {
         keyHint={describeShortcut('schematic.tidy', shortcutOverrides)}
         onClick={() => window.dispatchEvent(new CustomEvent('folio:tidy-schematic'))}
       >
-        <Wand2 className="h-4 w-4" />
+        <LayoutGrid className="h-4 w-4" />
       </RailButton>
 
       <span className="cad-rail-sep" aria-hidden="true" />
@@ -238,7 +238,7 @@ export default function ToolRail({ onSave }: ToolRailProps) {
       >
         <CircuitBoard className="h-4 w-4" />
       </RailButton>
-      {/* Simulation lives one tab to the right of the sheet — jump straight there. */}
+      {/* Simulation lives one tab to the right of the sheet � jump straight there. */}
       <RailButton
         topicId="rail.simulation"
         ariaLabel="Open Simulation workspace"

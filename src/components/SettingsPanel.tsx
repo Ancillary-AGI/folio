@@ -15,7 +15,7 @@ import {
   RotateCcw,
   Save,
   Search,
-  Sparkles,
+  MessageSquare,
   X,
 } from 'lucide-react';
 import { Button } from './ui/button';
@@ -53,7 +53,7 @@ const EMBEDDED_SECTIONS = [
     title: 'Assistant models',
     blurb:
       'Bring your own key or point at a local model. Keys stay in this browser and are never written into a design, a snapshot or a transcript.',
-    icon: Sparkles,
+    icon: MessageSquare,
     keywords: ['byok', 'api', 'key', 'openai', 'anthropic', 'ollama', 'llm', 'provider', 'agent'],
   },
 ] as const;

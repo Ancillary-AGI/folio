@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader } from './ui/card'
 import {
   ArrowRight, ArrowUpRight, Calendar, CircuitBoard, Code2, FlaskConical,
   FolderOpen, History, Layers, Microscope, Plus, RotateCw, Search, ShieldCheck,
-  Sparkles, Trash2, Wrench, X, Zap,
+  Bot, Trash2, Wrench, X, Zap,
   type LucideIcon,
 } from 'lucide-react'
 import { WORKSPACE_GROUPS, MODE_COUNT_BY_GROUP, WORKSPACE_MODE_META, FIRST_MODE_BY_GROUP, type WorkspaceGroupId } from '../lib/workspace/modes'
@@ -276,7 +276,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
 
             <form className="launcher-composer" onSubmit={handleBriefSubmit} aria-label="Describe your project">
               <div className="launcher-composer__row">
-                <Sparkles className="launcher-composer__orb" aria-hidden="true" />
+                <Bot className="launcher-composer__orb" aria-hidden="true" />
                 <textarea
                   rows={2}
                   value={brief}
@@ -643,7 +643,6 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
                         <CircuitBoard className="h-3.5 w-3.5" aria-hidden="true" />
                         {modeMeta.label}
                       </span>
-                      <Sparkles className="h-4 w-4 text-[hsl(var(--family-accent))]" aria-hidden="true" />
                     </div>
                     <h3 className="launcher-demo__title">{scenario.title}</h3>
                     <p className="launcher-demo__summary">{scenario.summary}</p>

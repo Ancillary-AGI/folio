@@ -13,7 +13,7 @@
  * it spent, why it stopped, and the limits of the method it used.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, AlertCircle, Play, Wand2, Check } from 'lucide-react'
+import { Activity, AlertCircle, Play, Calculator, Check } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { Input } from '../ui/input'
@@ -418,7 +418,7 @@ export default function ControllerToolbox({
       <CardHeader className="pb-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Wand2 className="h-4 w-4 text-muted-foreground" />
+            <Calculator className="h-4 w-4 text-muted-foreground" />
             <CardTitle className="text-base">Numerical design toolbox</CardTitle>
           </div>
           <span className="text-xs text-muted-foreground">
