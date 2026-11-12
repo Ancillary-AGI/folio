@@ -36,16 +36,18 @@ h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; letter-spacing: -0.0
 .eyebrow { font-size: .68rem; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); margin-bottom: 1rem; }
 .lede { color: var(--mute); font-size: 1rem; line-height: 1.6; max-width: 46rem; margin-top: 1rem; }
 .plans { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; margin-top: 2.5rem; }
-.plan { background: var(--card); border: 1px solid var(--line); border-radius: 1rem; padding: 1.5rem; display: flex; flex-direction: column; }
-.plan--hot { border-color: rgba(245,165,36,.45); box-shadow: 0 0 0 1px rgba(245,165,36,.2); }
-.plan-badge { font-size: .62rem; letter-spacing: .18em; text-transform: uppercase; color: var(--amber); font-weight: 800; margin-bottom: .4rem; }
-.plan h3 { font-size: 1.05rem; }
-.plan-price { font-size: 1.9rem; font-weight: 800; letter-spacing: -0.03em; margin-top: .35rem; }
-.plan-price small { font-size: .78rem; font-weight: 600; color: var(--mute); }
-.plan-sub { color: var(--mute); font-size: .78rem; line-height: 1.45; margin: .45rem 0 .85rem; min-height: 2.6rem; }
+.plan { background: var(--card); border: 1px solid var(--line); border-radius: 1rem; padding: 1.75rem 1.5rem; display: flex; flex-direction: column; gap: .5rem; min-height: 22rem; }
+.plan-highlight { border-color: var(--amber); background: color-mix(in srgb, var(--amber) 9%, var(--card)); }
+.plan-top { display: flex; align-items: center; justify-content: space-between; }
+.plan-name { font-size: .75rem; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--mute); }
+.plan-price { font-size: 2rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1; display: flex; align-items: baseline; gap: .35rem; }
+.plan-price small { font-size: .75rem; font-weight: 600; color: var(--mute); }
+.plan-sub { color: var(--mute); font-size: .85rem; line-height: 1.45; }
 .plan ul { list-style: none; padding: 0; display: grid; gap: .42rem; font-size: .8rem; color: var(--mute); }
 .plan li b { color: var(--ink); }
-.plan a.btn { margin-top: auto; justify-content: center; }
+.plan a.btn { justify-content: center; min-height: 2.5rem; }
+.plan a.btn-ghost { background: transparent; border: 1px solid var(--line); color: var(--ink); }
+.plan a.btn-ghost:hover { border-color: var(--amber); color: var(--amber-pale); }
 .pricing-note { margin-top: .9rem; color: var(--mute2); font-size: .72rem; }
 .faq { padding: 3rem 0 4rem; border-top: 1px solid var(--line); }
 .faq h2 { font-size: 1.4rem; letter-spacing: -0.02em; margin-bottom: 1.25rem; }
@@ -79,7 +81,7 @@ footer a:hover { color: var(--ink); }
   </div>
   <div style="display: flex; gap: .5rem; align-items: center;">
     <a class="btn btn-ghost" href="/app" style="height:2.2rem; padding: 0 .85rem; font-size: .78rem;">Log in</a>
-    <a class="btn" href="/app">Sign up free</a>
+    <a class="btn" href="/app">Sign up</a>
   </div>
 </nav>
 
@@ -101,11 +103,11 @@ footer a:hover { color: var(--ink); }
   <div class="wrap">
     <div class="plans">
       <div class="plan">
-        <h3>Local</h3>
-        <p class="plan-price">$0<small> / forever</small></p>
-        <p class="plan-sub">Everything, on your machine. No account, no upload.</p>
+        <div class="plan-top"><span class="plan-name">Local</span></div>
+        <p class="plan-price">$0<small> forever</small></p>
+        <p class="plan-sub">Everything, on your machine. No account, no upload, no telemetry.</p>
         <ul>
-          <li><b>Unlimited</b> projects, exports, simulations</li>
+          <li><b>Unlimited</b> projects, exports and simulations</li>
           <li><b>28 workspaces</b> · <b>40 demos</b></li>
           <li>Encrypted export · AES-256</li>
           <li>CC-BY community templates, free to open</li>
@@ -114,8 +116,8 @@ footer a:hover { color: var(--ink); }
         <a class="btn" href="/app">Start free</a>
       </div>
       <div class="plan">
-        <h3>Pro</h3>
-        <p class="plan-price">$19<small> / user / mo</small></p>
+        <div class="plan-top"><span class="plan-name">Pro</span></div>
+        <p class="plan-price">$19<small> user / mo</small></p>
         <p class="plan-sub">Everything Local, plus the cloud doors.</p>
         <ul>
           <li><b>Cloud sync</b> — projects follow you</li>
@@ -126,11 +128,10 @@ footer a:hover { color: var(--ink); }
         </ul>
         <a class="btn btn-ghost" href="mailto:hello@folio.dev?subject=Folio%20Pro">Get notified</a>
       </div>
-      <div class="plan plan--hot">
-        <span class="plan-badge">For teams</span>
-        <h3>Team</h3>
-        <p class="plan-price">$49<small> / user / mo</small></p>
-        <p class="plan-sub">Engineer quotas, operator controls, shared templates.</p>
+      <div class="plan plan-highlight">
+        <div class="plan-top"><span class="plan-name" style="color:var(--amber)">Team · recommended</span></div>
+        <p class="plan-price">$49<small> user / mo</small></p>
+        <p class="plan-sub">Engineer quotas, operator controls and shared templates.</p>
         <ul>
           <li><b>Engineer quotas</b> — 100 projects · 200 exports/d · 1,000 sims/d · 2 GB</li>
           <li>Shared team templates &amp; libraries</li>
@@ -141,7 +142,7 @@ footer a:hover { color: var(--ink); }
         <a class="btn" href="mailto:founder@folio.dev?subject=Folio%20Team">Talk to us</a>
       </div>
       <div class="plan">
-        <h3>Enterprise</h3>
+        <div class="plan-top"><span class="plan-name">Enterprise</span></div>
         <p class="plan-price">Custom</p>
         <p class="plan-sub">Private deployment, SSO, unlimited quotas, SLA.</p>
         <ul>
