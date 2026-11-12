@@ -238,7 +238,7 @@ export default function ToolRail({ onSave }: ToolRailProps) {
       >
         <CircuitBoard className="h-4 w-4" />
       </RailButton>
-      {/* Simulation lives one tab to the right of the sheet — jump straight there. */}
+      {/* Simulation lives one tab to the right of the sheet â€” jump straight there. */}
       <RailButton
         topicId="rail.simulation"
         ariaLabel="Open Simulation workspace"
