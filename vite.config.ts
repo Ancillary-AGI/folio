@@ -12,6 +12,7 @@ function adminDocument(): Plugin {
     '/app': '/index.html',
     '/': '/landing.html',
     '/pricing': '/pricing.html',
+    '/tour': '/tour.html',
     '/admin': '/admin.html',
     '/console': '/console.html',
     '/landing': '/landing.html',
@@ -71,6 +72,7 @@ export default defineConfig({
         admin: fileURLToPath(new URL('./admin.html', import.meta.url)),
         landing: fileURLToPath(new URL('./landing.html', import.meta.url)),
         pricing: fileURLToPath(new URL('./pricing.html', import.meta.url)),
+        tour: fileURLToPath(new URL('./tour.html', import.meta.url)),
         console: fileURLToPath(new URL('./console.html', import.meta.url)),
       },
       output: {

@@ -8,6 +8,8 @@
     { "source": "/console/", "destination": "/console.html" },
     { "source": "/landing", "destination": "/landing.html" },
     { "source": "/landing/", "destination": "/landing.html" },
+    { "source": "/tour", "destination": "/tour.html" },
+    { "source": "/tour/", "destination": "/tour.html" },
     { "source": "/app", "destination": "/index.html" },
     { "source": "/app/(.*)", "destination": "/index.html" },
     { "source": "/projects", "destination": "/app/projects" },
