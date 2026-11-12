@@ -179,8 +179,11 @@ h2 { font-size: clamp(1.6rem, 3.2vw, 2.3rem); letter-spacing: -.03em; line-heigh
 .faq-item p { padding: 0 0 1.1rem; color: var(--mute); font-size: .86rem; line-height: 1.6; }
 
 /* ── Footer ────────────────────────── */
-footer { border-top: 1px solid var(--line); padding: 2rem 0; color: var(--mute2); font-size: .78rem; }
-footer .wrap { display: flex; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap; }
+footer { border-top: 1px solid var(--line); padding: 3rem 0 2rem; color: var(--mute2); font-size: .78rem; }
+footer .wrap { display: grid; grid-template-columns: 1fr auto auto; gap: 2rem 4rem; align-items: start; }
+@media (max-width: 800px) { footer .wrap { grid-template-columns: 1fr; gap: 1.5rem; } }
+footer h4 { font-size: .66rem; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--mute); margin-bottom: .55rem; }
+footer ul { list-style: none; padding: 0; display: grid; gap: .35rem; }
 footer a { color: var(--mute); text-decoration: none; }
 footer a:hover { color: var(--ink); }
 :focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; border-radius: .25rem; }
@@ -440,8 +443,29 @@ footer a:hover { color: var(--ink); }
 
 <footer>
   <div class="wrap">
-    <span>Folio — your engineer in the loop. Templates CC-BY-4.0.</span>
-    <span><a href="/app">Open Folio →</a> · <a href="/pricing">Pricing</a> · <a href="mailto:founder@folio.dev">Contact</a></span>
+    <div>
+      <p style="font-weight:700;color:var(--ink)">Folio</p>
+      <p style="margin-top:.3rem">Your engineer in the loop.<br />Open-source demos. CC-BY templates.</p>
+      <p style="margin-top:.7rem;font-size:.7rem"><a href="mailto:founder@folio.dev">founder@folio.dev</a></p>
+    </div>
+    <div>
+      <h4>Product</h4>
+      <ul>
+        <li><a href="/app">Open the workbench</a></li>
+        <li><a href="/app/community">Community designs</a></li>
+        <li><a href="/pricing">Pricing</a></li>
+        <li><a href="mailto:founder@folio.dev">Contact</a></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Company</h4>
+      <ul>
+        <li><a href="mailto:founder@folio.dev">About</a></li>
+        <li><a href="mailto:founder@folio.dev">Security</a></li>
+        <li><a href="mailto:founder@folio.dev">Responsible AI</a></li>
+        <li><a href="mailto:founder@folio.dev">Privacy</a></li>
+      </ul>
+    </div>
   </div>
 </footer>
 
