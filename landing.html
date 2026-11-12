@@ -77,24 +77,41 @@ nav .wrap { height: 100%; display: flex; align-items: center; justify-content: s
 .btn-link:hover { color: var(--ink); }
 
 /* ── Hero ───────────────────────────── */
-.hero { position: relative; padding: 7rem 0 4.5rem; overflow: hidden; }
+.hero { position: relative; padding: 5rem 0 3.5rem; overflow: hidden; }
 .hero::before { content: ''; position: absolute; inset: 0; background:
-  radial-gradient(100% 70% at 50% -25%, color-mix(in srgb, var(--amber) 13%, transparent), transparent 55%),
-  linear-gradient(var(--line) 1px, transparent 1px),
-  linear-gradient(90deg, var(--line) 1px, transparent 1px);
-  background-size: 100% 100%, 48px 48px, 48px 48px;
-  mask-image: radial-gradient(130% 90% at 50% 0%, black, transparent 75%); pointer-events: none; }
-.hero .wrap { position: relative; text-align: center; }
-h1 { font-size: clamp(2.4rem, 6.5vw, 4.8rem); line-height: 1.02; letter-spacing: -.045em; font-weight: 800; }
+  radial-gradient(110% 70% at 75% -20%, color-mix(in srgb, var(--amber) 22%, transparent), transparent 55%),
+  radial-gradient(90% 60% at 15% -10%, #1F3A68, transparent 60%);
+  pointer-events: none; }
+.hero .wrap { position: relative; display: grid; grid-template-columns: 1fr 1.05fr; gap: 3rem; align-items: center; }
+@media (max-width: 960px) { .hero .wrap { grid-template-columns: 1fr; } }
+h1 { font-size: clamp(2.3rem, 5.4vw, 4.4rem); line-height: 1.02; letter-spacing: -.04em; font-weight: 800; }
 h1 em { color: var(--amber); font-style: normal; }
-.lede { max-width: 38rem; margin: 1.4rem auto 0; color: var(--mute); font-size: 1.08rem; line-height: 1.55; }
-.cta { margin-top: 2.25rem; display: flex; gap: .75rem; justify-content: center; flex-wrap: wrap; }
-.hero-note { margin-top: 1.4rem; color: var(--mute2); font-size: .74rem; letter-spacing: .01em; }
+.lede { max-width: 34rem; margin-top: 1.2rem; color: #C9C4B8; font-size: 1.06rem; line-height: 1.55; }
+.cta { margin-top: 1.7rem; display: flex; gap: .75rem; flex-wrap: wrap; }
+.hero-note { margin-top: 1.2rem; color: var(--mute2); font-size: .76rem; }
+.hero-board { display: block; width: 100%; height: auto; filter: drop-shadow(0 50px 70px rgba(0,0,0,.6)); }
 
 /* ── Discipline strip ─────────────── */
-.strip { border-block: 1px solid var(--line); padding: 1rem 0; }
-.strip-inner { display: flex; gap: 2.5rem; justify-content: center; flex-wrap: wrap; }
-.strip-item { display: flex; align-items: center; gap: .5rem; color: var(--mute2); font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
+.strip { border-block: 1px solid var(--line); padding: 2rem 0; }
+.strip-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.6rem; }
+@media (max-width: 1100px) { .strip-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 700px) { .strip-grid { grid-template-columns: repeat(2, 1fr); } }
+.strip-item { border: 1px solid var(--line); border-radius: .6rem; padding: .65rem .75rem; background: var(--card); transition: transform .15s, border-color .15s; }
+.strip-item:hover { transform: translateY(-2px); }
+.strip-item b { display: block; font-size: .78rem; letter-spacing: -.01em; }
+.strip-item span { display: block; font-size: .66rem; color: var(--mute); margin-top: .15rem; }
+.strip-c-elec { border-color: color-mix(in srgb, #3D7BDB 40%, transparent); }
+.strip-c-elec b { color: #8FB2FF; }
+.strip-c-ctrl { border-color: color-mix(in srgb, #1FA55A 40%, transparent); }
+.strip-c-ctrl b { color: #5CE093; }
+.strip-c-mech { border-color: color-mix(in srgb, #EB7A20 40%, transparent); }
+.strip-c-mech b { color: #FFB070; }
+.strip-c-rf { border-color: color-mix(in srgb, #A06BD4 40%, transparent); }
+.strip-c-rf b { color: #C99DF0; }
+.strip-c-rob { border-color: color-mix(in srgb, #E04C7A 40%, transparent); }
+.strip-c-rob b { color: #FF8FB0; }
+.strip-c-life { border-color: color-mix(in srgb, #2DD4BF 40%, transparent); }
+.strip-c-life b { color: #7BECDE; }
 
 /* ── Sections ─────────────────────── */
 section { padding: 5rem 0; }
@@ -192,22 +209,64 @@ footer a:hover { color: var(--ink); }
 
 <header class="hero">
   <div class="wrap">
-    <h1>Hardware engineering,<br><em>end to end.</em></h1>
-    <p class="lede">Schematic, board, enclosure, firmware and fabrication — one connected project, verified by real solvers. An agent does the clicking while you keep the engineering.</p>
-    <div class="cta">
-      <a class="btn btn-lg" href="/app">Create your free account</a>
-      <a class="btn btn-lg btn-ghost" href="/app">Sign in</a>
+    <div class="hero-copy">
+      <span class="mono" style="color: var(--amber-pale)">The AI-native engineering workbench</span>
+      <h1 style="margin-top:.85rem">One brief.<br>One verified<br><em>board.</em></h1>
+      <p class="lede">Describe what you want to build. Folio drafts the schematic across every domain, simulates it, routes it on a real grid, gates the design rule checks, and writes the fab package — the same tools an engineer uses, at the speed of the agent you want to do the clicking.</p>
+      <div class="cta">
+        <a class="btn btn-lg" href="/app">Open the workbench</a>
+        <a class="btn btn-lg btn-ghost" href="/app/community">Browse 10 open designs</a>
+      </div>
+      <p class="hero-note">Free and unlimited on your machine. No card required. No telemetry. Open-source templates in the box.</p>
     </div>
-    <p class="hero-note">Free forever on your machine. No card required.</p>
+    <div class="hero-visual" aria-hidden="true">
+      <svg class="hero-board" viewBox="0 0 520 340" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="board-top" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#1E1B16"/><stop offset="1" stop-color="#12100D"/>
+          </linearGradient>
+          <linearGradient id="copper-fr4" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#3A2E1C"/><stop offset=".5" stop-color="#241D12"/><stop offset="1" stop-color="#1A1510"/>
+          </linearGradient>
+          <radialGradient id="copper-glow" cx="35%" cy="35%" r="60%">
+            <stop offset="0" stop-color="#C98A2B"/><stop offset="1" stop-color="#7A5410" stop-opacity="0"/>
+          </radialGradient>
+          <linearGradient id="silk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F2ECDF"/><stop offset="1" stop-color="#C9C4B8"/></linearGradient>
+          <filter id="b-shadow" x="-10%" y="-10%" width="130%" height="130%">
+            <feDropShadow dx="0" dy="18" stdDeviation="26" flood-color="#000" flood-opacity=".65"/>
+          </filter>
+        </defs>
+        <g filter="url(#b-shadow)">
+          <polygon points="40,60 480,60 505,255 15,255" fill="url(#board-top)" stroke="#2A2620" stroke-width="1.4"/>
+          <polygon points="60,85 460,85 483,238 37,238" fill="url(#copper-fr4)" stroke="#2A2520" stroke-width="1"/>
+          <rect x="230" y="115" width="150" height="130" rx="6" fill="#0F0E0C" stroke="#2F2B25"/>
+          <text x="244" y="132" fill="#8E8676" font-family="JetBrains Mono,monospace" font-size="9" letter-spacing="2">BUCK · 2S · 3V3</text>
+          <rect x="244" y="148" width="140" height="4" rx="2" fill="#1C1A16"/><rect x="244" y="156" width="108" height="4" rx="2" fill="#1C1A16"/><rect x="244" y="164" width="124" height="4" rx="2" fill="#1C1A16"/>
+          <circle cx="62" cy="116" r="7" fill="none" stroke="#3A3326" stroke-width="2"/><circle cx="62" cy="182" r="7" fill="none" stroke="#3A3326" stroke-width="2"/><circle cx="458" cy="116" r="7" fill="none" stroke="#3A3326" stroke-width="2"/><circle cx="458" cy="182" r="7" fill="none" stroke="#3A3326" stroke-width="2"/>
+          <path d="M90,140 H140 M140,140 V170 M140,170 H200 M200,170 V120 M200,120 H270 M270,120 V90 M270,90 H360" fill="none" stroke="#C98A2B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity=".95"/>
+          <path d="M120,105 H170 M170,105 V95 M170,95 H240 M240,95 V205 M240,205 H330" fill="none" stroke="#3D7BDB" stroke-width="1.8" stroke-linecap="round" opacity=".9"/>
+          <path d="M110,185 H160 M160,185 V205 M160,205 H255" fill="none" stroke="#1FA55A" stroke-width="1.8" stroke-linecap="round" opacity=".9"/>
+          <path d="M120,150 H360 M360,150 V180 M360,180 H400 M400,180 V135" fill="none" stroke="#EB7A20" stroke-width="1.5" stroke-dasharray="3 3" opacity=".75"/>
+          <rect x="330" y="140" width="58" height="22" rx="3" fill="none" stroke="url(#silk)" stroke-width="1.2" opacity=".92"/><text x="339" y="156" fill="url(#silk)" font-family="JetBrains Mono,monospace" font-size="7">2×0402</text>
+          <circle cx="410" cy="148" r="9" fill="none" stroke="#3A3326" stroke-width="1.6"/>
+          <circle cx="62" cy="116" r="2.5" fill="#E04C7A"/><circle cx="62" cy="182" r="2.5" fill="#1FA55A"/><circle cx="458" cy="116" r="2.5" fill="#3D7BDB"/><circle cx="458" cy="182" r="2.5" fill="#C98A2B"/>
+        </g>
+        <g transform="translate(40 285)"><text x="0" y="12" fill="#6E6A61" font-family="JetBrains Mono,monospace" font-size="9">buck-usb-c / F.Cu / 2 layer · 52 of 66 nets routed</text></g>
+      </svg>
+    </div>
   </div>
 </header>
 
-<div class="strip" aria-hidden="true">
-  <div class="wrap strip-inner">
-    <span class="strip-item">Electronics</span>
-    <span class="strip-item">Mechanical</span>
-    <span class="strip-item">Firmware</span>
-    <span class="strip-item">Verification</span>
+<div class="strip" aria-label="Disciplines">
+  <div class="wrap">
+    <div class="strip-grid">
+      <div class="strip-item strip-c-elec"><b>Electronics</b><span>Schematic · simulation · PCB</span></div>
+      <div class="strip-item strip-c-ctrl"><b>Control</b><span>PID · Bode · Nyquist · Z-N</span></div>
+      <div class="strip-item strip-c-mech"><b>Mechanical</b><span>Enclosures · trusses · manufacturability</span></div>
+      <div class="strip-item strip-c-rf"><b>RF · Photonics</b><span>Butterworth · S-parameters · link budget</span></div>
+      <div class="strip-item strip-c-rob"><b>Robotics</b><span>DH · IK · trajectory · motors</span></div>
+      <div class="strip-item strip-c-life"><b>Life systems</b><span>Mass-action · HH · two-compartment PK</span></div>
+    </div>
   </div>
 </div>
 
@@ -367,6 +426,15 @@ footer a:hover { color: var(--ink); }
         <p>The gate is npm run verify and it fails the build. It covers type-check, strict lint with zero allowed warnings, accessibility checks (icon-button names against 460+ files), and thousands of assertions across 338 test files — solver accuracy pinned against closed-form references, router steered through cases known not to fit, DRC violations firing at the exact geometry that causes them, CRC32 on every byte of a fab package. “It looks like it works” is not a test, so we do not accept it as one.</p>
       </details>
     </div>
+  </div>
+</section>
+
+<section id="final-cta" aria-label="Get started" style="border-top: 1px solid var(--line); padding: 5rem 0;">
+  <div class="wrap" style="text-align: center;">
+    <h2 style="font-size: clamp(1.8rem, 4vw, 3rem); margin-bottom: 1.25rem;">Describe your board.<br>Ship it tomorrow.</h2>
+    <p style="max-width: 34rem; margin: 0 auto 1.75rem; color: var(--mute);">No account required to start. Open the workbench, load a CC-BY demo, and watch the schematic build itself.</p>
+    <a class="btn btn-lg" href="/app" style="margin-inline: auto;">Open the workbench — it's free</a>
+    <p style="margin-top: 1.2rem; font-size: .78rem; color: var(--mute2);">Local · unlimited · no card · no account for the demos</p>
   </div>
 </section>
 

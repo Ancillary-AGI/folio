@@ -45,8 +45,7 @@ body { background: var(--bg); color: var(--ink); font-family: InterVariable, sys
 a { color: inherit; text-decoration: none; }
 .wrap { max-width: 1160px; margin: 0 auto; padding: 0 1.25rem; }
 nav { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.1rem 1.5rem; border-bottom: 1px solid var(--line); }
-.brand { display: flex; align-items: center; gap: .6rem; font-weight: 800; letter-spacing: -0.02em; }
-.brand-mark { width: 26px; height: 26px; }
+.brand { display: flex; align-items: center; gap: .55rem; text-decoration: none; }
 .nav-links { display: none; gap: 1.5rem; font-size: .82rem; color: var(--mute); }
 .nav-links a:hover { color: var(--ink); }
 @media (min-width: 780px) { .nav-links { display: flex; } }
@@ -87,13 +86,13 @@ footer .wrap { display: flex; justify-content: space-between; gap: 1rem; flex-wr
 
 <nav aria-label="Folio">
   <a class="brand" href="/" aria-label="Folio home">
-    <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M3 3h13v10h7v16H3V3z" fill="#F5A524"/><path d="M9 9h7v5h-7z" fill="#07080D"/></svg>
-    FOLIO
+    <svg viewBox="0 0 96 96" aria-hidden="true" style="height:22px;width:auto"><path fill="#F5A524" fill-rule="evenodd" d="M10 0H58L96 38V86L86 96H10L0 86V10ZM26 20H64L70 26V40H46V46H56L62 52V64H46V82H26Z"/></svg>
+    <svg viewBox="0 0 408 100" role="img" aria-label="FOLIO" style="height:15px;width:auto"><path fill="#F2ECDF" d="M0 0H57L66 9V22H22V39H49L58 48V61H22V100H0Z"/><path fill="#F2ECDF" fill-rule="evenodd" d="M102 0H162L174 12V88L162 100H102L90 88V12ZM115 22H149L152 25V75L149 78H115L112 75V25Z"/><path fill="#F2ECDF" d="M198 0H220V78H262V90L252 100H198Z"/><path fill="#F2ECDF" d="M284 0H294L300 6V94L294 100H284L278 94V6Z"/><path fill="#F2ECDF" fill-rule="evenodd" d="M336 0H396L408 12V88L396 100H336L324 88V12ZM349 22H383L386 25V75L383 78H349L346 75V25Z"/></svg>
   </a>
   <div class="nav-links">
-    <a href="/#disciplines">Capabilities</a>
+    <a href="/#product">Product</a>
     <a href="/#tour">Tour</a>
-    <a href="/#templates">Templates</a>
+    <a href="/#community">Community</a>
     <a href="/pricing" style="color:var(--ink)" aria-current="page">Pricing</a>
   </div>
   <a class="btn" href="/app">Launch the workbench</a>
