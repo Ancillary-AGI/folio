@@ -396,7 +396,12 @@ describe('App shell', () => {
     localStorage.removeItem(ONBOARDING_COMPLETED_KEY)
     render(<App />)
 
-    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    // The guide is a tour around the workbench, not the launcher: it opens when
+    // the first design is open. Create one to cross into the CAD.
+    fireEvent.click(screen.getAllByRole('button', { name: /create project/i })[0])
+    await screen.findByTestId('schematic-canvas')
+
+    expect(await screen.findByRole('dialog', {}, { timeout: 15000 })).toBeInTheDocument()
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '1')
     fireEvent.click(screen.getByRole('button', { name: 'Close the guide' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
@@ -433,7 +438,12 @@ describe('App shell', () => {
 
   it('restarts the guide from Settings', async () => {
     render(<App />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Settings' }))
+    // The restart arms and opens the tour; the tour only mounts inside an open
+    // design, so open one first.
+    fireEvent.click(screen.getAllByRole('button', { name: /create project/i })[0])
+    await screen.findByTestId('schematic-canvas')
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Settings' })[0])
     // SettingsPanel is a lazy chunk; a loaded CI box can take well over the
     // default 1 s to fetch and mount it after the whole suite has run.
     fireEvent.click(await screen.findByRole('button', { name: 'Restart guided setup' }, { timeout: 20000 }))
@@ -522,7 +532,8 @@ describe('App shell', () => {
     expect(screen.getByRole('button', { name: /^new project$/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Keep reading' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Previous step' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Reviewed step 1:/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reviewed chapter: Orientation' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reviewed chapter: Capture' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Keep reading' }))
     expect(setStepIndex).toHaveBeenCalledWith(6)
@@ -531,11 +542,14 @@ describe('App shell', () => {
   it('records a guide closed early as an exit, not as a finished tour', async () => {
     localStorage.removeItem(ONBOARDING_COMPLETED_KEY)
     render(<App />)
-    await screen.findByRole('dialog')
+    // The tour opens inside the workbench; crossing with a design opens it.
+    fireEvent.click(screen.getAllByRole('button', { name: /create project/i })[0])
+    await screen.findByTestId('schematic-canvas')
+    await screen.findByRole('dialog', {}, { timeout: 15000 })
 
-    // Two cards opened, then the card was closed: the ledger must not claim the
-    // curriculum was finished, nor that every step was read.
-    fireEvent.click(screen.getByRole('button', { name: new RegExp(`^Upcoming step ${ONBOARDING_STEP_COUNT}:`) }))
+    // Jump two chapters ahead, then the card is closed: the ledger must not
+    // claim the curriculum was finished, nor that every step was read.
+    fireEvent.click(screen.getByRole('button', { name: /^Upcoming chapter: Delegate & govern$/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Close the guide' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
@@ -551,9 +565,15 @@ describe('App shell', () => {
   it('records one completion when the guide hands over to the register', async () => {
     localStorage.removeItem(ONBOARDING_COMPLETED_KEY)
     render(<App />)
-    await screen.findByRole('dialog')
+    // The tour opens inside the workbench; crossing with a design opens it.
+    fireEvent.click(screen.getAllByRole('button', { name: /create project/i })[0])
+    await screen.findByTestId('schematic-canvas')
+    await screen.findByRole('dialog', {}, { timeout: 15000 })
 
-    fireEvent.click(screen.getByRole('button', { name: new RegExp(`^Upcoming step ${ONBOARDING_STEP_COUNT}:`) }))
+    // Jump to the govern chapter (its first step opens), walk one step to the
+    // limits step with its open-limits action — the rail only jumps chapter starts.
+    fireEvent.click(screen.getByRole('button', { name: /^Upcoming chapter: Delegate & govern$/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Continue$/ }))
     fireEvent.click(await screen.findByRole('button', { name: /open capabilities and limits/i }))
     expect(
       await screen.findByRole('dialog', { name: 'Capabilities and limits' }, { timeout: 10000 }),
@@ -561,10 +581,11 @@ describe('App shell', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: /one project/i })).not.toBeInTheDocument())
 
     // The hand-off closes the tour from the card and the shell in one click; only
-    // the card's own exit may reach the ledger.
+    // the card's own exit may reach the ledger. Three steps were visited: the
+    // initial orientation step, the govern chapter's first step, the limits step.
     const tourEvents = getUsageEvents().filter((event) => event.kind.startsWith('onboarding'))
     expect(tourEvents.map((event) => event.kind)).toEqual(['onboarding.complete'])
-    expect(tourEvents[0]?.detail).toMatchObject({ steps: 2, total: ONBOARDING_STEP_COUNT })
+    expect(tourEvents[0]?.detail).toMatchObject({ steps: 3, total: ONBOARDING_STEP_COUNT })
     expect(tourEvents[0]?.detail?.reason).toBeUndefined()
   })
 
