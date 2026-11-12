@@ -312,7 +312,11 @@ export function exportToGerber(
 }
 
 export function downloadFile(content: string, filename: string, mimeType: string): void {
-  const blob = new Blob([content], { type: mimeType })
+  downloadBlob(new Blob([content], { type: mimeType }), filename)
+}
+
+/** Download an in-memory blob — the package-shaped downloads (zip archives). */
+export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url

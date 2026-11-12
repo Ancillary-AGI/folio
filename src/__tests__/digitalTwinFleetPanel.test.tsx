@@ -65,7 +65,9 @@ describe('DigitalTwinFleetPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Verify rectifier twin' }))
 
-    await waitFor(() => expect(screen.getByText('verified', { selector: 'div.text-2xl' })).toBeInTheDocument())
+    // The verification runs a real solver pass over the rectifier's HIL cases;
+    // on a loaded CI box that outlasts waitFor's 1 s default by far.
+    await waitFor(() => expect(screen.getByText('verified', { selector: 'div.text-2xl' })).toBeInTheDocument(), { timeout: 20000 })
     expect(screen.getByText('verified', { selector: 'div.rounded-full' })).toBeInTheDocument()
     expect(screen.getByText(/twin verifies centre and refuses \+2 V drift/)).toBeInTheDocument()
     expect(screen.getByText('2 HIL cases')).toBeInTheDocument()

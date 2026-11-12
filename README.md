@@ -173,10 +173,12 @@ rules); it makes no model or network call, and its output is advisory.
   pairs, BGA fanout, power integrity, DDR constraints, HDI routing.
 - Fabrication output: Gerber copper film per declared layer (inner films
   included), masks, silk, Excellon drill with separate blind/buried files,
-  centroid/PnP, BOM, and an optional encrypted project export
-  (AES-GCM-256 with PBKDF2 key derivation). An inner film can be poured as a
-  named net's plane: the pour clears every foreign drilled barrel and flashes
-  its own; a plane with no drilled connection is refused as floating copper.
+  centroid/PnP, BOM — gated by a fab-profile DRC check and downloaded as **one
+  stored ZIP archive** (`folio-fab-package.zip`), plus an optional encrypted
+  project export (AES-GCM-256 with PBKDF2 key derivation). An inner film can be
+  poured as a named net's plane: the pour clears every foreign drilled barrel and
+  flashes its own; a plane with no drilled connection is refused as floating
+  copper.
 
 ### Control systems & electric machines
 

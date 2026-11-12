@@ -2778,13 +2778,37 @@
  * Token-backed only. Anything colour-bearing here is a token.
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── Geometry ──────────────────────────────────────────────────────────────── */
-.chamfer {
-  clip-path: polygon(0 10px, 10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+/* ── Geometry: one machined-corner language everywhere ─────────────────────
+ * Every chamfered tile paints its own two-layer background — the padding-box
+ * layer carries the surface, the border-box layer carries a hairline that
+ * follows the cut — so the clipped corners are never borderless. Anything
+ * that outward-casts a shadow stays rounded instead (clip amputates it).
+ */
+.chamfer-tile,
+.chamfer-badge {
+  position: relative;
+  border: none;
+  background:
+    linear-gradient(180deg, hsl(0 0% 100% / 0.055), transparent 24%) padding-box,
+    linear-gradient(180deg, hsl(var(--card) / 0.94), hsl(var(--card) / 0.9)) padding-box,
+    linear-gradient(118deg,
+      hsl(var(--primary) / 0.4) 0%,
+      hsl(228 18% 26% / 0.9) 30%,
+      hsl(228 18% 26% / 0.9) 70%,
+      hsl(var(--primary) / 0.4) 100%) border-box;
+  box-shadow: none;
 }
 
-.chamfer-sm {
+.chamfer-tile {
+  clip-path: polygon(0 12px, 12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%);
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+}
+
+.chamfer-badge {
   clip-path: polygon(0 7px, 7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 /* Micro-caps instrument label: the voice of the deck. */
@@ -3228,10 +3252,18 @@
 /* ── Empty sheet — the radar that waits for the first part ───────────────── */
 .cad-empty-sheet__card {
   clip-path: polygon(0 14px, 14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%);
-  background: linear-gradient(180deg, hsl(var(--surface) / 0.72), hsl(var(--surface) / 0.45));
+  background:
+    linear-gradient(180deg, hsl(0 0% 100% / 0.05), transparent 22%) padding-box,
+    linear-gradient(180deg, hsl(var(--surface) / 0.9), hsl(var(--surface) / 0.62)) padding-box,
+    linear-gradient(118deg,
+      hsl(var(--primary) / 0.5) 0%,
+      hsl(228 18% 26% / 0.85) 32%,
+      hsl(228 18% 26% / 0.85) 68%,
+      hsl(var(--primary) / 0.5) 100%) border-box;
   border: none;
   box-shadow: none;
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .empty-radar {

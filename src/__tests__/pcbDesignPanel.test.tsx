@@ -37,6 +37,7 @@ import { registerEdaTools } from '../lib/agents/edaTools'
 const exportSpies = vi.hoisted(() => ({
   exportToGerber: vi.fn(() => 'G04 test*'),
   downloadFile: vi.fn(),
+  downloadBlob: vi.fn(),
 }))
 vi.mock('../lib/exportUtils', () => exportSpies)
 
@@ -149,6 +150,7 @@ describe('PCBDesignPanel', () => {
     vi.restoreAllMocks()
     exportSpies.exportToGerber.mockClear()
     exportSpies.downloadFile.mockClear()
+    exportSpies.downloadBlob.mockClear()
   })
 
   it('renders the chrome, layer stack, tools and design rules', () => {
@@ -614,6 +616,12 @@ describe('PCBDesignPanel', () => {
       expect(spy.mock.calls[0][2]).toMatchObject({ innerLayerCount: 2, planes: [] })
       expect(spy.mock.calls[0][2]?.nets?.map((entry) => entry.name)).toEqual(['GND'])
       expect(screen.getByText(/shippable/)).toBeInTheDocument()
+      // One archive, one download — never N loose files again.
+      expect(exportSpies.downloadBlob).toHaveBeenCalledTimes(1)
+      const [blob, filename] = exportSpies.downloadBlob.mock.calls[0]
+      expect(filename).toBe('folio-fab-package.zip')
+      expect(blob).toBeInstanceOf(Blob)
+      expect(blob.type).toBe('application/zip')
     } finally {
       spy.mockRestore()
     }
@@ -637,6 +645,7 @@ describe('PCBDesignPanel', () => {
       fireEvent.click(screen.getByRole('button', { name: /Fab package/ }))
       expect(spy.mock.calls[0][2]?.planes).toEqual([{ film: 'inner-1', netName: 'GND' }])
       expect(screen.getByText(/GND pour on inner-1/)).toBeInTheDocument()
+      expect(exportSpies.downloadBlob).toHaveBeenCalledTimes(1)
     } finally {
       spy.mockRestore()
     }

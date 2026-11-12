@@ -9,7 +9,7 @@
     <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
     <meta name="application-name" content="Folio" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0a0f1a" />
+    <meta name="theme-color" content="#07080D" />
     <meta
       name="description"
       content="Folio is an engineering workbench for circuit, board, mechanical, robotics and RF design — with tested simulation from schematic to manufacture."
@@ -25,7 +25,7 @@
        * main.tsx applies the full token set, but that runs after the bundle is
        * parsed. This tiny script only needs to stop the white flash, so it sets
        * `color-scheme` and the two possible background colours and nothing else.
-       * The hex literals must equal `THEMES.dark['--background']` and
+       * The hex literals must equal `THEMES['folio-dark']['--background']` and
        * `THEMES.light['--background']` in src/lib/theme/tokens.ts.
        */
       (function () {
@@ -62,9 +62,9 @@
         root.dataset.theme = theme;
         if (isDark) root.classList.add('dark');
         root.style.colorScheme = isDark ? 'dark' : 'light';
-        /* folio-dark background = hsl(224 50% 4%) ≈ #04060d */
+        /* folio-dark background = hsl(228 30% 4%) ≈ #07080d */
         root.style.backgroundColor = isDark
-          ? (theme === 'folio-dark' ? '#04060d' : theme === 'professional' ? '#080d10' : '#0a0f1a')
+          ? (theme === 'folio-dark' ? '#07080d' : theme === 'professional' ? '#080d10' : '#0a0f1a')
           : '#ffffff';
       })();
     </script>

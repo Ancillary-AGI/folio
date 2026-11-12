@@ -5,7 +5,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="robots" content="noindex, nofollow" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0a0f1a" />
+    <meta name="theme-color" content="#07080D" />
     <meta
       name="description"
       content="Internal console for the team that operates Folio: accounts, usage, quotas and the operator audit trail."
@@ -18,7 +18,7 @@
       /*
        * Pre-paint theme bootstrap, identical in behaviour to the workbench's so
        * the console never flashes white. The hex literals must equal
-       * `THEMES.dark['--background']` and `THEMES.light['--background']` in
+       * `THEMES['folio-dark']['--background']` and `THEMES.light['--background']` in
        * src/lib/theme/tokens.ts — theme.test.ts asserts that.
        */
       (function () {
@@ -55,7 +55,7 @@
         root.dataset.theme = theme;
         if (isDark) root.classList.add('dark');
         root.style.colorScheme = isDark ? 'dark' : 'light';
-        root.style.backgroundColor = isDark ? '#0a0f1a' : '#ffffff';
+        root.style.backgroundColor = isDark ? '#07080d' : '#ffffff';
       })();
     </script>
     <script type="module" src="/src/admin/main.tsx"></script>

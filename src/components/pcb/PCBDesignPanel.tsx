@@ -41,7 +41,8 @@ import {
   type SiResult,
   type TraceWidthOptimisation,
 } from '../../lib/manufacturing/signalIntegrity'
-import { exportToGerber, downloadFile } from '../../lib/exportUtils'
+import { exportToGerber, downloadFile, downloadBlob } from '../../lib/exportUtils'
+import { createTextZipBytes } from '../../lib/manufacturing/zipStore'
 import { buildFabPackage, fabLayerFromId, type FabPlane } from '../../lib/manufacturing/fabExport'
 import { autoroute, buildRouterPads, type RouterKeepout, type RouterPad } from '../../lib/manufacturing/autorouter'
 import {
@@ -3402,8 +3403,9 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
     const pourReport = pkg.planes.length
       ? `, ${pkg.planes.map((pour) => `${pour.netName} pour on ${pour.film}`).join(' + ')}`
       : ''
-    setFabVerdict(`Fab package: ${pkg.files.size} files on ${copperFilms} copper films${pourReport}, ${pkg.centroid.length} placements — shippable.`)
-    for (const [name, content] of pkg.files) downloadFile(content, name, 'text/plain')
+    setFabVerdict(`Fab package: ${pkg.files.size} files on ${copperFilms} copper films${pourReport}, ${pkg.centroid.length} placements — folio-fab-package.zip, shippable.`)
+    const archive = createTextZipBytes(pkg.files)
+    downloadBlob(new Blob([archive.buffer as ArrayBuffer], { type: 'application/zip' }), 'folio-fab-package.zip')
   }, [components, traces, vias, boardWidth, boardHeight, layers, schematicNets])
 
   // ── Layer toggle ──────────────────────────────────────────────────────────────

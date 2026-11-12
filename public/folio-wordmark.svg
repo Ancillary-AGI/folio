@@ -1,9 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 528 100">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 408 100">
+  <defs>
+    <linearGradient id="molten" x1="8" y1="0" x2="88" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFD98A"/>
+      <stop offset="0.45" stop-color="#F5A524"/>
+      <stop offset="1" stop-color="#D97A12"/>
+    </linearGradient>
+  </defs>
   <style>
-    .ink { fill: #0f172a; }
-    @media (prefers-color-scheme: dark) { .ink { fill: #f1f5f9; } }
+    .ink { fill: #241E14; }
+    @media (prefers-color-scheme: dark) { .ink { fill: #F2ECDF; } }
   </style>
-  <path fill="#2f6fed" fill-rule="evenodd" d="M10 0H58L96 38V86L86 96H10L0 86V10ZM26 20H64L70 26V40H46V46H56L62 52V64H46V82H26Z"/>
+  <path fill="url(#molten)" fill-rule="evenodd" d="M10 0H58L96 38V86L86 96H10L0 86V10ZM26 20H64L70 26V40H46V46H56L62 52V64H46V82H26Z"/>
   <g class="ink" transform="translate(120 0)">
     <path d="M0 0H57L66 9V22H22V39H49L58 48V61H22V100H0Z"/>
     <path fill-rule="evenodd" d="M102 0H162L174 12V88L162 100H102L90 88V12ZM115 22H149L152 25V75L149 78H115L112 75V25Z"/>

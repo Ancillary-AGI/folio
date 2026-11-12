@@ -21,9 +21,9 @@ describe('ICDesignPanel', () => {
     fireEvent.click(screen.getByText(/QFN-32/))
     expect(screen.getByText(/Package details/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Continue → GDSII Export/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Continue → GDSII \(flow artifact\)/ }))
     fireEvent.click(screen.getByRole('button', { name: /Generate GDSII/ }))
-    expect(await screen.findByText(/GDSII summary/)).toBeInTheDocument()
+    expect(await screen.findByText(/GDSII artifact summary/)).toBeInTheDocument()
   })
 
   it('runs the whole flow when the full-flow demo opens', async () => {
@@ -31,7 +31,7 @@ describe('ICDesignPanel', () => {
     render(<ICDesignPanel />)
 
     expect(await screen.findByText(/Synthesis complete/)).toBeInTheDocument()
-    expect(await screen.findByText(/GDSII summary/)).toBeInTheDocument()
+    expect(await screen.findByText(/GDSII artifact summary/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Generate GDSII/ })).toBeInTheDocument()
     expect(useAppStore.getState().demoRequest).toBeNull()
   })

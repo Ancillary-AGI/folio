@@ -240,7 +240,9 @@
   files, centroid/PnP, BOM, JLCPCB DRC gate, and enclosure STEP export. An
   inner film can be poured as a named net's plane: foreign drilled barrels get
   anti-pads, same-net barrels are flashed directly, and a plane with nothing to
-  connect is refused
+  connect is refused. The whole fab package downloads as **one stored ZIP
+  archive** (`folio-fab-package.zip`) written by a dependency-free CRC-32-verified
+  builder — flat entries, UTF-8 names, openable by any ZIP reader
 - **Encrypted export**: AES-GCM-256 project snapshots with PBKDF2 key derivation
 
 ## Compute Acceleration [done] (thermal, Monte Carlo, AC and noise)
