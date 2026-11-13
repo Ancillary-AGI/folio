@@ -3,32 +3,17 @@
 @tailwind utilities;
 
 /*
- * ── Typefaces ───────────────────────────────────────────────────────────────
+ * ── Typeface ────────────────────────────────────────────────────────────────
  * Bundled rather than borrowed from the host machine: the workbench must render
  * identically on a fresh Windows install, a locked-down workstation and in an
- * exported drawing. Inter carries the whole interface; JetBrains Mono is only
- * for code, netlists and keycaps, where column alignment is information.
+ * exported drawing. One family carries the whole product, headings to numeric
+ * readouts — as tabular figures are a feature of it, not a second face.
  */
 @font-face {
-  font-family: 'InterVariable';
-  src: url('/fonts/InterVariable.woff2') format('woff2');
+  font-family: 'Archivo';
+  src: url('/fonts/Archivo-Variable.ttf') format('truetype-variations');
   font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'JetBrains Mono';
-  src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'JetBrains Mono';
-  src: url('/fonts/JetBrainsMono-Bold.woff2') format('woff2');
-  font-weight: 700;
+  font-stretch: 62% 125%;
   font-style: normal;
   font-display: swap;
 }
@@ -121,7 +106,7 @@
     /* Stated literally rather than read from the Tailwind theme: the shell's
        typeface must not depend on a config reload having landed. */
     font-family:
-      'InterVariable',
+      'Archivo',
       'Inter',
       'Segoe UI Variable Text',
       'Segoe UI',
@@ -1781,7 +1766,7 @@
   .cad-empty-sheet__eyebrow {
     @apply mt-4 text-[10px] font-medium uppercase text-muted-foreground;
     letter-spacing: 0.28em;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Archivo', system-ui, sans-serif;
   }
 
   .cad-empty-sheet__title {
@@ -2265,7 +2250,7 @@
  */
 @layer components {
   .code-metrics {
-    font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+    font-family: 'Archivo', system-ui, sans-serif;
     /* Set from the editor font-size preference by CodeEditor; the JS row
        geometry uses the same pair, so text and caret stay on one grid. */
     font-size: var(--cad-editor-font, 12px);
@@ -2802,7 +2787,7 @@
 /* Micro-caps instrument label: the voice of the deck. */
 .instrument-label,
 .seg-label {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Archivo', system-ui, sans-serif;
   font-size: 8.5px;
   font-weight: 500;
   letter-spacing: 0.22em;
@@ -2999,7 +2984,7 @@
   border-radius: 0.5rem;
   padding: 0.25rem 0.5rem;
   font-size: 8.5px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Archivo', system-ui, sans-serif;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: hsl(var(--muted-foreground) / 0.85);
@@ -3460,7 +3445,7 @@ li[role='option'] > button[data-active='true'] > span:nth-child(2) {
   border: 1px solid hsl(var(--primary) / 0.45);
   background: hsl(var(--primary) / 0.1);
   color: hsl(var(--primary));
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Archivo', system-ui, sans-serif;
   letter-spacing: 0.08em;
   clip-path: none;
 }
@@ -3503,7 +3488,7 @@ li[role='option'] > button[data-active='true'] > span:nth-child(2) {
   border-radius: 0.25rem;
   border: 1px solid hsl(var(--border) / 0.9);
   background: hsl(var(--surface) / 0.55);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Archivo', system-ui, sans-serif;
   font-size: 8px;
   font-weight: 500;
   letter-spacing: 0.22em;
@@ -3613,7 +3598,7 @@ li[role='option'] > button[data-active='true'] > span:nth-child(2) {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Community templates — the launcher's open-a-proven-design section
+ * Community designs — the launcher's open-a-proven-design section
  * Forge treatment: hairline borders, amber only where action lives.
  * ──────────────────────────────────────────────────────────────────────────── */
   .launcher-community {
@@ -3667,7 +3652,7 @@ li[role='option'] > button[data-active='true'] > span:nth-child(2) {
   }
 
   .launcher-community__discipline {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Archivo', system-ui, sans-serif;
     font-size: 8.5px;
     letter-spacing: 0.2em;
     text-transform: uppercase;

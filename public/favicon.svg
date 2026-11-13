@@ -6,6 +6,5 @@
       <stop offset="1" stop-color="#D97A12"/>
     </linearGradient>
   </defs>
-  <rect width="96" height="96" rx="20" fill="#0E0D12"/>
   <path fill="url(#molten)" fill-rule="evenodd" d="M10 0H58L96 38V86L86 96H10L0 86V10ZM26 20H64L70 26V40H46V46H56L62 52V64H46V82H26Z"/>
 </svg>
