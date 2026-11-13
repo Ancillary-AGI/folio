@@ -703,7 +703,7 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
         )}
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="workspace-stage relative min-h-0 min-w-0 flex-1" data-tour="workspace-canvas">
+          <div className="workspace-stage relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-tour="workspace-canvas">
             <SplitViewportEngine
             primaryWorkspace={workspaceMode}
             primaryNode={
