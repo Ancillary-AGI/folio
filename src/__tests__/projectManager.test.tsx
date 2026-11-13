@@ -152,9 +152,10 @@ describe('ProjectManager (offline)', () => {
     const deleteButton = await screen.findByRole('button', {
       name: 'Delete Legacy Board',
     })
-    // The word is on the control, not only in its accessible name: an icon
-    // parked in a card corner is decoration until it is far too late.
-    expect(deleteButton).toHaveTextContent('Delete')
+    // Named, not decorated: the instruction is the accessible name, and the
+    // button opens no menu — a corner glyph with nothing to read is a trap.
+    expect(deleteButton).toHaveAccessibleName('Delete Legacy Board')
+    expect(deleteButton).not.toHaveTextContent('Open')
 
     /*
      * The question is part of the app now, so the test answers it the way a

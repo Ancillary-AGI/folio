@@ -472,10 +472,34 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
             return (
             <Card
               key={project.id}
-              className="project-card launcher-project cursor-pointer"
+              className="project-card launcher-project group"
+              role="button"
+              tabIndex={0}
+              aria-label={`Open ${project.name}`}
               onClick={() => onSelectProject(project)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  onSelectProject(project)
+                }
+              }}
             >
-              <CardHeader className="gap-3 pb-3">
+              {/* Whole card is the open target — the one thing it is not is a
+                  button, and the corner carries the only other decision here.
+                  Out of the reading flow, out of the drop target, named for
+                  its job. */}
+              <Button
+                variant="ghost"
+                size="bar-icon"
+                className="launcher-project__delete"
+                aria-label={`Delete ${project.name}`}
+                title="Delete this project"
+                onClick={(e) => handleDeleteProject(project, e)}
+              >
+                <Trash2 />
+              </Button>
+
+              <CardHeader className="gap-3 pb-3 pr-8">
                 <div className="flex items-start gap-3">
                   <span className="launcher-project__monogram" aria-hidden="true">
                     {monogram}
@@ -518,39 +542,11 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
                       ? `${revisionCount} revision${revisionCount === 1 ? '' : 's'} · ${repo.currentBranch}`
                       : 'No revisions yet'}
                   </div>
-                </div>
-
-                {/*
-                 * One action group on one centre line, at the trailing edge. An
-                 * icon-only trash glyph parked in the bottom-right corner reads
-                 * as part of the card's decoration until it is far too late to
-                 * notice it; named in words and set beside the thing it is not,
-                 * it is a decision instead of a landmine.
-                 */}
-                <div className="launcher-project__actions">
-                  <Button
-                    variant="ghost"
-                    size="bar"
-                    aria-label={`Delete ${project.name}`}
-                    onClick={(e) => handleDeleteProject(project, e)}
-                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    title="Delete this project for good. It asks you to confirm first."
-                  >
-                    <Trash2 />
-                    Delete
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="bar"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onSelectProject(project)
-                    }}
-                    aria-label={`Open ${project.name}`}
-                  >
+                  {/* The whole card is the target; this hint just says so. */}
+                  <span className="launcher-project__open-hint" aria-hidden="true">
                     Open
-                    <ArrowRight />
-                  </Button>
+                    <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                  </span>
                 </div>
               </CardContent>
             </Card>

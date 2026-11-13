@@ -9,6 +9,7 @@
  *
  *   /app                      the project landing, or the open project's sheet
  *   /app/simulation           a workspace before a project is chosen
+ *   /app/demos/:demoId        a gallery demo, opened on a fresh document
  *   /app/projects             project list
  *   /app/projects/:id         that project's schematic
  *   /app/projects/:id/pcb      …and every other workspace
@@ -74,6 +75,8 @@ export interface LocationRoute {
   mode: WorkspaceMode | null;
   /** Project id from `/app/projects/:id/…` or the legacy `?project=` query. */
   projectId: string | null;
+  /** Demo id from `/app/demos/:demoId`, or null when the path is not a demo. */
+  demoId: string | null;
   /** True only for `/app/projects`. */
   isProjectList: boolean;
   /** True only for `/app/community`. */
@@ -103,35 +106,42 @@ export function workspacePath(mode: WorkspaceMode, projectId?: string | null): s
 
 /**
  * Parse a pathname (and the legacy `?project=` query) into a route.
- * Unknown paths return `mode: null` and no project so the caller can
- * normalise them instead of rendering an arbitrary panel.
+ * Unknown paths return `mode: null`, no project and no demo id so the caller
+ * can normalise them instead of rendering an arbitrary panel.
  */
 export function parseRoute(pathname: string, search = ''): LocationRoute {
   const segments = pathname.split('/').filter(Boolean);
   // The product lives under APP_BASE; everything else is not ours to route.
   if (segments[0] !== APP_BASE.slice(1)) {
-    return { mode: null, projectId: null, isProjectList: false, isCommunity: false };
+    return { mode: null, projectId: null, demoId: null, isProjectList: false, isCommunity: false };
   }
   const rest = segments.slice(1);
   if (rest[0] === 'community' && rest.length === 1) {
-    return { mode: null, projectId: null, isProjectList: false, isCommunity: true };
+    return { mode: null, projectId: null, demoId: null, isProjectList: false, isCommunity: true };
+  }
+  if (rest[0] === 'demos' && rest.length === 2) {
+    // `/app/demos/:demoId` opens a gallery demo on a fresh document — the
+    // marketing site's “Open a demo” CTA lands here. Unknown ids canonicalise
+    // to the list at the caller.
+    return { mode: null, projectId: null, demoId: decodeSegment(rest[1]), isProjectList: false, isCommunity: false };
   }
   if (rest[0] === 'projects') {
     if (rest.length === 1) {
-      return { mode: null, projectId: null, isProjectList: true, isCommunity: false };
+      return { mode: null, projectId: null, demoId: null, isProjectList: true, isCommunity: false };
     }
     const projectId = decodeSegment(rest[1]);
     if (rest.length === 2) {
-      return { mode: 'schematic', projectId, isProjectList: false, isCommunity: false };
+      return { mode: 'schematic', projectId, demoId: null, isProjectList: false, isCommunity: false };
     }
     const mode = ROUTE_TO_MODE[`/${rest.slice(2).join('/')}`] ?? 'schematic';
-    return { mode, projectId, isProjectList: false, isCommunity: false };
+    return { mode, projectId, demoId: null, isProjectList: false, isCommunity: false };
   }
   const mode = ROUTE_TO_MODE[`/${rest.join('/')}`] ?? null;
-  if (!mode) return { mode: null, projectId: null, isProjectList: false, isCommunity: false };
+  if (!mode) return { mode: null, projectId: null, demoId: null, isProjectList: false, isCommunity: false };
   return {
     mode,
     projectId: new URLSearchParams(search).get('project') || null,
+    demoId: null,
     isProjectList: false,
     isCommunity: false,
   };
@@ -140,7 +150,7 @@ export function parseRoute(pathname: string, search = ''): LocationRoute {
 /** The route described by the current address bar. */
 export function currentRoute(): LocationRoute {
   if (typeof window === 'undefined') {
-    return { mode: null, projectId: null, isProjectList: false, isCommunity: false };
+    return { mode: null, projectId: null, demoId: null, isProjectList: false, isCommunity: false };
   }
   return parseRoute(window.location.pathname, window.location.search);
 }

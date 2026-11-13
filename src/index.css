@@ -1086,8 +1086,38 @@
     @apply flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums text-muted-foreground;
   }
 
-  .launcher-project__actions {
-    @apply mt-3 flex items-center justify-end gap-2 border-t border-border/70 pt-2;
+  .launcher-project__open-hint {
+    @apply ml-auto inline-flex items-center gap-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary opacity-0 transition-all duration-150;
+    transform: translate(-3px, 1px);
+  }
+
+  .launcher-project:hover .launcher-project__open-hint,
+  .launcher-project:focus-within .launcher-project__open-hint {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .launcher-project__open-hint {
+      transition: opacity 150ms ease;
+    }
+  }
+
+  .launcher-project__delete {
+    @apply absolute right-2 top-2 z-10 h-7 w-7 rounded-md text-muted-foreground/70 opacity-0 transition-opacity duration-150 hover:bg-destructive/10 hover:text-destructive focus-visible:text-destructive;
+  }
+
+  /* The corner button is the one other decision on the card, so it stays quiet
+     until it is reached, and never hides from a keyboard or a touch screen. */
+  .launcher-project:hover .launcher-project__delete,
+  .launcher-project:focus-within .launcher-project__delete {
+    opacity: 1;
+  }
+
+  @media (hover: none) {
+    .launcher-project__delete {
+      opacity: 1;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {

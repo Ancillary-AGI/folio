@@ -23,18 +23,42 @@ describe('workspace routing under /app', () => {
     for (const route of routes) expect(route.startsWith('/app')).toBe(true);
   });
 
+  it('parses the demo deep link as a path parameter', () => {
+    expect(parseRoute('/app/demos/rectifier-pcb')).toEqual({
+      mode: null,
+      projectId: null,
+      demoId: 'rectifier-pcb',
+      isProjectList: false,
+      isCommunity: false,
+    });
+    expect(parseRoute('/app/demos/rectifier-pcb/')).toEqual({
+      mode: null,
+      projectId: null,
+      demoId: 'rectifier-pcb',
+      isProjectList: false,
+      isCommunity: false,
+    });
+    expect(parseRoute('/app/demos')).toEqual({
+      mode: null,
+      projectId: null,
+      demoId: null,
+      isProjectList: false,
+      isCommunity: false,
+    });
+  });
+
   it('parses a standalone workspace path', () => {
     expect(parseRoute('/app/agents')).toEqual({
       mode: 'agents',
       projectId: null,
       isProjectList: false,
-      isCommunity: false,
+      isCommunity: false, demoId: null,
     });
     expect(parseRoute('/app')).toEqual({
       mode: 'schematic',
       projectId: null,
       isProjectList: false,
-      isCommunity: false,
+      isCommunity: false, demoId: null,
     });
   });
 
@@ -43,19 +67,19 @@ describe('workspace routing under /app', () => {
       mode: null,
       projectId: null,
       isProjectList: false,
-      isCommunity: false,
+      isCommunity: false, demoId: null,
     });
     expect(parseRoute('/pricing')).toEqual({
       mode: null,
       projectId: null,
       isProjectList: false,
-      isCommunity: false,
+      isCommunity: false, demoId: null,
     });
     expect(parseRoute('/agents')).toEqual({
       mode: null,
       projectId: null,
       isProjectList: false,
-      isCommunity: false,
+      isCommunity: false, demoId: null,
     });
   });
 
@@ -65,13 +89,13 @@ describe('workspace routing under /app', () => {
       mode: null,
       projectId: null,
       isProjectList: false,
-      isCommunity: true,
+      isCommunity: true, demoId: null,
     });
     expect(parseRoute('/app/community/')).toEqual({
       mode: null,
       projectId: null,
       isProjectList: false,
-      isCommunity: true,
+      isCommunity: true, demoId: null,
     });
   });
 
@@ -80,19 +104,19 @@ describe('workspace routing under /app', () => {
       mode: null,
       projectId: null,
       isProjectList: true,
-      isCommunity: false,
+      isCommunity: false, demoId: null,
     });
     expect(parseRoute('/app/projects/p1')).toEqual({
       mode: 'schematic',
       projectId: 'p1',
       isProjectList: false,
-      isCommunity: false,
+      isCommunity: false, demoId: null,
     });
     expect(parseRoute('/app/projects/p1/pcb')).toEqual({
       mode: 'pcb',
       projectId: 'p1',
       isProjectList: false,
-      isCommunity: false,
+      isCommunity: false, demoId: null,
     });
   });
 
@@ -101,13 +125,13 @@ describe('workspace routing under /app', () => {
       mode: 'schematic',
       projectId: 'p1',
       isProjectList: false,
-      isCommunity: false,
+      isCommunity: false, demoId: null,
     });
     expect(parseRoute('/app/projects/p1/not-a-workspace')).toEqual({
       mode: 'schematic',
       projectId: 'p1',
       isProjectList: false,
-      isCommunity: false,
+      isCommunity: false, demoId: null,
     });
   });
 
@@ -118,7 +142,7 @@ describe('workspace routing under /app', () => {
       mode: 'agents',
       projectId: 'folder/with space',
       isProjectList: false,
-      isCommunity: false,
+      isCommunity: false, demoId: null,
     });
   });
 
@@ -127,7 +151,7 @@ describe('workspace routing under /app', () => {
       mode: 'pcb',
       projectId: 'abc',
       isProjectList: false,
-      isCommunity: false,
+      isCommunity: false, demoId: null,
     });
   });
 
@@ -139,19 +163,19 @@ describe('workspace routing under /app', () => {
       mode: null,
       projectId: null,
       isProjectList: false,
-      isCommunity: false,
+      isCommunity: false, demoId: null,
     });
     expect(Object.values(WORKSPACE_ROUTES)).not.toContain('/app/admin');
   });
 
   it('returns an unknown result for unrecognised paths', () => {
     window.history.replaceState(null, '', '/nope');
-    expect(currentRoute()).toEqual({ mode: null, projectId: null, isProjectList: false, isCommunity: false });
+    expect(currentRoute()).toEqual({ mode: null, projectId: null, isProjectList: false, isCommunity: false, demoId: null });
     expect(parseRoute('/nope')).toEqual({
       mode: null,
       projectId: null,
       isProjectList: false,
-      isCommunity: false,
+      isCommunity: false, demoId: null,
     });
   });
 
@@ -164,7 +188,7 @@ describe('workspace routing under /app', () => {
       mode: 'preview3d',
       projectId: 'p1',
       isProjectList: false,
-      isCommunity: false,
+      isCommunity: false, demoId: null,
     });
     expect(projectIdFromLocation()).toBe('p1');
 

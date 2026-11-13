@@ -1273,6 +1273,11 @@ function App() {
     selectProjectRef.current = (project) => { void handleSelectProject(project) }
   })
 
+  const openDemoScenarioRef = useRef<(scenario: DemoScenario) => void>(() => {})
+  useEffect(() => {
+    openDemoScenarioRef.current = (scenario) => { void openDemoScenario(scenario) }
+  })
+
   useEffect(() => {
     const applyLocation = () => {
       const route = currentRoute()
@@ -1282,6 +1287,19 @@ function App() {
         return
       }
       setShowCommunity(false)
+      // `/app/demos/:demoId` — the marketing CTA and a deep link: open the
+      // gallery demo instead of a blank workspace.
+      if (route.demoId) {
+        const scenario = DEMO_SCENARIOS.find((entry) => entry.id === route.demoId)
+        if (!scenario) {
+          navigateTo(PROJECTS_ROUTE, { replace: true })
+          setShowProjectManager(true)
+          return
+        }
+        setShowProjectManager(false)
+        openDemoScenarioRef.current(scenario)
+        return
+      }
       if (route.isProjectList) {
         setShowProjectManager(true)
         return
