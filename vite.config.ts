@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
+import { PRICING_NOTE, renderPricingPlansHtml } from './src/lib/pricing';
 
 /**
  * Serve the documents at the same paths the checked-in host configs use.
@@ -12,7 +13,6 @@ function adminDocument(): Plugin {
     '/app': '/index.html',
     '/': '/landing.html',
     '/pricing': '/pricing.html',
-    '/tour': '/tour.html',
     '/admin': '/admin.html',
     '/console': '/console.html',
     '/landing': '/landing.html',
@@ -32,6 +32,14 @@ function adminDocument(): Plugin {
      * FAQ cannot reach the user's browser. The anon key is designed to be
      * public; the service key is never emitted. */
     transformIndexHtml(html) {
+      /* Inject the pricing storefront into the static shell at build time.
+       * The markup comes from src/lib/pricing.ts — the same module the console
+       * reads — so the page and the enforcement layer can never drift apart. */
+      if (html.includes('<!-- PLANS_ROOT -->')) {
+        return html
+          .replace('<!-- PLANS_ROOT -->', () => renderPricingPlansHtml())
+          .replace('<!-- PRICING_NOTE -->', () => PRICING_NOTE);
+      }
       if (!html.includes('<section id="faq"')) return html;
       const url = process.env.VITE_SUPABASE_URL ?? '';
       const anon = process.env.VITE_SUPABASE_ANON_KEY ?? '';
@@ -72,7 +80,6 @@ export default defineConfig({
         admin: fileURLToPath(new URL('./admin.html', import.meta.url)),
         landing: fileURLToPath(new URL('./landing.html', import.meta.url)),
         pricing: fileURLToPath(new URL('./pricing.html', import.meta.url)),
-        tour: fileURLToPath(new URL('./tour.html', import.meta.url)),
         console: fileURLToPath(new URL('./console.html', import.meta.url)),
       },
       output: {

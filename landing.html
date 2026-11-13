@@ -25,7 +25,7 @@
     "@type": "Offer",
     "price": "0",
     "priceCurrency": "USD",
-    "description": "Local tier is free and unlimited on the designer's machine."
+    "description": "Free tier: the full workbench, free and unlimited on the designer's machine."
   }
 }
 </script>
@@ -33,8 +33,6 @@
 <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
 <style>
 @font-face { font-family: 'InterVariable'; src: url('/fonts/InterVariable.woff2') format('woff2'); font-display: swap; }
-@font-face { font-family: 'JetBrains Mono'; src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2'); font-weight: 400; font-display: swap; }
-@font-face { font-family: 'JetBrains Mono'; src: url('/fonts/JetBrainsMono-Bold.woff2') format('woff2'); font-weight: 700; font-display: swap; }
 * { margin: 0; box-sizing: border-box; }
 :root {
   --bg: #07080D;
@@ -52,15 +50,15 @@
 }
 body { background: var(--bg); color: var(--ink); font-family: 'InterVariable', system-ui, sans-serif; -webkit-font-smoothing: antialiased; line-height: 1.6; }
 .wrap { width: min(1180px, calc(100% - 2.5rem)); margin-inline: auto; }
-.mono { font-family: 'JetBrains Mono', monospace; font-size: .66rem; letter-spacing: .16em; text-transform: uppercase; color: var(--mute); }
+.mono { font-family: 'InterVariable', system-ui, sans-serif; font-weight: 700; font-size: .66rem; letter-spacing: .24em; text-transform: uppercase; color: var(--mute); }
 a { color: inherit; }
 :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; border-radius: .25rem; }
 
 /* ── Buttons ── */
-.btn { display: inline-flex; align-items: center; gap: .5rem; min-height: 2.5rem; padding: 0 1.1rem; border-radius: .5rem; background: var(--amber); color: #221300; font-family: 'InterVariable', system-ui, sans-serif; font-weight: 700; font-size: .82rem; text-decoration: none; border: 1px solid #D97A12; }
-.btn:hover { filter: brightness(1.08); }
+.btn { display: inline-flex; align-items: center; gap: .5rem; min-height: 2.5rem; padding: 0 1.1rem; border-radius: .5rem; background: var(--amber); color: #221300; font-family: 'InterVariable', system-ui, sans-serif; font-weight: 700; font-size: .82rem; text-decoration: none; border: 1px solid #D97A12; transition: transform .16s, filter .16s, box-shadow .16s, border-color .16s, background .16s; }
+.btn:hover { filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 12px 28px -12px rgba(245,165,36,.45); }
 .btn-ghost { background: #15141A; color: var(--ink); border: 1px solid var(--line-strong); font-weight: 600; }
-.btn-ghost:hover { border-color: #4A4A55; background: #1A1A22; }
+.btn-ghost:hover { border-color: #4A4A55; background: #1E1E26; transform: translateY(-1px); box-shadow: 0 10px 22px -14px rgba(0,0,0,.6); }
 .btn-lg { min-height: 3rem; padding: 0 1.4rem; font-size: .9rem; border-radius: .55rem; }
 
 /* ── Nav ── */
@@ -89,7 +87,7 @@ h1 em { color: var(--amber); font-style: normal; }
 .hero-note { margin-top: 1.1rem; color: var(--mute2); font-size: .76rem; }
 .hero-note a:hover { color: var(--ink); }
 .hero-shot { width: 100%; height: auto; border-radius: .75rem; border: 1px solid var(--line-strong); box-shadow: 0 50px 120px -40px rgba(0,0,0,.75), 0 0 0 1px rgba(245,165,36,.06); }
-.hero-caption { margin-top: .6rem; text-align: center; color: var(--mute2); font-family: 'JetBrains Mono', monospace; font-size: .62rem; letter-spacing: .16em; text-transform: uppercase; }
+.hero-caption { margin-top: .6rem; text-align: center; color: var(--mute2); font-family: 'InterVariable', system-ui, sans-serif; font-weight: 700; font-size: .64rem; letter-spacing: .24em; text-transform: uppercase; }
 
 /* ── Discipline strip ─────────────── */
 .strip { border-block: 1px solid var(--line); padding: 2rem 0; }
@@ -123,7 +121,7 @@ h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); letter-spacing: -0.03em; line-height
 .product { border: 1px solid var(--line-strong); border-radius: .75rem; overflow: hidden; background: #0E0D12; box-shadow: 0 40px 90px -40px rgba(0,0,0,.7); }
 .product-bar { display: flex; align-items: center; gap: .45rem; padding: .6rem .8rem; border-bottom: 1px solid var(--line); background: var(--surface); }
 .product-dot { width: .5rem; height: .5rem; border-radius: 50%; background: #2A2A34; }
-.product-bar span { font-family: 'JetBrains Mono', monospace; font-size: .62rem; color: var(--mute2); letter-spacing: .08em; margin-left: .35rem; }
+.product-bar span { font-family: 'InterVariable', system-ui, sans-serif; font-weight: 600; font-size: .66rem; color: var(--mute2); letter-spacing: .1em; margin-left: .35rem; }
 .product-body { display: grid; grid-template-columns: 1.15fr .85fr; }
 @media (max-width: 900px) { .product-body { grid-template-columns: 1fr; } }
 .product-copy { padding: 1.75rem; }
@@ -142,11 +140,11 @@ h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); letter-spacing: -0.03em; line-height
 .tpl { display: flex; flex-direction: column; border: 1px solid var(--line-strong); border-radius: .6rem; overflow: hidden; text-decoration: none; transition: border-color .15s, transform .15s; }
 .tpl:hover { border-color: #4A4A55; transform: translateY(-2px); }
 .tpl-head { height: 5.5rem; display: flex; align-items: flex-end; padding: .9rem 1rem; background: var(--surface); }
-.tpl-head span { font-family: 'JetBrains Mono', monospace; font-size: .55rem; letter-spacing: .15em; color: var(--amber-pale); text-transform: uppercase; }
+.tpl-head span { font-family: 'InterVariable', system-ui, sans-serif; font-weight: 700; font-size: .58rem; letter-spacing: .2em; color: var(--amber-pale); text-transform: uppercase; }
 .tpl-body { padding: .85rem 1rem 1rem; }
 .tpl-body h3 { font-size: .85rem; font-weight: 700; }
 .tpl-body p { font-size: .74rem; color: var(--mute); margin-top: .25rem; }
-.tpl-license { margin-top: .5rem; font-size: .58rem; font-family: 'JetBrains Mono', monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--mute2); }
+.tpl-license { margin-top: .5rem; font-size: .6rem; font-family: 'InterVariable', system-ui, sans-serif; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--mute2); }
 
 /* ── FAQ ────────────────────────────── */
 .faq { max-width: 46rem; }
@@ -165,8 +163,8 @@ h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); letter-spacing: -0.03em; line-height
 
 /* ── Footer ────────────────────────── */
 footer { border-top: 1px solid var(--line); padding: 2.5rem 0 1.5rem; color: var(--mute2); font-size: .78rem; }
-footer .wrap { display: grid; grid-template-columns: 1fr auto auto; gap: 2rem 4rem; align-items: start; }
-@media (max-width: 800px) { footer .wrap { grid-template-columns: 1fr; gap: 1.5rem; } }
+footer .wrap { display: grid; grid-template-columns: minmax(0, 26rem) auto auto; justify-content: start; gap: 2rem 5rem; align-items: start; }
+@media (max-width: 560px) { footer .wrap { grid-template-columns: 1fr; gap: 1.5rem; } }
 footer h4 { font-size: .66rem; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--mute); margin-bottom: .55rem; }
 footer ul { list-style: none; padding: 0; display: grid; gap: .35rem; }
 footer a { color: var(--mute); }
@@ -183,7 +181,6 @@ footer a:hover { color: var(--ink); }
     </a>
     <ul class="nav-links">
       <li><a href="#product">Product</a></li>
-      <li><a href="/tour">Tour</a></li>
       <li><a href="/pricing">Pricing</a></li>
       <li><a href="/app/community">Community</a></li>
       <li><a href="/console">Console</a></li>
@@ -203,8 +200,9 @@ footer a:hover { color: var(--ink); }
       <p class="lede">Describe what you're building. Folio drafts the schematic across every domain, runs the solver after every edit, routes it on the real grid, clears the DRC gate, and hands you a fab-ready package.</p>
       <div class="cta">
         <a class="btn btn-lg" href="/app">Start designing</a>
+        <a class="btn btn-ghost btn-lg" href="/app?demo=rectifier">Open a demo</a>
       </div>
-      <p class="hero-note"><a href="/app?demo=rectifier" style="color:var(--mute);text-decoration:underline;text-underline-offset:3px">Or open a demo — no account needed</a></p>
+      <p class="hero-note">No account needed — a real demo board opens in the canvas.</p>
     </div>
     <div class="hero-visual">
       <img class="hero-shot" src="/hero-cad.png" alt="Folio workbench — Half-wave rectifier schematic with the DRC health panel and the assistant open." />
@@ -245,7 +243,7 @@ footer a:hover { color: var(--ink); }
           </ul>
         </div>
         <div class="product-screen">
-          <svg viewBox="0 0 320 180" role="img" aria-label="Schematic fragment of the buck template" style="width:100%;max-width:28rem;height:auto"><rect width="320" height="180" rx="8" fill="#15141A" stroke="#232430"/><path d="M60 120 H140 M120 120 V60 M120 60 H250" fill="none" stroke="#F5A524" stroke-width="1.5"/><path d="M250 120 H280" fill="none" stroke="#F5A524" stroke-width="1.5"/><circle cx="140" cy="120" r="2.5" fill="#F5A524"/><rect x="76" y="42" width="40" height="14" fill="#1B1A20" stroke="#F5A524"/><text x="81" y="53" fill="#FFF" font-family="InterVariable, sans-serif" font-size="9">LM2596</text><rect x="190" y="104" width="44" height="14" fill="#1B1A20" stroke="#F5A524"/><text x="196" y="115" fill="#FFF" font-family="InterVariable, sans-serif" font-size="9">FB 3.3k</text><circle cx="280" cy="120" r="2.5" fill="#F5A524"/><text x="20" y="24" fill="#A8A299" font-family="JetBrains Mono, monospace" font-size="8">buck-usb-c / sheet 1</text></svg>
+          <svg viewBox="0 0 320 180" role="img" aria-label="Schematic fragment of the buck template" style="width:100%;max-width:28rem;height:auto"><rect width="320" height="180" rx="8" fill="#15141A" stroke="#232430"/><path d="M60 120 H140 M120 120 V60 M120 60 H250" fill="none" stroke="#F5A524" stroke-width="1.5"/><path d="M250 120 H280" fill="none" stroke="#F5A524" stroke-width="1.5"/><circle cx="140" cy="120" r="2.5" fill="#F5A524"/><rect x="76" y="42" width="40" height="14" fill="#1B1A20" stroke="#F5A524"/><text x="81" y="53" fill="#FFF" font-family="InterVariable, sans-serif" font-size="9">LM2596</text><rect x="190" y="104" width="44" height="14" fill="#1B1A20" stroke="#F5A524"/><text x="196" y="115" fill="#FFF" font-family="InterVariable, sans-serif" font-size="9">FB 3.3k</text><circle cx="280" cy="120" r="2.5" fill="#F5A524"/><text x="20" y="24" fill="#A8A299" font-family="InterVariable, sans-serif" font-size="8">buck-usb-c / sheet 1</text></svg>
         </div>
       </div>
     </div>
@@ -256,7 +254,8 @@ footer a:hover { color: var(--ink); }
   <div class="wrap">
     <div class="section-head">
       <h2>Proven designs.<br>Open for your fork.</h2>
-      <p>CC-BY templates under <a href="/app/community">the community page</a> — clone, inspect, learn, ship.</p>
+      <p>CC-BY templates, ready to clone, inspect, learn from and ship.</p>
+      <p style="margin-top:.9rem"><a class="btn btn-ghost" href="/app/community">Explore designs</a></p>
     </div>
     <div class="tpl-grid">
       <a class="tpl" href="/app/community"><div class="tpl-head"><span>Rectifier</span></div><div class="tpl-body"><h3>Half-wave rectifier, start to gerber</h3><p>Transient, routing, BOM, fab gate — every stage demonstrated.</p><div class="tpl-license">Folio team · CC-BY</div></div></a>
@@ -276,7 +275,7 @@ footer a:hover { color: var(--ink); }
       <details class="faq-item" open><summary>Is the simulator a real SPICE?</summary><p>A real SPICE. MNA with Newton-Raphson companion stamps, Gummel-Poon BJTs with Early voltages and junction capacitances, and level-1 Shichman-Hodges MOSFETs with body effect, channel-length modulation and gate capacitances. JFET level-1, op-amp companions and vendor model cards are all parsed and evaluated; the vendor library ships the actual IRF540N, 2N7000 and 2N3055 parameters.</p></details>
       <details class="faq-item"><summary>Is the router really routing?</summary><p>It routes. A rip-up-and-retry A* grid router runs on the real board geometry against the nets your schematic declared. Vias go inside declared via-span rules, skew is measured for the DDR and byte-lane groups it handles, and what it cannot route is reported by net and layer — not drawn anyway.</p></details>
       <details class="faq-item"><summary>What won't the agent do?</summary><p>Invent component values, claim the simulation passed when it has not, add nets you did not agree to, or run signal integrity or thermal analysis — neither exists in Folio, and neither will be faked. When it cannot do the job, it says so and stops.</p></details>
-      <details class="faq-item"><summary>Is the local build really free?</summary><p>Free indefinitely. The standalone build has no account, no upload, no telemetry — it cannot accept payment and it will not start tomorrow. Pro and Team add the cloud doors only: hosted sync, the publish button, the admin console. Local stays unlimited and stays free.</p></details>
+      <details class="faq-item"><summary>Is the free tier really free?</summary><p>Free indefinitely. The standalone build has no account, no upload, no telemetry — it cannot accept payment and it will not start tomorrow. Pro and Team add the cloud doors only: hosted sync, the publish button, the admin console. Free stays unlimited and stays free.</p></details>
       <details class="faq-item"><summary>Where is my design right now?</summary><p>On your disk. Projects, checkpoints, VCS branches, exports and simulations all live in this browser's local storage on this machine. Exports are plain files — Gerber, Excellon, CSV, STEP — never a proprietary blob a vendor can hold hostage.</p></details>
       <details class="faq-item"><summary>What does Folio ship to a fab house?</summary><p>Gerber RS-274X per film, Excellon with blind/buried span support, centroid CSV for SMT assembly, BOM with lifecycle status, and a DRC printout. The Gerbers are CRC-verified. If a fab house won't accept the files, you will find out before you spend money — from the DRC list.</p></details>
       <details class="faq-item"><summary>What does it cost today?</summary><p>Nothing. Pro at $19 and Team at $49 per user per month are announced pricing for when billing exists — not a charge that starts today. Enterprise is a signed conversation: private deployment, SSO, dedicated seats, SLA. There is no license server, no phone-home check, and no expiry date on the offline build.</p></details>
@@ -298,7 +297,7 @@ footer a:hover { color: var(--ink); }
   <div class="wrap">
     <div>
       <p style="font-weight:700;color:var(--ink)">Folio</p>
-      <p style="margin-top:.3rem">Your engineer in the loop.<br>Templates CC-BY-4.0.</p>
+      <p style="margin-top:.3rem">Your engineer in the loop.<br>© 2026 Folio. All rights reserved.</p>
     </div>
     <div>
       <h4>Product</h4>
@@ -306,7 +305,6 @@ footer a:hover { color: var(--ink); }
         <li><a href="/app">Workbench</a></li>
         <li><a href="/app/community">Community</a></li>
         <li><a href="/pricing">Pricing</a></li>
-        <li><a href="/tour">Tour</a></li>
         <li><a href="/console">Console</a></li>
       </ul>
     </div>

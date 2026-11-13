@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Pricing — Folio</title>
-<meta name="description" content="Folio pricing, stated plainly. Local is free and unlimited on your machine today. Pro and Team add hosted storage, publishing and the admin console. Billing hasn't shipped — this page states the tiers exactly as the app enforces them." />
+<meta name="description" content="Folio, stated plainly. Free is forever and unlimited on your machine. Pro and Team add the cloud doors: hosted storage, publishing, the admin console. Billing has not shipped; prices below are what it will charge." />
 <meta name="theme-color" content="#07080D" />
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
@@ -28,9 +28,10 @@ nav { display: flex; align-items: center; justify-content: space-between; gap: 1
 .brand { display: flex; align-items: center; gap: .55rem; text-decoration: none; font-weight: 800; font-size: .82rem; letter-spacing: .04em; color: var(--ink); }
 .nav-links { display: flex; gap: 1.25rem; font-size: .8rem; color: var(--mute); }
 .nav-links a:hover { color: var(--ink); }
-.btn { display: inline-flex; align-items: center; gap: .5rem; padding: .7rem 1.1rem; border-radius: .6rem; background: var(--amber); color: #1D1300; font-weight: 700; font-size: .82rem; border: 1px solid #D97A12; text-decoration: none; }
-.btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
-.btn-ghost:hover { border-color: var(--amber); color: var(--amber-pale); }
+.btn { display: inline-flex; align-items: center; gap: .5rem; padding: .7rem 1.1rem; border-radius: .6rem; background: var(--amber); color: #1D1300; font-weight: 700; font-size: .82rem; border: 1px solid #D97A12; text-decoration: none; transition: transform .16s, filter .16s, box-shadow .16s, border-color .16s, background .16s; }
+.btn:hover { filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 12px 28px -12px rgba(245,165,36,.45); }
+.btn-ghost { background: #15141A; color: var(--ink); border: 1px solid #2E2E38; }
+.btn-ghost:hover { border-color: #4A4A55; background: #1E1E26; transform: translateY(-1px); box-shadow: 0 10px 22px -14px rgba(0,0,0,.6); }
 h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; letter-spacing: -0.03em; line-height: 1.08; }
 .hero { padding: 4.5rem 0 2rem; }
 .eyebrow { font-size: .68rem; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); margin-bottom: 1rem; }
@@ -43,11 +44,9 @@ h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; letter-spacing: -0.0
 .plan-price { font-size: 2rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1; display: flex; align-items: baseline; gap: .35rem; }
 .plan-price small { font-size: .75rem; font-weight: 600; color: var(--mute); }
 .plan-sub { color: var(--mute); font-size: .85rem; line-height: 1.45; }
-.plan ul { list-style: none; padding: 0; display: grid; gap: .42rem; font-size: .8rem; color: var(--mute); }
+.plan ul { list-style: none; padding: 0; display: grid; gap: .42rem; font-size: .8rem; color: var(--mute); margin: .25rem 0 0; }
 .plan li b { color: var(--ink); }
-.plan a.btn { justify-content: center; min-height: 2.5rem; }
-.plan a.btn-ghost { background: transparent; border: 1px solid var(--line); color: var(--ink); }
-.plan a.btn-ghost:hover { border-color: var(--amber); color: var(--amber-pale); }
+.plan a.btn { justify-content: center; min-height: 2.5rem; margin-top: auto; }
 .pricing-note { margin-top: .9rem; color: var(--mute2); font-size: .72rem; }
 .faq { padding: 3rem 0 4rem; border-top: 1px solid var(--line); }
 .faq h2 { font-size: 1.4rem; letter-spacing: -0.02em; margin-bottom: 1.25rem; }
@@ -57,13 +56,14 @@ h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; letter-spacing: -0.0
 .faq dt { font-weight: 700; }
 .faq dd { color: var(--mute); font-size: .9rem; line-height: 1.55; }
 footer { border-top: 1px solid var(--line); padding: 2.5rem 0 1.5rem; color: var(--mute2); font-size: .78rem; }
-footer .wrap { display: grid; grid-template-columns: 1fr auto auto; gap: 2rem 4rem; align-items: start; }
-@media (max-width: 800px) { footer .wrap { grid-template-columns: 1fr; gap: 1.5rem; } }
+footer .wrap { display: grid; grid-template-columns: minmax(0, 24rem) auto auto; justify-content: start; gap: 2rem 5rem; align-items: start; }
+@media (max-width: 560px) { footer .wrap { grid-template-columns: 1fr; gap: 1.5rem; } }
 footer h4 { font-size: .66rem; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--mute); margin-bottom: .55rem; }
 footer ul { list-style: none; padding: 0; display: grid; gap: .35rem; }
 footer a { color: var(--mute); }
 footer a:hover { color: var(--ink); }
 :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+@media (max-width: 800px) { .nav-links { display: none; } }
 </style>
 </head>
 <body>
@@ -75,7 +75,6 @@ footer a:hover { color: var(--ink); }
   </a>
   <div class="nav-links">
     <a href="/#product">Product</a>
-    <a href="/tour">Tour</a>
     <a href="/app/community">Community</a>
     <a href="/pricing" style="color:var(--ink)" aria-current="page">Pricing</a>
     <a href="/console">Console</a>
@@ -91,11 +90,11 @@ footer a:hover { color: var(--ink); }
 <section class="hero">
   <div class="wrap">
     <p class="eyebrow">Pricing</p>
-    <h1>Free on your machine.<br>Inquiry for teams.</h1>
+    <h1>Free forever on your machine.<br>Fair when you scale.</h1>
     <p class="lede">
-      The Local tier is real and unlimited today — it costs nothing, runs everywhere, and needs no
-      account. Pro and Team add the cloud doors: hosted storage, community publishing, engineer quotas,
-      the admin console. Billing has not shipped yet; when it does, this page is the storefront.
+      Free is real and unlimited today — no account, no upload, no telemetry.
+      Pro and Team add the cloud doors: hosted storage, community publishing, engineer quotas, the admin console.
+      Billing has not shipped yet; when it does, this page is the storefront and charge starts, never retroactively.
     </p>
   </div>
 </section>
@@ -103,60 +102,9 @@ footer a:hover { color: var(--ink); }
 <section aria-label="Plans">
   <div class="wrap">
     <div class="plans">
-      <div class="plan">
-        <div class="plan-top"><span class="plan-name">Local</span></div>
-        <p class="plan-price">$0<small> forever</small></p>
-        <p class="plan-sub">Everything, on your machine. No account, no upload, no telemetry.</p>
-        <ul>
-          <li><b>Unlimited</b> projects, exports and simulations</li>
-          <li><b>28 workspaces</b> · <b>40 demos</b></li>
-          <li>Encrypted export · AES-256</li>
-          <li>CC-BY community templates, free to open</li>
-          <li>Offline sharing as .folio-template.json</li>
-        </ul>
-        <a class="btn" href="/app">Start free</a>
-      </div>
-      <div class="plan">
-        <div class="plan-top"><span class="plan-name">Pro</span></div>
-        <p class="plan-price">$19<small> user / mo</small></p>
-        <p class="plan-sub">Everything Local, plus the cloud doors.</p>
-        <ul>
-          <li><b>Cloud sync</b> — projects follow you</li>
-          <li><b>Publish</b> CC-BY / CC0 templates</li>
-          <li><b>Open</b> community designs in one click</li>
-          <li>Priority simulation queue</li>
-          <li>Usage ledger mirrored to your account</li>
-        </ul>
-        <a class="btn btn-ghost" href="mailto:hello@folio.dev?subject=Folio%20Pro">Get notified</a>
-      </div>
-      <div class="plan plan-highlight">
-        <div class="plan-top"><span class="plan-name" style="color:var(--amber)">Team · recommended</span></div>
-        <p class="plan-price">$49<small> user / mo</small></p>
-        <p class="plan-sub">Engineer quotas, operator controls and shared templates.</p>
-        <ul>
-          <li><b>Engineer quotas</b> — 100 projects · 200 exports/d · 1,000 sims/d · 2 GB</li>
-          <li>Shared team templates &amp; libraries</li>
-          <li>Admin console — members, policies, audit</li>
-          <li>Usage reporting &amp; export</li>
-          <li>Viewer seats at reduced quota</li>
-        </ul>
-        <a class="btn" href="mailto:founder@folio.dev?subject=Folio%20Team">Talk to us</a>
-      </div>
-      <div class="plan">
-        <div class="plan-top"><span class="plan-name">Enterprise</span></div>
-        <p class="plan-price">Custom</p>
-        <p class="plan-sub">Private deployment, SSO, unlimited quotas, SLA.</p>
-        <ul>
-          <li><b>SSO / SAML</b> &amp; directory sync</li>
-          <li>Private deployment — your VPC, your data</li>
-          <li><b>Unlimited</b> engineer quotas</li>
-          <li>Data-residency &amp; retention controls</li>
-          <li>Priority support, named engineer</li>
-        </ul>
-        <a class="btn btn-ghost" href="mailto:founder@folio.dev?subject=Folio%20Enterprise">Talk to us</a>
-      </div>
+<!-- PLANS_ROOT -->
     </div>
-    <p class="pricing-note">Pricing is illustrative until billing ships — the Local tier is real and unlimited today, and the limits above are the exact ones the app enforces. No seat minimums on Pro. Team requires a signed agreement.</p>
+    <p class="pricing-note"><!-- PRICING_NOTE --></p>
   </div>
 </section>
 
@@ -164,12 +112,12 @@ footer a:hover { color: var(--ink); }
   <div class="wrap">
     <h2>Questions an engineer asks first</h2>
     <dl>
-      <div class="faq-item"><dt>Is Local really free and unlimited?</dt><dd>Yes. The standalone build runs on your machine with no account, no upload, no telemetry. Your designs never leave your disk unless you publish or export them.</dd></div>
-      <div class="faq-item"><dt>When does billing start?</dt><dd>It has not shipped. Pro and Team will charge only when it does — never retroactively — and Local stays free and unlimited.</dd></div>
+      <div class="faq-item"><dt>Is Free really free and unlimited?</dt><dd>Yes. The standalone build runs on your machine with no account, no upload, no telemetry. Your designs never leave your disk unless you publish or export them.</dd></div>
+      <div class="faq-item"><dt>When does billing start?</dt><dd>It has not shipped. Pro and Team will charge only when it does — never retroactively — and Free stays free and unlimited.</dd></div>
       <div class="faq-item"><dt>What counts as a user?</dt><dd>A person with their own identity. On Team, an administrator assigns engineer, viewer or owner roles per person; quotas are enforced by the database, not by the UI.</dd></div>
-      <div class="faq-item"><dt>Can I buy Pro today?</dt><dd>No. There is no checkout yet, and this page does not fake one. Leave an address via the Pro link and you will be told when it opens.</dd></div>
-      <div class="faq-item"><dt>Do I keep my designs if I cancel Pro?</dt><dd>Always. Exports — STEP, Gerber, BOM, JSON, fab package — are free on every tier, and everything you made stays on your machine where Local still works.</dd></div>
-      <div class="faq-item"><dt>What about community designs?</dt><dd>CC-BY and CC0 licensed, free to open and adopt. Attribution travels with every copy. In Local you share them as files; in Pro you can publish them for the whole community.</dd></div>
+      <div class="faq-item"><dt>Can I buy Pro today?</dt><dd>No. There is no checkout yet, and this page does not fake one. Leave an address via the Pro or Team link and you will be told when billing opens.</dd></div>
+      <div class="faq-item"><dt>Do I keep my designs if I cancel Pro?</dt><dd>Always. Exports — STEP, Gerber, BOM, JSON, fab package — are free on every tier, and everything you made stays on your machine where Free still works.</dd></div>
+      <div class="faq-item"><dt>What about community designs?</dt><dd>CC-BY and CC0 licensed, free to open and adopt. Attribution travels with every copy. In Free you share them as files; in Pro you can publish them for the whole community.</dd></div>
       <div class="faq-item"><dt>What does the admin console do?</dt><dd>It manages the deployment: members, roles, quota policies, usage ledger and the audit trail. It is not the CAD, and a designer never sees it.</dd></div>
       <div class="faq-item"><dt>Can we run Folio in our VPC?</dt><dd>That is Enterprise: private deployment, SSO, data residency, retention controls, and a named engineer. Email founder@folio.dev.</dd></div>
     </dl>
@@ -182,16 +130,15 @@ footer a:hover { color: var(--ink); }
   <div class="wrap">
     <div>
       <p style="font-weight:700;color:var(--ink)">Folio</p>
-      <p style="margin-top:.3rem">From schematic to fab floor.<br />Templates CC-BY-4.0.</p>
+      <p style="margin-top:.3rem">From brief to shipped board.<br />© 2026 Folio. All rights reserved.</p>
       <p style="margin-top:.7rem;font-size:.7rem"><a href="mailto:founder@folio.dev">founder@folio.dev</a></p>
     </div>
     <div>
       <h4>Product</h4>
       <ul>
-        <li><a href="/app">Open the workbench</a></li>
+        <li><a href="/app">Workbench</a></li>
         <li><a href="/app/community">Community designs</a></li>
         <li><a href="/pricing">Pricing</a></li>
-        <li><a href="/tour">Tour</a></li>
         <li><a href="/console">Console</a></li>
         <li><a href="mailto:founder@folio.dev">Contact</a></li>
       </ul>
