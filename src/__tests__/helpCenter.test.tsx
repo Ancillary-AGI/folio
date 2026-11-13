@@ -12,6 +12,7 @@ function renderHelp(overrides: Partial<Parameters<typeof HelpCenter>[0]> = {}) {
     onStartTutorial: vi.fn(),
     onOpenDemos: vi.fn(),
     onOpenLimits: vi.fn(),
+    onRestartOnboarding: vi.fn(),
     ...overrides,
   }
   render(<HelpCenter {...props} />)
@@ -29,6 +30,13 @@ describe('help center', () => {
 
     fireEvent.click(starts[0])
     expect(props.onStartTutorial).toHaveBeenCalledWith(TUTORIALS[0])
+  })
+
+  it('offers the guided tour, wired to the onboarding restart', () => {
+    const props = renderHelp()
+    const tour = screen.getByRole('button', { name: /take the guided tour/i })
+    fireEvent.click(tour)
+    expect(props.onRestartOnboarding).toHaveBeenCalledTimes(1)
   })
 
   it('filters tutorials by domain and reports an honest empty state', () => {
@@ -94,6 +102,7 @@ describe('help center', () => {
       onStartTutorial: vi.fn(),
       onOpenDemos: vi.fn(),
       onOpenLimits: vi.fn(),
+      onRestartOnboarding: vi.fn(),
     }
     const { rerender } = render(<HelpCenter {...props} onClose={() => {}} />)
 

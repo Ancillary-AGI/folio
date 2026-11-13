@@ -123,7 +123,7 @@ function SectionHeader({ title, detail, children }: { title: string; detail: str
 }
 
 const PICKER_CLASS =
-  'min-h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50'
+  'min-h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50'
 
 function Picker({ label, value, onChange, children }: {
   label: string
@@ -906,7 +906,7 @@ export default function AdminConsole({ operator, api, onSignOut }: AdminConsoleP
                           inputMode="decimal"
                           placeholder="Unlimited"
                           aria-label={`${ROLE_LABELS[role]} ${label} limit`}
-                          className="mt-1 min-h-8 w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className="mt-1 min-h-8 w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
                           value={policyDraft[role][key]}
                           onChange={(event) => setPolicyDraft((current) => ({
                             ...current,

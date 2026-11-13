@@ -64,17 +64,31 @@ export default function PlanSection({ offlineMode, user }: PlanSectionProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60 bg-card/40">
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <td className="px-4 py-2 font-medium text-foreground">{row.label}</td>
-                  <td className="px-4 py-2 tabular-nums text-muted-foreground">
-                    {row.used === null ? 'Not measured' : row.used.toLocaleString()}
-                  </td>
-                  <td className="px-4 py-2 tabular-nums text-muted-foreground">
-                    {row.limit === null ? 'Unlimited' : `${row.limit.toLocaleString()} ${row.unit}`}
-                  </td>
-                </tr>
-              ))}
+              {rows.map((row) => {
+                const measurable = row.used !== null && row.limit !== null && row.limit > 0
+                const remaining = measurable ? Math.max(0, row.limit! - row.used!) : null
+                const percent = measurable ? Math.min(100, Math.round((row.used! / row.limit!) * 100)) : 0
+                const nearCap = measurable && remaining !== null && (remaining / row.limit!) <= 0.1
+                return (
+                  <tr key={row.id}>
+                    <td className="px-4 py-2.5 font-medium text-foreground">{row.label}</td>
+                    <td className="px-4 py-2.5">
+                      <span className="tabular-nums text-muted-foreground">
+                        {row.used === null ? 'Not measured' : row.used.toLocaleString()}
+                      </span>
+                      {measurable && (
+                        <span className="mt-1 block h-1 w-full max-w-[9rem] overflow-hidden rounded-full bg-muted" role="img" aria-label={`${percent}% of the ${row.limit!.toLocaleString()} ${row.unit} used`}>
+                          <span className={`block h-full rounded-full ${nearCap ? 'bg-warning' : 'bg-primary'}`} style={{ width: `${Math.max(2, percent)}%` }} />
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 tabular-nums text-muted-foreground">
+                      {row.limit === null ? 'Unlimited' : `${row.limit.toLocaleString()} ${row.unit}`}
+                      {nearCap && <span className="ml-1.5 font-semibold text-warning">nearly full</span>}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

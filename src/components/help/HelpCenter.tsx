@@ -34,6 +34,8 @@ interface HelpCenterProps {
   onStartTutorial: (tutorial: Tutorial) => void
   onOpenDemos: () => void
   onOpenLimits: () => void
+  /** Restart the CAD-first guided tour: the six chapters, from blank sheet to fab gate. */
+  onRestartOnboarding: () => void
 }
 
 const TABS: ReadonlyArray<{ id: HelpTab; label: string; icon: typeof BookOpen }> = [
@@ -109,6 +111,7 @@ export default function HelpCenter({
   onStartTutorial,
   onOpenDemos,
   onOpenLimits,
+  onRestartOnboarding,
 }: HelpCenterProps) {
   const [tab, setTab] = useState<HelpTab>(initialTab)
   const [query, setQuery] = useState('')
@@ -456,6 +459,10 @@ export default function HelpCenter({
             <span>{TUTORIALS.length} tutorials · {WORKSPACE_MODES.length} workspaces · {CAPABILITY_RECORDS.length} capability records</span>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
+            <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={onRestartOnboarding}>
+              <GraduationCap className="mr-1 h-3 w-3" aria-hidden="true" />
+              Take the guided tour
+            </Button>
             <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={onOpenDemos}>
               <FlaskConical className="mr-1 h-3 w-3" aria-hidden="true" />
               Demo gallery

@@ -54,11 +54,11 @@ describe('formatBytes', () => {
 })
 
 describe('resolvePlan', () => {
-  it('calls the standalone deployment what it is: local, this device', () => {
+  it('calls the standalone deployment what it is: free, this device', () => {
     const plan = resolvePlan(null, true)
     expect(plan.id).toBe('local')
-    expect(plan.label).toContain('Local')
-    expect(plan.detail).toMatch(/billing has not shipped/i)
+    expect(plan.label).toContain('Free')
+    expect(plan.detail).toMatch(/unlimited/i)
   })
 })
 

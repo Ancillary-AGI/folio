@@ -12,6 +12,7 @@ import {
   subjectLimits,
   type QuotaSubject,
 } from '../lib/admin/quotaPolicy'
+import { PRICING_TIER_NAME } from '../lib/pricing'
 import { isSupabaseConfigured } from '../lib/supabase'
 import type { User } from '../types'
 
@@ -34,6 +35,7 @@ const KEY_LABELS: Readonly<Record<string, string>> = {
   'folio.quotas.v1': 'Quota policy cache',
   'folio.local-profile': 'Local profiles',
   'folio.backups': 'Project backups',
+  'folio.notifications.v1': 'In-app notifications (bell)',
   'folio.offlineProjects': 'Designs stored on this device',
   'folio.agentJobs': 'Agent job queue',
   'folio.agentSessions': 'Agent sessions',
@@ -96,8 +98,8 @@ export function resolvePlan(user: User | null, offlineMode: boolean): ConsolePla
   if (offlineMode || !isSupabaseConfigured) {
     return {
       id: 'local',
-      label: 'Local — this device',
-      detail: 'No subscription, no invoice, nothing to manage. Billing has not shipped yet; when it does, this page is where your plan will live.',
+      label: `${PRICING_TIER_NAME.free} — this device`,
+      detail: 'No subscription, no invoice, nothing to manage. The free tier is the standalone build: free and unlimited on this device, with no billing to ship to you.',
       role: 'owner',
       limits: subjectLimits('owner'),
     }
@@ -170,3 +172,52 @@ export const USAGE_KIND_LABEL: Record<UsageKind, string> = {
   'admin.open': 'Admin console visits',
   'template.fork': 'Community designs made theirs',
 }
+
+/** Relative time, no fake precision: "just now", "12m ago", "3 days ago". */
+export function relativeTime(at: number, now = Date.now()): string {
+  const elapsed = Math.max(0, now - at)
+  const minutes = Math.floor(elapsed / 60000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days === 1) return 'yesterday'
+  if (days < 30) return `${days}d ago`
+  return new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+/** The newest events, capped — what the Overview "recent activity" list shows. */
+export function recentActivity(limit = 8, offlineUserId?: string): Array<{ event: ReturnType<typeof getUsageEvents>[number] }> {
+  const events = getUsageEvents()
+  const scoped = offlineUserId ? events.filter((event) => event.user === offlineUserId || event.user === 'offline-local') : events
+  return scoped.slice(-limit).reverse().map((event) => ({ event }))
+}
+
+/** CSV of the ledger window, one line per day with per-kind totals. */
+export function usageCsv(windowDays: number): { filename: string; csv: string } {
+  const since = Date.now() - windowDays * 24 * 60 * 60 * 1000
+  const scoped = getUsageEvents().filter((event) => event.at >= since)
+  const byDay = new Map<string, Map<UsageKind, number>>()
+  for (const event of scoped) {
+    const date = new Date(event.at).toISOString().slice(0, 10)
+    const kinds = byDay.get(date) ?? new Map<UsageKind, number>()
+    kinds.set(event.kind, (kinds.get(event.kind) ?? 0) + 1)
+    byDay.set(date, kinds)
+  }
+  const kinds = [...new Set(scoped.map((event) => event.kind))].sort()
+  const header = ['date', 'total', ...kinds]
+  const rows = [...byDay.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, kindsMap]) => {
+      const total = [...kindsMap.values()].reduce((sum, count) => sum + count, 0)
+      return [date, String(total), ...kinds.map((kind) => String(kindsMap.get(kind) ?? 0))]
+    })
+  const escape = (value: string): string => `"${value.replace(/"/g, '""')}"`
+  const csv = [header, ...rows].map((row) => row.map(escape).join(',')).join('\r\n')
+  return {
+    filename: `folio-usage-${windowDays}d-${new Date().toISOString().slice(0, 10)}.csv`,
+    csv,
+  }
+}
+

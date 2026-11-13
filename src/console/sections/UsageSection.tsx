@@ -3,8 +3,9 @@
  * writes. Windowed, attributed, and honest about being device-local.
  */
 import { useMemo, useState } from 'react'
-import { Activity, Cpu, Copy } from 'lucide-react'
-import { usageRollup, USAGE_KIND_LABEL } from '../consoleData'
+import { Activity, Cpu, Copy, Download } from 'lucide-react'
+import { usageRollup, usageCsv, USAGE_KIND_LABEL } from '../consoleData'
+import { downloadFile } from '../../lib/exportUtils'
 
 const WINDOWS = [7, 14, 30, 90] as const
 
@@ -25,18 +26,32 @@ export default function UsageSection() {
             From the local ledger — append-only, capped at 5,000 events. Cloud deployments mirror each event to the org ledger.
           </p>
         </div>
-        <div role="group" aria-label="Window" className="flex items-center gap-1 rounded-lg border border-border/70 bg-card/50 p-1">
-          {WINDOWS.map((days) => (
-            <button
-              key={days}
-              type="button"
-              onClick={() => setWindowDays(days)}
-              aria-pressed={windowDays === days}
-              className={`h-7 rounded-md px-3 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${windowDays === days ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-            >
-              {days}d
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const { filename, csv } = usageCsv(windowDays)
+              downloadFile(csv, filename, 'text/csv')
+            }}
+            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/70 bg-card/50 px-2.5 text-[10px] font-semibold text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            title="Download a CSV of this window, one row per day"
+          >
+            <Download className="h-3 w-3" aria-hidden="true" />
+            CSV
+          </button>
+          <div role="group" aria-label="Window" className="flex items-center gap-1 rounded-lg border border-border/70 bg-card/50 p-1">
+            {WINDOWS.map((days) => (
+              <button
+                key={days}
+                type="button"
+                onClick={() => setWindowDays(days)}
+                aria-pressed={windowDays === days}
+                className={`h-7 rounded-md px-3 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${windowDays === days ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {days}d
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -61,6 +76,26 @@ export default function UsageSection() {
                 <Icon className="mx-auto h-4 w-4 text-primary" aria-hidden="true" />
                 <p className="mt-2 text-xl font-extrabold tabular-nums text-foreground sm:text-2xl">{value.toLocaleString()}</p>
                 <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground sm:text-[11px]">{label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Headline stats for the window. */}
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 text-center">
+            {(() => {
+              const counts = summary.daily.map((day) => day.count)
+              const activeDays = counts.filter((count) => count > 0).length
+              const peak = Math.max(0, ...counts)
+              const average = (rollup.totalEvents / windowDays).toFixed(1)
+              return [
+                { value: String(activeDays), label: `Active days / ${windowDays}` },
+                { value: String(peak), label: 'Peak day' },
+                { value: average, label: 'Avg per day' },
+              ]
+            })().map(({ value, label }) => (
+              <div key={label} className="rounded-xl border border-border/70 bg-card/40 p-2.5 sm:p-3">
+                <p className="text-lg font-extrabold tabular-nums text-foreground sm:text-xl">{value}</p>
+                <p className="mt-0.5 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground sm:text-[10px]">{label}</p>
               </div>
             ))}
           </div>

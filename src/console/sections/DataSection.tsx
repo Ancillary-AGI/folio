@@ -1,21 +1,39 @@
 /**
- * Data — what this browser profile actually holds, key by key, plus the one
- * escape hatch a local-first tool owes: a complete download of your data.
+ * Data — what this browser profile actually holds, key by key, plus the two
+ * escape hatches a local-first tool owes: a complete download of your data,
+ * and a real wipe of it.
  */
-import { useMemo } from 'react'
-import { Database, Download, HardDrive } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Database, Download, HardDrive, Trash2 } from 'lucide-react'
 import { Button } from '../../components/ui/button'
+import { Input } from '../../components/ui/input'
 import { formatBytes, storageSnapshot, exportLocalData } from '../consoleData'
 import { downloadFile } from '../../lib/exportUtils'
 
 const SHOWN_KEYS = 12
 
+/** Keys this app owns. Anything not listed here belongs to something else and is left alone. */
+const FOLIO_KEY_PREFIXES = ['folio.', 'folio-', 'circuit-cad-']
+
 export default function DataSection() {
   const snapshot = useMemo(() => storageSnapshot(), [])
+  const folioKeys = useMemo(
+    () => snapshot.entries.map((entry) => entry.key).filter((key) => FOLIO_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))),
+    [snapshot],
+  )
+  const [eraseOpen, setEraseOpen] = useState(false)
+  const [typed, setTyped] = useState('')
+  const readyToErase = typed.trim().toLowerCase() === 'erase'
 
   const download = () => {
     const { filename, json } = exportLocalData()
     downloadFile(json, filename, 'application/json')
+  }
+
+  const eraseAll = () => {
+    for (const key of folioKeys) localStorage.removeItem(key)
+    // Reload: the app must start from a clean slate, not a half-erased cache.
+    window.location.assign('/console')
   }
 
   return (
@@ -65,12 +83,56 @@ export default function DataSection() {
         )}
       </section>
 
+      <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <Trash2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-destructive" aria-hidden="true" />
+            <div>
+              <h2 className="text-sm font-bold text-foreground">Erase this device's Folio data</h2>
+              <p className="mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
+                Deletes every key this app owns from this browser profile: your designs, checkpoints, VCS branches,
+                backups, the usage ledger and local profiles. Other keys on this device are left alone.
+                There is no recovery — download your data first if you want it.
+              </p>
+            </div>
+          </div>
+          {!eraseOpen && (
+            <Button variant="outline" size="sm" onClick={() => setEraseOpen(true)} className="border-destructive/40 text-destructive hover:bg-destructive/10">
+              Erase…
+            </Button>
+          )}
+        </div>
+        {eraseOpen && (
+          <div className="mt-3 border-t border-destructive/20 pt-3">
+            <label htmlFor="erase-confirm" className="text-[11px] font-semibold uppercase tracking-[0.14em] text-destructive">
+              Type erase to confirm — {folioKeys.length} keys will be removed
+            </label>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              <Input
+                id="erase-confirm"
+                value={typed}
+                onChange={(event) => setTyped(event.target.value)}
+                placeholder="erase"
+                autoFocus
+                autoComplete="off"
+                aria-label="Type erase to confirm"
+                className="max-w-[12rem]"
+              />
+              <Button variant="outline" size="sm" disabled={!readyToErase} onClick={eraseAll} className="border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/20">
+                Erase everything
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => { setEraseOpen(false); setTyped('') }}>Cancel</Button>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="flex items-start gap-3 rounded-xl border border-border/70 bg-card/40 p-4">
         <Database className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
         <p className="text-xs leading-relaxed text-muted-foreground">
           This is this browser profile only — a different device or browser starts empty. Cloud designs, history
-          and usage live in the deployment and are managed there, not here. Nothing is deleted from this page;
-          downloads are copies.
+          and usage live in the deployment and are managed there, not here. Wipe is keyboard accessible; downloads
+          are copies, not moves.
         </p>
       </div>
     </div>

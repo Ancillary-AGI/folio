@@ -81,6 +81,10 @@ import CommunityPage from './components/community/CommunityPage'
 import PublishDesignDialog from './components/community/PublishDesignDialog'
 import { useLocalProfileStore, useActiveProfile } from './stores/useLocalProfileStore'
 import UserPresence from './components/collaboration/UserPresence'
+import NotificationBell from './components/workspace/NotificationBell'
+import { watchAgentJobsForNotifications } from './lib/notifications/agentNotifications'
+import { notifyNotification } from './lib/notifications/notifications'
+import { triggerHaptic } from './lib/haptics'
 import AgentStatusPill from './components/workspace/AgentStatusPill'
 import AgentStatusSegment from './components/workspace/AgentStatusSegment'
 import { useTheme } from './lib/theme/useTheme'
@@ -584,8 +588,14 @@ function App() {
   useEffect(() => {
     agentJobRunner.recover()
     agentJobRunner.start()
-    return () => agentJobRunner.stop()
+    return () => {
+      agentJobRunner.stop()
+    }
   }, [])
+
+  // In-app notifications: the bell surfaces what the workbench just did —
+  // agent verdicts, exports, community opens — straight from the stores.
+  useEffect(() => watchAgentJobsForNotifications(), [])
 
   // ── NLP intent → store dispatch ─────────────────────────────────────────────
 
@@ -936,6 +946,11 @@ function App() {
       demoId: demoId ?? undefined,
       workspaceMode: template.workspaceMode,
       origin: currentRoute().isCommunity ? 'community' : 'launcher',
+    })
+    notifyNotification({
+      kind: 'community',
+      title: `Opened ${template.name} for preview`,
+      detail: 'Nothing was saved to your projects. Use Make it mine when you want to keep it.',
     })
     setShowProjectManager(false)
     setShowCommunity(false)
@@ -1605,6 +1620,21 @@ function App() {
 
   const finishExport = (format: string) => {
     recordPlatformUsage('export.run', user, offlineMode, { format })
+    const labels: Record<string, string> = {
+      png: 'Image',
+      netlist: 'Netlist',
+      json: 'JSON',
+      bom: 'BOM',
+      gerber: 'Gerber',
+      'drawing-svg': 'CAD drawing',
+      encrypted: 'Encrypted JSON',
+    }
+    notifyNotification({
+      kind: 'export',
+      title: `${labels[format] ?? format} export ready`,
+      detail: currentProject ? `${currentProject.name} — downloaded to this device.` : undefined,
+    })
+    triggerHaptic('success')
     setShowExportMenu(false)
   }
 
@@ -1831,6 +1861,12 @@ function App() {
         'application/json',
       )
       recordPlatformUsage('export.run', user, offlineMode, { format: 'encrypted-json' })
+      notifyNotification({
+        kind: 'export',
+        title: 'Encrypted JSON export ready',
+        detail: `${currentProject.name} — encrypted with ${encrypted.algorithm}, downloaded to this device.`,
+      })
+      triggerHaptic('success')
       setExportStatus(`Encrypted with ${encrypted.algorithm}.`)
     } catch (error) {
       setExportStatus(error instanceof Error ? error.message : 'Encrypted export failed.')
@@ -1910,6 +1946,7 @@ function App() {
           onStartTutorial={(tutorial) => { void startTutorial(tutorial) }}
           onOpenDemos={() => { setShowHelp(false); setShowDemoGallery(true) }}
           onOpenLimits={() => { setShowHelp(false); openLimitsRegister() }}
+          onRestartOnboarding={() => { setShowHelp(false); restartOnboarding() }}
         />
       )}
       {activeTutorial && (
@@ -2247,6 +2284,10 @@ function App() {
               </div>
             )}
           </div>
+
+          <HoverHelp topicId="header.notifications" placement="bottom">
+            <NotificationBell />
+          </HoverHelp>
 
           <HoverHelp topicId="header.help" placement="bottom">
             <Button

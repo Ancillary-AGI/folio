@@ -155,6 +155,12 @@ export const HELP_TOPICS = [
     description: 'Show or hide the dock beside the workspace. It holds the parts that domain places: symbols, ISO parts, transfer functions, code. Workspaces that design nothing have no dock.',
   },
   {
+    id: 'header.notifications',
+    group: 'header',
+    title: 'Notifications',
+    description: 'Agent verdicts, export outcomes and community previews from this device, gathered in one place. Local to your browser; nothing is sent anywhere.',
+  },
+  {
     id: 'header.help',
     group: 'header',
     title: 'Help and tutorials',

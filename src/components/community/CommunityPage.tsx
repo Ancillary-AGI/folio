@@ -172,7 +172,7 @@ export default function CommunityPage({ onBack, onOpenTemplate, onImportFile }: 
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search designs, authors, disciplines…"
                 aria-label="Search community templates"
-                className="h-9 w-full rounded-md border border-input bg-background pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="h-9 w-full rounded-md border border-input bg-background pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary/60"
               />
             </label>
             <select

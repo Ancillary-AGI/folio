@@ -27,7 +27,7 @@ describe('ConsoleApp (standalone deployment)', () => {
     expect(screen.getByRole('heading', { name: 'Overview' })).toBeInTheDocument()
     expect(screen.getAllByText('Ada Lovelace').length).toBeGreaterThan(0)
     expect(screen.getByText(/recorded actions/)).toBeInTheDocument()
-    expect(screen.getAllByText(/Local — this device/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Free — this device/).length).toBeGreaterThan(0)
   })
 
   it('switches sections via the rail', () => {
