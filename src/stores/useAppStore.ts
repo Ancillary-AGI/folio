@@ -343,6 +343,28 @@ export const useAppStore = create<AppState>()(
           simulationPanelOpen: state.simulationPanelOpen,
         }),
         /**
+         * A stored blob may come from a release whose `settings` partialize
+         * was thinner than today's (a browser profile that predates the full
+         * registry, or a partial write from a pre-paint theme script).
+         * Same-version payloads skip `migrate` entirely, so without this, a
+         * stale blob can carry `{ theme }` alone and every consumer reading
+         * `state.settings[key]` gets undefined — e.g. a 3D-viewer slider whose
+         * `.toFixed` then throws and the workspace never paints. Merge over
+         * the defaults instead: unknown keys are dropped, known ones clamped.
+         */
+        merge: (persisted, current) => {
+          const stored = (persisted ?? {}) as Partial<AppState> & { viewport?: Partial<ViewportState> }
+          const merged = { ...current, ...stored }
+          merged.settings = normalizeSettings(stored.settings ?? current.settings)
+          merged.viewport = {
+            zoom: stored.viewport?.zoom ?? 1,
+            pan: stored.viewport?.pan ?? { x: 0, y: 0 },
+          }
+          merged.sidebarOpen = stored.sidebarOpen ?? true
+          merged.simulationPanelOpen = stored.simulationPanelOpen ?? false
+          return merged
+        },
+        /**
          * Rebuild the persisted shape from the keys `partialize` writes, so a
          * payload from an earlier release cannot smuggle back a piece of state the
          * store no longer has (the old properties-panel and library-dock toggles,

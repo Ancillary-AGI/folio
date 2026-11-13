@@ -159,22 +159,22 @@ export default function LocalProfileGate() {
             <div className="relative flex justify-center"><span className="bg-background px-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground/80">Or use a cloud account</span></div>
           </div>
 
-          <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="mt-4 space-y-2">
             {[
-              { label: 'Google', icon: GOOGLE_PATH },
-              { label: 'GitHub', icon: GITHUB_PATH },
-              { label: 'X Industries', icon: XINDUSTRIES_PATH },
+              { label: 'Continue with Google', icon: GOOGLE_PATH },
+              { label: 'Continue with GitHub', icon: GITHUB_PATH },
+              { label: 'Continue with X Industries', icon: XINDUSTRIES_PATH },
             ].map(({ label, icon }) => (
               <button
                 key={label}
                 type="button"
                 disabled
                 title={CLOUD_TITLE}
-                aria-label={`${label} sign-in — ${CLOUD_TITLE}`}
-                className="flex h-11 cursor-not-allowed flex-col items-center justify-center gap-0.5 rounded-lg border border-border/70 bg-card/40 text-muted-foreground/50"
+                aria-label={`${label} — ${CLOUD_TITLE}`}
+                className="flex h-11 w-full cursor-not-allowed items-center gap-3 rounded-lg border border-border/70 bg-card/40 px-4 text-sm font-semibold text-muted-foreground/50"
               >
                 {icon}
-                <span className="text-[8px] font-medium uppercase tracking-[0.14em]">{label}</span>
+                <span>{label}</span>
               </button>
             ))}
           </div>

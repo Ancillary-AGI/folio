@@ -7,9 +7,10 @@
 <meta name="description" content="Folio, stated plainly. Free is forever and unlimited on your machine. Pro and Team add the cloud doors: hosted storage, publishing, the admin console. Billing has not shipped; prices below are what it will charge." />
 <meta name="theme-color" content="#07080D" />
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-<link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="preload" href="/fonts/Archivo-Variable.ttf" as="font" type="font/ttf" crossorigin />
 <style>
-@font-face { font-family: 'InterVariable'; src: url('/fonts/InterVariable.woff2') format('woff2'); font-display: swap; }
+@font-face { font-family: 'Archivo'; src: url('/fonts/Archivo-Variable.ttf') format('truetype-variations'); font-weight: 100 900; font-stretch: 62% 125%; font-display: swap; }
+html { scroll-behavior: smooth; }
 * { margin: 0; box-sizing: border-box; }
 :root {
   --bg: #07080D;
@@ -21,7 +22,7 @@
   --amber: #F5A524;
   --amber-pale: #FFD98A;
 }
-body { background: var(--bg); color: var(--ink); font-family: InterVariable, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+body { background: var(--bg); color: var(--ink); font-family: Archivo, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
 a { color: inherit; text-decoration: none; }
 .wrap { max-width: 1160px; margin: 0 auto; padding: 0 1.25rem; }
 nav { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.1rem 1.5rem; border-bottom: 1px solid var(--line); }
@@ -55,16 +56,33 @@ h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; letter-spacing: -0.0
 @media (min-width: 760px) { .faq-item { grid-template-columns: 22rem 1fr; gap: 2rem; } }
 .faq dt { font-weight: 700; }
 .faq dd { color: var(--mute); font-size: .9rem; line-height: 1.55; }
-footer { border-top: 1px solid var(--line); padding: 2.5rem 0 1.5rem; color: var(--mute2); font-size: .78rem; }
-footer .wrap { display: grid; grid-template-columns: minmax(0, 24rem) auto auto; justify-content: start; gap: 2rem 5rem; align-items: start; }
-@media (max-width: 560px) { footer .wrap { grid-template-columns: 1fr; gap: 1.5rem; } }
-footer h4 { font-size: .66rem; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--mute); margin-bottom: .55rem; }
-footer ul { list-style: none; padding: 0; display: grid; gap: .35rem; }
-footer a { color: var(--mute); }
-footer a:hover { color: var(--ink); }
+/* ── Footer ────────────────────────── */
+.site-footer { border-top: 1px solid var(--line); padding: 1.4rem 0; color: var(--mute); font-size: .78rem; }
+.foot-inner { display: flex; align-items: center; justify-content: space-between; gap: 2rem; flex-wrap: wrap; }
+.foot-brand { display: flex; align-items: center; gap: .5rem; text-decoration: none; }
+.foot-word { font-weight: 700; font-size: .8rem; letter-spacing: .14em; text-transform: uppercase; color: var(--ink); }
+.foot-links { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+.foot-links a { color: var(--mute); text-decoration: none; transition: color .15s; }
+.foot-links a:hover { color: var(--ink); }
+.foot-bottom { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--line); font-size: .72rem; color: var(--mute2); }
 :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 @media (max-width: 800px) { .nav-links { display: none; } }
+
+/* ── Motion — rise on arrival, everything respects reduced motion ────────── */
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes drift { 0%, 100% { opacity: .85; } 50% { opacity: 1; } }
+.anim { animation: rise .6s cubic-bezier(.2, .7, .2, 1) both; }
+.anim-1 { animation-delay: .04s; }
+.anim-2 { animation-delay: .12s; }
+.anim-3 { animation-delay: .2s; }
+.anim-4 { animation-delay: .3s; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .anim { animation: none !important; }
+  .hero::before { animation: none !important; }
+}
 </style>
+
 </head>
 <body>
 
@@ -89,9 +107,9 @@ footer a:hover { color: var(--ink); }
 
 <section class="hero">
   <div class="wrap">
-    <p class="eyebrow">Pricing</p>
-    <h1>Free forever on your machine.<br>Fair when you scale.</h1>
-    <p class="lede">
+    <p class="eyebrow anim anim-1">Pricing</p>
+    <h1 class="anim anim-2">Free forever on your machine.<br>Fair when you scale.</h1>
+    <p class="lede anim anim-3">
       Free is real and unlimited today — no account, no upload, no telemetry.
       Pro and Team add the cloud doors: hosted storage, community publishing, engineer quotas, the admin console.
       Billing has not shipped yet; when it does, this page is the storefront and charge starts, never retroactively.
@@ -126,34 +144,24 @@ footer a:hover { color: var(--ink); }
 
 </main>
 
-<footer>
-  <div class="wrap">
-    <div>
-      <p style="font-weight:700;color:var(--ink)">Folio</p>
-      <p style="margin-top:.3rem">From brief to shipped board.<br />© 2026 Folio. All rights reserved.</p>
-      <p style="margin-top:.7rem;font-size:.7rem"><a href="mailto:founder@folio.dev">founder@folio.dev</a></p>
-    </div>
-    <div>
-      <h4>Product</h4>
-      <ul>
-        <li><a href="/app">Workbench</a></li>
-        <li><a href="/app/community">Community designs</a></li>
-        <li><a href="/pricing">Pricing</a></li>
-        <li><a href="/console">Console</a></li>
-        <li><a href="mailto:founder@folio.dev">Contact</a></li>
-      </ul>
-    </div>
-    <div>
-      <h4>Company</h4>
-      <ul>
-        <li><a href="mailto:founder@folio.dev">About</a></li>
-        <li><a href="mailto:founder@folio.dev">Security</a></li>
-        <li><a href="mailto:founder@folio.dev">Responsible AI</a></li>
-        <li><a href="mailto:founder@folio.dev">Privacy</a></li>
-      </ul>
-    </div>
+<footer class="site-footer" aria-label="Site footer">
+  <div class="wrap foot-inner">
+    <a class="foot-brand" href="/" aria-label="Folio — home">
+      <svg viewBox="0 0 96 96" aria-hidden="true" style="height:20px;width:auto"><path fill="#F5A524" fill-rule="evenodd" d="M10 0H58L96 38V86L86 96H10L0 86V10ZM26 20H64L70 26V40H46V46H56L62 52V64H46V82H26Z"/></svg>
+      <span class="foot-word">Folio</span>
+    </a>
+    <nav class="foot-links" aria-label="Site">
+      <a href="/app">Workbench</a>
+      <a href="/app/community">Community</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/console">Console</a>
+    </nav>
+  </div>
+  <div class="wrap foot-bottom">
+    <span>© 2026 Folio. All rights reserved.</span>
   </div>
 </footer>
+
 
 </body>
 </html>
