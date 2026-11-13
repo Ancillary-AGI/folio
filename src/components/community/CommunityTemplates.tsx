@@ -1,7 +1,7 @@
 /**
- * Community templates — the launcher's answer to "someone already solved it".
+ * Community designs — the launcher's answer to "someone already solved it".
  *
- * Shows the CC-licensed templates to open, whole card clickable. The dedicated
+ * Shows the CC-licensed designs to open, whole card clickable. The dedicated
  * /community page owns search, filtering and the full grid; this section
  * stays compact and links there. Opening never creates a project — the design
  * lands attributed and read-only; it becomes the user's only when they make it
@@ -37,15 +37,15 @@ export default function CommunityTemplates({ onOpenTemplate, onImportFile, onBro
           Start from proven designs
         </h2>
         <p className="launcher-community__sub">
-          Open a CC-licensed template and look around — it becomes yours when you
+          Open a CC-licensed design and look around — it becomes yours when you
           decide to make it yours, not before.
         </p>
         <div className="launcher-community__actions">
           <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => importDialog.setOpen(true)} aria-label="Import a template file">
             <Upload className="h-3.5 w-3.5" aria-hidden="true" /> Import file
           </Button>
-          <Button variant="ghost" size="sm" className="gap-1.5" onClick={exportTemplate} aria-label="Export the current design as a template file">
-            <Download className="h-3.5 w-3.5" aria-hidden="true" /> Export template
+          <Button variant="ghost" size="sm" className="gap-1.5" onClick={exportTemplate} aria-label="Export the current design as a shareable file">
+            <Download className="h-3.5 w-3.5" aria-hidden="true" /> Export design
           </Button>
           {cloudMode && (
             <Button size="sm" className="gap-1.5" onClick={() => publish.setOpen(true)} aria-label="Publish the current design to the community">
@@ -98,7 +98,7 @@ export default function CommunityTemplates({ onOpenTemplate, onImportFile, onBro
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
         {!cloudMode && (
           <p className="launcher-community__note">
-            This build runs offline — templates ship with the app and travel as .json files.
+            This build runs offline — curated designs ship with the app and travel as .json files.
           </p>
         )}
         {onBrowseAll && (
@@ -107,7 +107,7 @@ export default function CommunityTemplates({ onOpenTemplate, onImportFile, onBro
             onClick={onBrowseAll}
             className="ml-auto inline-flex items-center gap-1.5 text-xs font-semibold text-primary transition-colors hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            Browse all {allTemplates.length} templates
+            Browse all {allTemplates.length} designs
             <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         )}

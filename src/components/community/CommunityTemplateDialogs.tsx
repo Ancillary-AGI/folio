@@ -1,5 +1,5 @@
 /**
- * Publish and import dialogs for community templates.
+ * Publish and import dialogs for community designs.
  *
  * Shared by the launcher section and the /community page so both surfaces
  * behave identically — one publish form, one import path.
@@ -40,7 +40,7 @@ export default function CommunityTemplateDialogs({ controller }: CommunityTempla
           </div>
           <div className="space-y-3 p-4">
             <p id="publish-desc" className="text-xs leading-relaxed text-muted-foreground">
-              Anyone can open a published template. The licence you choose travels with
+              Anyone can open a published design. The licence you choose travels with
               every copy — there is no relicensing later.
             </p>
             <div>
@@ -78,7 +78,7 @@ export default function CommunityTemplateDialogs({ controller }: CommunityTempla
             <div className="flex items-center justify-end gap-2 border-t border-border pt-3">
               <Button variant="ghost" size="sm" onClick={() => publish.setOpen(false)}>Cancel</Button>
               <Button size="sm" onClick={() => void publish.submit()} disabled={publish.publishing || !publish.name.trim()}>
-                {publish.publishing ? 'Publishing…' : 'Publish template'}
+                {publish.publishing ? 'Publishing…' : 'Publish design'}
               </Button>
             </div>
           </div>

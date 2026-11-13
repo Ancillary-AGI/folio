@@ -47,7 +47,7 @@ export const PRICING_TIERS: ReadonlyArray<PricingTier> = [
       '<b>Unlimited</b> projects, exports and simulations',
       '<b>28 workspaces</b> · <b>40 demos</b>',
       'Encrypted export · AES-256',
-      'CC-BY community templates, free to open',
+      'CC-BY community designs, free to open',
       'Offline sharing as .folio-template.json',
     ],
     cta: { label: 'Start designing', href: '/app', variant: 'primary' },
@@ -60,7 +60,7 @@ export const PRICING_TIERS: ReadonlyArray<PricingTier> = [
     cadence: ' user / mo',
     bullets: [
       '<b>Cloud sync</b> — projects follow you',
-      '<b>Publish</b> CC-BY / CC0 templates',
+      '<b>Publish</b> your design CC-BY / CC0',
       '<b>Open</b> community designs in one click',
       'Priority simulation queue',
       'Usage ledger mirrored to your account',
@@ -70,12 +70,12 @@ export const PRICING_TIERS: ReadonlyArray<PricingTier> = [
   {
     id: 'team',
     name: 'Team · recommended',
-    tagline: 'Engineer quotas, operator controls and shared templates.',
+    tagline: 'Engineer quotas, operator controls and shared designs.',
     price: '$49',
     cadence: ' user / mo',
     bullets: [
       '<b>Engineer quotas</b> — 100 projects · 200 exports/d · 1,000 sims/d · 2 GB',
-      'Shared team templates &amp; libraries',
+      'Shared team designs &amp; libraries',
       'Admin console — members, policies, audit',
       'Usage reporting &amp; export',
       'Viewer seats at reduced quota',

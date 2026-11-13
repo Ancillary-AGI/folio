@@ -131,15 +131,15 @@ export default function CommunityPage({ onBack, onOpenTemplate, onImportFile }: 
             Proven designs, one open away.
           </h1>
           <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Open-licensed templates from the Folio team and the community. Open one inside your
+            Open-licensed designs from the Folio team and the community. Open one inside your
             workspace — it becomes yours when you decide to make it yours. The licence and the
             attribution travel with every copy.
           </p>
           <dl className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
             <div className="flex items-baseline gap-1.5">
-              <dt className="sr-only">Templates</dt>
+              <dt className="sr-only">Designs</dt>
               <dd className="text-base font-bold text-foreground">{allTemplates.length}</dd>
-              <dd>templates</dd>
+              <dd>designs</dd>
             </div>
             <div className="flex items-baseline gap-1.5">
               <dt className="sr-only">Disciplines covered</dt>
@@ -165,20 +165,20 @@ export default function CommunityPage({ onBack, onOpenTemplate, onImportFile }: 
           <div className="flex flex-wrap items-center gap-2">
             <label className="relative min-w-0 flex-1 sm:min-w-56">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-              <span className="sr-only">Search community templates</span>
+              <span className="sr-only">Search community designs</span>
               <input
                 type="text"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search designs, authors, disciplines…"
-                aria-label="Search community templates"
+                aria-label="Search community designs"
                 className="h-9 w-full rounded-md border border-input bg-background pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary/60"
               />
             </label>
             <select
               value={sort}
               onChange={(event) => setSort(event.target.value as SortKey)}
-              aria-label="Sort templates"
+              aria-label="Sort designs"
               className="h-9 rounded-md border border-input bg-background px-2 text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {(Object.keys(SORT_LABEL) as SortKey[]).map((key) => (

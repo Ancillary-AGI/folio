@@ -44,8 +44,8 @@ rules); it makes no model or network call, and its output is advisory.
   by family. A scenario seeds the stores or stages a one-shot request for the
   panel that owns the feature, so the demo exercises the real engine rather than
   a screenshot.
-- **Community templates** (launcher → **Start from proven designs**, and the
-  dedicated [`/community`](#) page): CC-BY templates — open one and it lands
+- **Community designs** (launcher → **Start from proven designs**, and the
+  dedicated [`/community`](#) page): CC-BY designs — open one and it lands
   attributed and read-only in the workbench; it becomes your project only
   when you choose to make it yours. Curated seeds ship in the box, cloud
   designs open with credit, and `.folio-template.json` travels by hand anytime.

@@ -67,7 +67,7 @@ export default function PublishDesignDialog({ open, onClose }: PublishDesignDial
     event.preventDefault()
     if (busy) return
     if (!cloudMode) {
-      setError('Publishing needs the Folio cloud. Export a .folio-template.json instead and hand it off — import does exactly the same fork, just by file.')
+      setError('Publishing needs the Folio cloud. Export a .folio-template.json instead and hand it off — import does exactly the same thing, just by file.')
       return
     }
     setBusy(true)
@@ -144,7 +144,7 @@ export default function PublishDesignDialog({ open, onClose }: PublishDesignDial
         </div>
         <div>
           <Label htmlFor="publish-desc">Description</Label>
-          <Input id="publish-description" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={600} placeholder="What does it do — and what should a forker know before opening it?" />
+          <Input id="publish-description" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={600} placeholder="What does it do — and what should someone know before opening it?" />
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div>

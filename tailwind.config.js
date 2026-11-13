@@ -206,7 +206,7 @@ export default {
         // titles, controls and data, so hierarchy comes from size/weight/colour
         // instead of from switching typefaces.
         sans: [
-          "InterVariable",
+          "Archivo",
           "Inter",
           "Segoe UI Variable Text",
           "Segoe UI",
@@ -220,7 +220,7 @@ export default {
         // Mono is reserved for code, netlists and keycaps — the places where a
         // fixed advance is information, not decoration.
         mono: [
-          "JetBrains Mono",
+          "Archivo",
           "SFMono-Regular",
           "Cascadia Mono",
           "Consolas",

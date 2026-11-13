@@ -30,7 +30,7 @@ describe('CommunityPage', () => {
 
   it('narrows the grid with search and restores it when cleared', async () => {
     render(<CommunityPage {...baseProps} />)
-    const search = screen.getByRole('textbox', { name: /search community templates/i })
+    const search = screen.getByRole('textbox', { name: /search community designs/i })
 
     fireEvent.change(search, { target: { value: 'rectifier' } })
     expect(screen.getByText('Half-wave rectifier, start to gerber')).toBeInTheDocument()

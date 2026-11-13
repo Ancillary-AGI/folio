@@ -59,7 +59,7 @@
   measured"; paid plans and credits honestly marked as not shipped), Data (key-by-key
   byte accounting plus a full JSON download of the device's folio.* keys).
   Signed-out state reuses the same gate as the workbench.
-- **Community templates** (`/app/community` page; publish from the CAD's More
+- **Community designs** (`/app/community` page; publish from the CAD's More
   tools → Publish to community): open a proven design —
   it opens attributed and read-only in the workbench and becomes the user's
   own project when they make it theirs (never before). Curated CC-BY seeds

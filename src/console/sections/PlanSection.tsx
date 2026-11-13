@@ -105,7 +105,7 @@ export default function PlanSection({ offlineMode, user }: PlanSectionProps) {
           <p className="font-semibold text-foreground">About paid plans and credits</p>
           <p className="mt-1">
             Billing has not shipped yet, and nothing on this page can charge you. The published
-            pricing is illustrative; the Local tier is real and unlimited today. When plans and
+            pricing is announced not charged; the Free tier is real and unlimited today. When plans and
             credits ship, this page becomes the place to change subscription, see invoices and
             manage credits — it will not be a settings panel buried in the CAD.
           </p>

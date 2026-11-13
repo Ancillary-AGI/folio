@@ -12,7 +12,7 @@
  *   /app/projects             project list
  *   /app/projects/:id         that project's schematic
  *   /app/projects/:id/pcb      …and every other workspace
- *   /app/community            community templates — search, open, publish
+ *   /app/community            community designs — search, open, publish
  *
  * The product lives under /app so the site root can be the marketing site
  * served from landing.html. URLs are server-independent. A static host must

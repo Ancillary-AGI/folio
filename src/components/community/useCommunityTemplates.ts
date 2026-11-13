@@ -1,5 +1,5 @@
 /**
- * Shared behaviour for community templates.
+ * Shared behaviour for community designs.
  *
  * One implementation backs both the launcher's "Start from proven designs"
  * section and the dedicated /community page. Opening a template never creates

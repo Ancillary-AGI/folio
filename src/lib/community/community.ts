@@ -1,17 +1,17 @@
 /**
- * Community templates — designs other people proved, free to fork.
+ * Community designs — designs other people proved, open for you to adopt.
  *
- * Two families of template live here:
+ * Two families live here:
  *
  *   · Curated seeds — hand-picked Folio demos, CC-BY-4.0, shipped in the box.
- *     Forking one is exactly opening the demo: a new project is created and
- *     the demo is bootstrapped into it, so the fork path is the same code the
+ *     Opening one is exactly opening the demo: a new project is created and
+ *     the demo is bootstrapped into it, so the open path is the same code the
  *     gallery already exercises.
  *
- *   · Community templates — projects people published from their own
- *     workspaces under an open licence. Reads and forks go through Supabase
+ *   · Community designs — projects people published from their own
+ *     workspaces under an open licence. Reads and adoptions go through Supabase
  *     when a cloud backend is configured; publishing is an explicit act that
- *     names the licence the fork carries.
+ *     names the licence the adopted design carries.
  *
  * The payload is one shape everywhere:
  *
@@ -21,8 +21,8 @@
  *     createdAt, design: { components, wires, pcbLayout, ... } // CheckpointData
  *   }
  *
- * `design` is exactly the object `buildCheckpointPayload()` produces, so a
- * template is a forkable checkpoint. Fork applies it to the live stores and
+ * `design` is exactly the object `buildCheckpointPayload()` produces, so an
+ * adopted design is an ordinary checkpoint. Opening applies it to the live stores and
  * marks the project dirty; nothing is saved until the user saves.
  */
 import { useAppStore } from '../../stores/useAppStore'
@@ -212,7 +212,7 @@ export function applyCommunityPayload(canvasData: Record<string, unknown>): bool
     mechanicalParts: asMechanicalParts(canvasData.mechanicalParts),
     domainDesigns: asDomainDesigns(canvasData.domainDesigns),
     currentSchematic: {
-      id: 'community-fork', project_id: 'community-fork', name: 'Forked template',
+      id: 'community-fork', project_id: 'community-fork', name: 'Community design',
       order_index: 0, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     } as never,
     isDirty: true,
@@ -228,7 +228,7 @@ export interface CommunityFetchResult {
   error: string | null
 }
 
-/** List published templates, newest first. Empty offline; error on failure. */
+/** List published designs, newest first. Empty offline; error on failure. */
 export async function fetchCommunityTemplates(): Promise<CommunityFetchResult> {
   if (!isSupabaseConfigured || !supabase) {
     return { templates: [], error: null }
