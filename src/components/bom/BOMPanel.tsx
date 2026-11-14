@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * BOM Management Panel
  *
@@ -353,7 +354,9 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
               <Package className="w-3 h-3 mr-1" />Load rectifier
             </Button>
           )}
-          {onClose && <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close BOM panel" title="Hide the bill of materials. The schematic and the board are not changed."><X className="w-4 h-4" /></Button>}
+          {onClose && <HoverHelp title="Hide the bill of materials. The schematic and the board are not changed." description="Hide the bill of materials. The schematic and the board are not changed.">
+<Button variant="ghost" size="icon" onClick={onClose} aria-label="Close BOM panel"><X className="w-4 h-4" /></Button>
+</HoverHelp>}
         </div>
       </div>
 

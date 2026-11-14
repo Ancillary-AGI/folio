@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import { useState, useRef, useCallback } from 'react';
 import {
   ReactFlow,
@@ -522,9 +523,11 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
         <div className="flex max-h-[38%] w-full flex-shrink-0 flex-col border-b border-border bg-card lg:max-h-none lg:w-80 lg:border-b-0 lg:border-r">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold text-foreground">Block Palette</h3>
-            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close visual programming editor" title="Leave the block editor; closing writes nothing to the design.">
+            <HoverHelp title="Leave the block editor; closing writes nothing to the design." description="Leave the block editor; closing writes nothing to the design.">
+<Button variant="ghost" size="icon" onClick={onClose} aria-label="Close visual programming editor">
               <X className="w-4 h-4" />
             </Button>
+</HoverHelp>
           </div>
 
           {/* Category Tabs */}

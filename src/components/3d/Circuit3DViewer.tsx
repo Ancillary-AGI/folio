@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import { useCallback, useRef, useEffect, useState, useMemo, type ChangeEvent, type ReactNode } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid } from '@react-three/drei';
@@ -1109,9 +1110,11 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
         <div className="flex max-h-[45%] w-full flex-shrink-0 flex-col border-t border-border bg-card lg:max-h-none lg:w-80 lg:border-l lg:border-t-0">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold text-foreground">3D Viewer</h3>
-            <Button variant="ghost" size="icon" aria-label="Close 3D viewer" title="Leave the 3D view; the board and its model are untouched." onClick={onClose}>
+            <HoverHelp title="Leave the 3D view; the board and its model are untouched." description="Leave the 3D view; the board and its model are untouched.">
+<Button variant="ghost" size="icon" aria-label="Close 3D viewer" onClick={onClose}>
               <X className="w-4 h-4" />
             </Button>
+</HoverHelp>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-4">

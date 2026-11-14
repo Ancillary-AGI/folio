@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * AgentPanel — the AI-native command centre.
  *
@@ -119,16 +120,14 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
           </span>
         </div>
         <div className="flex items-center gap-1">
-          <Button
-            size="sm"
+          <HoverHelp title="Verify circuit topology (ERC)" description="Verify circuit topology (ERC)">
+<Button size="sm"
             variant="ghost"
-            onClick={handleVerifySchematic}
-            title="Verify circuit topology (ERC)"
-            aria-label="Verify circuit topology"
-            className="text-xs text-muted-foreground hover:text-foreground"
-          >
+            onClick={handleVerifySchematic} aria-label="Verify circuit topology"
+            className="text-xs text-muted-foreground hover:text-foreground">
             <Shield size={13} className="mr-1" />ERC
           </Button>
+</HoverHelp>
           <Button
             size="sm"
             variant="ghost"
@@ -140,15 +139,15 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
             <Eye size={13} className="mr-1" />{auditTrail.length}
           </Button>
           {onClose && (
-            <Button
-              size="sm"
+            <HoverHelp title="Close the agent panel. Changes it already made to the design stay made." description="Close the agent panel. Changes it already made to the design stay made.">
+<Button size="sm"
               variant="ghost"
               onClick={onClose}
               aria-label="Close agent panel"
-              className="text-muted-foreground hover:text-foreground"
-              title="Close the agent panel. Changes it already made to the design stay made.">
+              className="text-muted-foreground hover:text-foreground">
               <X className="w-3.5 h-3.5" />
             </Button>
+</HoverHelp>
           )}
         </div>
       </div>

@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * Canvas Floating HUD
  *
@@ -171,27 +172,23 @@ export default function CanvasFloatingHUD({ mode, onFitView, onTidyLayout }: Can
           </button>
 
           {onFitView && (
-            <button
-              type="button"
+            <HoverHelp title="Zoom to fit contents (Z)" description="Zoom to fit contents (Z)">
+<button type="button"
               onClick={onFitView}
-              aria-label="Zoom to fit contents"
-              title="Zoom to fit contents (Z)"
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-            >
+              aria-label="Zoom to fit contents" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground">
               <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
+</HoverHelp>
           )}
 
           {onTidyLayout && (
-            <button
-              type="button"
+            <HoverHelp title="Auto-tidy schematic layout" description="Auto-tidy schematic layout">
+<button type="button"
               onClick={onTidyLayout}
-              aria-label="Auto-tidy layout"
-              title="Auto-tidy schematic layout"
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-            >
+              aria-label="Auto-tidy layout" className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground">
               <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
+</HoverHelp>
           )}
         </div>
         )}
@@ -280,21 +277,19 @@ export default function CanvasFloatingHUD({ mode, onFitView, onTidyLayout }: Can
 
         {/* Design assistant — the real, mounted AI surface (same button as the header) */}
         <div className="px-2">
-          <button
-            type="button"
+          <HoverHelp title="Open the design assistant" description="Open the design assistant">
+<button type="button"
             onClick={toggleAiChat}
-            aria-label="Toggle design assistant"
-            title="Open the design assistant"
-            aria-pressed={aiChatOpen}
+            aria-label="Toggle design assistant" aria-pressed={aiChatOpen}
             className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${
               aiChatOpen
                 ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/30'
                 : 'bg-primary/15 text-primary hover:bg-primary/25 hover:shadow-md'
-            }`}
-          >
+            }`}>
             <Bot className="h-3.5 w-3.5" aria-hidden="true" />
             <span>Assistant</span>
           </button>
+</HoverHelp>
         </div>
       </div>
     </div>

@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * Biology workspace: one sheet, six scales, and a solver behind every model.
  *
@@ -214,15 +215,14 @@ export default function BiologyPanel({ onClose }: BiologyPanelProps) {
               </p>
             </div>
           </div>
-          <Button
-            variant="ghost"
+          <HoverHelp title="Leave the biology workspace; closing writes nothing to the design." description="Leave the biology workspace; closing writes nothing to the design.">
+<Button variant="ghost"
             size="icon"
             aria-label="Close biology workspace"
-            onClick={onClose}
-            title="Leave the biology workspace; closing writes nothing to the design."
-          >
+            onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
+</HoverHelp>
         </div>
 
         <div className="grid gap-4 xl:grid-cols-[minmax(260px,300px)_minmax(0,1fr)]">

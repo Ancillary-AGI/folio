@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * System scale: where a compound goes after it is given.
  *
@@ -222,9 +223,11 @@ function ProtocolButton({
         {label}
       </Button>
       {hasStudy && (
-        <Button type="button" size="sm" variant="ghost" onClick={onClear} title="Discard this protocol and leave the single run on screen">
+        <HoverHelp title="Discard this protocol and leave the single run on screen" description="Discard this protocol and leave the single run on screen">
+<Button type="button" size="sm" variant="ghost" onClick={onClear}>
           Clear
         </Button>
+</HoverHelp>
       )}
     </div>
   )

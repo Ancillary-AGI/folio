@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
   Activity, ArrowRightLeft, Box, Bot, Cable, Camera, CircuitBoard, Code2,
@@ -14,7 +15,6 @@ import ToolRail from './ToolRail'
 import DesignHealthPanel from './DesignHealthPanel'
 import CanvasFloatingHUD from './CanvasFloatingHUD'
 import SplitViewportEngine from './SplitViewportEngine'
-import HoverHelp from '../ui/HoverHelp'
 import { useAppStore, type WorkspaceMode } from '../../stores/useAppStore'
 import { useProjectStore } from '../../stores/useProjectStore'
 import { useSketchStore } from '../../stores/useSketchStore'

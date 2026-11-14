@@ -1,3 +1,4 @@
+import HoverHelp from './ui/HoverHelp'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, RotateCcw, Trash2, X } from 'lucide-react'
 import { Button } from './ui/button'
@@ -70,15 +71,15 @@ function PinRow({
           <option key={type} value={type}>{type}</option>
         ))}
       </select>
-      <Button
-        variant="ghost"
+      <HoverHelp title="Take this pin out of the symbol." description="Take this pin out of the symbol.">
+<Button variant="ghost"
         size="icon"
         className="h-5 w-5"
         onClick={onRemove}
-        aria-label={`Remove pin ${pin.id || index + 1}`}
-        title="Take this pin out of the symbol.">
+        aria-label={`Remove pin ${pin.id || index + 1}`}>
         <Trash2 className="w-3 h-3" />
       </Button>
+</HoverHelp>
     </div>
   )
 }
@@ -194,9 +195,11 @@ export default function SchematicSymbolEditor({ componentId, onClose }: Schemati
               Applies to {instances} placed instance{instances === 1 ? '' : 's'} of this part. Pin ids must stay stable or their wires detach.
             </p>
           </div>
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onClose} aria-label="Close symbol editor" title="Close the symbol editor without saving the symbol.">
+          <HoverHelp title="Close the symbol editor without saving the symbol." description="Close the symbol editor without saving the symbol.">
+<Button variant="ghost" size="icon" className="h-6 w-6" onClick={onClose} aria-label="Close symbol editor">
             <X className="w-4 h-4" />
           </Button>
+</HoverHelp>
         </header>
 
         <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">

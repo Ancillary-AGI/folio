@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * Control-systems workspace: plant entry, PID design, time response, Bode
  * plot, stability margins and pole/zero locations.
@@ -218,9 +219,11 @@ export default function ControlSystemsPanel({ onClose }: ControlSystemsPanelProp
               Transfer-function design, PID tuning, time response, Bode margins and pole locations.
             </p>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Close control systems" onClick={onClose} title="Leave the control workspace; the plant and controller stay with the project.">
+          <HoverHelp title="Leave the control workspace; the plant and controller stay with the project." description="Leave the control workspace; the plant and controller stay with the project.">
+<Button variant="ghost" size="icon" aria-label="Close control systems" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
+</HoverHelp>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">

@@ -1,3 +1,4 @@
+import HoverHelp from './ui/HoverHelp'
 import { useEffect, useState } from 'react'
 import { AlertCircle, AlertTriangle, ArrowUpRight, Info, X } from 'lucide-react'
 import { Button } from './ui/button'
@@ -96,16 +97,14 @@ export default function NetInspector({
             {net.pins.length} pin{net.pins.length === 1 ? '' : 's'}
           </span>
         </div>
-        <Button
-          variant="ghost"
+        <HoverHelp title="Close net inspector" description="Close net inspector">
+<Button variant="ghost"
           size="icon"
           className="h-5 w-5"
-          onClick={onClose}
-          title="Close net inspector"
-          aria-label="Close net inspector"
-        >
+          onClick={onClose} aria-label="Close net inspector">
           <X className="h-3.5 w-3.5" />
         </Button>
+</HoverHelp>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">

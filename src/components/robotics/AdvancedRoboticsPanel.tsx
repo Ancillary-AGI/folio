@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Line } from '@react-three/drei';
@@ -606,9 +607,11 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Advanced Robotics</h2>
           {onClose && (
-            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close robotics panel" title="Close robotics panel">
+            <HoverHelp title="Close robotics panel" description="Close robotics panel">
+<Button variant="ghost" size="icon" onClick={onClose} aria-label="Close robotics panel">
               <X className="w-3.5 h-3.5" />
             </Button>
+</HoverHelp>
           )}
         </div>
 

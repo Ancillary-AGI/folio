@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Cloud, FileCheck2, Search, ShieldAlert, X } from 'lucide-react'
 import { Button } from '../ui/button'
@@ -136,9 +137,11 @@ export default function LimitsDialog({ open, onClose, currentMode = null }: Limi
               className="h-full w-full min-w-0 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
-          <Button variant="ghost" size="icon" aria-label="Close capabilities and limits" onClick={onClose} title="Close the register of what this app proves and what it refuses to model.">
+          <HoverHelp title="Close the register of what this app proves and what it refuses to model." description="Close the register of what this app proves and what it refuses to model.">
+<Button variant="ghost" size="icon" aria-label="Close capabilities and limits" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
+</HoverHelp>
         </div>
 
         <div className="flex flex-shrink-0 items-center gap-2 border-b border-border px-4 py-2">

@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Mic, MicOff, Send, Trash2, Volume2, VolumeX, Square, X } from 'lucide-react';
 import { Button } from '../ui/button';
@@ -108,12 +109,16 @@ export default function VoiceCommandBar({ onClose }: VoiceCommandBarProps) {
           {status === 'idle' && spokenReplies === false ? 'Ready — replies stay on screen.' : STATUS_LABEL[status]}
         </span>
 
-        <Button variant="ghost" size="icon" onClick={clearTurns} aria-label="Clear transcript" className="h-7 w-7" title="Empty the transcript of this session's turns.">
+        <HoverHelp title="Empty the transcript of this session's turns." description="Empty the transcript of this session's turns.">
+<Button variant="ghost" size="icon" onClick={clearTurns} aria-label="Clear transcript" className="h-7 w-7">
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
-        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close voice conversation" className="h-7 w-7" title="Close the voice bar. Listening stops with it.">
+</HoverHelp>
+        <HoverHelp title="Close the voice bar. Listening stops with it." description="Close the voice bar. Listening stops with it.">
+<Button variant="ghost" size="icon" onClick={onClose} aria-label="Close voice conversation" className="h-7 w-7">
           <X className="h-4 w-4" />
         </Button>
+</HoverHelp>
       </div>
 
       {/* Transcript */}

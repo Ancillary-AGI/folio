@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import { useEffect, useState } from 'react'
 import { ArrowLeft, ArrowRight, CheckCircle2, ChevronDown, ChevronUp, RotateCcw, X } from 'lucide-react'
 import { Button } from '../ui/button'
@@ -92,9 +93,11 @@ export default function TutorialRunner({ tutorial, onClose, onRestartDemo, onOpe
             title="Fold the guide down to its title bar, or open it again.">
             {collapsed ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Close tutorial" onClick={onClose} title="End the tutorial and close the runner.">
+          <HoverHelp title="End the tutorial and close the runner." description="End the tutorial and close the runner.">
+<Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Close tutorial" onClick={onClose}>
             <X className="h-3.5 w-3.5" />
           </Button>
+</HoverHelp>
         </div>
       </header>
 

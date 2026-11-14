@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * Power-grid workspace: balanced AC load flow for a transmission study and a
  * radial distribution feeder.
@@ -716,9 +717,11 @@ export default function PowerGridPanel({ onClose }: PowerGridPanelProps) {
               land there says why.
             </p>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Close power grid" onClick={onClose} title="Leave the power-grid study; closing writes nothing to the design.">
+          <HoverHelp title="Leave the power-grid study; closing writes nothing to the design." description="Leave the power-grid study; closing writes nothing to the design.">
+<Button variant="ghost" size="icon" aria-label="Close power grid" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
+</HoverHelp>
         </div>
 
         <div role="tablist" aria-label="Power grid study" className="flex flex-wrap gap-1">

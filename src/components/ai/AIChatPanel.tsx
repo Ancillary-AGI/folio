@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { Bot, Send, Trash2, Lightbulb, Cpu, Wrench, X, Mic, MicOff, Copy, Check, AlertTriangle } from 'lucide-react'
 import { Button } from '../ui/button'
@@ -252,12 +253,16 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
           </div>
         </div>
         <div className="flex items-center gap-0.5">
-          <Button variant="ghost" size="bar-icon" onClick={clearChat} title="Clear conversation" aria-label="Clear conversation">
+          <HoverHelp title="Clear conversation" description="Clear conversation">
+<Button variant="ghost" size="bar-icon" onClick={clearChat} aria-label="Clear conversation">
             <Trash2 />
           </Button>
-          <Button variant="ghost" size="bar-icon" onClick={onClose} aria-label="Close AI assistant" title="Close the assistant panel">
+</HoverHelp>
+          <HoverHelp title="Close the assistant panel" description="Close the assistant panel">
+<Button variant="ghost" size="bar-icon" onClick={onClose} aria-label="Close AI assistant">
             <X />
           </Button>
+</HoverHelp>
         </div>
       </div>
 
@@ -393,16 +398,15 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
               className="max-h-28 min-h-12 w-full resize-none bg-transparent px-3 py-2.5 text-[13px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/80 disabled:cursor-not-allowed disabled:opacity-60"
             />
           </div>
-          <Button
-            onClick={handleSend}
+          <HoverHelp title="Ask about the open design: analysis, part suggestions, optimisation and reliability." description="Ask about the open design: analysis, part suggestions, optimisation and reliability.">
+<Button onClick={handleSend}
             disabled={!input.trim() || isLoading}
             size="bar-icon"
             className="shrink-0 rounded-full"
-            aria-label="Send message"
-            title="Ask about the open design: analysis, part suggestions, optimisation and reliability."
-          >
+            aria-label="Send message">
             <Send className="h-3.5 w-3.5" aria-hidden="true" />
           </Button>
+</HoverHelp>
         </div>
         <p className="mt-2 pl-1 text-[10px] text-muted-foreground">
           Enter to send <span className="mx-1 text-border">·</span> Shift+Enter for a new line

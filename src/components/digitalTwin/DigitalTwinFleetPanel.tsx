@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity, AlertTriangle, ArrowDownUp, Battery, Cpu, Download, Gauge, Layers,
@@ -552,24 +553,22 @@ export default function DigitalTwinFleetPanel() {
           >
             {held ? <Play /> : <Pause />}
           </button>
-          <button
-            type="button"
+          <HoverHelp title="Rename, re-site or re-flash this device record" description="Rename, re-site or re-flash this device record">
+<Button type="button"
             className="cad-ctl cad-ctl--icon"
-            aria-label={`Edit ${device.name}`}
-            title="Rename, re-site or re-flash this device record"
-            onClick={() => setEditing({ device })}
+            aria-label={`Edit ${device.name}`} onClick={() => setEditing({ device })}
           >
             <Pencil />
-          </button>
-          <button
-            type="button"
+          </Button>
+</HoverHelp>
+          <HoverHelp title="Remove this device from the registry" description="Remove this device from the registry">
+<Button type="button"
             className="cad-ctl cad-ctl--icon"
-            aria-label={`Remove ${device.name}`}
-            title="Remove this device from the registry"
-            onClick={() => { void removeDevices([device.id]); }}
+            aria-label={`Remove ${device.name}`} onClick={() => { void removeDevices([device.id]); }}
           >
             <Trash2 />
-          </button>
+          </Button>
+</HoverHelp>
         </span>
       </li>
     );
@@ -592,9 +591,11 @@ export default function DigitalTwinFleetPanel() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={exportJSON} disabled={devices.length === 0} title="Download the registry, trends, thresholds, alerts and command log as JSON">
+            <HoverHelp title="Download the registry, trends, thresholds, alerts and command log as JSON" description="Download the registry, trends, thresholds, alerts and command log as JSON">
+<Button variant="outline" size="sm" onClick={exportJSON} disabled={devices.length === 0}>
               <Download className="mr-1.5 h-3.5 w-3.5" /> Fleet JSON
             </Button>
+</HoverHelp>
             <Button variant="outline" size="sm" onClick={exportCSV} disabled={visible.length === 0} title={`Download the ${visible.length} device${visible.length === 1 ? '' : 's'} on screen as CSV`}>
               <Download className="mr-1.5 h-3.5 w-3.5" /> CSV
             </Button>
@@ -637,11 +638,9 @@ export default function DigitalTwinFleetPanel() {
         {undoBatch && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
             <span aria-live="polite">{undoBatch.note}. The trend went with them.</span>
-            <Button
-              size="sm"
-              variant="outline"
-              title="Put the removed devices and their history back"
-              onClick={() => {
+            <HoverHelp title="Put the removed devices and their history back" description="Put the removed devices and their history back">
+<Button size="sm"
+              variant="outline" onClick={() => {
                 for (const device of undoBatch.devices) iiotFleetManager.restoreDevice(device, undoBatch.samples[device.id] ?? []);
                 setUndoBatch(null);
                 refresh();
@@ -649,6 +648,7 @@ export default function DigitalTwinFleetPanel() {
             >
               <Undo2 className="mr-1.5 h-3.5 w-3.5" /> Undo remove
             </Button>
+</HoverHelp>
           </div>
         )}
 
@@ -699,15 +699,14 @@ export default function DigitalTwinFleetPanel() {
                   onChange={(event) => patchView({ query: event.target.value })}
                 />
                 {design.view.query && (
-                  <button
-                    type="button"
+                  <HoverHelp title="Clear the search" description="Clear the search">
+<Button type="button"
                     className="cad-ctl cad-ctl--icon mr-0.5 h-5 min-h-5 w-5"
-                    aria-label="Clear the device search"
-                    title="Clear the search"
-                    onClick={() => patchView({ query: '' })}
+                    aria-label="Clear the device search" onClick={() => patchView({ query: '' })}
                   >
                     <X />
-                  </button>
+                  </Button>
+</HoverHelp>
                 )}
               </span>
 
@@ -739,15 +738,14 @@ export default function DigitalTwinFleetPanel() {
                 <ArrowDownUp />
               </button>
 
-              <button
-                type="button"
+              <HoverHelp title="Group the list by site" description="Group the list by site">
+<Button type="button"
                 className={`cad-ctl ${design.view.grouped ? 'cad-ctl--active' : ''}`}
-                aria-pressed={design.view.grouped}
-                title="Group the list by site"
-                onClick={() => patchView({ grouped: !design.view.grouped })}
+                aria-pressed={design.view.grouped} onClick={() => patchView({ grouped: !design.view.grouped })}
               >
                 <Layers /> Group by site
-              </button>
+              </Button>
+</HoverHelp>
             </div>
 
             <div className="flex flex-wrap items-center gap-1.5">
@@ -786,15 +784,14 @@ export default function DigitalTwinFleetPanel() {
                   >
                     {entry.name}
                   </button>
-                  <button
-                    type="button"
+                  <HoverHelp title="Delete this saved view" description="Delete this saved view">
+<Button type="button"
                     className="cad-ctl cad-ctl--icon rounded-l-none border-l-0"
-                    aria-label={`Delete the saved view ${entry.name}`}
-                    title="Delete this saved view"
-                    onClick={() => setDesign((current) => ({ ...current, views: current.views.filter((other) => other.key !== entry.key) }))}
+                    aria-label={`Delete the saved view ${entry.name}`} onClick={() => setDesign((current) => ({ ...current, views: current.views.filter((other) => other.key !== entry.key) }))}
                   >
                     <X />
-                  </button>
+                  </Button>
+</HoverHelp>
                 </span>
               ))}
               <span className="cad-form-field h-7 w-40">

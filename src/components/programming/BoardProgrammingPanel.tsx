@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -420,9 +421,11 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                   Arduino IDE
                 </Button>
               )}
-              <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close board programming panel" title="Leave board programming; closing writes nothing to the design.">
+              <HoverHelp title="Leave board programming; closing writes nothing to the design." description="Leave board programming; closing writes nothing to the design.">
+<Button variant="ghost" size="icon" onClick={onClose} aria-label="Close board programming panel">
                 <X className="w-4 h-4" />
               </Button>
+</HoverHelp>
             </div>
           </div>
 
@@ -571,15 +574,14 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
               </Button>
 
               {arduinoIDEVersion ? (
-                <Button
-                  onClick={handleCompileAndUpload}
+                <HoverHelp title="Compile with the detected toolchain, then upload the image." description="Compile with the detected toolchain, then upload the image.">
+<Button onClick={handleCompileAndUpload}
                   disabled={isCompiling || isUploading || !selectedPort}
-                  className="flex items-center gap-2"
-                  title="Compile with the detected toolchain, then upload the image."
-                >
+                  className="flex items-center gap-2">
                   <Play className="w-4 h-4" />
                   Compile &amp; Upload
                 </Button>
+</HoverHelp>
               ) : null}
 
               <Button
@@ -658,14 +660,15 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                       </option>
                     ))}
                   </select>
-                  <Button
-                    variant="outline"
+                  <HoverHelp title="Re-scan the serial ports this computer can see." description="Re-scan the serial ports this computer can see.">
+<Button variant="outline"
                     size="icon"
                     onClick={loadAvailablePorts}
                     className="h-8 w-8"
-                   aria-label="Refresh serial ports" title="Re-scan the serial ports this computer can see.">
+                   aria-label="Refresh serial ports">
                     <RefreshCw className="w-3 h-3" />
                   </Button>
+</HoverHelp>
                 </div>
                 <div className="mt-2 flex items-center gap-2">
                   <Button variant="default" size="sm" onClick={handleConnectSerial}>

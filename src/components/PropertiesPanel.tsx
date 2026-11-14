@@ -1,3 +1,4 @@
+import HoverHelp from './ui/HoverHelp'
 import { useState, useEffect } from "react";
 import { X, RotateCw, Lock, Eye, EyeOff, ArrowUpRight } from "lucide-react";
 import { Button } from "./ui/button";
@@ -218,16 +219,14 @@ export default function PropertiesPanel({ component, onUpdate, onClose, pinNets,
               aria-label="Unsaved changes"
             />
           )}
-          <Button
-            variant="ghost"
+          <HoverHelp title="Close inspector" description="Close inspector">
+<Button variant="ghost"
             size="icon"
             className="h-5 w-5"
-            onClick={onClose}
-            title="Close inspector"
-            aria-label="Close inspector"
-          >
+            onClick={onClose} aria-label="Close inspector">
             <X className="h-3.5 w-3.5" />
           </Button>
+</HoverHelp>
         </div>
       </div>
 

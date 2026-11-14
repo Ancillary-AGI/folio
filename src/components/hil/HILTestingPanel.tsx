@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import { useCallback, useMemo, useState } from 'react';
 import {
   Activity, AlertTriangle, CheckCircle2, CircuitBoard, Copy, Cpu, Download, FlaskConical,
@@ -92,14 +93,13 @@ function PayloadEditor({
       <section>
         <div className="mb-1 flex items-center justify-between gap-2">
           <h4 className="text-[11px] font-medium text-muted-foreground">Digital GPIO</h4>
-          <button
-            type="button"
-            className="cad-ctl"
-            title="Add a digital pin to this direction"
-            onClick={() => set('digital', [...draft.digital, { key: nextKey('di'), channel: '', high: true }])}
+          <HoverHelp title="Add a digital pin to this direction" description="Add a digital pin to this direction">
+<Button type="button"
+            className="cad-ctl" onClick={() => set('digital', [...draft.digital, { key: nextKey('di'), channel: '', high: true }])}
           >
             <Plus /> Add pin
-          </button>
+          </Button>
+</HoverHelp>
         </div>
         {draft.digital.length === 0 && <p className="text-[11px] text-muted-foreground">No pins asserted.</p>}
         <div className="space-y-1">
@@ -121,15 +121,14 @@ function PayloadEditor({
               >
                 {row.high ? 'HIGH' : 'LOW'}
               </button>
-              <button
-                type="button"
+              <HoverHelp title="Remove this pin" description="Remove this pin">
+<Button type="button"
                 className="cad-ctl cad-ctl--icon"
-                aria-label={`Remove ${rowLabel('digital', index, 'pin')}`}
-                title="Remove this pin"
-                onClick={() => set('digital', draft.digital.filter((entry) => entry.key !== row.key))}
+                aria-label={`Remove ${rowLabel('digital', index, 'pin')}`} onClick={() => set('digital', draft.digital.filter((entry) => entry.key !== row.key))}
               >
                 <Trash2 />
-              </button>
+              </Button>
+</HoverHelp>
             </div>
           ))}
         </div>
@@ -138,14 +137,13 @@ function PayloadEditor({
       <section>
         <div className="mb-1 flex items-center justify-between gap-2">
           <h4 className="text-[11px] font-medium text-muted-foreground">Analog nets</h4>
-          <button
-            type="button"
-            className="cad-ctl"
-            title="Add an analog net to this direction"
-            onClick={() => set('analog', [...draft.analog, { key: nextKey('ao'), channel: '', value: '', tolerance: '' }])}
+          <HoverHelp title="Add an analog net to this direction" description="Add an analog net to this direction">
+<Button type="button"
+            className="cad-ctl" onClick={() => set('analog', [...draft.analog, { key: nextKey('ao'), channel: '', value: '', tolerance: '' }])}
           >
             <Plus /> Add net
-          </button>
+          </Button>
+</HoverHelp>
         </div>
         {draft.analog.length === 0 && <p className="text-[11px] text-muted-foreground">No nets asserted.</p>}
         <div className="space-y-1">
@@ -184,15 +182,14 @@ function PayloadEditor({
                   <span className="cad-form-unit">V</span>
                 </span>
               )}
-              <button
-                type="button"
+              <HoverHelp title="Remove this net" description="Remove this net">
+<Button type="button"
                 className="cad-ctl cad-ctl--icon"
-                aria-label={`Remove ${rowLabel('analog', index, 'net')}`}
-                title="Remove this net"
-                onClick={() => set('analog', draft.analog.filter((entry) => entry.key !== row.key))}
+                aria-label={`Remove ${rowLabel('analog', index, 'net')}`} onClick={() => set('analog', draft.analog.filter((entry) => entry.key !== row.key))}
               >
                 <Trash2 />
-              </button>
+              </Button>
+</HoverHelp>
             </div>
           ))}
         </div>
@@ -201,14 +198,13 @@ function PayloadEditor({
       <section>
         <div className="mb-1 flex items-center justify-between gap-2">
           <h4 className="text-[11px] font-medium text-muted-foreground">CAN frames</h4>
-          <button
-            type="button"
-            className="cad-ctl"
-            title="Add a CAN frame to this direction"
-            onClick={() => set('can', [...draft.can, { key: nextKey('can'), id: '0x100', data: '' }])}
+          <HoverHelp title="Add a CAN frame to this direction" description="Add a CAN frame to this direction">
+<Button type="button"
+            className="cad-ctl" onClick={() => set('can', [...draft.can, { key: nextKey('can'), id: '0x100', data: '' }])}
           >
             <Plus /> Add frame
-          </button>
+          </Button>
+</HoverHelp>
         </div>
         {draft.can.length === 0 && <p className="text-[11px] text-muted-foreground">No frames asserted.</p>}
         <div className="space-y-1">
@@ -228,15 +224,14 @@ function PayloadEditor({
                 value={row.data}
                 onChange={(event) => set('can', draft.can.map((entry) => entry.key === row.key ? { ...entry, data: event.target.value } : entry))}
               />
-              <button
-                type="button"
+              <HoverHelp title="Remove this frame" description="Remove this frame">
+<Button type="button"
                 className="cad-ctl cad-ctl--icon"
-                aria-label={`Remove ${rowLabel('can', index, 'frame')}`}
-                title="Remove this frame"
-                onClick={() => set('can', draft.can.filter((entry) => entry.key !== row.key))}
+                aria-label={`Remove ${rowLabel('can', index, 'frame')}`} onClick={() => set('can', draft.can.filter((entry) => entry.key !== row.key))}
               >
                 <Trash2 />
-              </button>
+              </Button>
+</HoverHelp>
             </div>
           ))}
         </div>
@@ -557,12 +552,16 @@ export default function HILTestingPanel() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={exportJSON} disabled={resultList.length === 0} title="Download the suite and every recorded verdict as JSON">
+            <HoverHelp title="Download the suite and every recorded verdict as JSON" description="Download the suite and every recorded verdict as JSON">
+<Button variant="outline" size="sm" onClick={exportJSON} disabled={resultList.length === 0}>
               <Download className="mr-1.5 h-3.5 w-3.5" /> Suite JSON
             </Button>
-            <Button variant="outline" size="sm" onClick={exportCSV} disabled={resultList.length === 0} title="Download one row per asserted channel as CSV">
+</HoverHelp>
+            <HoverHelp title="Download one row per asserted channel as CSV" description="Download one row per asserted channel as CSV">
+<Button variant="outline" size="sm" onClick={exportCSV} disabled={resultList.length === 0}>
               <Download className="mr-1.5 h-3.5 w-3.5" /> Verdict CSV
             </Button>
+</HoverHelp>
             <Button
               size="sm"
               onClick={() => { void runCases(design.cases.filter((entry) => entry.enabled), 'suite'); }}
@@ -600,17 +599,16 @@ export default function HILTestingPanel() {
         {undoBatch && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
             <span aria-live="polite">{undoBatch.note}. The assertions are gone from the suite.</span>
-            <Button
-              size="sm"
-              variant="outline"
-              title="Put the deleted cases back in their original order"
-              onClick={() => {
+            <HoverHelp title="Put the deleted cases back in their original order" description="Put the deleted cases back in their original order">
+<Button size="sm"
+              variant="outline" onClick={() => {
                 setDesign((current) => ({ ...current, cases: [...current.cases, ...undoBatch.cases] }));
                 setUndoBatch(null);
               }}
             >
               Undo delete
             </Button>
+</HoverHelp>
           </div>
         )}
 
@@ -760,22 +758,28 @@ export default function HILTestingPanel() {
                   <div className="flex flex-wrap items-center gap-1.5">
                     {checked.length > 0 && (
                       <>
-                        <Button size="sm" variant="outline" title="Run only the checked cases"
-                          onClick={() => { void runCases(design.cases.filter((entry) => checked.includes(entry.key)), 'selection'); }}
+                        <HoverHelp title="Run only the checked cases" description="Run only the checked cases">
+<Button size="sm" variant="outline" onClick={() => { void runCases(design.cases.filter((entry) => checked.includes(entry.key)), 'selection'); }}
                           disabled={busy !== null}>
                           Run {checked.length}
                         </Button>
-                        <Button size="sm" variant="outline" title="Include the checked cases in the next suite run"
-                          onClick={() => setEnabled(checked, true)}>Enable</Button>
-                        <Button size="sm" variant="outline" title="Skip the checked cases in the next suite run"
-                          onClick={() => setEnabled(checked, false)}>Skip</Button>
-                        <Button size="sm" variant="outline" title="Delete the checked cases after confirmation"
-                          onClick={() => { void removeCases(checked); }}>Delete</Button>
+</HoverHelp>
+                        <HoverHelp title="Include the checked cases in the next suite run" description="Include the checked cases in the next suite run">
+<Button size="sm" variant="outline" onClick={() => setEnabled(checked, true)}>Enable</Button>
+</HoverHelp>
+                        <HoverHelp title="Skip the checked cases in the next suite run" description="Skip the checked cases in the next suite run">
+<Button size="sm" variant="outline" onClick={() => setEnabled(checked, false)}>Skip</Button>
+</HoverHelp>
+                        <HoverHelp title="Delete the checked cases after confirmation" description="Delete the checked cases after confirmation">
+<Button size="sm" variant="outline" onClick={() => { void removeCases(checked); }}>Delete</Button>
+</HoverHelp>
                       </>
                     )}
-                    <Button size="sm" variant="outline" onClick={addCase} title="Append a blank case to the suite">
+                    <HoverHelp title="Append a blank case to the suite" description="Append a blank case to the suite">
+<Button size="sm" variant="outline" onClick={addCase}>
                       <Plus className="mr-1.5 h-3.5 w-3.5" /> Add case
                     </Button>
+</HoverHelp>
                   </div>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -838,11 +842,9 @@ export default function HILTestingPanel() {
                           checked={checked.includes(entry.key)}
                           onChange={(event) => setChecked((current) => event.target.checked ? [...current, entry.key] : current.filter((key) => key !== entry.key))}
                         />
-                        <button
-                          type="button"
-                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                          title="Open this case in the editor"
-                          onClick={() => patch({ selectedKey: entry.key })}
+                        <HoverHelp title="Open this case in the editor" description="Open this case in the editor">
+<Button type="button"
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => patch({ selectedKey: entry.key })}
                         >
                           <span className={`h-2 w-2 shrink-0 rounded-full ${
                             !entry.enabled ? 'bg-muted-foreground/40'
@@ -853,7 +855,8 @@ export default function HILTestingPanel() {
                             <span className="block truncate font-mono text-xs font-medium">{entry.id}</span>
                             <span className="block truncate text-[11px] text-muted-foreground">{entry.name}</span>
                           </span>
-                        </button>
+                        </Button>
+</HoverHelp>
                         <div className="hidden shrink-0 gap-1 sm:flex">
                           {draftBuses(entry).map((bus) => <span key={bus} className="cad-chip">{bus}</span>)}
                         </div>
@@ -863,19 +866,24 @@ export default function HILTestingPanel() {
                           </Badge>
                         )}
                         <div className="flex shrink-0 items-center gap-0.5">
-                          <button type="button" className="cad-ctl cad-ctl--icon" aria-label={`Move ${entry.id} earlier`} title="Move earlier in the run order"
-                            onClick={() => moveCase(entry.key, -1)}><span aria-hidden>↑</span></button>
-                          <button type="button" className="cad-ctl cad-ctl--icon" aria-label={`Move ${entry.id} later`} title="Move later in the run order"
-                            onClick={() => moveCase(entry.key, 1)}><span aria-hidden>↓</span></button>
-                          <button type="button" className="cad-ctl cad-ctl--icon" aria-label={`Run case ${entry.id}`} title="Run only this case"
-                            disabled={busy !== null}
+                          <HoverHelp title="Move earlier in the run order" description="Move earlier in the run order">
+<Button type="button" className="cad-ctl cad-ctl--icon" aria-label={`Move ${entry.id} earlier`} onClick={() => moveCase(entry.key, -1)}><span aria-hidden>↑</span></Button>
+</HoverHelp>
+                          <HoverHelp title="Move later in the run order" description="Move later in the run order">
+<Button type="button" className="cad-ctl cad-ctl--icon" aria-label={`Move ${entry.id} later`} onClick={() => moveCase(entry.key, 1)}><span aria-hidden>↓</span></Button>
+</HoverHelp>
+                          <HoverHelp title="Run only this case" description="Run only this case">
+<Button type="button" className="cad-ctl cad-ctl--icon" aria-label={`Run case ${entry.id}`} disabled={busy !== null}
                             onClick={() => { void runCases([entry], entry.key); }}>
                             <Zap />
-                          </button>
-                          <button type="button" className="cad-ctl cad-ctl--icon" aria-label={`Duplicate case ${entry.id}`} title="Duplicate this case"
-                            onClick={() => duplicateCase(entry)}><Copy /></button>
-                          <button type="button" className="cad-ctl cad-ctl--icon" aria-label={`Delete case ${entry.id}`} title="Delete this case after confirmation"
-                            onClick={() => { void removeCases([entry.key]); }}><Trash2 /></button>
+                          </Button>
+</HoverHelp>
+                          <HoverHelp title="Duplicate this case" description="Duplicate this case">
+<Button type="button" className="cad-ctl cad-ctl--icon" aria-label={`Duplicate case ${entry.id}`} onClick={() => duplicateCase(entry)}><Copy /></Button>
+</HoverHelp>
+                          <HoverHelp title="Delete this case after confirmation" description="Delete this case after confirmation">
+<Button type="button" className="cad-ctl cad-ctl--icon" aria-label={`Delete case ${entry.id}`} onClick={() => { void removeCases([entry.key]); }}><Trash2 /></Button>
+</HoverHelp>
                         </div>
                       </div>
                       {result && (
@@ -974,10 +982,11 @@ export default function HILTestingPanel() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 border-t border-border pt-2">
-                    <Button size="sm" variant="outline" title="Reset both directions of this case to empty"
-                      onClick={() => patchCase(selected.key, { inputs: emptyPayload(), expected: emptyPayload() })}>
+                    <HoverHelp title="Reset both directions of this case to empty" description="Reset both directions of this case to empty">
+<Button size="sm" variant="outline" onClick={() => patchCase(selected.key, { inputs: emptyPayload(), expected: emptyPayload() })}>
                       Clear channels
                     </Button>
+</HoverHelp>
                     <Button size="sm" onClick={() => { void runCases([selected], selected.key); }} disabled={busy !== null}
                       title="Run only this case against the selected rig">
                       <Zap className="mr-1.5 h-3.5 w-3.5" /> Run this case

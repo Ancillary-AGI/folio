@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * DatasheetImporter — paste text or drop a text file → instant schematic component.
  *
@@ -222,7 +223,9 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
           <h2 className="text-sm font-semibold">Import Component from Datasheet</h2>
         </div>
         {onClose && (
-          <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close datasheet importer" className="text-muted-foreground hover:text-foreground" title="Close the importer without adding the parsed part to the library."><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
+          <HoverHelp title="Close the importer without adding the parsed part to the library." description="Close the importer without adding the parsed part to the library.">
+<Button size="sm" variant="ghost" onClick={onClose} aria-label="Close datasheet importer" className="text-muted-foreground hover:text-foreground"><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
+</HoverHelp>
         )}
       </div>
 

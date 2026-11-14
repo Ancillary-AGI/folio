@@ -1,3 +1,4 @@
+import HoverHelp from './ui/HoverHelp'
 import React, { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Button } from './ui/button'
@@ -267,19 +268,17 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
               Continue with GitHub
             </Button>
 
-            <Button
-              type="button"
+            <HoverHelp title="X Industries SSO ships with the X Industries identity provider rollout." description="X Industries SSO ships with the X Industries identity provider rollout.">
+<Button type="button"
               variant="outline"
-              disabled
-              title="X Industries SSO ships with the X Industries identity provider rollout."
-              aria-label="X Industries SSO — for X Industries employees; shipping when the identity provider rollout lands."
-              className="w-full cursor-not-allowed opacity-50"
-            >
+              disabled aria-label="X Industries SSO — for X Industries employees; shipping when the identity provider rollout lands."
+              className="w-full cursor-not-allowed opacity-50">
               <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path d="M4 4h7l4 7-5.5 9H4l5.5-9L4 4zm9 0h7l-4 6-3-6z"/>
               </svg>
               Continue with X Industries
             </Button>
+</HoverHelp>
           </div>
           </div>
 

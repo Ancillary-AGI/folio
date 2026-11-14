@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * Pi-class imaging and bring-up workspace.
  *
@@ -260,9 +261,11 @@ export default function PiImagingPanel({ onClose }: PiImagingPanelProps) {
             <ShieldCheck className="h-4 w-4" />
             Pi Imaging &amp; Bring-Up
           </h3>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close imaging panel" title="Leave the imaging panel; closing writes nothing to the design.">
+          <HoverHelp title="Leave the imaging panel; closing writes nothing to the design." description="Leave the imaging panel; closing writes nothing to the design.">
+<Button variant="ghost" size="icon" onClick={onClose} aria-label="Close imaging panel">
             <X className="h-4 w-4" />
           </Button>
+</HoverHelp>
         </div>
 
         <div className="grid flex-1 gap-4 overflow-y-auto p-4 lg:grid-cols-2">

@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * Organ scale: a beating left heart against its arteries, and a capillary bed.
  *
@@ -476,16 +477,15 @@ function Ventricle({ loaded, overrides, setOverride, resetOverrides }: BioViewCo
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
+        <HoverHelp title="Re-beat this heart at six filling pressures, three mmHg apart around the dial you set, and measure the stroke volume each one produces" description="Re-beat this heart at six filling pressures, three mmHg apart around the dial you set, and measure the stroke volume each one produces">
+<Button type="button"
           size="sm"
           variant="outline"
           disabled={isSweeping}
-          onClick={runPreloadStudy}
-          title="Re-beat this heart at six filling pressures, three mmHg apart around the dial you set, and measure the stroke volume each one produces"
-        >
+          onClick={runPreloadStudy}>
           Sweep the filling pressure
         </Button>
+</HoverHelp>
         {isSweeping ? (
           <span className="text-sm text-muted-foreground">
             Beating this heart at six filling pressures — one whole run each.

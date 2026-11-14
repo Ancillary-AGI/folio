@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * IC Design Panel — the teaching flow for digital IC design, honestly bounded.
  *
@@ -518,7 +519,9 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
           <Cpu size={16} className="text-chart-4" />
           <h2 className="text-sm font-semibold">IC Design — SkyWater SKY130</h2>
         </div>
-        {onClose && <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close IC design panel" className="text-muted-foreground" title="Close the IC design panel; nothing is written by the act of closing."><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>}
+        {onClose && <HoverHelp title="Close the IC design panel; nothing is written by the act of closing." description="Close the IC design panel; nothing is written by the act of closing.">
+<Button size="sm" variant="ghost" onClick={onClose} aria-label="Close IC design panel" className="text-muted-foreground"><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
+</HoverHelp>}
       </div>
 
       {/* Flow tabs */}

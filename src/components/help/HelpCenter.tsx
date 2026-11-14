@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowRight,
@@ -232,9 +233,11 @@ export default function HelpCenter({
               className="h-full w-full min-w-0 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
-          <Button variant="ghost" size="icon" aria-label="Close help" onClick={onClose} title="Close the help centre and go back to the workspace.">
+          <HoverHelp title="Close the help centre and go back to the workspace." description="Close the help centre and go back to the workspace.">
+<Button variant="ghost" size="icon" aria-label="Close help" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
+</HoverHelp>
         </div>
 
         {/* The tabs carry four short names, so they use the width they are given

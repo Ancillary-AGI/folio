@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * The surface every biology scale view shares.
  *
@@ -92,15 +93,14 @@ export function DialGrid({
       <CardHeader className="pb-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base">{label}</CardTitle>
-          <Button
-            type="button"
+          <HoverHelp title="Put every dial on this model back to the values the preset ships with" description="Put every dial on this model back to the values the preset ships with">
+<Button type="button"
             size="sm"
             variant="ghost"
-            onClick={onReset}
-            title="Put every dial on this model back to the values the preset ships with"
-          >
+            onClick={onReset}>
             Reset inputs
           </Button>
+</HoverHelp>
         </div>
       </CardHeader>
       <CardContent className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

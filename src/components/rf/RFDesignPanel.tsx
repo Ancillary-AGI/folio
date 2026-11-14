@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDemoRequest } from '../workspace/useDemoRequest'
 import { Activity, Download, Info, Radio, X } from 'lucide-react'
@@ -889,9 +890,11 @@ export default function RFDesignPanel({ onClose }: RFDesignPanelProps) {
               </button>
             ))}
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close RF workspace" title="Leave the RF workspace; closing writes nothing to the design.">
+          <HoverHelp title="Leave the RF workspace; closing writes nothing to the design." description="Leave the RF workspace; closing writes nothing to the design.">
+<Button variant="ghost" size="icon" onClick={onClose} aria-label="Close RF workspace">
             <X className="h-4 w-4" />
           </Button>
+</HoverHelp>
         </div>
       </div>
 

@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import { useCallback, useEffect, useState } from 'react'
 import { Radio, RefreshCw, Share2, Trash2, Users, X } from 'lucide-react'
 import { Button } from '../ui/button'
@@ -138,7 +139,11 @@ export default function CollaborativePanel({ onClose }: CollaborativePanelProps)
   return <Card className="flex h-full flex-col rounded-none border-y-0 border-r-0">
     <CardHeader className="flex flex-row items-center justify-between border-b border-border py-3">
       <CardTitle className="flex items-center gap-2 text-sm"><Users className="h-4 w-4" />Collaboration</CardTitle>
-      <div className="flex gap-1"><Button variant="ghost" size="icon" onClick={refresh} aria-label="Refresh collaboration" title="Re-read the collaborator list and who is online right now."><RefreshCw className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={onClose} aria-label="Close collaboration" title="Close the collaboration dock. Sharing settings you saved stay."><X className="h-4 w-4" /></Button></div>
+      <div className="flex gap-1"><HoverHelp title="Re-read the collaborator list and who is online right now." description="Re-read the collaborator list and who is online right now.">
+<Button variant="ghost" size="icon" onClick={refresh} aria-label="Refresh collaboration"><RefreshCw className="h-4 w-4" /></Button>
+</HoverHelp><HoverHelp title="Close the collaboration dock. Sharing settings you saved stay." description="Close the collaboration dock. Sharing settings you saved stay.">
+<Button variant="ghost" size="icon" onClick={onClose} aria-label="Close collaboration"><X className="h-4 w-4" /></Button>
+</HoverHelp></div>
     </CardHeader>
     <CardContent className="flex-1 space-y-5 overflow-y-auto p-4">
       <div

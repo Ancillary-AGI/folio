@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, CheckCircle2, FlaskConical, GraduationCap, Search, X } from 'lucide-react'
 import { Button } from '../ui/button'
@@ -134,9 +135,11 @@ export default function DemoGallery({ open, onClose, onOpenScenario, onStartTuto
               className="h-full w-full min-w-0 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
-          <Button variant="ghost" size="icon" aria-label="Close demo gallery" onClick={onClose} title="Close the gallery. A demo you loaded stays loaded.">
+          <HoverHelp title="Close the gallery. A demo you loaded stays loaded." description="Close the gallery. A demo you loaded stays loaded.">
+<Button variant="ghost" size="icon" aria-label="Close demo gallery" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
+</HoverHelp>
         </div>
 
         {/* The categories are five short names, so the strip takes the width it

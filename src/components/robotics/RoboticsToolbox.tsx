@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Box, Cylinder, Sphere } from '@react-three/drei';
@@ -497,9 +498,11 @@ export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
         <div className="flex max-h-[45%] w-full flex-shrink-0 flex-col border-t border-border bg-card lg:max-h-none lg:w-96 lg:border-l lg:border-t-0">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold text-foreground">Robotics Toolbox</h3>
-            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close robotics toolbox" title="Leave the robotics toolbox; the robot you defined stays with the project.">
+            <HoverHelp title="Leave the robotics toolbox; the robot you defined stays with the project." description="Leave the robotics toolbox; the robot you defined stays with the project.">
+<Button variant="ghost" size="icon" onClick={onClose} aria-label="Close robotics toolbox">
               <X className="w-4 h-4" />
             </Button>
+</HoverHelp>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-4">

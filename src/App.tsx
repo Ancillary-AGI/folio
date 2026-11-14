@@ -1,3 +1,4 @@
+import HoverHelp from './components/ui/HoverHelp'
 import { lazy, Suspense, useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   FolderOpen, PanelLeft, Bot, BarChart3, Settings, Package, Users,
@@ -62,7 +63,6 @@ import {
   resetOnboarding,
 } from './lib/onboarding/onboardingStorage'
 import DomainWorkspace from './components/workspace/DomainWorkspace'
-import HoverHelp from './components/ui/HoverHelp'
 import ConfirmDialog from './components/ui/ConfirmDialog'
 import SecretDialog from './components/ui/SecretDialog'
 import { useConfirm } from './components/ui/useConfirm'
@@ -2251,7 +2251,9 @@ function App() {
                       className="min-w-0 flex-1 rounded-lg border border-input bg-background/60 px-2.5 py-1.5 text-xs focus:outline-none focus:border-ring focus:ring-0"
                     />
                     <Button type="submit" size="sm" className="shrink-0">Commit</Button>
-                    <Button type="button" size="sm" variant="outline" onClick={createCheckpoint} title="Safety backup + commit" className="shrink-0">Backup</Button>
+                    <HoverHelp title="Safety backup + commit" description="Safety backup + commit">
+<Button type="button" size="sm" variant="outline" onClick={createCheckpoint} className="shrink-0">Backup</Button>
+</HoverHelp>
                   </form>
                   {vcsStatus && <p role="status" className="text-xs text-muted-foreground mt-2">{vcsStatus}</p>}
                 </div>

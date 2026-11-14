@@ -1,3 +1,4 @@
+import HoverHelp from './ui/HoverHelp'
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
@@ -466,9 +467,11 @@ export default function SettingsPanel({ onClose, onRestartOnboarding }: Settings
               </button>
             )}
           </div>
-          <Button variant="ghost" size="bar-icon" onClick={onClose} aria-label="Close settings" title="Close settings. Every change you made is already applied.">
+          <HoverHelp title="Close settings. Every change you made is already applied." description="Close settings. Every change you made is already applied.">
+<Button variant="ghost" size="bar-icon" onClick={onClose} aria-label="Close settings">
             <X className="h-3.5 w-3.5" />
           </Button>
+</HoverHelp>
         </div>
 
         <div className="flex min-h-0 flex-1">

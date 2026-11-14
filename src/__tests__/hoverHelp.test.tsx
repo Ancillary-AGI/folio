@@ -1,6 +1,6 @@
+import HoverHelp from '../components/ui/HoverHelp'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import HoverHelp from '../components/ui/HoverHelp'
 import { HELP_TOPICS, HELP_TOPICS_BY_GROUP, getHelpTopic } from '../lib/help/helpTopics'
 import { SHORTCUTS_BY_ID } from '../lib/keymap/shortcuts'
 import { computeTooltipPlacement } from '../lib/help/tooltipLayout'

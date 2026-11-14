@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * HDL Editor — Verilog / VHDL design entry, elaboration, and digital simulation.
  *
@@ -421,14 +422,16 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
         )}
 
         <div className="ml-auto flex gap-1">
-          <Button size="sm" variant="ghost" onClick={() => fileInputRef.current?.click()} title="Import HDL file">
-            <Upload size={13} />
-          </Button>
-          <Button size="sm" variant="ghost" onClick={handleExport} title="Export HDL file">
-            <Download size={13} />
-          </Button>
+          <HoverHelp title="Import HDL file" description="Import HDL file">
+<Button size="sm" variant="ghost" onClick={() => fileInputRef.current?.click()} aria-label="Import HDL file"><Upload size={13} aria-hidden="true" /></Button>
+</HoverHelp>
+          <HoverHelp title="Export HDL file" description="Export HDL file">
+<Button size="sm" variant="ghost" onClick={handleExport} aria-label="Export HDL file"><Download size={13} aria-hidden="true" /></Button>
+</HoverHelp>
           {onClose && (
-            <Button size="sm" variant="ghost" onClick={onClose} className="text-muted-foreground" aria-label="Close HDL editor" title="Close the HDL editor. Source you have not saved to the project is lost."><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
+            <HoverHelp title="Close the HDL editor. Source you have not saved to the project is lost." description="Close the HDL editor. Source you have not saved to the project is lost.">
+<Button size="sm" variant="ghost" onClick={onClose} className="text-muted-foreground" aria-label="Close HDL editor"><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
+</HoverHelp>
           )}
         </div>
         <input ref={fileInputRef} type="file" accept=".v,.sv,.vhd,.vhdl" aria-label="Import HDL file" className="hidden"

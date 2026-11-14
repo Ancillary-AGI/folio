@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import {
   MousePointer,
   Pencil,
@@ -18,7 +19,6 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
-import HoverHelp from '../ui/HoverHelp'
 import { useAppStore } from '../../stores/useAppStore'
 import { useProjectStore } from '../../stores/useProjectStore'
 import { useShortcutStore } from '../../stores/useShortcutStore'

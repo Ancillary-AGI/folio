@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * CodeEditor — the code surface every text-entry panel in Folio shares.
  *
@@ -800,31 +801,37 @@ function FindBar({
           className="min-w-0 flex-1 bg-transparent text-xs outline-none"
         />
       </label>
-      <Button
-        variant={caseSensitive ? 'default' : 'ghost'}
+      <HoverHelp title="Match upper and lower case exactly, or ignore it." description="Match upper and lower case exactly, or ignore it.">
+<Button variant={caseSensitive ? 'default' : 'ghost'}
         size="icon"
         className="h-7 w-7"
         onClick={onCase}
         aria-label={caseSensitive ? 'Matching case' : 'Ignoring case'}
-        aria-pressed={caseSensitive}
-        title="Match upper and lower case exactly, or ignore it.">
+        aria-pressed={caseSensitive}>
         <CaseSensitive className="h-3.5 w-3.5" />
       </Button>
-      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onPrevious} aria-label="Previous match" disabled={total === 0} title="Jump to the match above the cursor.">
+</HoverHelp>
+      <HoverHelp title="Jump to the match above the cursor." description="Jump to the match above the cursor.">
+<Button variant="ghost" size="icon" className="h-7 w-7" onClick={onPrevious} aria-label="Previous match" disabled={total === 0}>
         <ArrowUp className="h-3.5 w-3.5" />
       </Button>
-      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onNext} aria-label="Next match" disabled={total === 0} title="Jump to the match below the cursor.">
+</HoverHelp>
+      <HoverHelp title="Jump to the match below the cursor." description="Jump to the match below the cursor.">
+<Button variant="ghost" size="icon" className="h-7 w-7" onClick={onNext} aria-label="Next match" disabled={total === 0}>
         <ArrowDown className="h-3.5 w-3.5" />
       </Button>
+</HoverHelp>
       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onReplace(replacement)} aria-label="Replace match" disabled={total === 0} title="Replace the current match with the text in the replace box.">
         <Replace className="h-3.5 w-3.5" />
       </Button>
       <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={() => onReplaceAll(replacement)} disabled={total === 0}>
         Replace all
       </Button>
-      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={onClose} aria-label="Close find bar" title="Close the find bar; the file is left as it is.">
+      <HoverHelp title="Close the find bar; the file is left as it is." description="Close the find bar; the file is left as it is.">
+<Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={onClose} aria-label="Close find bar">
         <X className="h-3.5 w-3.5" />
       </Button>
+</HoverHelp>
     </div>
   )
 }

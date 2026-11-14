@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * Electric-machine simulator: brushed DC motor/generator, BLDC/PMSM and
  * stepper. All results come from `src/lib/electronics/machineDynamics`; the
@@ -332,9 +333,11 @@ export default function MachineSimulatorPanel({ onClose }: MachineSimulatorPanel
               Dynamic simulation of brushed DC machines, BLDC/PMSM drives and steppers.
             </p>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Close machine simulator" onClick={onClose} title="Leave the machine simulator; closing writes nothing to the design.">
+          <HoverHelp title="Leave the machine simulator; closing writes nothing to the design." description="Leave the machine simulator; closing writes nothing to the design.">
+<Button variant="ghost" size="icon" aria-label="Close machine simulator" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
+</HoverHelp>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">

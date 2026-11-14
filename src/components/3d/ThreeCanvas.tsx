@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -698,28 +699,30 @@ export default function ThreeCanvas({
             <Upload className="h-4 w-4" />
           </Button>
           {reference && (
-            <Button
-              variant="ghost"
+            <HoverHelp title="Remove imported model" description="Remove imported model">
+<Button variant="ghost"
               size="icon"
-              onClick={removeReference}
-              title="Remove imported model"
-              aria-label="Remove imported model"
-            >
+              onClick={removeReference} aria-label="Remove imported model">
               <X className="h-4 w-4" />
             </Button>
+</HoverHelp>
           )}
-          <Button variant="ghost" size="icon" onClick={fitToView} title="Fit model to view" aria-label="Fit model to view">
+          <HoverHelp title="Fit model to view" description="Fit model to view">
+<Button variant="ghost" size="icon" onClick={fitToView} aria-label="Fit model to view">
             <Focus className="h-4 w-4" />
           </Button>
+</HoverHelp>
           <Button variant="ghost" size="icon" onClick={() => exportModel('stl')} title="Export STL" aria-label="Export STL">
             <Download className="h-4 w-4" />
           </Button>
           <Button variant="ghost" size="icon" onClick={() => exportModel('obj')} title="Export OBJ" aria-label="Export OBJ">
             OBJ
           </Button>
-          <Button variant="ghost" size="sm" onClick={exportGLTF} title="Export GLTF" aria-label="Export GLTF">
+          <HoverHelp title="Export GLTF" description="Export GLTF">
+<Button variant="ghost" size="sm" onClick={exportGLTF} aria-label="Export GLTF">
             GLTF
           </Button>
+</HoverHelp>
         </div>
         {reference && (
           <div

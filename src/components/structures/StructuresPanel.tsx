@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * Structures workspace: a pin-jointed frame drawn, solved and stood up in 3D.
  *
@@ -438,9 +439,11 @@ export default function StructuresPanel({ onClose }: StructuresPanelProps) {
               </p>
             </div>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Close structures workspace" onClick={onClose} title="Leave the structures workspace; closing writes nothing to the design.">
+          <HoverHelp title="Leave the structures workspace; closing writes nothing to the design." description="Leave the structures workspace; closing writes nothing to the design.">
+<Button variant="ghost" size="icon" aria-label="Close structures workspace" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
+</HoverHelp>
         </div>
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
@@ -516,16 +519,15 @@ export default function StructuresPanel({ onClose }: StructuresPanelProps) {
                         kN labels
                       </Button>
                     </div>
-                    <Button
-                      type="button"
+                    <HoverHelp title="Download the framing sheet — elevation, bar schedule and dimensions on an A3 drawing" description="Download the framing sheet — elevation, bar schedule and dimensions on an A3 drawing">
+<Button type="button"
                       size="sm"
                       variant="outline"
-                      onClick={handleExportSheet}
-                      title="Download the framing sheet — elevation, bar schedule and dimensions on an A3 drawing"
-                    >
+                      onClick={handleExportSheet}>
                       <Download className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
                       Download drawing
                     </Button>
+</HoverHelp>
                   </div>
                 </div>
               </CardHeader>

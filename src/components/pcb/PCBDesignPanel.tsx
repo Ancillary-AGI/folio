@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * PCB Design Panel
  *
@@ -1909,15 +1910,21 @@ function PCBCanvas({
       ) : null}
 
       <div className="absolute right-2 top-2 flex items-center gap-1 rounded-lg border border-border/60 bg-surface/90 p-1 shadow-lg backdrop-blur-md">
-        <button type="button" className="cad-ctl cad-ctl--icon" aria-label="Zoom in" title="Zoom in" onClick={() => changeZoom(1.25)}>
+        <HoverHelp title="Zoom in" description="Zoom in">
+<Button type="button" className="cad-ctl cad-ctl--icon" aria-label="Zoom in" onClick={() => changeZoom(1.25)}>
           <ZoomIn />
-        </button>
-        <button type="button" className="cad-ctl cad-ctl--icon" aria-label="Zoom out" title="Zoom out" onClick={() => changeZoom(1 / 1.25)}>
+        </Button>
+</HoverHelp>
+        <HoverHelp title="Zoom out" description="Zoom out">
+<Button type="button" className="cad-ctl cad-ctl--icon" aria-label="Zoom out" onClick={() => changeZoom(1 / 1.25)}>
           <ZoomOut />
-        </button>
-        <button type="button" className="cad-ctl cad-ctl--icon" aria-label="Fit board" title="Fit board" onClick={resetView}>
+        </Button>
+</HoverHelp>
+        <HoverHelp title="Fit board" description="Fit board">
+<Button type="button" className="cad-ctl cad-ctl--icon" aria-label="Fit board" onClick={resetView}>
           <Maximize2 />
-        </button>
+        </Button>
+</HoverHelp>
       </div>
 
       {scene && scene.warnings.length > 0 ? (
@@ -3557,7 +3564,9 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                 <span className="hidden sm:inline">Preview 3D</span>
               </Button>
             )}
-            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close PCB panel" title="Leave the board editor; closing writes nothing to the design."><X className="w-4 h-4" /></Button>
+            <HoverHelp title="Leave the board editor; closing writes nothing to the design." description="Leave the board editor; closing writes nothing to the design.">
+<Button variant="ghost" size="icon" onClick={onClose} aria-label="Close PCB panel"><X className="w-4 h-4" /></Button>
+</HoverHelp>
           </div>
         </div>
 
@@ -3635,15 +3644,13 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                 >
                   <RotateCw className="w-3.5 h-3.5" />
                 </Button>
-                <Button
-                  variant="outline" size="icon" className="h-8 w-full"
+                <HoverHelp title="Move the selected part to the other face of the board — F" description="Move the selected part to the other face of the board — F">
+<Button variant="outline" size="icon" className="h-8 w-full"
                   disabled={selectedComponentIds.length === 0}
-                  onClick={flipSelected}
-                  title="Move the selected part to the other face of the board — F"
-                  aria-label="Flip to other side"
-                >
+                  onClick={flipSelected} aria-label="Flip to other side">
                   <FlipVertical className="w-3.5 h-3.5" />
                 </Button>
+</HoverHelp>
               </div>
             </div>
 
@@ -3652,24 +3659,20 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                 History
               </p>
               <div className="grid grid-cols-1 gap-1 lg:grid-cols-2">
-                <Button
-                  variant="outline" size="icon" className="h-8 w-full"
+                <HoverHelp title="Undo the last board edit — Ctrl+Z" description="Undo the last board edit — Ctrl+Z">
+<Button variant="outline" size="icon" className="h-8 w-full"
                   disabled={!editor.canUndo}
-                  onClick={undoBoardEdits}
-                  title="Undo the last board edit — Ctrl+Z"
-                  aria-label="Undo"
-                >
+                  onClick={undoBoardEdits} aria-label="Undo">
                   <Undo2 className="w-3.5 h-3.5" />
                 </Button>
-                <Button
-                  variant="outline" size="icon" className="h-8 w-full"
+</HoverHelp>
+                <HoverHelp title="Redo the last undone edit — Ctrl+Shift+Z" description="Redo the last undone edit — Ctrl+Shift+Z">
+<Button variant="outline" size="icon" className="h-8 w-full"
                   disabled={!editor.canRedo}
-                  onClick={redoBoardEdits}
-                  title="Redo the last undone edit — Ctrl+Shift+Z"
-                  aria-label="Redo"
-                >
+                  onClick={redoBoardEdits} aria-label="Redo">
                   <Redo2 className="w-3.5 h-3.5" />
                 </Button>
+</HoverHelp>
               </div>
             </div>
 

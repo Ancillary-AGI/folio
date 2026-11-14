@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 /**
  * Plugin Marketplace — browse, install, and manage Folio extensions.
  *
@@ -335,7 +336,9 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
           )}
         </div>
         {onClose && (
-          <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close plugin marketplace" className="text-muted-foreground hover:text-foreground" title="Close the marketplace. Installed plugins stay installed."><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
+          <HoverHelp title="Close the marketplace. Installed plugins stay installed." description="Close the marketplace. Installed plugins stay installed.">
+<Button size="sm" variant="ghost" onClick={onClose} aria-label="Close plugin marketplace" className="text-muted-foreground hover:text-foreground"><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
+</HoverHelp>
         )}
       </div>
 

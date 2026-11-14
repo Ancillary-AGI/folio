@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import {
@@ -222,15 +223,13 @@ export default function DesignHealthPanel({
               ))}
             </div>
           )}
-          <button
-            type="button"
+          <HoverHelp title="Hide the design health panel" description="Hide the design health panel">
+<button type="button"
             className="cad-ctl cad-ctl--icon"
-            onClick={onClose}
-            title="Hide the design health panel"
-            aria-label="Hide the design health panel"
-          >
+            onClick={onClose} aria-label="Hide the design health panel">
             <X />
           </button>
+</HoverHelp>
         </div>
       </div>
 
