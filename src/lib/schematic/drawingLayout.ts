@@ -165,15 +165,15 @@ export function layoutComponentLabels(
       ...lines.map((line) => estimateTextWidth(line.text, line.fontSize, line.bold)),
     )
     const height = value ? 28 : 14
-    const gap = 10
+    const gap = 4
     const centerX = box.x + box.width / 2
     const centerY = box.y + box.height / 2
 
     const candidates: Bounds[] = [
-      { x: centerX - width / 2, y: box.y - gap - height, width, height },
-      { x: centerX - width / 2, y: box.y + box.height + gap, width, height },
       { x: box.x + box.width + gap, y: centerY - height / 2, width, height },
       { x: box.x - gap - width, y: centerY - height / 2, width, height },
+      { x: centerX - width / 2, y: box.y - gap - height, width, height },
+      { x: centerX - width / 2, y: box.y + box.height + gap, width, height },
     ]
 
     let chosen = candidates[0]
