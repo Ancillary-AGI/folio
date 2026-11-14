@@ -201,7 +201,17 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
   // overrides of its own, so changing the transient window or the integration
   // rule on the settings page changes the next solve. Editing a box below is the
   // only thing that makes a run differ from the preference.
-  const [parameters, setParameters] = useState<SimulationParameters>({ type: 'transient' })
+  /*
+   * The flasher oscillates at ~0.7 Hz — the settings default of 20 ms would
+   * show nothing. When the simulation tab opens for the blinker sheet, start
+   * from the honest window instead of the 20 ms default so the waveforms
+   * render whole cycles; editing the boxes still overrides.
+   */
+  const [parameters, setParameters] = useState<SimulationParameters>(() =>
+    useProjectStore.getState().currentSchematic?.id === 'blinker-schematic'
+      ? { type: 'transient', stopTime: 3.5, stepTime: 0.005 }
+      : { type: 'transient' },
+  )
   /*
    * The preferences a solve falls back to, read live. µs → seconds because the
    * solver and the form both work in seconds; the settings page says µs because
@@ -425,15 +435,6 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
   }
 
   useDemoRequest('rectifier-transient', () => { void handleRunSimulation() })
-  /*
-   * The flasher oscillates at ~0.7 Hz — a 20 ms window shows nothing but the
-   * charging rails. The demo solves the honest window for this circuit: 3.5 s
-   * with a 5 ms step, so both collectors complete at least two full cycles.
-   */
-  useDemoRequest('blinker-transient', () => {
-    setParameters((previous) => ({ ...previous, stopTime: 3.5, stepTime: 0.005 }))
-    void handleRunSimulation({ stopTime: 3.5, stepTime: 0.005 })
-  })
 
   const [benchInput, setBenchInput] = useState<string>('')
   const [benchVerdict, setBenchVerdict] = useState<string | null>(null)

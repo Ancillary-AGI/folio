@@ -108,16 +108,6 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     load: 'blinker-board',
   },
   {
-    id: 'blinker-transient',
-    title: 'Astable transient response',
-    mode: 'simulation',
-    group: 'design',
-    summary: 'Solve the astable across a 3.5 s window: both collector waveforms complete full saturation and cut-off cycles at ~0.7 Hz, on the live solver.',
-    proves: ['Transient MNA solve', 'Full oscillation cycles', 'Collector-node waveforms'],
-    load: 'blinker-board',
-    request: 'blinker-transient',
-  },
-  {
     id: 'blinker-pcb',
     title: 'Route and verify the flasher PCB',
     mode: 'pcb',
