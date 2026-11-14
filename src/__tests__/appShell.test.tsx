@@ -418,7 +418,7 @@ describe('App shell', () => {
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Settings' })[0])
     fireEvent.click(await screen.findByRole('button', { name: 'Restart guided setup' }, { timeout: 20000 }))
-    await screen.findByRole('dialog', { name: /one project/i }, { timeout: 5000 })
+    await screen.findByRole('dialog', { name: /this is your workbench/i }, { timeout: 5000 })
 
     // Reading the register is the point of the last step, so opening it from the
     // status bar must not leave a coach mark hovering over the panel.
@@ -429,7 +429,7 @@ describe('App shell', () => {
       await screen.findByRole('dialog', { name: 'Capabilities and limits' }, { timeout: 10000 }),
     ).toBeInTheDocument()
     await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: /one project/i })).not.toBeInTheDocument(),
+      expect(screen.queryByRole('dialog', { name: /this is your workbench/i })).not.toBeInTheDocument(),
     )
     // The three lazy mounts it waits for cost ~26 s measured alone (jsdom has to
     // evaluate the whole Settings/Help/Limits graph per test), and the waits above
@@ -448,7 +448,7 @@ describe('App shell', () => {
     // default 1 s to fetch and mount it after the whole suite has run.
     fireEvent.click(await screen.findByRole('button', { name: 'Restart guided setup' }, { timeout: 20000 }))
 
-    expect(await screen.findByRole('dialog', { name: /one project/i }, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: /this is your workbench/i }, { timeout: 5000 })).toBeInTheDocument()
   })
 
   it('keeps the forward controls equal height in a fixed footer row', async () => {
@@ -578,7 +578,7 @@ describe('App shell', () => {
     expect(
       await screen.findByRole('dialog', { name: 'Capabilities and limits' }, { timeout: 10000 }),
     ).toBeInTheDocument()
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: /one project/i })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /this is your workbench/i })).not.toBeInTheDocument())
 
     // The hand-off closes the tour from the card and the shell in one click; only
     // the card's own exit may reach the ledger. Three steps were visited: the

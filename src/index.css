@@ -1488,7 +1488,7 @@
    * rail's centre line; wheel and trackpad still scroll.
    */
   .cad-rail {
-    @apply flex w-12 flex-shrink-0 flex-col items-center gap-1 overflow-y-auto overscroll-contain border-r border-border bg-surface py-2 text-surface-foreground;
+    @apply relative z-40 flex w-12 flex-shrink-0 flex-col items-center gap-1 overflow-y-auto overscroll-contain border-r border-border bg-surface py-2 text-surface-foreground;
     scrollbar-width: none;
     /* Casts onto the sheet, so the rail reads as a shelf above it. */
     box-shadow: 2px 0 10px -6px hsl(var(--shadow-color) / 0.65);
@@ -2585,6 +2585,24 @@
   animation: tour-bracket-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* The spotlight ring breathes: opacity only, on its own element — the
+   dimmed backdrop stays constant and the highlighted region never moves,
+   never grows and never shrinks. */
+.tour-spotlight-ring {
+  animation: tour-spotlight-ring 2.2s ease-in-out infinite;
+}
+
+@keyframes tour-spotlight-ring {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-spotlight-ring {
+    animation: none;
+  }
+}
+
 @keyframes tour-bracket-in {
   from {
     opacity: 0;
@@ -3369,10 +3387,6 @@
   border-radius: 0.625rem;
   border-color: hsl(var(--border) / 0.9);
   background: hsl(var(--surface) / 0.65);
-}
-
-.launcher-kbd-hint {
-  color: hsl(var(--muted-foreground) / 0.75);
 }
 
 .family-tile {

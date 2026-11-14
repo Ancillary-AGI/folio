@@ -1,3 +1,4 @@
+import HoverHelp from './ui/HoverHelp'
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase, Project } from '../lib/supabase'
 import { offlineProjectStore } from '../lib/offlineProjectStore'
@@ -375,11 +376,6 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
                 </Button>
               ) : null}
             </div>
-            <p className="launcher-kbd-hint" aria-hidden="true">
-              <kbd className="cad-kbd">{typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.platform) ? '⌘' : 'Ctrl'}</kbd>
-              <kbd className="cad-kbd">K</kbd>
-              <span>opens the command palette from anywhere in the workbench</span>
-            </p>
           </div>
 
           <div className="launcher-hero__visual" role="img" aria-label="Engineering disciplines connected through one shared product model">
@@ -488,16 +484,15 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
                   button, and the corner carries the only other decision here.
                   Out of the reading flow, out of the drop target, named for
                   its job. */}
-              <Button
-                variant="ghost"
+              <HoverHelp title="Delete this project" description="Delete this project">
+<Button variant="ghost"
                 size="bar-icon"
                 className="launcher-project__delete"
-                aria-label={`Delete ${project.name}`}
-                title="Delete this project"
-                onClick={(e) => handleDeleteProject(project, e)}
+                aria-label={`Delete ${project.name}`} onClick={(e) => handleDeleteProject(project, e)}
               >
                 <Trash2 />
               </Button>
+</HoverHelp>
 
               <CardHeader className="gap-3 pb-3 pr-8">
                 <div className="flex items-start gap-3">

@@ -295,15 +295,20 @@ export default function OnboardingTour({
       {layout.spotlight && (
         <div
           aria-hidden="true"
-          className={`pointer-events-none fixed rounded-xl ring-2 ring-primary/80 ${animations ? 'transition-[top,left,width,height]' : ''} ${motionClass}`}
+          className={`pointer-events-none fixed rounded-xl ${animations ? 'transition-[top,left,width,height]' : ''} ${motionClass}`}
           style={{
             top: layout.spotlight.top,
             left: layout.spotlight.left,
             width: layout.spotlight.width,
             height: layout.spotlight.height,
+            background: 'transparent',
             boxShadow: `0 0 0 9999px hsl(var(--overlay) / ${isLiveStep ? 0.4 : 0.72})`,
           }}
         >
+          {/* The breathing ring: the only thing that animates inside the
+              dimmed field — constant position, constant 1px thickness. */}
+          <span className="tour-spotlight-ring pointer-events-none absolute inset-0 rounded-xl border border-primary" />
+
           {BRACKETS.map((bracket) => (
             <span
               key={`${step.id}-${bracket.id}`}

@@ -17,6 +17,10 @@ import type { WorkspaceMode } from '../../stores/useAppStore'
  * a `data-tour` marker in the shell: the spotlight finds the element at
  * runtime and the coach mark moves next to it. A step without a target (or
  * whose target is not on screen) falls back to a centred card.
+ *
+ * Every step is written to be understood on first read: the title names the
+ * thing the spotlight covers, and the body says what it does. No product
+ * slogans.
  */
 export type OnboardingChapterId =
   | 'orientation'
@@ -35,39 +39,39 @@ export interface OnboardingChapter {
 
 /**
  * The tour reads as six deliberate chapters rather than thirteen flat steps.
- * The order is a design review: orient yourself, capture intent, prove it,
- * build it, connect it, then govern what you built.
+ * The order walks one circuit from intent to release: orient, build it,
+ * simulate it, lay it out, test the firmware, then protect the history.
  */
 export const ONBOARDING_CHAPTERS: readonly OnboardingChapter[] = [
   {
     id: 'orientation',
     label: 'Orientation',
-    promise: 'Find your way around the workbench and the families that hold its workspaces.',
+    promise: 'Find your way around the workbench.',
   },
   {
     id: 'capture',
     label: 'Capture',
-    promise: 'Turn intent into a connected electrical design on the sheet.',
+    promise: 'Draw the circuit on the sheet.',
   },
   {
     id: 'prove',
     label: 'Prove it',
-    promise: 'Simulate with stated models and read real numbers off the results.',
+    promise: 'Simulate it and read the numbers.',
   },
   {
     id: 'physical',
     label: 'Make it physical',
-    promise: 'Turn the netlist into a board, verify constraints and judge mechanical fit.',
+    promise: 'Lay it out as a board.',
   },
   {
     id: 'connect',
     label: 'Connect it',
-    promise: 'Join firmware, hardware tests, digital twins and the agent loop.',
+    promise: 'Flash it and test it against real hardware.',
   },
   {
     id: 'govern',
     label: 'Delegate & govern',
-    promise: 'Version the whole project and know the boundary of every number.',
+    promise: 'Keep history, and know what each answer is worth.',
   },
 ]
 
@@ -100,13 +104,13 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   {
     id: 'workflow',
     chapter: 'orientation',
-    title: 'One project, one connected engineering workflow',
-    summary: 'Start from intent, then move deliberately toward implementation evidence.',
+    title: 'This is your workbench',
+    summary: 'One project holds the schematic, the board, the firmware and the mechanical model.',
     detail:
-      'Schematic, PCB, mechanical, embedded, simulation, robotics, digital-twin and security tools all operate on the same project. Each domain keeps its own model and validation limits. Sharing a workspace is not the same as physics being coupled.',
+      'Every domain — schematic, PCB, simulation, firmware, mechanical, robotics — works on the same project, in one file. Each domain checks its own work; nothing shares a hidden state. You can open an empty canvas and the validation is the same.',
     checklist: [
-      'Create one project per revision of your design',
-      'Keep requirements, assumptions and units explicit',
+      'One project per design revision',
+      'Keep requirements and units written down',
       'Take a checkpoint before any risky edit or conversion',
     ],
     mode: 'schematic',
@@ -117,14 +121,14 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   {
     id: 'families',
     chapter: 'orientation',
-    title: 'Five families hold twenty-eight workspaces',
-    summary: 'Design, Electrical, Mechanical, Life systems and Operations each open their own tools; hover a tab to hear what it does.',
+    title: 'This is the family strip',
+    summary: 'Design, Electrical, Mechanical, Life systems and Operations — each tab opens its family’s workspaces.',
     detail:
-      'The family strip groups the workbench by discipline and the row beneath it holds that family’s workspaces — schematic, simulation, PCB and fabrication under Design; control, machines, RF, HDL and silicon under Electrical; CAD, robotics, firmware, imaging, blocks and HIL under Mechanical; reaction kinetics, organelles, cells and whole-body disposition under Life systems; agents, parts, plugins, system, activity log and marketplace under Operations. Each tab has a one-sentence description on hover, the Guide button opens the full workspace guide, and the demo gallery has a tested scenario for every mode.',
+      'The strip groups the 28 workspaces by discipline. Design holds schematic, simulation, PCB and fabrication. Electrical holds control, machines, RF, HDL and silicon. Mechanical holds CAD, robotics, firmware and imaging. Life systems holds reactions, tissue and whole-body models. Operations holds agents, parts, plugins and the marketplace. Hover a tab to see what it computes before you open it.',
     checklist: [
-      'Open a family you have not used and read its tabs',
-      'Hover a tab before opening it: the tooltip says what the workspace computes',
-      'Use Guide to compare what that workspace models and what it refuses to model',
+      'Hover a family tab before clicking it',
+      'Skim the row of workspaces under each tab',
+      'The Guide button lists what each workspace does and refuses to do',
     ],
     mode: 'schematic',
     icon: Layers3,
@@ -135,13 +139,13 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   {
     id: 'help',
     chapter: 'orientation',
-    title: 'Help lives in the chrome, not in a manual',
-    summary: 'Hover a control to hear what it does; press F1 for guides and hands-on tutorials.',
+    title: 'This is the Help button',
+    summary: 'One-line answers on hover; F1 opens guides and tutorials.',
     detail:
-      'Rest the pointer on any rail button, header control or workspace tab and a one-line explanation appears after a moment; every control that has a shortcut prints its keycap. Press F1 or ? anywhere to open the help centre: guided tutorials that load a working demo and walk the real buttons, a guide to each of the 28 workspaces, a control reference and the shortcut list. Tutorial steps are self-checked — the workbench does not watch your screen or grade the result.',
+      'Rest the pointer on any control in the rail, the header or a workspace tab and a short explanation appears — with its shortcut keycap. Press F1 or ? anywhere to open the help centre: tutorials that load a working demo and walk the real buttons, a guide per workspace, a control reference and the shortcut list. Tutorials check themselves; the workbench never watches your screen.',
     checklist: [
-      'Hover the wire tool on the rail: the tooltip names the tool and its key',
-      'Press F1, open Tutorials and start the rectifier walkthrough',
+      'Hover the wire tool on the left rail',
+      'Press F1 and open Tutorials',
       'Read a workspace guide before trusting its numbers',
     ],
     mode: 'schematic',
@@ -152,15 +156,14 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   {
     id: 'schematic',
     chapter: 'capture',
-    title: 'Capture electrical intent in the schematic',
-    summary: 'Build a circuit that reads correctly before you optimise it.',
+    title: 'This is the component library',
+    summary: 'Drag parts onto the sheet — that is how every circuit here starts.',
     detail:
-      'Place components, connect pins, and give every part a real value or model. Netlist extraction resolves connectivity from wire topology and net names, so naming power and ground rails is what makes the rest of the toolchain reliable. The wire tool is click-to-click: arm it on the left rail, click a pin, click the next, and the sheet routes the segment.',
+      'Parts carry their models with them: a transistor drops in with a real part number behind it (2N3904 unless you change it), a diode with its reverse rating, a resistor with its power rating. Wire tool is click-to-click: arm it on the left rail, click a pin, click the next pin. Netlist extraction rebuilds connectivity from the wires you drew.',
     checklist: [
-      'Arm the wire tool on the rail and join two pins',
-      'Name your power and ground rails explicitly',
-      'Use exact manufacturer part numbers where you can',
-      'Clear unconnected pins before running any analysis',
+      'Drag a resistor onto the sheet',
+      'Arm the wire tool and join two pins',
+      'Use exact part numbers where you can',
     ],
     mode: 'schematic',
     icon: CircuitBoard,
@@ -172,14 +175,14 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   {
     id: 'editor-tools',
     chapter: 'capture',
-    title: 'The rail holds the gestures, the keys hold the rail',
-    summary: 'Select, wire and delete sit on one rail, each with a one-key shortcut.',
+    title: 'This is the tool rail',
+    summary: 'Select (V), wire (W) and delete (D); grid (G), fit (F), snap — each button prints its key.',
     detail:
-      'Press V, W or D to arm a tool, G to toggle the grid and F to fit the design to the view; every button that has a shortcut prints its keycap, so the shortcut is discoverable without a cheat sheet. Snap is its own toggle: with snap on, a part lands on the grid pitch the router and the netlist can reason about.',
+      'Three tools cover most edits: V for select, W for wire, D for delete. G toggles the grid, F fits the view to the design. Snap decides where parts land: on, they snap to the grid pitch the router can reason about; off, you place freely. Undo is on the rail and on Ctrl+Z.',
     checklist: [
-      'Press W, click a pin, click the next pin: that is one wire',
-      'Keep snap on while laying out, and turn it off only for odd-pitch parts',
-      'Undo is on the rail and on Ctrl+Z — never retype a mistake away',
+      'Press W, click a pin, click the next pin',
+      'Keep snap on while laying out',
+      'Press Ctrl+Z if you dislike a wire',
     ],
     mode: 'schematic',
     icon: MousePointerClick,
@@ -190,31 +193,29 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   {
     id: 'simulate',
     chapter: 'prove',
-    title: 'Simulate with stated models and assumptions',
-    summary: 'A numeric result is only as trustworthy as its model and boundary conditions.',
+    title: 'This is the simulator',
+    summary: 'The solver runs the exact circuit drawn, with models you can inspect.',
     detail:
-      'The simulator solves the circuit you actually drew. DC uses modified nodal analysis. Other analyses are available only when the selected solver implements them; do not treat a numerical result as hardware certification.',
+      'DC operating point uses modified nodal analysis. Transient, AC sweep, noise and Monte Carlo run on the same netlist you drew — nothing is re-invented for the run. Transistors we ship carry a built-in model (2N2222 family); other parts fall back to a generic model unless you drop a vendor card — the deck will say so. A clean number is not hardware certification — check limiting cases.',
     checklist: [
       'Use vendor models for critical active devices',
-      'Sweep tolerances and operating corners, not just nominal',
-      'Correlate predictions against bench measurements',
+      'Simulate nominal plus a tolerance corner',
+      'Compare against bench measurements',
     ],
     mode: 'schematic',
     icon: Activity,
-    target: 'workspace-nav',
-    placement: 'bottom',
   },
   {
     id: 'waveforms',
     chapter: 'prove',
-    title: 'Read the response, not just the picture',
-    summary: 'Zoom, pan and pin a cursor to take real numbers off the solver output.',
+    title: 'This is the waveform plot',
+    summary: 'Drag to zoom, click to pin a cursor, read values off the solved samples.',
     detail:
-      'Every trace chart in the workbench shares the same gestures: drag to zoom a window, shift-drag to pan, scroll to zoom under the pointer, click to pin a readout, and plus, minus, arrow keys or R when the chart has keyboard focus. A pinned cursor reports a value at a solved sample, never one interpolated between samples, so what you read is what the solver produced.',
+      'Drag across a region to zoom it, shift-drag to pan, scroll to zoom under the pointer, click to drop a pinned cursor that reads a value at a solved sample — never one interpolated between samples. Plus, minus and arrow keys work when the chart has focus. A pinned cursor is the number that goes into the report.',
     checklist: [
-      'Zoom to the edge you are judging: a switching transient, a filter corner, a phase crossover',
-      'Pin a cursor instead of eyeballing the axis when a number goes into a report',
-      'Re-read the stated model and solver limits before treating a curve as evidence',
+      'Zoom the edge you care about',
+      'Pin a cursor, do not eyeball the axis',
+      'Check the stated model before quoting the curve',
     ],
     mode: 'simulation',
     icon: TrendingUp,
@@ -224,31 +225,29 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   {
     id: 'convert',
     chapter: 'physical',
-    title: 'Convert to PCB and verify constraints',
-    summary: 'Treat conversion as a starting layout, never as manufacturing approval.',
+    title: 'This is Schematic → PCB',
+    summary: 'The sheet converts into a placed board — a draft, not approval.',
     detail:
-      'Inspect footprint mapping and board outline, then review clearance, net connectivity, copper width and return paths against the fabricator rules you will actually order from. DRC and ERC findings are evidence, not decoration.',
+      'Conversion places parts onto the board outline with footprints mapped and nets routed. Review the placement, the clearances and the copper before you order anything: DRC and ERC findings are the facts of the layout — read them as a manufacturing engineer would.',
     checklist: [
-      'Confirm every symbol maps to the intended footprint',
-      'Resolve DRC and ERC findings you have not explicitly waived',
-      'Compare Gerber and drill outputs in a manufacturing viewer',
+      'Check every symbol mapped to its footprint',
+      'Resolve or waive every ERC and DRC finding',
+      'Preview the Gerbers before a fab order',
     ],
     mode: 'convert',
     icon: GitBranch,
-    target: 'workspace-nav',
-    placement: 'bottom',
   },
   {
     id: 'mechanical',
     chapter: 'physical',
-    title: 'Prepare the mechanical and 3D context',
-    summary: 'Judge fit and packaging separately from electrical correctness.',
+    title: 'This is the mechanical view',
+    summary: 'Check fit, clearance and envelope in 3D — geometry is not the same as physics.',
     detail:
-      'Use the CAD and 3D views to review envelopes, clearances and placement. Mechanical models and PCB data need verified coordinate systems and an exported assembly before they can be treated as shared geometry.',
+      'Inspect the board outline, connector access and component heights in the 3-D view. Mechanical and PCB data can only be combined when the coordinate systems and the exported assembly agree with the target toolchain.',
     checklist: [
-      'Confirm units, origin and board outline',
-      'Check connector access and component height',
-      'Export geometry and re-open it in the target toolchain',
+      'Confirm units and origin',
+      'Check connector access and heights',
+      'Export and re-open geometry in the target CAD',
     ],
     mode: 'mechanical',
     icon: Cpu,
@@ -258,31 +257,29 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   {
     id: 'evidence',
     chapter: 'connect',
-    title: 'Connect firmware, hardware tests and twins',
-    summary: 'Move from design artefacts to controlled experiments.',
+    title: 'This is the HIL workspace',
+    summary: 'Flash the firmware onto the real board and test it against the hardware.',
     detail:
-      'Embedded, FPGA and HIL workspaces organise the programming and test flow. Real hardware needs a supported toolchain, configured target, attached interface, safe test limits and calibration. A digital twin needs trustworthy live signals and a validated physical model.',
+      'HIL runs the firmware against the actual board: current limits, fixtures, calibration and a defined test session. Real hardware needs a supported toolchain, the right interface and safe limits. A digital twin adds live signals and a validated physical model on top.',
     checklist: [
-      'Select and verify the actual board and toolchain',
-      'Use current-limited supplies and documented test fixtures',
-      'Version firmware, calibration and telemetry schemas together',
+      'Select the actual board and toolchain',
+      'Use current-limited supplies and fixtures',
+      'Version firmware, calibration and schemas together',
     ],
     mode: 'hil',
     icon: Shield,
-    target: 'status-bar',
-    placement: 'top',
   },
   {
     id: 'agent',
     chapter: 'connect',
-    title: 'Drive the CAD with an agent, visually',
-    summary: 'The assistant reads the sheet and board back as images after every edit.',
+    title: 'This is the design assistant',
+    summary: 'It drives the same CAD tools you use, then re-reads the result.',
     detail:
-      'The assistant is a closed loop over the same CAD tools you use: it observes the schematic or board image, proposes a change, applies it, then re-reads the result. Autopilot and multi-step runs stay in the workspace; any cloud model needs credentials you provide and is labelled as such.',
+      'The assistant observes the sheet or board, proposes a change, applies it with the same tools you have, then re-reads its own work. Runs stay in this workspace; a cloud model, if configured, is labelled and needs your credentials. Review every edit it makes.',
     checklist: [
-      'Describe the goal and the constraints in engineering terms',
-      'Require visual feedback after every structural change',
-      'Review the diff and run verification before accepting a design',
+      'Describe the goal and the constraints',
+      'Require it to re-read after a change',
+      'Review the diff before keeping a change',
     ],
     mode: 'agents',
     icon: Bot,
@@ -293,14 +290,14 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   {
     id: 'version-control',
     chapter: 'govern',
-    title: 'Version the whole project, not just the schematic',
-    summary: 'Every commit captures the complete multi-domain design state.',
+    title: 'This is version history',
+    summary: 'Commits snapshot the whole multi-domain project.',
     detail:
-      'One content-addressed commit stores schematic, routed PCB, mechanical assembly, firmware and every other CAD domain together. Check out any commit to restore a consistent state, and branch when an alternative should not disturb the current design.',
+      'One commit stores schematic, routed PCB, mechanical assembly, firmware and the rest together, on one branch. Check out any commit to restore a consistent state; make a branch when an alternative should not disturb the current design.',
     checklist: [
-      'Commit a named milestone before a risky edit',
-      'Keep one branch per alternative, review the diff before merging',
-      'Treat workspace history as working storage, not a backup you have verified',
+      'Commit before a risky edit',
+      'Branch per alternative; review the diff',
+      'History is working storage, not a verified backup',
     ],
     mode: 'schematic',
     icon: History,
@@ -310,14 +307,14 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   {
     id: 'limits',
     chapter: 'govern',
-    title: 'Know the boundary of every number',
-    summary: 'One registry states what each analysis computes, how, and what it refuses to model.',
+    title: 'This is the limits registry',
+    summary: 'Every analysis lists its method, its tests and what it does not model.',
     detail:
-      'The LIMITS button in the status bar opens a registry of the whole workbench: the method behind each result — LU on the MNA matrix, Newton-Raphson with gmin stamping, damped least-squares IK, a Lee and A* routing grid — the test file that pins it, and a block naming what is not modelled. It is blunt on purpose: the noise figure is thermal plus diode and never total, antenna gain equals integrated directivity under a stated loss-free assumption, the fab gate implements one vendor profile, and no agent tool touches hardware. A result you cannot bound is a result you cannot use.',
+      'The LIMITS button opens the registry: the method behind each number (LU on the MNA matrix, Newton–Raphson, damped least-squares IK, Lee/A* routing), the test file that pins it, and the list of what is not modelled. It is deliberately blunt; read it before a number goes into a report.',
     checklist: [
-      'Read the Not covered block before a number goes into a report',
-      'Filter the registry to the workspace you are in, then search a method name such as MNA, IK or relay',
-      'Open the test file named on the row when a claim decides something real',
+      'Read the Not covered block first',
+      'Filter by the workspace you are in',
+      'Open the test file named on the row when it matters',
     ],
     mode: 'schematic',
     icon: ScrollText,
