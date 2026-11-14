@@ -53,6 +53,7 @@ export interface CommunityTemplate {
 
 /** The curated seeds — demos chosen because they are worth building on. */
 export const CURATED_TEMPLATES: readonly CommunityTemplate[] = [
+  { id: 'curated-blinker-astable', name: 'LED flasher, start to gerber', description: 'Two 2N3904s, red LEDs and a 5 V rail — the astable classic that actually oscillates on the transient solver, then routes and fabs.', discipline: 'circuits', license: 'cc-by-4.0', authorName: 'Folio team', source: 'curated', workspaceMode: 'schematic', clonedCount: 0, createdAt: null },
   { id: 'curated-rectifier-pcb', name: 'Half-wave rectifier, start to gerber', description: 'Schematic → transient → PCB → 3D → BOM → fab package. The reference for every new user.', discipline: 'circuits', license: 'cc-by-4.0', authorName: 'Folio team', source: 'curated', workspaceMode: 'pcb', clonedCount: 0, createdAt: null },
   { id: 'curated-showcase-4l-3d', name: 'Four-layer controller board', description: 'Poured planes on named nets with anti-pads around foreign barrels — the four-layer vocabulary you actually use.', discipline: 'circuits', license: 'cc-by-4.0', authorName: 'Folio team', source: 'curated', workspaceMode: 'preview3d', clonedCount: 0, createdAt: null },
   { id: 'curated-laptop-mainboard', name: 'Laptop mainboard, laid out', description: '56 packages, BGA-256 SoC, LPDDR4x pairs — the honest limit of an in-browser autorouter, with the unrouted nets named.', discipline: 'circuits', license: 'cc-by-4.0', authorName: 'Folio team', source: 'curated', workspaceMode: 'pcb', clonedCount: 0, createdAt: null },
@@ -67,6 +68,7 @@ export const CURATED_TEMPLATES: readonly CommunityTemplate[] = [
 
 /** Map a curated id back to its demo scenario for the fork path. */
 export const CURATED_DEMO_BY_TEMPLATE_ID: Readonly<Record<string, string>> = Object.freeze({
+  'curated-blinker-astable': 'blinker-astable',
   'curated-rectifier-pcb': 'rectifier-pcb',
   'curated-showcase-4l-3d': 'showcase-4l-3d',
   'curated-laptop-mainboard': 'laptop-mainboard',

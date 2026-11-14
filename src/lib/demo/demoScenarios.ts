@@ -16,6 +16,8 @@ export type DemoLoad =
   | 'laptop-pcb'
   | 'pcb-autoroute'
   | 'rectifier-transient'
+  | 'blinker-board'
+  | 'blinker-pcb'
   | 'fpga-verilog'
   | 'fpga-vhdl'
   | 'embedded-rectifier'
@@ -95,6 +97,43 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
     summary: 'Inspect the routed copper, vias, pads and parts, then export the same mesh as STL.',
     proves: ['Real copper geometry', 'Layer and part visibility', 'Mesh export'],
     load: 'demo-pcb',
+  },
+  {
+    id: 'blinker-astable',
+    title: 'LED flasher, two-transistor astable',
+    mode: 'schematic',
+    group: 'design',
+    summary: 'Two 2N3904s, red LEDs and a 5 V rail: the classic astable bring-up, wired on the sheet and simulating at ~0.7 Hz. One crossing in the coupling path, no faked jumpers.',
+    proves: ['Two-transistor oscillator', 'Oscilloscope-class transient solve', 'Machine-precision placement'],
+    load: 'blinker-board',
+  },
+  {
+    id: 'blinker-transient',
+    title: 'Astable transient response',
+    mode: 'simulation',
+    group: 'design',
+    summary: 'Solve the astable across a 3.5 s window: both collector waveforms complete full saturation and cut-off cycles at ~0.7 Hz, on the live solver.',
+    proves: ['Transient MNA solve', 'Full oscillation cycles', 'Collector-node waveforms'],
+    load: 'blinker-board',
+    request: 'blinker-transient',
+  },
+  {
+    id: 'blinker-pcb',
+    title: 'Route and verify the flasher PCB',
+    mode: 'pcb',
+    group: 'design',
+    summary: 'The astable on an 80 × 45 mm two-layer board: real IPC pads, the same A* autorouter, then DRC, EMC, thermal and signal-integrity checks on the copper.',
+    proves: ['A* autorouting', 'DRC against IPC rules', '3-D preview of the routed board'],
+    load: 'blinker-pcb',
+  },
+  {
+    id: 'blinker-3d',
+    title: 'LED flasher in 3D',
+    mode: 'preview3d',
+    group: 'design',
+    summary: 'The routed flasher board as real copper, vias, pads and parts — inspect layer by layer, then export the same mesh as STL for the bench jig.',
+    proves: ['Routed copper in 3-D', 'Layer and part toggles', 'STL export'],
+    load: 'blinker-pcb',
   },
   {
     id: 'showcase-4l-3d',

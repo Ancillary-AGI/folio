@@ -1,3 +1,4 @@
+import HoverHelp from '../ui/HoverHelp'
 import { useState, useEffect, useMemo, useRef, useCallback, type ChangeEvent } from 'react'
 import { Play, Download, Zap, BarChart3, X, AlertCircle, Info } from 'lucide-react'
 import { Button } from '../ui/button'
@@ -373,7 +374,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
     setSelectedWaveforms(pickDefaultWaveforms((simulationResults?.waveforms ?? []).map((waveform) => waveform.name)))
   }
 
-  const handleRunSimulation = async () => {
+  const handleRunSimulation = async (overrides?: Partial<SimulationParameters>) => {
     if (modelLibrary && modelLibrary.errors.length > 0) {
       setError(`Fix the model-card errors first: ${modelLibrary.errors.join(' ')}`)
       return
@@ -388,7 +389,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
     // Preferences first, then whatever this panel was told differently. A field
     // the form never touched keeps the number from Settings, so the two surfaces
     // cannot report different values for the same run.
-    const runParameters: SimulationParameters = { ...simDefaults, ...parameters, type: selectedAnalysis }
+    const runParameters: SimulationParameters = { ...simDefaults, ...parameters, ...overrides, type: selectedAnalysis }
     setIsSimulating(true)
     setError(null)
 
@@ -424,6 +425,15 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
   }
 
   useDemoRequest('rectifier-transient', () => { void handleRunSimulation() })
+  /*
+   * The flasher oscillates at ~0.7 Hz — a 20 ms window shows nothing but the
+   * charging rails. The demo solves the honest window for this circuit: 3.5 s
+   * with a 5 ms step, so both collectors complete at least two full cycles.
+   */
+  useDemoRequest('blinker-transient', () => {
+    setParameters((previous) => ({ ...previous, stopTime: 3.5, stepTime: 0.005 }))
+    void handleRunSimulation({ stopTime: 3.5, stepTime: 0.005 })
+  })
 
   const [benchInput, setBenchInput] = useState<string>('')
   const [benchVerdict, setBenchVerdict] = useState<string | null>(null)
@@ -924,9 +934,11 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
           <BarChart3 className="w-5 h-5 text-success" />
           Circuit Simulation
         </CardTitle>
-        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close simulation panel" title="Leave the simulation workspace. Overrides typed on this panel do not survive it.">
+        <HoverHelp title="Leave the simulation workspace. Overrides typed on this panel do not survive it." description="Leave the simulation workspace. Overrides typed on this panel do not survive it.">
+<Button variant="ghost" size="icon" onClick={onClose} aria-label="Close simulation panel">
           <X className="w-4 h-4" />
         </Button>
+</HoverHelp>
       </CardHeader>
       
       <CardContent className="flex-1 flex flex-col space-y-4 overflow-y-auto scrollbar-thin">
@@ -1237,7 +1249,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
         {/* Control Buttons */}
         <div className="flex gap-2">
           <Button
-            onClick={handleRunSimulation}
+            onClick={() => void handleRunSimulation()}
             disabled={isSimulating || components.length === 0 || (modelLibrary?.errors.length ?? 0) > 0}
             className="flex items-center gap-2"
           >
