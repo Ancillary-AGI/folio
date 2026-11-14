@@ -133,10 +133,10 @@ describe('blink board — two-transistor astable demo', () => {
     // which is a net marker, not a part with pads.
     const placedParts = toPlaced(board).filter((p) => p.reference !== 'G1');
     const grid: Record<string, { x: number; y: number }> = {
-      V1: { x: 5, y: 10 }, R3: { x: 15, y: 10 }, R_A: { x: 22, y: 10 },
+      V1: { x: 5, y: 10 }, R3: { x: 15, y: 10 }, RA: { x: 22, y: 10 },
       LED1: { x: 10, y: 20 }, Q1: { x: 25, y: 22 }, Q2: { x: 38, y: 22 },
-      LED2: { x: 40, y: 10 }, R_B: { x: 55, y: 10 }, R4: { x: 47, y: 10 },
-      C_A: { x: 30, y: 15 }, C_B: { x: 32, y: 25 },
+      LED2: { x: 40, y: 10 }, RB: { x: 55, y: 10 }, R4: { x: 47, y: 10 },
+      CA: { x: 30, y: 15 }, CB: { x: 32, y: 25 },
     };
     for (const p of placedParts) {
       const g = grid[p.reference];
