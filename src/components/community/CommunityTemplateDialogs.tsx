@@ -88,7 +88,7 @@ export default function CommunityTemplateDialogs({ controller }: CommunityTempla
       {importDialog.open && (
         <DialogShell onClose={() => importDialog.setOpen(false)} labelledBy="import-heading" describedBy="import-desc" className="max-w-md">
           <div className="flex items-center justify-between border-b border-border p-4">
-            <h2 id="import-heading" className="text-sm font-semibold">Import a template file</h2>
+            <h2 id="import-heading" className="text-sm font-semibold">Import a community design file</h2>
             <button type="button" className="cad-ctl cad-ctl--icon" onClick={() => importDialog.setOpen(false)} aria-label="Close">
               <X className="h-4 w-4" aria-hidden="true" />
             </button>

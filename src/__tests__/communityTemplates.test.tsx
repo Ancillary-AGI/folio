@@ -40,7 +40,7 @@ describe('CommunityTemplates', () => {
 
   it('offers export and import as the offline sharing path', async () => {
     render(<CommunityTemplates {...baseProps} />)
-    expect(await screen.findByRole('button', { name: /export the current design as a template file/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /import a template file/i })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /export the current design as a shareable file/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /import a community design file/i })).toBeInTheDocument()
   })
 })
