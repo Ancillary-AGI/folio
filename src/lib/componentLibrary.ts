@@ -184,11 +184,11 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       width: 60,
       height: 60,
       paths: [
-        'M 0,30 L 20,30',
-        'M 20,10 L 20,50',
-        'M 20,20 L 45,10 L 60,10',
-        'M 20,40 L 45,50 L 60,50',
-        'M 38,43 L 45,50 L 38,50'
+        'M 0,30 L 18,30',
+        'M 18,12 L 18,48',
+        'M 18,20 L 40,10 L 60,10',
+        'M 18,40 L 40,50 L 60,50',
+        'M 33,44 L 40,50 L 33,50',
       ]
     },
     pins: [
@@ -210,11 +210,11 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       width: 60,
       height: 60,
       paths: [
-        'M 0,30 L 20,30',
-        'M 20,10 L 20,50',
-        'M 20,20 L 45,10 L 60,10',
-        'M 20,40 L 45,50 L 60,50',
-        'M 38,17 L 45,10 L 38,10'
+        'M 0,30 L 18,30',
+        'M 18,12 L 18,48',
+        'M 18,20 L 42,10 L 60,10',
+        'M 18,40 L 42,50 L 60,50',
+        'M 36,17 L 42,10 L 36,10',
       ]
     },
     pins: [
