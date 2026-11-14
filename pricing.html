@@ -65,6 +65,8 @@ h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; letter-spacing: -0.0
 .foot-links a { color: var(--mute); text-decoration: none; transition: color .15s; }
 .foot-links a:hover { color: var(--ink); }
 .foot-bottom { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--line); font-size: .72rem; color: var(--mute2); }
+.foot-parent { display: inline-flex; align-items: center; gap: .45rem; }
+.foot-parent-mark { display: block; }
 :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 @media (max-width: 800px) { .nav-links { display: none; } }
 
@@ -159,6 +161,7 @@ h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; letter-spacing: -0.0
   </div>
   <div class="wrap foot-bottom">
     <span>© 2026 Folio. All rights reserved.</span>
+    <span class="foot-parent"><img src="/x-industries.svg" alt="" width="30" height="20" class="foot-parent-mark" />Folio is an X Industries company.</span>
   </div>
 </footer>
 
