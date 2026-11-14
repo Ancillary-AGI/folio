@@ -29,8 +29,8 @@ describe('cad tools — agents operate the live sheet', () => {
     expect(observation.fingerprint).toMatch(/^[0-9a-f]+$/)
     const diode = observation.components.find((component) => component.reference === 'D1')!
     expect(diode.terminals.map((terminal) => terminal.ref)).toEqual(['D1.A', 'D1.K'])
-    expect(diode.terminals[0].x).toBe(190)
-    expect(diode.terminals[0].y).toBe(180)
+    expect(diode.terminals[0].x).toBe(260)
+    expect(diode.terminals[0].y).toBe(110)
     expect(observation.schematicSvg).toContain('<svg')
     expect(observation.schematicSvg).toContain('D1')
     expect(observation.issues).toEqual([])

@@ -98,8 +98,9 @@ describe('demo board — full e-CAD loop on one canvas', () => {
     // coordinate (see schematic-check below). No floating taps, no
     // rail-midpoint stubs — the screenshot open-circuit cannot return.
     const taps: Array<[string, string]> = [
-      ['demo-w-out-rail', '260,180'],
-      ['demo-w-out-rail', '320,180'],
+      ['demo-w-out-rail', '320,110'],
+      ['demo-w-out-rail', '340,110'],
+      ['demo-w-out-rail', '400,110'],
     ];
     for (const [id, key] of taps) {
       const w = board.wires.find((cand) => cand.id === id)!;

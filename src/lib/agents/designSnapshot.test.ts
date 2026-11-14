@@ -31,7 +31,7 @@ describe('design snapshot', () => {
     const resistor = snapshot.components.find((component) => component.reference === 'RSRC')
     expect(resistor?.pins.map((pin) => pin.ref)).toEqual(['RSRC.1', 'RSRC.2'])
     expect(resistor?.pins.every((pin) => pin.connected)).toBe(true)
-    expect(resistor?.value).toBe('10')
+    expect(resistor?.value).toBe('10 Ω')
   })
 
   it('fingerprints only the design, not the observation time', () => {

@@ -141,8 +141,8 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       ]
     },
     pins: [
-      { id: 'anode', name: 'A', x: 0, y: 20, type: 'input' },
-      { id: 'cathode', name: 'K', x: 60, y: 20, type: 'output' }
+      { id: 'anode', name: 'A', x: 0, y: 20, type: 'passive' },
+      { id: 'cathode', name: 'K', x: 60, y: 20, type: 'passive' }
     ],
     default_properties: {
       type: '1N4148',
@@ -167,8 +167,8 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       ]
     },
     pins: [
-      { id: 'anode', name: 'A', x: 0, y: 20, type: 'input' },
-      { id: 'cathode', name: 'K', x: 60, y: 20, type: 'output' }
+      { id: 'anode', name: 'A', x: 0, y: 20, type: 'passive' },
+      { id: 'cathode', name: 'K', x: 60, y: 20, type: 'passive' }
     ],
     default_properties: {
       color: 'red',
@@ -192,9 +192,9 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       ]
     },
     pins: [
-      { id: 'collector', name: 'C', x: 60, y: 10, type: 'output' },
-      { id: 'base', name: 'B', x: 0, y: 30, type: 'input' },
-      { id: 'emitter', name: 'E', x: 60, y: 50, type: 'output' }
+      { id: 'collector', name: 'C', x: 60, y: 10, type: 'passive' },
+      { id: 'base', name: 'B', x: 0, y: 30, type: 'passive' },
+      { id: 'emitter', name: 'E', x: 60, y: 50, type: 'passive' }
     ],
     default_properties: {
       type: '2N2222',
@@ -218,9 +218,9 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       ]
     },
     pins: [
-      { id: 'collector', name: 'C', x: 60, y: 50, type: 'output' },
-      { id: 'base', name: 'B', x: 0, y: 30, type: 'input' },
-      { id: 'emitter', name: 'E', x: 60, y: 10, type: 'output' }
+      { id: 'collector', name: 'C', x: 60, y: 50, type: 'passive' },
+      { id: 'base', name: 'B', x: 0, y: 30, type: 'passive' },
+      { id: 'emitter', name: 'E', x: 60, y: 10, type: 'passive' }
     ],
     default_properties: {
       type: '2N2907',
@@ -247,9 +247,9 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       ]
     },
     pins: [
-      { id: 'drain', name: 'D', x: 70, y: 10, type: 'output' },
-      { id: 'gate', name: 'G', x: 0, y: 30, type: 'input' },
-      { id: 'source', name: 'S', x: 70, y: 50, type: 'output' }
+      { id: 'drain', name: 'D', x: 70, y: 10, type: 'passive' },
+      { id: 'gate', name: 'G', x: 0, y: 30, type: 'passive' },
+      { id: 'source', name: 'S', x: 70, y: 50, type: 'passive' }
     ],
     default_properties: {
       type: 'IRF540',
@@ -276,9 +276,9 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       ]
     },
     pins: [
-      { id: 'drain', name: 'D', x: 70, y: 50, type: 'output' },
-      { id: 'gate', name: 'G', x: 0, y: 30, type: 'input' },
-      { id: 'source', name: 'S', x: 70, y: 10, type: 'output' }
+      { id: 'drain', name: 'D', x: 70, y: 50, type: 'passive' },
+      { id: 'gate', name: 'G', x: 0, y: 30, type: 'passive' },
+      { id: 'source', name: 'S', x: 70, y: 10, type: 'passive' }
     ],
     default_properties: {
       type: 'IRF9540',
@@ -309,9 +309,9 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       ]
     },
     pins: [
-      { id: 'drain', name: 'D', x: 70, y: 10, type: 'output' },
-      { id: 'gate', name: 'G', x: 0, y: 30, type: 'input' },
-      { id: 'source', name: 'S', x: 70, y: 50, type: 'output' }
+      { id: 'drain', name: 'D', x: 70, y: 10, type: 'passive' },
+      { id: 'gate', name: 'G', x: 0, y: 30, type: 'passive' },
+      { id: 'source', name: 'S', x: 70, y: 50, type: 'passive' }
     ],
     default_properties: {
       type: 'FINFET-N',
@@ -347,9 +347,9 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       ]
     },
     pins: [
-      { id: 'drain', name: 'D', x: 70, y: 10, type: 'output' },
-      { id: 'gate', name: 'G', x: 0, y: 30, type: 'input' },
-      { id: 'source', name: 'S', x: 70, y: 50, type: 'output' }
+      { id: 'drain', name: 'D', x: 70, y: 10, type: 'passive' },
+      { id: 'gate', name: 'G', x: 0, y: 30, type: 'passive' },
+      { id: 'source', name: 'S', x: 70, y: 50, type: 'passive' }
     ],
     default_properties: {
       type: 'GAN-HEMT-N',
@@ -381,9 +381,9 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       ],
     },
     pins: [
-      { id: 'drain', name: 'D', x: 70, y: 10, type: 'output' },
-      { id: 'gate', name: 'G', x: 0, y: 30, type: 'input' },
-      { id: 'source', name: 'S', x: 70, y: 50, type: 'output' },
+      { id: 'drain', name: 'D', x: 70, y: 10, type: 'passive' },
+      { id: 'gate', name: 'G', x: 0, y: 30, type: 'passive' },
+      { id: 'source', name: 'S', x: 70, y: 50, type: 'passive' },
     ],
     default_properties: {
       type: '2N3819',
@@ -409,9 +409,9 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       ],
     },
     pins: [
-      { id: 'drain', name: 'D', x: 70, y: 50, type: 'output' },
-      { id: 'gate', name: 'G', x: 0, y: 30, type: 'input' },
-      { id: 'source', name: 'S', x: 70, y: 10, type: 'output' },
+      { id: 'drain', name: 'D', x: 70, y: 50, type: 'passive' },
+      { id: 'gate', name: 'G', x: 0, y: 30, type: 'passive' },
+      { id: 'source', name: 'S', x: 70, y: 10, type: 'passive' },
     ],
     default_properties: {
       type: 'PJFET',

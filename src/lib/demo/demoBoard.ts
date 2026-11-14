@@ -44,41 +44,60 @@ const wire = (id: string, netName: string, pins: Array<{ componentId: string; pi
 });
 
 export function buildDemoBoard(): DemoBoard {
-  // Half-wave rectifier with filter — CircuitLab-clean: one straight top
-  // rail (y=180), one ground rail (y=260), zero crossings, zero jumps.
-  // V1 SINE 6 Vpk 1 kHz -> R_SRC 10 -> D1 1N5817 -> C1 10 uF || R_LOAD 100.
-  // The vertical resistor is 80 long, so the ground rail sits at y=260: a
-  // 60-high rail at y=240 would run straight through the RLOAD body.
-  // Pin worlds: V1 (70,180)/(70,240), R_SRC (100,180)/(180,180),
-  // D1 (190,180)/(250,180), C1 rot90 (260,180)/(260,240),
-  // R_LOAD rot90 (320,180)/(320,260), G1 (200,260),
-  // TP_IN (100,180), TP_OUT (300,180).
-  // Origins are chosen so each part's own pin line lands on a rail: an 80×40
-  // resistor carries its pins at y=20, so a horizontal one sits at y=160 to
-  // reach y=180 and a rotated one at x=340 to reach x=320.
+  // Half-wave rectifier with filter — one horizontal current path, every
+  // shunt centred on the sheet's horizontal midline, every wire segment
+  // listed point by point. Units: 10 × 1 mm per grid unit.
+  //
+  // Series rail y=110, ground rail y=250, shunt centreline y=180.
+  // V1 SINE 6 Vpk 1 kHz -> R_SRC 10 Ω -> D1 1N5817 -> C1 10 µF || R_LOAD 100 Ω.
+  //
+  // Pin worlds (rotation 90° CW maps local (x, y) → (−y, x)):
+  //   V1    +(30,150)  −(30,210)
+  //   RSRC  p1(140,110) p2(220,110)
+  //   D1    a(260,110)  k(320,110)
+  //   C1    p1(340,150) p2(340,210)   body centred on y=180
+  //   RLOAD p1(400,140) p2(400,220)   body centred on y=180
+  //   G1    gnd(200,250)
+  // Each shunt's body is centred on the sheet midline; equal stubs top and
+  // bottom connect it to the rails, so no part is pushed to a rail edge.
   const components: CanvasComponent[] = [
-    placed('V1', 'Sine Voltage Source', 40, 180, { type: 'SINE', vo: '0V', va: '6V', freq: '1kHz', phase: '0', footprint: '0805' }),
-    placed('RSRC', 'Resistor', 100, 160, { value: '10', footprint: '0805' }),
+    placed('V1', 'Sine Voltage Source', 0, 150, { type: 'SINE', vo: '0V', va: '6V', freq: '1kHz', phase: '0', footprint: '0805' }),
+    placed('RSRC', 'Resistor', 140, 90, { value: '10 Ω', footprint: '0805' }),
     // Ratings are the real part's, so the margins table has something true to
     // compare against: 1N5817 is a 40 V Schottky; the 1206 ceramic is 50 V.
-    placed('D1', 'Diode', 190, 160, { type: '1N5817', is: '1e-8', n: '1.1', vbr: '40V', footprint: 'SMC' }),
-    placed('C1', 'Capacitor', 280, 180, { value: '10uF', voltage: '50V', footprint: '1206' }, 90),
-    placed('RLOAD', 'Resistor', 340, 180, { value: '100', footprint: '1206' }, 90),
-    placed('G1', 'Ground', 180, 260, {}),
+    placed('D1', 'Diode', 260, 90, { type: '1N5817', is: '1e-8', n: '1.1', vbr: '40V', footprint: 'SMC' }),
+    placed('C1', 'Capacitor', 360, 150, { value: '10 µF', voltage: '50V', footprint: '1206' }, 90),
+    placed('RLOAD', 'Resistor', 420, 140, { value: '100 Ω', footprint: '1206' }, 90),
+    placed('G1', 'Ground', 180, 250, {}),
   ];
   const P = (ref: string, ...pinIds: string[]): Array<{ componentId: string; pinId: string }> =>
     pinIds.map((pinId) => ({ componentId: `demo-${ref}`, pinId }));
   const wires: CanvasWire[] = [
-    wire('src-top', 'SRC', [...P('V1', 'positive'), ...P('RSRC', 'p1')],
-      [{ x: 70, y: 180 }, { x: 80, y: 180 }, { x: 90, y: 180 }, { x: 100, y: 180 }]),
+    // SRC — source plus to the top of the series path.
+    wire('src-rail', 'SRC', [...P('RSRC', 'p1')],
+      [{ x: 30, y: 110 }, { x: 140, y: 110 }]),
+    wire('v1-up', 'SRC', [...P('V1', 'positive')],
+      [{ x: 30, y: 150 }, { x: 30, y: 110 }]),
+    // MID — R_SRC to the diode.
     wire('mid', 'MID', [...P('RSRC', 'p2'), ...P('D1', 'anode')],
-      [{ x: 180, y: 180 }, { x: 190, y: 180 }]),
+      [{ x: 220, y: 110 }, { x: 260, y: 110 }]),
+    // OUT — diode to the filter cap and the load. One shared rail: the
+    // stubs branch off it to the bodies and carry their own pin claims.
     wire('out-rail', 'OUT', [...P('D1', 'cathode'), ...P('C1', 'p1'), ...P('RLOAD', 'p1')],
-      [{ x: 250, y: 180 }, { x: 260, y: 180 }, { x: 320, y: 180 }]),
-    wire('gnd-rail', 'GND', [...P('V1', 'negative'), ...P('G1', 'gnd'), ...P('C1', 'p2')],
-      [{ x: 70, y: 240 }, { x: 70, y: 260 }, { x: 200, y: 260 }, { x: 260, y: 260 }, { x: 260, y: 240 }]),
-    wire('gnd-load', 'GND', [...P('RLOAD', 'p2'), ...P('G1', 'gnd')],
-      [{ x: 320, y: 260 }, { x: 200, y: 260 }]),
+      [{ x: 320, y: 110 }, { x: 340, y: 110 }, { x: 400, y: 110 }]),
+    wire('c1-up', 'OUT', [],
+      [{ x: 340, y: 150 }, { x: 340, y: 110 }]),
+    wire('rload-up', 'OUT', [],
+      [{ x: 400, y: 140 }, { x: 400, y: 110 }]),
+    // GND — one straight return into the source and the ground marker.
+    wire('c1-down', 'GND', [...P('C1', 'p2')],
+      [{ x: 340, y: 210 }, { x: 340, y: 250 }]),
+    wire('rload-down', 'GND', [...P('RLOAD', 'p2')],
+      [{ x: 400, y: 220 }, { x: 400, y: 250 }]),
+    wire('v1-down', 'GND', [...P('V1', 'negative')],
+      [{ x: 30, y: 210 }, { x: 30, y: 250 }]),
+    wire('gnd-rail', 'GND', [...P('V1', 'negative'), ...P('G1', 'gnd'), ...P('C1', 'p2'), ...P('RLOAD', 'p2')],
+      [{ x: 30, y: 250 }, { x: 200, y: 250 }, { x: 340, y: 250 }, { x: 400, y: 250 }]),
   ];
   return {
     components, wires,
