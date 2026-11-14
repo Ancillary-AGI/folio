@@ -1623,21 +1623,15 @@ export default function SchematicCanvas({
         ))}
         {crossings.map((h, k) => (
           <Group key={'hj' + k} listening={false}>
-            <Line
-              points={[h.x - 8, h.y, h.x + 8, h.y]}
-              stroke={palette.sheet}
-              strokeWidth={6}
-              lineCap="butt"
+            {/* No-connect bridge: both wires stay continuous, only the arc draws. */}
+            <Path
+              data={'M ' + (h.x - 7) + ',' + h.y + ' A 7,6 0 0,1 ' + (h.x + 7) + ',' + h.y}
+              stroke={palette.wire}
+              strokeWidth={1.6}
+              fillEnabled={false}
+              lineCap="round"
               listening={false}
             />
-            <Path
-              data={'M ' + (h.x - 8) + ',' + h.y + ' L ' + (h.x - 7) + ',' + h.y + ' A 7,7 0 0,1 ' + (h.x + 7) + ',' + h.y + ' L ' + (h.x + 8) + ',' + h.y}
-            stroke={palette.wire}
-            strokeWidth={2}
-            fillEnabled={false}
-            lineCap="round"
-            listening={false}
-          />
           </Group>
         ))}
       </>

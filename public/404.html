@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Folio — that page was not found</title>
+<meta name="description" content="The page or demo you were looking for is not part of the Folio site. Pick a destination from here; the launcher opens every demo and workspace in one click." />
+<meta name="theme-color" content="#07080D" />
+<meta name="robots" content="noindex,follow" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<link rel="preload" href="/fonts/Archivo-Variable.ttf" as="font" type="font/ttf" crossorigin />
+<style>
+@font-face { font-family: 'Archivo'; src: url('/fonts/Archivo-Variable.ttf') format('truetype-variations'); font-weight: 100 900; font-stretch: 62% 125%; font-display: swap; }
+* { margin: 0; box-sizing: border-box; }
+:root {
+  --bg: #07080D;
+  --surface: #0E0D12;
+  --card: #15141A;
+  --line: #232430;
+  --line-strong: #2E2E38;
+  --ink: #F2ECDF;
+  --mute: #A8A299;
+  --mute2: #6E6A61;
+  --amber: #F5A524;
+  --amber-deep: #D97A12;
+  --amber-pale: #FFD98A;
+}
+body { background: var(--bg); color: var(--ink); font-family: 'Archivo', system-ui, sans-serif; -webkit-font-smoothing: antialiased; line-height: 1.6; min-height: 100vh; display: flex; flex-direction: column; }
+.wrap { width: min(680px, calc(100% - 2.5rem)); margin-inline: auto; }
+.btn { display: inline-flex; align-items: center; gap: .5rem; min-height: 2.5rem; padding: 0 1.1rem; border-radius: .5rem; background: var(--amber); color: #221300; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: .82rem; text-decoration: none; border: 1px solid var(--amber-deep); }
+.btn:hover { filter: brightness(1.08); }
+.btn-ghost { background: var(--card); color: var(--ink); border: 1px solid var(--line-strong); font-weight: 600; }
+header { flex: 1; display: flex; align-items: center; padding: 3rem 0 2rem; }
+.hero-copy { width: 100%; }
+.mono { font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: .66rem; letter-spacing: .24em; text-transform: uppercase; color: var(--amber-pale); }
+h1 { font-size: clamp(2rem, 6vw, 3.4rem); line-height: 1.02; letter-spacing: -0.04em; font-weight: 800; margin-top: .7rem; }
+h1 em { color: var(--amber); font-style: normal; }
+.lede { margin-top: 1rem; color: #C9C4B8; font-size: 1.02rem; }
+.mono-line { margin-top: 2rem; font-family: 'Archivo', system-ui, sans-serif; font-weight: 600; font-size: .7rem; letter-spacing: .18em; color: var(--mute2); text-transform: uppercase; }
+.links { margin-top: .8rem; display: grid; gap: .55rem; }
+.links a { display: flex; align-items: baseline; gap: .8rem; padding: .65rem .75rem; border: 1px solid var(--line); border-radius: .5rem; color: var(--ink); text-decoration: none; background: var(--card); transition: border-color .15s, transform .15s; }
+.links a:hover { border-color: var(--amber); transform: translateY(-1px); }
+.links a b { font-weight: 600; font-size: .92rem; min-width: 7.5rem; color: var(--amber-pale); }
+.links a span { color: var(--mute); font-size: .84rem; }
+footer { border-top: 1px solid var(--line); padding: 1.1rem 0; color: var(--mute); font-size: .76rem; }
+.foot-inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.foot-inner a { color: var(--mute); text-decoration: none; }
+.foot-inner a:hover { color: var(--ink); }
+.foot-links { display: flex; gap: 1.2rem; flex-wrap: wrap; }
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; border-radius: .25rem; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header class="wrap" aria-labelledby="nf-title">
+  <div class="hero-copy">
+    <span class="mono">ROUTE ERROR · 404</span>
+    <h1 id="nf-title">This path isn’t<br><em>a real page.</em></h1>
+    <p class="lede">The URL you opened doesn’t map onto any workspace, demo or document Folio serves. The safest answers are in the launcher — every demo, every workspace, every design starts there.</p>
+    <p class="mono-line">Where you can go from here</p>
+    <nav class="links" aria-label="Destinations">
+      <a href="/app"><b>Launcher</b><span>opens your projects and every demo on this machine</span></a>
+      <a href="/app/community"><b>Community</b><span>designs CC-BY, yours to open, inspect and make yours</span></a>
+      <a href="/app/demos/rectifier-pcb"><b>Rectifier demo</b><span>the proven board from schematic to fab package</span></a>
+      <a href="/pricing"><b>Pricing</b><span>honest: the offline app is free and stays free</span></a>
+      <a href="/"><b>Home</b><span>one brief in, one verified board out</span></a>
+    </nav>
+  </div>
+</header>
+<footer class="site-footer" aria-label="Site footer">
+  <div class="wrap foot-inner">
+    <span>© 2026 Folio. All rights reserved.</span>
+    <nav class="foot-links" aria-label="Site">
+      <a href="/app">Workbench</a>
+      <a href="/app/community">Community</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/console">Console</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

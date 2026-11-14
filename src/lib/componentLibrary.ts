@@ -162,8 +162,8 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
         'M 24,4 L 24,36 L 42,20 Z',
         'M 42,4 L 42,36',
         'M 42,20 L 60,20',
-        'M 31,18 L 40,9 M 40,9 L 34,9 M 40,9 L 40,15',
-        'M 29,25 L 38,16 M 38,16 L 32,16 M 38,16 L 38,22',
+        'M 28,15 L 36,7 M 36,7 L 31,7 M 36,7 L 36,12',
+        'M 33,22 L 41,14 M 41,14 L 36,14 M 41,14 L 41,19',
       ]
     },
     pins: [

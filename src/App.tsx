@@ -71,6 +71,7 @@ import type { HelpTab } from './components/help/HelpCenter'
 import type { Tutorial } from './lib/tutorials/tutorials'
 import ProjectManager from './components/ProjectManager'
 import EditableProjectTitle from './components/EditableProjectTitle'
+import NotFound from './components/NotFound'
 import AuthForm from './components/AuthForm'
 import FolioLogo, { FolioMark } from './components/brand/FolioLogo'
 import { AuroraField } from './components/brand/AuroraField'
@@ -250,6 +251,11 @@ function App() {
   const [vcsStatus, setVcsStatus] = useState('')
   const [backupList, setBackupList] = useState<ProjectBackup[]>([])
   const [showProjectManager, setShowProjectManager] = useState(false)
+  /* Set when the URL matches nothing in the app: render the 404 surface
+     instead of silently bouncing to the launcher. The visitor’s path stands;
+     replacing it would hide the reason the page exists. Initialised null and
+     set by the location effect so `/` keeps redirecting to the launcher. */
+  const [notFoundPath, setNotFoundPath] = useState<string | null>(null)
   const [publishOpen, setPublishOpen] = useState(false)
   const [showCommunity, setShowCommunity] = useState(() => currentRoute().isCommunity)
   const [notice, setNotice] = useState('')
@@ -1292,11 +1298,13 @@ function App() {
       if (route.demoId) {
         const scenario = DEMO_SCENARIOS.find((entry) => entry.id === route.demoId)
         if (!scenario) {
-          navigateTo(PROJECTS_ROUTE, { replace: true })
-          setShowProjectManager(true)
+          // An unknown demo id is the user landing on an address that does not
+          // exist — name it plainly instead of bouncing them to the launcher.
+          setNotFoundPath(window.location.pathname)
           return
         }
         setShowProjectManager(false)
+        setNotFoundPath(null)
         openDemoScenarioRef.current(scenario)
         return
       }
@@ -1305,11 +1313,21 @@ function App() {
         return
       }
       if (!route.mode) {
-        // Unknown paths are not documents; canonicalise them to the project list.
+        const path = window.location.pathname
+        // `/app/*` routes that resolve to nothing are the visitor landing on a
+        // URL that does not exist — name the failure plainly instead of
+        // bouncing to the launcher. Anything outside /app is not a document
+        // either — that one keeps the old redirect to the launcher.
+        if (path.startsWith('/app/') || path === '/app') {
+          setNotFoundPath(path)
+          setShowProjectManager(false)
+          return
+        }
         navigateTo(PROJECTS_ROUTE, { replace: true })
         setShowProjectManager(true)
         return
       }
+      setNotFoundPath(null)
       setShowProjectManager(false)
       // Re-setting the active mode clears a pending demo request, so only
       // dispatch when the URL genuinely names a different workspace.
@@ -2019,6 +2037,10 @@ function App() {
         {demoBusyOverlay}
       </>
     )
+  }
+
+  if (notFoundPath !== null) {
+    return <NotFound path={notFoundPath} />
   }
 
   if (!currentProject || showProjectManager) {
