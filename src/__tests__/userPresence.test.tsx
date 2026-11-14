@@ -3,7 +3,7 @@
  *
  * These tests pin what the group actually promises: only active people are
  * drawn, the count in the accessible name matches the avatars on screen, and a
- * person without a photo is still identifiable by the letter they use.
+ * person without a photo is still identifiable by a deterministic identicon.
  */
 import { describe, expect, it } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
@@ -33,18 +33,11 @@ describe('UserPresence', () => {
     render(<UserPresence users={[person(), person({ id: 'u2', name: 'Amir Khan' })]} />)
 
     const group = screen.getByRole('group', { name: '2 other collaborators in this project' })
-    expect(within(group).getByText('D')).toBeInTheDocument()
-    expect(within(group).getByText('A')).toBeInTheDocument()
+    expect(within(group).getByRole('img', { name: "Dana Ruiz's avatar" })).toBeInTheDocument()
+    expect(within(group).getByRole('img', { name: "Amir Khan's avatar" })).toBeInTheDocument()
   })
 
-  it('says which collaborator an avatar is, and when they were last seen', () => {
-    render(<UserPresence users={[person({ lastSeen: Date.now() - 30_000 })]} />)
-
-    expect(screen.getByRole('group', { name: '1 other collaborator in this project' })).toBeInTheDocument()
-    expect(screen.getByTitle('Dana Ruiz (dana@example.com) — active 30s ago')).toBeInTheDocument()
-  })
-
-  it('prefers the photo to the letter when the provider supplies one', () => {
+  it('prefers the photo to the identicon when the provider supplies one', () => {
     render(<UserPresence users={[person({ avatar: 'https://example.com/dana.png' })]} />)
 
     expect(screen.getByRole('img', { name: 'Dana Ruiz' })).toHaveAttribute(

@@ -5,6 +5,7 @@
 import { useState, type FormEvent } from 'react'
 import { Check, LogOut, Plus, X } from 'lucide-react'
 import { Button } from '../../components/ui/button'
+import Avatar from '../../components/Avatar'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { supabase } from '../../lib/supabase'
@@ -76,9 +77,7 @@ export default function AccountSection({ offlineMode, user, onSignedOut }: Accou
                   key={profile.id}
                   className={`flex items-center gap-3 rounded-xl border p-3 ${isActive ? 'border-primary/50 bg-primary/5' : 'border-border/70 bg-card/60'}`}
                 >
-                  <span aria-hidden="true" className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary">
-                    {profile.name.trim().slice(0, 2).toUpperCase()}
-                  </span>
+                  <Avatar name={profile.name} size={40} className="h-10 w-10 flex-shrink-0" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs font-semibold text-foreground">{profile.name}</span>
                     <span className="block text-[10px] text-muted-foreground">{isActive ? 'Signed in' : 'Not active'}</span>

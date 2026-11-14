@@ -26,7 +26,7 @@ describe('ConsoleApp (standalone deployment)', () => {
     render(<ConsoleApp />)
     expect(screen.getByRole('heading', { name: 'Overview' })).toBeInTheDocument()
     expect(screen.getAllByText('Ada Lovelace').length).toBeGreaterThan(0)
-    expect(screen.getByText(/recorded actions/)).toBeInTheDocument()
+    expect(screen.getAllByText(/recorded actions/).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/Free — this device/).length).toBeGreaterThan(0)
   })
 

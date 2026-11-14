@@ -1,3 +1,4 @@
+import HoverHelp from '../components/ui/HoverHelp'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Activity, AlertTriangle, ChevronDown, Database, FileDown, Gauge, LogOut,
@@ -6,6 +7,7 @@ import {
 import FaqPanel from './FaqPanel'
 import { Button } from '../components/ui/button'
 import { FolioMark } from '../components/brand/FolioLogo'
+import Avatar from '../components/Avatar'
 import type { Account, AdminApi, AuditEntry, DeploymentInfo } from '../lib/admin/adminService'
 import type { Operator } from '../lib/admin/operatorSession'
 import {
@@ -81,13 +83,6 @@ function formatTime(timestamp: number): string {
 function roleLabel(role: string): string {
   if (role === 'user') return 'Unassigned'
   return (ADMIN_ROLES as readonly string[]).includes(role) ? ROLE_LABELS[role as AdminRole] : role
-}
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '?'
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return `${parts[0][0] ?? '?'}${parts[parts.length - 1][0] ?? ''}`.toUpperCase()
 }
 
 function downloadCsv(filename: string, header: string[], rows: string[][]): void {
@@ -578,9 +573,7 @@ export default function AdminConsole({ operator, api, onSignOut }: AdminConsoleP
                           <tr>
                             <td>
                               <div className="flex min-w-0 items-center gap-2.5">
-                                <span aria-hidden="true" className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-border bg-background text-[10px] font-semibold text-muted-foreground">
-                                  {initials(account.name)}
-                                </span>
+                                <Avatar name={account.name} size={28} className="h-7 w-7 flex-shrink-0 rounded-md" />
                                 <div className="min-w-0">
                                   <p className="truncate font-medium text-foreground">{account.name}{self ? ' (you)' : ''}</p>
                                   <p className="truncate text-[10px] text-muted-foreground">{account.email || 'No email on record'}</p>
@@ -736,12 +729,10 @@ export default function AdminConsole({ operator, api, onSignOut }: AdminConsoleP
                 <Picker label="Action kind" value={kindFilter} onChange={(value) => setKindFilter(value as 'all' | UsageKind)}>
                   {KIND_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </Picker>
-                <Button
-                  variant="ghost"
+                <HoverHelp title="Download the visible usage rows as a CSV file" description="Download the visible usage rows as a CSV file">
+<Button variant="ghost"
                   size="sm"
-                  className="flex items-center gap-1.5"
-                  title="Download the visible usage rows as a CSV file"
-                  onClick={() => downloadCsv(
+                  className="flex items-center gap-1.5" onClick={() => downloadCsv(
                     `folio-usage-${new Date().toISOString().slice(0, 10)}.csv`,
                     ['timestamp', 'account', 'email', 'kind', 'detail'],
                     filteredEvents.map((event) => [
@@ -755,6 +746,7 @@ export default function AdminConsole({ operator, api, onSignOut }: AdminConsoleP
                 >
                   <FileDown className="h-3.5 w-3.5" aria-hidden="true" /> CSV
                 </Button>
+</HoverHelp>
               </SectionHeader>
 
               {usageError && <Alert tone="destructive">{`Usage could not be read: ${usageError}`}</Alert>}
@@ -984,12 +976,10 @@ export default function AdminConsole({ operator, api, onSignOut }: AdminConsoleP
                 title="Audit trail"
                 detail="Every change an operator made on this deployment, recorded in the database as part of the same call. The trail is append-only."
               >
-                <Button
-                  variant="ghost"
+                <HoverHelp title="Download the audit trail as a CSV file" description="Download the audit trail as a CSV file">
+<Button variant="ghost"
                   size="sm"
-                  className="flex items-center gap-1.5"
-                  title="Download the audit trail as a CSV file"
-                  onClick={() => downloadCsv(
+                  className="flex items-center gap-1.5" onClick={() => downloadCsv(
                     `folio-audit-${new Date().toISOString().slice(0, 10)}.csv`,
                     ['timestamp', 'operator', 'action', 'resource', 'details'],
                     audit.map((entry) => [
@@ -1003,6 +993,7 @@ export default function AdminConsole({ operator, api, onSignOut }: AdminConsoleP
                 >
                   <FileDown className="h-3.5 w-3.5" aria-hidden="true" /> CSV
                 </Button>
+</HoverHelp>
               </SectionHeader>
 
               {auditError && <Alert tone="warning">{`The audit trail could not be read: ${auditError}`}</Alert>}

@@ -5,6 +5,8 @@
  */
 import { ArrowRight, Gauge, Hammer, History, Download, ShieldCheck, Wrench } from 'lucide-react'
 import { resolvePlan, usageRollup, formatBytes, storageSnapshot, recentActivity, relativeTime, exportLocalData, USAGE_KIND_LABEL } from '../consoleData'
+import Avatar from '../../components/Avatar'
+import UsageCharts from './UsageCharts'
 import { downloadFile } from '../../lib/exportUtils'
 import type { User } from '../../types'
 import type { LocalProfile } from '../../stores/useLocalProfileStore'
@@ -28,9 +30,7 @@ export default function OverviewSection({ offlineMode, user, localProfile, onOpe
       {/* Identity strip */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/15 text-lg font-bold text-primary" aria-hidden="true">
-            {displayName.trim().slice(0, 1).toUpperCase() || '?'}
-          </div>
+          <Avatar name={displayName} size={56} className="h-14 w-14 flex-shrink-0" />
           <div className="min-w-0">
             <p className="truncate text-lg font-extrabold tracking-tight text-foreground">{displayName}</p>
             <p className="text-xs text-muted-foreground">
@@ -108,6 +108,8 @@ export default function OverviewSection({ offlineMode, user, localProfile, onOpe
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{storage.entries.length} storage keys, tied to this browser profile.</p>
         </button>
       </div>
+
+      <UsageCharts days={30} />
 
       {/* Recent activity — the actual ledger tail, newest first. */}
       <section aria-labelledby="recent-heading" className="overflow-hidden rounded-xl border border-border/70 bg-card/40">

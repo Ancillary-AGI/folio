@@ -12,6 +12,7 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
 import FolioLogo from './brand/FolioLogo'
+import Avatar from './Avatar'
 import { useLocalProfileStore } from '../stores/useLocalProfileStore'
 
 const GOOGLE_PATH = (
@@ -29,18 +30,15 @@ const GITHUB_PATH = (
   </svg>
 )
 
-const XINDUSTRIES_PATH = (
-  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-    <path d="M4 4h7l4 7-5.5 9H4l5.5-9L4 4zm9 0h7l-4 6-3-6z"/>
+/* The X Industries mark: outer chevrons in ink, centre dash in amber. */
+const XINDUSTRIES_MARK = (
+  <svg className="h-4 w-6 flex-shrink-0" viewBox="0 0 120 80" fill="none" aria-hidden="true">
+    <path d="M20 15 L50 40 L20 65 M100 15 L70 40 L100 65" stroke="currentColor" strokeWidth="8" strokeLinejoin="miter" strokeLinecap="square"/>
+    <path d="M55 40 L65 40" stroke="#F5A524" strokeWidth="8" strokeLinecap="square"/>
   </svg>
 )
 
 const CLOUD_TITLE = 'Set VITE_SUPABASE_URL to enable hosted accounts with Google, GitHub and X Industries.'
-
-function initialsOf(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '').join('') || '?'
-}
 
 export default function LocalProfileGate() {
   const profiles = useLocalProfileStore((state) => state.profiles)
@@ -91,9 +89,7 @@ export default function LocalProfileGate() {
                   aria-label={`Sign in as ${profile.name}`}
                   className="group flex w-full flex-col items-center gap-1.5 rounded-xl border border-border/70 bg-card/50 px-2 pb-2.5 pt-3 transition-colors hover:border-primary/50 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <span aria-hidden="true" className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/15 text-[13px] font-bold tracking-wide text-primary">
-                    {initialsOf(profile.name)}
-                  </span>
+                  <Avatar name={profile.name} size={44} className="h-11 w-11 flex-shrink-0" />
                   <span className="w-full truncate text-center text-[11px] font-medium text-foreground">
                     {profile.name}
                   </span>
@@ -163,7 +159,7 @@ export default function LocalProfileGate() {
             {[
               { label: 'Continue with Google', icon: GOOGLE_PATH },
               { label: 'Continue with GitHub', icon: GITHUB_PATH },
-              { label: 'Continue with X Industries', icon: XINDUSTRIES_PATH },
+              { label: 'Continue with X Industries', icon: XINDUSTRIES_MARK },
             ].map(({ label, icon }) => (
               <button
                 key={label}

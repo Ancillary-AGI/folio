@@ -1,4 +1,6 @@
 import React from 'react';
+import Avatar from '../Avatar';
+import HoverHelp from '../ui/HoverHelp';
 
 interface User {
   id: string;
@@ -21,14 +23,12 @@ const formatLastSeen = (lastSeen: number): string => {
   return `active ${Math.floor(seconds / 60)}m ago`;
 };
 
-const initial = (name: string): string => name.trim().charAt(0).toUpperCase() || '?';
-
 /**
  * The people else in this project, as a stacked avatar group in the header.
  *
  * One entry per person, overlapping by a few pixels so five collaborators cost
  * the bar two avatar widths rather than five. Each carries its own colour, which
- * is the same colour its selections wear on the sheet.
+ * is the same colour its selections wear on the sheet. Hover shows who it is.
  */
 const UserPresence: React.FC<UserPresenceProps> = ({ users }) => {
   const active = users.filter(user => user.isActive);
@@ -41,18 +41,22 @@ const UserPresence: React.FC<UserPresenceProps> = ({ users }) => {
       aria-label={`${active.length} other ${active.length === 1 ? 'collaborator' : 'collaborators'} in this project`}
     >
       {active.map(user => (
-        <span
+        <HoverHelp
           key={user.id}
-          title={`${user.name} (${user.email}) — ${formatLastSeen(user.lastSeen)}`}
-          className="relative flex h-6 w-6 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-background"
-          style={{ backgroundColor: `${user.color}33`, color: user.color }}
+          title={user.name}
+          description={`${user.email} — ${formatLastSeen(user.lastSeen)}`}
         >
-          {user.avatar ? (
-            <img src={user.avatar} alt={user.name} className="h-6 w-6 object-cover" />
-          ) : (
-            <span className="text-[10px] font-semibold">{initial(user.name)}</span>
-          )}
-        </span>
+          <span
+            className="relative flex h-6 w-6 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-background"
+            style={{ backgroundColor: `${user.color}33`, color: user.color }}
+          >
+            {user.avatar ? (
+              <img src={user.avatar} alt={user.name} className="h-6 w-6 object-cover" />
+            ) : (
+              <Avatar name={user.name} size={24} className="h-6 w-6" />
+            )}
+          </span>
+        </HoverHelp>
       ))}
     </div>
   );
