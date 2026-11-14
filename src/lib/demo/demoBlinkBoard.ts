@@ -12,13 +12,11 @@
  *                   ├─ R_B 220 Ω ─ LED2 ─┬─ Q2 collector
  *                   │                   └─ C_A ─ Q1 base column
  *                   └─ R3 100 kΩ → Q1 base, R4 82 kΩ → Q2 base
- *                  Q1/Q2 emitters to GND, G1 on the rail.
  *
  * R4 is 82 kΩ, deliberately not 100 kΩ: a perfectly symmetric pair sits on
  * an unstable equilibrium the MNA solver lands on exactly, so no oscillation
- * would ever start in simulation. The 18 kΩ of asymmetry is what a real
- * matched-pair datasheet would not give you — it guarantees the oscillation
- * in the demo, and it costs nothing on the fabricated board.
+ * would ever start in simulation. The 18 kΩ of asymmetry guarantees oscillation
+ * in the demo and costs nothing on the fabricated board.
  *
  * LED saturation current Is = 1e-16, emission n = 2 — datasheet-typical red
  * gallium phosphide values, so the branch current lands within a percent of
@@ -27,23 +25,33 @@
  *
  * Pin worlds (rotation 90° CW maps local (x, y) → (−y, x)):
  *   V1    +(30,120)   −(30,180)   DC Voltage Source, 5 V
- *   RA    p1(260,120)  p2(260,200) 220 Ω vertical
- *   LED1  a (260,210)  k (260,270) vertical, cathode down
+ *   R3    p1(120,120)  p2(120,200) 100 kΩ, vertical, base-1 drop
+ *   R_A   p1(260,120)  p2(260,200) 220 Ω, vertical, branch-1 series
+ *   LED1  a (260,220)  k (260,280) vertical, cathode down
  *   Q1    c (260,300)  b (200,320) e (260,340) unrotated
- *   RB    p1(640,120)  p2(640,200) mirror branch
- *   LED2  a (640,210)  k (640,270)
- *   Q2    c (640,300)  b (580,320) e (640,340)
- *   R3    p1(120,120)  p2(120,200) 100 kΩ base, branch 1
- *   R4    p1(540,120)  p2(540,200) 82 kΩ base, branch 2
- *   CA    p1(430,240)  p2(490,240) horizontal, Q1-collector → Q2 base
- *   CB    p1(430,180)  p2(490,180) horizontal, Q2-collector → Q1 base
- *   G1    gnd(350,340)
+ *   G1    gnd(350,400) on the bottom rail
+ *   R4    p1(480,120)  p2(480,200) 82 kΩ, vertical, base-2 drop
+ *   R_B   p1(620,120)  p2(620,200) 220 Ω, vertical, branch-2 series
+ *   LED2  a (620,220)  k (620,280)
+ *   Q2    c (660,300)  b (600,320) e (660,340) unrotated
+ *   C_A   p1(370,220)  p2(430,220) horizontal, COL1 → BASE2
+ *   C_B   p1(370,370)  p2(430,370) horizontal, COL2 → BASE1
  *
- * CB and CA switch roles between the two half-cycles, which is why both are
- * non-polarised ceramic 10 µF parts, never electrolytics.
+ * Wire segments (grid units, 10 u = 1 mm):
+ *   vcc-rail  (30,120)→(120,120)→(260,120)→(460,120)→(620,120)
+ *   v1-drop   (30,180)→(30,400)        gnd-rail  (30,400)→(260,400)→(350,400)→(660,400)
+ *   e1        (260,340)→(260,400)      e2        (660,340)→(660,400)
+ *   mid1      (260,200)→(260,220)      mid2      (620,200)→(620,220)
+ *   col1      (260,280)→(260,300)      col2      (620,280)→(620,300)→(660,300)
+ *   base1     (120,200)→(120,320)→(200,320)
+ *   base2     (460,200)→(460,320)→(600,320)
+ *   ca1       (260,280)→(330,280)→(330,220)→(370,220)   C_A.p1 ← COL1 tap
+ *   ca2       (430,220)→(460,220)       C_A.p2 → BASE2 (T on vertical x=460)
+ *   cb1       (370,370)→(80,370)→(80,200)→(120,200)    C_B.p1 ← BASE1 (the wire ends on R3.p2)
+ *   cb2       (430,370)→(700,370)→(700,300)→(660,300)  C_B.p2 → COL2
  *
- * Sheet extent: x 0..700, y 120..340 — grid units, 10 u = 1 mm.
- * PCB millimetre extent: 70 × 22 mm of placement; DEMO_BLINK_PCB_BOARD is
+ * Sheet extent: x 0..720, y 120..400 — grid units, 10 u = 1 mm.
+ * PCB millimetre extent: 72 × 28 mm of placement; DEMO_BLINK_PCB_BOARD is
  * 80 × 45 mm to leave routing room around the branches.
  */
 import type { CanvasComponent, CanvasWire } from '../../stores/useProjectStore';
@@ -84,54 +92,52 @@ const wire = (
 export function buildBlinkBoard(): DemoBoard {
   const components: CanvasComponent[] = [
     placed('V1', 'DC Voltage Source', 0, 120, { type: 'DC', voltage: '5V', footprint: '0805' }),
-    placed('R_A', 'Resistor', 280, 120, { value: '220 Ω', footprint: '0805' }, 90),
-    placed('LED1', 'LED', 280, 210, { type: 'LED', is: '1e-16', n: '2', color: 'red', vbr: '5V', footprint: '0805' }, 90),
-    placed('Q1', 'NPN Transistor', 200, 290, { type: '2N3904', footprint: 'SOT-23' }),
-    placed('R_B', 'Resistor', 660, 120, { value: '220 Ω', footprint: '0805' }, 90),
-    placed('LED2', 'LED', 660, 210, { type: 'LED', is: '1e-16', n: '2', color: 'red', vbr: '5V', footprint: '0805' }, 90),
-    placed('Q2', 'NPN Transistor', 580, 290, { type: '2N3904', footprint: 'SOT-23' }),
     placed('R3', 'Resistor', 140, 120, { value: '100 kΩ', footprint: '0805' }, 90),
-    placed('R4', 'Resistor', 560, 120, { value: '82 kΩ', footprint: '0805' }, 90),
-    placed('C_A', 'Capacitor', 430, 220, { value: '10 µF', voltage: '16V', footprint: '1206' }),
-    placed('C_B', 'Capacitor', 430, 160, { value: '10 µF', voltage: '16V', footprint: '1206' }),
-    placed('G1', 'Ground', 330, 340, {}),
+    placed('R_A', 'Resistor', 280, 120, { value: '220 Ω', footprint: '0805' }, 90),
+    placed('LED1', 'LED', 280, 220, { type: 'LED', is: '1e-16', n: '2', color: 'red', vbr: '5V', footprint: '0805' }, 90),
+    placed('Q1', 'NPN Transistor', 200, 290, { type: '2N3904', footprint: 'SOT-23' }),
+    placed('C_A', 'Capacitor', 370, 200, { value: '10 µF', voltage: '16V', footprint: '1206' }),
+    placed('C_B', 'Capacitor', 370, 350, { value: '10 µF', voltage: '16V', footprint: '1206' }),
+    placed('R4', 'Resistor', 480, 120, { value: '82 kΩ', footprint: '0805' }, 90),
+    placed('R_B', 'Resistor', 640, 120, { value: '220 Ω', footprint: '0805' }, 90),
+    placed('LED2', 'LED', 640, 220, { type: 'LED', is: '1e-16', n: '2', color: 'red', vbr: '5V', footprint: '0805' }, 90),
+    placed('Q2', 'NPN Transistor', 600, 290, { type: '2N3904', footprint: 'SOT-23' }),
+    placed('G1', 'Ground', 330, 400, {}),
   ];
   const P = (ref: string, ...pinIds: string[]): Array<{ componentId: string; pinId: string }> =>
     pinIds.map((pinId) => ({ componentId: `blink-${ref}`, pinId }));
   const wires: CanvasWire[] = [
     // VCC rail — V1+ straight through R3/RA/R4/RB taps; endpoints are pins.
     wire('vcc-rail', 'VCC', [...P('V1', 'positive'), ...P('R3', 'p1'), ...P('R_A', 'p1'), ...P('R4', 'p1'), ...P('R_B', 'p1')],
-      [{ x: 30, y: 120 }, { x: 120, y: 120 }, { x: 260, y: 120 }, { x: 540, y: 120 }, { x: 640, y: 120 }]),
-    // GND rail — Q1/Q2 emitters and G1; V1− drops in at the left end.
-    wire('gnd-rail', 'GND', [...P('Q1', 'emitter'), ...P('G1', 'gnd'), ...P('Q2', 'emitter')],
-      [{ x: 30, y: 340 }, { x: 260, y: 340 }, { x: 350, y: 340 }, { x: 640, y: 340 }]),
+      [{ x: 30, y: 120 }, { x: 120, y: 120 }, { x: 260, y: 120 }, { x: 460, y: 120 }, { x: 620, y: 120 }]),
     wire('v1-drop', 'GND', [...P('V1', 'negative')],
-      [{ x: 30, y: 180 }, { x: 30, y: 340 }]),
-    // Collector columns — R_A feeds LED1's anode on MID1; the cathode drops
-    // onto COL1 through Q1's collector. One wire per node, never both
-    // terminals of a part on the same net (ERC caught exactly that).
+      [{ x: 30, y: 180 }, { x: 30, y: 400 }]),
+    wire('e1', 'GND', [...P('Q1', 'emitter')],
+      [{ x: 260, y: 340 }, { x: 260, y: 400 }]),
+    wire('e2', 'GND', [...P('Q2', 'emitter')],
+      [{ x: 660, y: 340 }, { x: 660, y: 400 }]),
+    wire('gnd-rail', 'GND', [...P('V1', 'negative'), ...P('Q1', 'emitter'), ...P('G1', 'gnd'), ...P('Q2', 'emitter')],
+      [{ x: 30, y: 400 }, { x: 260, y: 400 }, { x: 350, y: 400 }, { x: 660, y: 400 }]),
     wire('mid1', 'MID1', [...P('R_A', 'p2'), ...P('LED1', 'anode')],
-      [{ x: 260, y: 200 }, { x: 260, y: 210 }]),
-    wire('col1', 'COL1', [...P('LED1', 'cathode'), ...P('Q1', 'collector')],
-      [{ x: 260, y: 270 }, { x: 260, y: 300 }]),
+      [{ x: 260, y: 200 }, { x: 260, y: 220 }]),
     wire('mid2', 'MID2', [...P('R_B', 'p2'), ...P('LED2', 'anode')],
-      [{ x: 640, y: 200 }, { x: 640, y: 210 }]),
+      [{ x: 620, y: 200 }, { x: 620, y: 220 }]),
+    wire('col1', 'COL1', [...P('LED1', 'cathode'), ...P('Q1', 'collector')],
+      [{ x: 260, y: 280 }, { x: 260, y: 300 }]),
     wire('col2', 'COL2', [...P('LED2', 'cathode'), ...P('Q2', 'collector')],
-      [{ x: 640, y: 270 }, { x: 640, y: 300 }]),
-    // Base resistors down from the rail.
-    wire('r3-base', 'BASE1', [...P('R3', 'p2'), ...P('Q1', 'base')],
+      [{ x: 620, y: 280 }, { x: 620, y: 300 }, { x: 660, y: 300 }]),
+    wire('base1', 'BASE1', [...P('R3', 'p2'), ...P('Q1', 'base')],
       [{ x: 120, y: 200 }, { x: 120, y: 320 }, { x: 200, y: 320 }]),
-    wire('r4-base', 'BASE2', [...P('R4', 'p2'), ...P('Q2', 'base')],
-      [{ x: 540, y: 200 }, { x: 540, y: 320 }, { x: 580, y: 320 }]),
-    // Cross-coupling: Q1 collector → C_A → Q2 base, and the mirror.
-    wire('ca-tap', 'COL1', [...P('C_A', 'p1')],
-      [{ x: 260, y: 280 }, { x: 360, y: 280 }, { x: 360, y: 240 }, { x: 430, y: 240 }]),
-    wire('ca-base', 'BASE2', [...P('C_A', 'p2'), ...P('Q2', 'base')],
-      [{ x: 490, y: 240 }, { x: 490, y: 330 }, { x: 580, y: 330 }, { x: 580, y: 320 }]),
-    wire('cb-tap', 'COL2', [...P('C_B', 'p2')],
-      [{ x: 640, y: 285 }, { x: 575, y: 285 }, { x: 575, y: 180 }, { x: 490, y: 180 }]),
-    wire('cb-base', 'BASE1', [...P('C_B', 'p1'), ...P('Q1', 'base')],
-      [{ x: 430, y: 180 }, { x: 380, y: 180 }, { x: 380, y: 320 }, { x: 200, y: 320 }]),
+    wire('base2', 'BASE2', [...P('R4', 'p2'), ...P('Q2', 'base')],
+      [{ x: 460, y: 200 }, { x: 460, y: 320 }, { x: 600, y: 320 }]),
+    wire('ca1', 'COL1', [...P('C_A', 'p1')],
+      [{ x: 260, y: 280 }, { x: 330, y: 280 }, { x: 330, y: 220 }, { x: 370, y: 220 }]),
+    wire('ca2', 'BASE2', [...P('C_A', 'p2')],
+      [{ x: 430, y: 220 }, { x: 460, y: 220 }]),
+    wire('cb1', 'BASE1', [...P('C_B', 'p1')],
+      [{ x: 370, y: 370 }, { x: 80, y: 370 }, { x: 80, y: 200 }, { x: 120, y: 200 }]),
+    wire('cb2', 'COL2', [...P('C_B', 'p2')],
+      [{ x: 430, y: 370 }, { x: 700, y: 370 }, { x: 700, y: 300 }, { x: 660, y: 300 }]),
   ];
   return {
     components,
