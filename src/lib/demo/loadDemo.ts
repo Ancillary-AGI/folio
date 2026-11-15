@@ -69,6 +69,12 @@ export function loadBoardDemo(title = 'Untitled schematic', load: DemoScenario['
     isDirty: true,
     liveFrame: null,
   })
+  // The demo boards' vertical span (~500 units) plus horizontal doesn't fit
+  // in every window; the board arrives shifted to a working zoom. The rail's
+  // Fit button still frames it on demand.
+  useAppStore.setState({
+    viewport: { ...useAppStore.getState().viewport, zoom: 0.6, pan: { x: 0, y: -40 } },
+  })
 }
 
 export function loadDemoScenario(scenario: DemoScenario): void {
@@ -100,8 +106,4 @@ export function loadDemoScenario(scenario: DemoScenario): void {
       ? scenario.load
       : null)
   if (request) app.requestDemo(request)
-
-  if (scenario.load && BOARD_LOADS.has(scenario.load)) {
-    requestAnimationFrame(() => window.dispatchEvent(new CustomEvent('folio:fit-view')))
-  }
 }
