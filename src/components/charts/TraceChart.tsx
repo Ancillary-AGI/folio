@@ -315,18 +315,27 @@ export default function TraceChart({
     if (!node) return
     const onWheel = (event: WheelEvent) => {
       if (!domain) return
-      // Trackpads emit deltaX-only wheels while scrolling sideways; zooming for
-      // those would hijack a gesture the engineer never meant as a zoom.
-      if (event.deltaY === 0) return
-      event.preventDefault()
       const rect = node.getBoundingClientRect()
       if (rect.width <= 0) return
       const fraction = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
-      zoomAround(valueAt(fraction), event.deltaY < 0 ? 1 / 1.35 : 1.35)
+      // pinch-to-zoom on a trackpad, or ctrl+wheel on a mouse, scales the
+      // visible window around the pointer — the only meaningful zoom gesture.
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault()
+        zoomAround(valueAt(fraction), event.deltaY < 0 ? 1 / 1.35 : 1.35)
+        return
+      }
+      // Horizontal scroll moves the window along the time axis, not the page.
+      if (Math.abs(event.deltaX) >= Math.abs(event.deltaY)) {
+        event.preventDefault()
+        pan(event.deltaX)
+        return
+      }
+      // Vertical scroll is the page's gesture; the chart lets the page move.
     }
     node.addEventListener('wheel', onWheel, { passive: false })
     return () => node.removeEventListener('wheel', onWheel)
-  }, [domain, valueAt, zoomAround])
+  }, [domain, valueAt, zoomAround, pan])
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     const centre = valueAt(0.5)

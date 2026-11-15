@@ -1500,7 +1500,7 @@ export default function SchematicCanvas({
      crossings are already one node — hopping them would fake a disconnect,
      so only different nets jump. */
   const crossings = useMemo(() => {
-    const hops: Array<{ x: number; y: number }> = []
+    const hops: Array<{ x: number; y: number; wireId: string }> = []
     const seenHop = new Set<string>()
     const byId = new Map(shownWires.map((w) => [w.id, w.netName ?? '']))
     for (let a = 0; a < segments.length; a++) {
@@ -1529,11 +1529,59 @@ export default function SchematicCanvas({
         const hopKey = Math.round(x) + ':' + Math.round(y)
         if (seenHop.has(hopKey)) continue
         seenHop.add(hopKey)
-        hops.push({ x, y })
+        hops.push({ x, y, wireId: h.wireId })
       }
     }
     return hops
   }, [segments, junctions, shownWires])
+
+  /* A wire's own polyline — the hop is a segment of the wire's path, not a
+     painted overlay. Splitting yields straight pieces and the semicircular
+     bridge arcs; the crossing wire underneath is drawn straight through. */
+  type WirePiece =
+    | { kind: 'line'; points: number[] }
+    | { kind: 'arc'; d: string }
+  const splitWireAtHops = useCallback((wire: (typeof shownWires)[number]): WirePiece[] => {
+    const hops = crossings.filter((h) => h.wireId === wire.id)
+    if (hops.length === 0) {
+      const points = wire.points.flatMap((pt) => [pt.x, pt.y])
+      return points.length >= 4 ? [{ kind: 'line', points }] : []
+    }
+    const pieces: WirePiece[] = []
+    let current: number[] = []
+    const flush = () => {
+      if (current.length >= 4) pieces.push({ kind: 'line', points: current })
+      current = []
+    }
+    const pts = wire.points
+    current = [pts[0]!.x, pts[0]!.y]
+    for (let i = 0; i + 1 < pts.length; i += 1) {
+      const a = pts[i]!
+      const b = pts[i + 1]!
+      const dir = Math.sign(b.x - a.x) || 1
+      const isHorizontal = Math.abs(a.y - b.y) < 0.5
+      const edgeHops = isHorizontal
+        ? hops
+            .filter((h) => Math.abs(h.y - a.y) < 0.5 && Math.min(a.x, b.x) + 0.5 < h.x && h.x < Math.max(a.x, b.x) - 0.5)
+            .sort((p, q) => (p.x - a.x) * dir - (q.x - a.x) * dir)
+        : []
+      if (edgeHops.length === 0) {
+        current.push(b.x, b.y)
+        continue
+      }
+      for (const hop of edgeHops) {
+        const inX = hop.x - 7 * dir
+        const outX = hop.x + 7 * dir
+        current.push(inX, a.y)
+        flush()
+        pieces.push({ kind: 'arc', d: `M ${hop.x - 7},${a.y} A 7,6 0 0,1 ${hop.x + 7},${a.y}` })
+        current = [outX, a.y]
+      }
+      current.push(b.x, b.y)
+    }
+    flush()
+    return pieces
+  }, [crossings])
   const renderWires = () => {
     const { zoom } = viewport
     return (
@@ -1564,26 +1612,46 @@ export default function SchematicCanvas({
             listening={false}
           />
         ))}
-        {shownWires.map(wire => {
+        {shownWires.flatMap(wire => {
           const selected = isWireSelected(wire)
-          return (
-            <Line
-              key={wire.id}
-              points={wire.points.flatMap(pt => [pt.x, pt.y])}
-              stroke={selected ? palette.selectedStroke : palette.wire}
-              strokeWidth={(selected ? 2.6 : 2) / zoom}
-              lineCap="round"
-              lineJoin="round"
-              hitStrokeWidth={12}
-              onMouseDown={(e) => startWireDrag(e, wire)}
-              onMouseEnter={() => {
-                setHoveredPin(null)
-                setHoveredWireId(wire.id)
-                setCursorFromEvent()
-              }}
-              onMouseMove={() => setCursorFromEvent()}
-              onMouseLeave={() => setHoveredWireId(null)}
-            />
+          const wireStyle = {
+            stroke: selected ? palette.selectedStroke : palette.wire,
+            strokeWidth: (selected ? 2.6 : 2) / zoom,
+            lineCap: 'round' as const,
+            lineJoin: 'round' as const,
+            hitStrokeWidth: 12,
+          }
+          const interactive = {
+            onMouseDown: (e: Konva.KonvaEventObject<MouseEvent>) => startWireDrag(e, wire),
+            onMouseEnter: () => {
+              setHoveredPin(null)
+              setHoveredWireId(wire.id)
+              setCursorFromEvent()
+            },
+            onMouseMove: () => setCursorFromEvent(),
+            onMouseLeave: () => setHoveredWireId(null),
+          }
+          return splitWireAtHops(wire).map((piece, i) =>
+            piece.kind === 'line' ? (
+              <Line
+                key={`${wire.id}-${i}`}
+                points={piece.points}
+                {...wireStyle}
+                {...interactive}
+              />
+            ) : (
+              // The hop is the wire's own path arcing over the crossing wire.
+              <Path
+                key={`${wire.id}-${i}`}
+                data={piece.d}
+                stroke={wireStyle.stroke}
+                strokeWidth={wireStyle.strokeWidth}
+                fillEnabled={false}
+                lineCap="round"
+                hitStrokeWidth={12}
+                {...interactive}
+              />
+            ),
           )
         })}
         {hoveredNet && !hoveredNetIsSelected && hoveredNetPins.map((tip, k) => (
@@ -1621,19 +1689,7 @@ export default function SchematicCanvas({
             stroke={palette.pinStroke} strokeWidth={1.1 / viewport.zoom}
             listening={false} />
         ))}
-        {crossings.map((h, k) => (
-          <Group key={'hj' + k} listening={false}>
-            {/* No-connect bridge: both wires stay continuous, only the arc draws. */}
-            <Path
-              data={'M ' + (h.x - 7) + ',' + h.y + ' A 7,6 0 0,1 ' + (h.x + 7) + ',' + h.y}
-              stroke={palette.wire}
-              strokeWidth={1.6}
-              fillEnabled={false}
-              lineCap="round"
-              listening={false}
-            />
-          </Group>
-        ))}
+
       </>
     )
   }
