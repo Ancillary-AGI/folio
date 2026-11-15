@@ -181,7 +181,7 @@ export default function LocalProfileGate() {
               disabled={signingIn !== null}
               aria-busy={signingIn === 'google'}
               aria-label="Continue with Google"
-              className="flex h-11 w-full items-center gap-3 rounded-lg border border-border/70 bg-card/50 px-4 text-sm font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70"
+              className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-border/70 bg-card/50 px-4 text-sm font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70"
             >
               {signingIn === 'google' ? (
                 <Loader2 className="h-5 w-5 animate-spin text-primary" aria-hidden="true" />
@@ -197,12 +197,12 @@ export default function LocalProfileGate() {
               disabled={signingIn !== null}
               aria-busy={signingIn === 'github'}
               aria-label="Continue with GitHub"
-              className="flex h-11 w-full items-center gap-3 rounded-lg border border-border/70 bg-card/50 px-4 text-sm font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70"
+              className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-border/70 bg-card/50 px-4 text-sm font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70"
             >
               {signingIn === 'github' ? (
                 <Loader2 className="h-5 w-5 animate-spin text-primary" aria-hidden="true" />
               ) : (
-                <Github className="h-5 w-5 text-primary" aria-hidden="true" />
+                <Github className="h-5 w-5 text-foreground" aria-hidden="true" />
               )}
               <span>Continue with GitHub</span>
             </button>
@@ -213,7 +213,7 @@ export default function LocalProfileGate() {
               disabled={signingIn !== null}
               aria-busy={signingIn === 'xindustries'}
               aria-label="Continue with X Industries"
-              className="flex h-11 w-full items-center gap-3 rounded-lg border border-border/70 bg-card/50 px-4 text-sm font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70"
+              className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-border/70 bg-card/50 px-4 text-sm font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70"
             >
               {signingIn === 'xindustries' ? (
                 <Loader2 className="h-5 w-5 animate-spin text-primary" aria-hidden="true" />
