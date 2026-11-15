@@ -2009,6 +2009,12 @@ function App() {
    */
   const demoBusyOverlay = demoBusy ? <DemoLoadingOverlay title={demoBusy} /> : null
 
+  /* Unknown routes render the 404 surface before any identity gate — a bad URL
+     should not bounce a visitor through a sign-in they don't need to see. */
+  if (notFoundPath !== null) {
+    return <NotFound path={notFoundPath} />
+  }
+
   /*
    * The community browse surface requires identity like everything else in the
    * workbench: no local profile (standalone) or cloud session (deployed), no CAD.
@@ -2037,10 +2043,6 @@ function App() {
         {demoBusyOverlay}
       </>
     )
-  }
-
-  if (notFoundPath !== null) {
-    return <NotFound path={notFoundPath} />
   }
 
   if (!currentProject || showProjectManager) {
