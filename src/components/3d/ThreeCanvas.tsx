@@ -196,6 +196,13 @@ export default function ThreeCanvas({
       console.warn('Environment map unavailable:', error)
     }
 
+    // The page's wheel scrolls the page; only pinch (ctrl/meta) may dolly.
+    // Registered before the controls' own listener so it wins at the target.
+    canvas.addEventListener('wheel', (event) => {
+      if (event.ctrlKey || event.metaKey) return
+      event.stopImmediatePropagation()
+    }, { capture: true, passive: false })
+
     const controls = new OrbitControls(scene.camera, canvas)
     controls.enableDamping = true
     controls.addEventListener('change', () => manager.renderScene(scene.id))

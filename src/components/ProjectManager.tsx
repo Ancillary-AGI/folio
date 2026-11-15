@@ -1,4 +1,4 @@
-import HoverHelp from './ui/HoverHelp'
+﻿import HoverHelp from './ui/HoverHelp'
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase, Project } from '../lib/supabase'
 import { offlineProjectStore } from '../lib/offlineProjectStore'
@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader } from './ui/card'
 import {
   ArrowRight, ArrowUpRight, Calendar, CircuitBoard, Code2, FlaskConical,
   FolderOpen, History, Layers, Microscope, Plus, RotateCw, Search, ShieldCheck,
-  Bot, Trash2, Wrench, X, Zap,
+  Sparkles, Trash2, Wrench, X, Zap,
   type LucideIcon,
 } from 'lucide-react'
 import { WORKSPACE_GROUPS, MODE_COUNT_BY_GROUP, WORKSPACE_MODE_META, FIRST_MODE_BY_GROUP, type WorkspaceGroupId } from '../lib/workspace/modes'
@@ -51,7 +51,7 @@ const FAMILY_ICONS: Readonly<Record<WorkspaceGroupId, LucideIcon>> = {
   ops: ShieldCheck,
 }
 
-/** Brief chips the launcher offers — each is a real starting point, not a slogan. */
+/** Brief chips the launcher offers â€” each is a real starting point, not a slogan. */
 const IDEA_CHIPS = [
   'USB-C buck, 3.3 V @ 2 A, PCBWay 2-layer',
   'ESP32 plant monitor, BME280 over I2C',
@@ -145,7 +145,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
      * all, and the card stays where it was.
      */
     const accepted = await confirm({
-      title: `Delete “${project.name}”?`,
+      title: `Delete â€œ${project.name}â€?`,
       detail:
         'The project is removed from this workspace, together with the version history and the backups stored with it. Nothing else of yours is touched, and there is no undo.',
       confirmLabel: 'Delete project',
@@ -181,7 +181,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
   }
 
   /*
-   * Renaming writes the project's own row — the offline store, or the cloud row —
+   * Renaming writes the project's own row â€” the offline store, or the cloud row â€”
    * and tells the shell so an open workspace re-titles itself with it. The click
    * gesture lives in `EditableProjectTitle`, the same one the workspace header
    * uses; this is only the storage behind it, and it throws so the reason can be
@@ -227,7 +227,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
      */
     return (
       <div className="launcher-column" role="status" aria-live="polite">
-        <span className="sr-only">Loading your projects…</span>
+        <span className="sr-only">Loading your projectsâ€¦</span>
         <div className="launcher-hero launcher-hero--skeleton">
           <div className="cad-skeleton mb-4 h-3 w-32" />
           <div className="cad-skeleton mb-3 h-10 w-2/3 max-w-md" />
@@ -258,8 +258,8 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
 
   return (
     <div className="launcher-column">
-      {/* ── Hero: the one statement of what this place is, and the two doors
-          into it. The ambient field passes through the glass. ─────────────── */}
+      {/* â”€â”€ Hero: the one statement of what this place is, and the two doors
+          into it. The ambient field passes through the glass. â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <section className="launcher-hero" aria-labelledby="launcher-heading">
         <div className="launcher-hero__aura" aria-hidden="true" />
         <div className="launcher-hero__layout">
@@ -270,14 +270,14 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
             </p>
             <h1 id="launcher-heading" className="launcher-title">From first sketch to <span className="hero-accent">verified build.</span></h1>
             <p className="launcher-lede">
-              Describe the board in one line — the agent drafts the circuit,
+              Describe the board in one line â€” the agent drafts the circuit,
               routes it, checks every handoff and hands you a fab package.
               You keep the engineering; it does the legwork.
             </p>
 
             <form className="launcher-composer" onSubmit={handleBriefSubmit} aria-label="Describe your project">
               <div className="launcher-composer__row">
-                <Bot className="launcher-composer__orb" aria-hidden="true" />
+                <Sparkles className="launcher-composer__orb" aria-hidden="true" />
                 <textarea
                   rows={2}
                   value={brief}
@@ -380,7 +380,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
 
           <div className="launcher-hero__visual" role="img" aria-label="Engineering disciplines connected through one shared product model">
             <div className="launcher-hero__visual-head">
-              <span>ONE PRODUCT · CONNECTED DISCIPLINES</span>
+              <span>ONE PRODUCT Â· CONNECTED DISCIPLINES</span>
               <span className="launcher-hero__live"><span aria-hidden="true" /> SHARED DESIGN DATA</span>
             </div>
             <div className="launcher-hero__diagram" aria-hidden="true">
@@ -457,7 +457,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
           <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
           {filteredProjects.map((project) => {
             // Commit history is kept with the local workspace even for a cloud row,
-            // so this is the revision count available here — not the project's
+            // so this is the revision count available here â€” not the project's
             // whole history on other machines.
             const repo = vcsService.getRepo(project.id)
             const revisionCount = repo ? Object.keys(repo.commits).length : 0
@@ -480,7 +480,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
                 }
               }}
             >
-              {/* Whole card is the open target — the one thing it is not is a
+              {/* Whole card is the open target â€” the one thing it is not is a
                   button, and the corner carries the only other decision here.
                   Out of the reading flow, out of the drop target, named for
                   its job. */}
@@ -534,7 +534,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
                   >
                     <History className="w-3 h-3" aria-hidden="true" />
                     {repo
-                      ? `${revisionCount} revision${revisionCount === 1 ? '' : 's'} · ${repo.currentBranch}`
+                      ? `${revisionCount} revision${revisionCount === 1 ? '' : 's'} Â· ${repo.currentBranch}`
                       : 'No revisions yet'}
                   </div>
                   {/* The whole card is the target; this hint just says so. */}
@@ -691,3 +691,4 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
     </div>
   )
 }
+

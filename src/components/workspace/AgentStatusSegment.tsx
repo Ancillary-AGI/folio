@@ -3,7 +3,7 @@
  * queue is idle; when jobs are in flight (or one waits on a human approval)
  * it states the fact and jumps to the agent workspace on click.
  */
-import { Bot, ShieldQuestion } from 'lucide-react'
+import { Sparkles, ShieldQuestion } from 'lucide-react'
 import { useAgentJobs } from '../../lib/agents/useAgentJobs'
 
 interface AgentStatusSegmentProps {
@@ -31,7 +31,7 @@ export default function AgentStatusSegment({ onOpenAgents }: AgentStatusSegmentP
       {waiting ? (
         <ShieldQuestion className="h-3 w-3" aria-hidden="true" />
       ) : (
-        <Bot className="h-3 w-3 cad-live-indicator" aria-hidden="true" />
+        <Sparkles className="h-3 w-3 cad-live-indicator" aria-hidden="true" />
       )}
       {waiting ? (
         <>

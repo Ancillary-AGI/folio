@@ -2,6 +2,7 @@ import HoverHelp from '../ui/HoverHelp'
 import { useCallback, useRef, useEffect, useState, useMemo, type ChangeEvent, type ReactNode } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid } from '@react-three/drei';
+import WheelSemantics from './WheelSemantics';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Button } from '../ui/button';
@@ -987,6 +988,8 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
 
             {shell && <primitive object={shell.group} />}
             
+            {/* Wheel belongs to the page; pinch (ctrl/meta) dollies the camera. */}
+            <WheelSemantics />
             <OrbitControls
               makeDefault
               enablePan={true}

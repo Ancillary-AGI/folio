@@ -2,6 +2,7 @@ import HoverHelp from '../ui/HoverHelp'
 import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Box, Cylinder, Sphere } from '@react-three/drei';
+import WheelSemantics from '../3d/WheelSemantics';
 import * as THREE from 'three';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -466,6 +467,7 @@ export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
             />
             {showSensors && <SensorVisualization sensors={robotConfig.sensors} />}
 
+            <WheelSemantics />
             <OrbitControls enablePan enableZoom enableRotate />
           </Canvas>
 

@@ -6,7 +6,7 @@
  * honest unread count, not an engagement metric.
  */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Bell, Bot, Check, CheckCheck, Download, History, Shapes, Trash2, X } from 'lucide-react'
+import { Bell, Sparkles, Check, CheckCheck, Download, History, Shapes, Trash2, X } from 'lucide-react'
 import {
   clearAllNotifications,
   dismissNotification,
@@ -36,8 +36,8 @@ function useNotificationFeed(): { items: AppNotification[]; unread: number } {
   return { items, unread }
 }
 
-const KIND_ICONS: Record<NotificationKind, typeof Bot> = {
-  agent: Bot,
+const KIND_ICONS: Record<NotificationKind, typeof Sparkles> = {
+  agent: Sparkles,
   export: Download,
   community: Shapes,
   checkpoint: History,

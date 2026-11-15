@@ -1,12 +1,13 @@
 import HoverHelp from '../ui/HoverHelp'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
-  Activity, ArrowRightLeft, Box, Bot, Cable, Camera, CircuitBoard, Code2,
+  Activity, ArrowRightLeft, Box, Cable, Camera, CircuitBoard, Code2,
   Construction, Cpu, Dna, FlaskConical,
   Gauge, GitBranch, Grid3X3, HelpCircle, Layers, List, Microscope, Package, PenTool, Plug, Radio, RadioTower, RotateCw,
-  ShieldCheck, ShoppingBag, SlidersHorizontal, Terminal, Wrench, Zap,
+  ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, Terminal, Wrench, Zap,
   type LucideIcon,
 } from 'lucide-react'
+import RobotArmIcon from './RobotArmIcon'
 import SchematicCanvas from '../SchematicCanvas'
 import DomainLibraryDock from '../library/DomainLibraryDock'
 import PropertiesPanel from '../PropertiesPanel'
@@ -118,14 +119,14 @@ const MODE_ICONS: Readonly<Record<WorkspaceMode, LucideIcon>> = {
   fpga: Grid3X3,
   mechanical: Wrench,
   structures: Construction,
-  robotics: Bot,
+  robotics: RobotArmIcon as LucideIcon,
   embedded: Terminal,
   imaging: Camera,
   visual: GitBranch,
   hil: FlaskConical,
   biology: Dna,
   twin: RadioTower,
-  agents: Bot,
+  agents: Sparkles,
   components: Package,
   plugins: Plug,
   dashboard: Gauge,

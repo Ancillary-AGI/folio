@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
-  Bot,
+  Sparkles,
   Brain,
   CheckCircle,
   ChevronRight,
@@ -508,7 +508,7 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
               <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
                 message.role === 'agent' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
               }`}>
-                {message.role === 'agent' ? <Bot size={13} /> : <Terminal size={11} />}
+                {message.role === 'agent' ? <Sparkles size={13} /> : <Terminal size={11} />}
               </div>
             )}
             <div className={`max-w-[85%] rounded-xl px-3 py-2 text-xs leading-relaxed ${
@@ -694,4 +694,5 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
     </div>
   )
 }
+
 

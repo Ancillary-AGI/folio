@@ -2,6 +2,7 @@ import HoverHelp from '../ui/HoverHelp'
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Line } from '@react-three/drei';
+import WheelSemantics from '../3d/WheelSemantics';
 import * as THREE from 'three';
 import { X } from 'lucide-react';
 import { Button } from '../ui/button';
@@ -1027,6 +1028,8 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
           {/* Trajectory Visualization */}
           {trajectory && <TrajectoryVisualization trajectory={trajectory} />}
 
+          {/* Wheel belongs to the page; pinch (ctrl/meta) dollies the camera. */}
+          <WheelSemantics />
           <OrbitControls
             makeDefault
             enablePan

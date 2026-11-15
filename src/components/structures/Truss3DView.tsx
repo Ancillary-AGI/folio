@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
+import WheelSemantics from '../3d/WheelSemantics'
 import { useTheme } from '../../lib/theme/useTheme'
 import { THEMES, hslTripletToRgb, rgbToHex } from '../../lib/theme/tokens'
 import { setShadingMode } from '../../lib/3d/outline'
@@ -233,6 +234,8 @@ export default function Truss3DView({
         position={[bounds.center.x, bounds.center.y - bounds.radius * 1.15, 0]}
       />
 
+      {/* Wheel belongs to the page; pinch (ctrl/meta) dollies the camera. */}
+      <WheelSemantics />
       <OrbitControls target={[bounds.center.x, bounds.center.y, 0]} enablePan enableZoom enableRotate />
     </Canvas>
   )

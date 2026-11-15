@@ -18,7 +18,7 @@ import { Button } from './ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import {
   Shield, Activity, Cpu, Zap, RefreshCw, AlertTriangle, CheckCircle,
-  Clock, Database, Bot, GitBranch,
+  Clock, Database, Puzzle, GitBranch,
 } from 'lucide-react'
 import { siemService } from '../lib/siem/siemService'
 import { pluginManager } from '../lib/plugins/pluginManager'
@@ -211,7 +211,7 @@ export const SystemDashboard: React.FC = () => {
     { label: 'Fleet Online', value: `${metrics.devicesOnline}/${metrics.devicesTotal}`, color: 'text-info', icon: <Database className="w-4 h-4" /> },
     { label: 'Fleet Health', value: `${metrics.fleetHealthScore.toFixed(0)}%`, color: healthColor(metrics.fleetHealthScore), icon: <Zap className="w-4 h-4" /> },
     { label: 'Components', value: metrics.componentCount, color: 'text-info', icon: <Cpu className="w-4 h-4" /> },
-    { label: 'Plugins Loaded', value: metrics.pluginsLoaded, color: 'text-primary', icon: <Bot className="w-4 h-4" /> },
+    { label: 'Plugins Loaded', value: metrics.pluginsLoaded, color: 'text-primary', icon: <Puzzle className="w-4 h-4" /> },
     { label: 'Last Backup', value: metrics.lastBackupAgo, color: 'text-info', icon: <GitBranch className="w-4 h-4" /> },
     { label: 'Sync Score', value: metrics.syncScore !== null ? `${metrics.syncScore.toFixed(0)}%` : '—', color: (metrics.syncScore ?? 100) >= 80 ? 'text-success' : 'text-warning', icon: <RefreshCw className="w-4 h-4" /> },
   ]
