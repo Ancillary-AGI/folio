@@ -954,12 +954,14 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       width: 20,
       height: 40,
       paths: [
-        'M 8,5 L 12,5 L 12,35 L 8,35 Z',
-        'M 10,0 L 10,40'
+        'M 0,20 L 4,20',
+        'M 4,12 L 16,12 L 16,28 L 4,28 Z',
+        'M 8,17 L 12,17',
+        'M 10,16 L 10,19',
       ]
     },
     pins: [
-      { id: 'pin', name: '1', x: 10, y: 0, type: 'passive' }
+      { id: 'pin', name: '1', x: 0, y: 20, type: 'passive' }
     ],
     default_properties: {
       type: '2.54mm pitch',
