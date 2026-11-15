@@ -1193,7 +1193,7 @@ export default function MechanicalDesignPanel({ onClose }: MechanicalDesignPanel
 </HoverHelp>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
             {/* Analysis controls */}
             <Card>
               <CardHeader className="pb-3">

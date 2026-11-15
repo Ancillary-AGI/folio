@@ -458,7 +458,7 @@ export default function HDLEditor({ initialCode, language: initialLanguage = 've
           <LibraryDropNote zone={snippetZone} surface="the editor" />
         </div>
 
-        <div className="flex max-h-[45%] w-full flex-shrink-0 flex-col overflow-hidden border-t border-border lg:max-h-none lg:w-80 lg:border-l lg:border-t-0">
+        <div className="flex max-h-[45%] w-full flex-shrink-0 flex-col overflow-y-auto border-t border-border lg:max-h-none lg:w-80 lg:border-l lg:border-t-0">
           <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0">
             <Terminal size={11} className="text-muted-foreground" />
             <span className="text-xs text-muted-foreground">Output</span>

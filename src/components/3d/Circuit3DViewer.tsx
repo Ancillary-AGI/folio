@@ -1117,7 +1117,7 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
 </HoverHelp>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
             {/* Enclosure */}
             <Card data-testid="enclosure-card">
               <CardHeader className="pb-3">

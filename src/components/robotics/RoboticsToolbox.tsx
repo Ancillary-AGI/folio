@@ -505,7 +505,7 @@ export default function RoboticsToolbox({ onClose }: RoboticsToolboxProps) {
 </HoverHelp>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm">Robot Configuration</CardTitle>

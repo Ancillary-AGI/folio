@@ -601,9 +601,9 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
 
   return (
     <>
-    <div className="flex h-full w-full flex-col lg:flex-row">
+    <div className="flex h-full w-full flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
       {/* Left Panel - Controls */}
-      <div className="max-h-[45%] w-full flex-shrink-0 space-y-4 overflow-y-auto border-b border-border bg-card p-4 lg:max-h-none lg:w-80 lg:border-b-0 lg:border-r">
+      <div className="w-full flex-shrink-0 space-y-4 border-b border-border bg-card p-4 lg:w-80 lg:overflow-y-auto lg:border-b-0 lg:border-r">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Advanced Robotics</h2>
           {onClose && (
@@ -966,7 +966,7 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
       </div>
 
       {/* Right Panel - 3D Visualization */}
-      <div className="flex-1 relative">
+      <div className="relative min-h-[420px] flex-1 lg:min-h-0">
         <Canvas
           ref={canvasRef}
           camera={{ position: [0.9, 0.55, 1.0], fov: 45, near: 0.01, far: 100 }}
