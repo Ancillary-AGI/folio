@@ -120,7 +120,7 @@ export function composeReply(result: NLPProcessResult, context: DesignContext): 
     case 'optimize_design':
       return say(
         detail ||
-          'Voice cannot run the optimiser yet, so nothing changed. Ask the design assistant or use the optimisation tools in the workspace.',
+          'Voice cannot run the optimiser yet, so nothing changed. Ask Scribe or use the optimisation tools in the workspace.',
       )
 
     case 'export_design':
@@ -129,7 +129,7 @@ export function composeReply(result: NLPProcessResult, context: DesignContext): 
         : say(detail || 'I cannot start that export from voice, so no file was written.')
 
     case 'ai_analyze':
-      return applied ? say('Opened the design assistant.') : say('I could not open the design assistant.')
+      return applied ? say('Opened Scribe.') : say('I could not open Scribe.')
 
     case 'undo':
       return applied ? say('Undid the last canvas change.') : say('There is nothing to undo.')

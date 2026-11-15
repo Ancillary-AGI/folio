@@ -349,7 +349,7 @@ export class NLPService {
         // No optimiser runs from a spoken command; say so instead of faking it.
         return {
           applied: false,
-          detail: 'Voice cannot run the optimiser yet, so nothing changed. Ask the design assistant or use the optimisation tools in the workspace.',
+          detail: 'Voice cannot run the optimiser yet, so nothing changed. Ask Scribe or use the optimisation tools in the workspace.',
         }
       },
     })
@@ -396,7 +396,7 @@ export class NLPService {
         const useAppStore = await getAppStore()
         const state = useAppStore.getState()
         if (!state.aiChatOpen) state.toggleAiChat()
-        return { applied: true, action: 'ai_analyze', detail: 'Opened the design assistant.' }
+        return { applied: true, action: 'ai_analyze', detail: 'Opened Scribe.' }
       },
     })
 

@@ -1,8 +1,9 @@
 import {
-  Activity, Bot, CircuitBoard, Cpu, GitBranch, HelpCircle, History, Layers3, MousePointerClick, ScrollText,
+  Activity, CircuitBoard, Cpu, GitBranch, HelpCircle, History, Layers3, MousePointerClick, ScrollText,
   Shield, TrendingUp, type LucideIcon,
 } from 'lucide-react'
 import type { WorkspaceMode } from '../../stores/useAppStore'
+import ScribeIcon from '../../components/workspace/ScribeIcon'
 
 /**
  * The onboarding curriculum.
@@ -272,17 +273,17 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   {
     id: 'agent',
     chapter: 'connect',
-    title: 'This is the design assistant',
-    summary: 'It drives the same CAD tools you use, then re-reads the result.',
+    title: 'Meet Scribe',
+    summary: 'Scribe, Folio\'s scribe, observes the sheet then re-reads its own work.',
     detail:
-      'The assistant observes the sheet or board, proposes a change, applies it with the same tools you have, then re-reads its own work. Runs stay in this workspace; a cloud model, if configured, is labelled and needs your credentials. Review every edit it makes.',
+      'Scribe watches the sheet or board, proposes a change with reasons you can check, applies it with the same tools you have, then re-reads the result. Numbers it reports are measured or simulated, never invented, and it says which. Runs stay in this workspace; a configured cloud model is labelled and needs your credentials. Review every edit it makes.',
     checklist: [
-      'Describe the goal and the constraints',
-      'Require it to re-read after a change',
+      'Give it the goal and the constraints, plainly',
+      'Demand the re-read after every change',
       'Review the diff before keeping a change',
     ],
     mode: 'agents',
-    icon: Bot,
+    icon: ScribeIcon as LucideIcon,
     target: 'agent-button',
     fallbackTarget: 'workspace-canvas',
     placement: 'bottom',
