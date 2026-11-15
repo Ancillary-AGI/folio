@@ -759,10 +759,11 @@ export const standardComponents: Omit<Component, 'id' | 'created_at'>[] = [
       width: 80,
       height: 60,
       paths: [
-        'M 10,10 Q 30,30 10,50 Q 40,30 70,30 Q 40,30 10,10',
-        'M 0,20 L 20,20',
-        'M 0,40 L 20,40',
-        'M 70,30 L 80,30'
+        'M 10,8 Q 26,30 10,52',
+        'M 10,8 Q 40,14 68,24 L 78,30 L 68,36 Q 40,46 10,52 Z',
+        'M 0,20 L 14,20',
+        'M 0,40 L 14,40',
+        'M 74,30 L 80,30'
       ]
     },
     pins: [
