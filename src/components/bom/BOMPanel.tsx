@@ -527,17 +527,23 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
                           className="h-6 text-xs py-0"
                           autoFocus
                         />
-                        <Button size="icon" className="h-6 w-6" onClick={() => saveNotes(item, editNotes)} aria-label={`Save notes for ${item.references.join(', ')}`} title="Write the note onto every part instance in this row, as a property that travels with the design."><Save className="w-3 h-3" /></Button>
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditingKey(null)} aria-label={`Discard note edit for ${item.references.join(', ')}`} title="Drop what you typed and leave the row's existing note as it was."><X className="w-3 h-3" /></Button>
+                        <HoverHelp title="Write the note onto every part instance" description="The note is saved as a property on each part in this row, and travels with the design.">
+                          <Button size="icon" className="h-6 w-6" onClick={() => saveNotes(item, editNotes)} aria-label={`Save notes for ${item.references.join(', ')}`}><Save className="w-3 h-3" /></Button>
+                        </HoverHelp>
+                        <HoverHelp title="Discard the note edit" description="Drop what you typed and leave the row's existing note as it was.">
+                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditingKey(null)} aria-label={`Discard note edit for ${item.references.join(', ')}`}><X className="w-3 h-3" /></Button>
+                        </HoverHelp>
                       </div>
                     ) : (
                       <span className="text-muted-foreground truncate block max-w-[150px]" title={item.notes || undefined}>{item.notes || '—'}</span>
                     )}
                   </td>
                   <td className="p-2">
-                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setEditingKey(item.key); setEditNotes(item.notes) }} aria-label={`Edit notes for ${item.references.join(', ')}`} title="Edit the note carried by the parts in this row.">
-                      <Edit3 className="w-3 h-3" />
-                    </Button>
+                    <HoverHelp title="Edit the row's note" description="The note you write here is saved onto every part instance in this row.">
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setEditingKey(item.key); setEditNotes(item.notes) }} aria-label={`Edit notes for ${item.references.join(', ')}`}>
+                        <Edit3 className="w-3 h-3" />
+                      </Button>
+                    </HoverHelp>
                   </td>
                 </tr>
               ))}

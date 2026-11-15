@@ -2576,7 +2576,6 @@ function App() {
                 type="button"
                 onClick={() => clearSelection()}
                 className="status-segment transition-colors hover:bg-accent"
-                title="Clear the net selection"
                 aria-label={`Selected net ${selectedNetName}${selectedNetPins > 0 ? `, ${selectedNetPins} pins` : ''}. Clear selection.`}
               >
                 Net <span className="cad-readout">{selectedNetName}</span>
