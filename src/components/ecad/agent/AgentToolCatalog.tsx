@@ -1,5 +1,5 @@
-/**
- * Tool catalog — the agent's actual capability surface, rendered from the
+﻿/**
+ * Tool catalog â€” the agent's actual capability surface, rendered from the
  * registered tool definitions rather than a hand-maintained doc that drifts.
  * An engineer can see exactly what an agent may call, which parameters are
  * required, and which calls need human approval.
@@ -32,7 +32,7 @@ export default function AgentToolCatalog() {
   }, [])
 
   return (
-    <div className="flex-1 overflow-y-auto p-3 space-y-3">
+    <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-3">
       <p className="text-xs text-muted-foreground">
         {tools.length} registered tools. Every call is budgeted and recorded in the audit trail;
         calls marked with a shield need human approval first.
@@ -64,7 +64,7 @@ export default function AgentToolCatalog() {
                   <p className="mt-0.5 text-xs text-muted-foreground">{tool.description}</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {required.length > 0 ? required.join(', ') : 'no required parameters'}
-                    {optional.length > 0 ? ` · optional: ${optional.join(', ')}` : ''}
+                    {optional.length > 0 ? ` Â· optional: ${optional.join(', ')}` : ''}
                   </p>
                 </li>
               )
@@ -75,3 +75,4 @@ export default function AgentToolCatalog() {
     </div>
   )
 }
+

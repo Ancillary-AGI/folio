@@ -1,18 +1,18 @@
-import HoverHelp from '../ui/HoverHelp'
+﻿import HoverHelp from '../ui/HoverHelp'
 /**
- * IC Design Panel — the teaching flow for digital IC design, honestly bounded.
+ * IC Design Panel â€” the teaching flow for digital IC design, honestly bounded.
  *
  * Tabs:
- *  1. Logic Entry   — Verilog/VHDL subset editor (re-uses HDLEditor)
- *  2. Synthesis     — Gate mapping, STA, area/power (logicSynthesis.ts)
- *  3. Floorplan     — Die size, core area, macro placement (siliconFloorplan.ts)
- *  4. Layout        — Representative cell rows; no legaliser or router is run
- *  5. Packaging     — Package type, bond-wire or flip-chip (chipPackaging.ts)
- *  6. GDSII Export  — Binary GDS stream of a representative layout
+ *  1. Logic Entry   â€” Verilog/VHDL subset editor (re-uses HDLEditor)
+ *  2. Synthesis     â€” Gate mapping, STA, area/power (logicSynthesis.ts)
+ *  3. Floorplan     â€” Die size, core area, macro placement (siliconFloorplan.ts)
+ *  4. Layout        â€” Representative cell rows; no legaliser or router is run
+ *  5. Packaging     â€” Package type, bond-wire or flip-chip (chipPackaging.ts)
+ *  6. GDSII Export  â€” Binary GDS stream of a representative layout
  *
  * The synthesis map targets sky130 HD cell descriptors and the floorplan is a
  * planning estimate. The GDSII artifact is for inspecting the flow and the
- * file format — it is NOT DRC/LVS-clean foundry tapeout, and the panel does
+ * file format â€” it is NOT DRC/LVS-clean foundry tapeout, and the panel does
  * not claim it is. Tape-out needs a foundry PDK, a router, and sign-off decks;
  * none of those are in this codebase yet.
  */
@@ -163,7 +163,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
   const [status, setStatus] = useState<Record<string, StepStatus>>({})
   const [log, setLog] = useState<string[]>([])
 
-  // ── Device lab: behavioural logic and memory chips ─────────────────────────
+  // â”€â”€ Device lab: behavioural logic and memory chips â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [devicePartId, setDevicePartId] = useState(
     saved?.devicePartId && STANDARD_MEMORY.some((part) => part.id === saved.devicePartId)
       ? saved.devicePartId
@@ -279,7 +279,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
     setShiftOutput(shiftOut)
     report.push(
       `74HC595: shifted 0xA6 LSB-first, latched 0x${shiftOut.latchRegister.toString(16).padStart(2, '0')}, ` +
-      `QH′ ${shiftOut.serialOut}, outputs ${shiftOut.outputsEnabled ? 'enabled' : 'high-Z'}.`,
+      `QHâ€² ${shiftOut.serialOut}, outputs ${shiftOut.outputsEnabled ? 'enabled' : 'high-Z'}.`,
     )
 
     // 74HC165: parallel-load the D0..D7 switches, then clock one bit out.
@@ -291,7 +291,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
     setParallelOutput(shifted)
     report.push(
       `74HC165: parallel-loaded 0x${loaded.register.toString(16).padStart(2, '0')} from D0..D7, ` +
-      `one clock → 0x${shifted.register.toString(16).padStart(2, '0')} (QH ${shifted.qh}).`,
+      `one clock â†’ 0x${shifted.register.toString(16).padStart(2, '0')} (QH ${shifted.qh}).`,
     )
 
     // 74HC138: decode CBA=101 while enabled; Y5 must be the only low output.
@@ -313,7 +313,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
       setMemoryAddress(0)
       setMemoryValue(0xf0)
       setMemoryMessage(
-        `Erased sector 0 (${erased.bytesErased} bytes, ${erased.timeMs} ms), wrote 0x5a, then 0xf0 → ` +
+        `Erased sector 0 (${erased.bytesErased} bytes, ${erased.timeMs} ms), wrote 0x5a, then 0xf0 â†’ ` +
         `0x${stored.stored.toString(16).padStart(2, '0')} because NOR flash can only clear bits; ` +
         `read back 0x${flash.readByte(0).toString(16).padStart(2, '0')}.`,
       )
@@ -377,7 +377,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
       return { ...prev, [step]: { ...current, ...patch } }
     })
 
-  /** Any edit invalidates downstream results — never export a stale design. */
+  /** Any edit invalidates downstream results â€” never export a stale design. */
   const handleHdlChange = (code: string, language: 'verilog' | 'vhdl') => {
     setHdlCode(code)
     setHdlLanguage(language)
@@ -392,7 +392,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
     setFloorplanResult(null)
     setSelectedPackage(null)
     setGdsContent(null)
-    appendLog('Starting synthesis on SKY130 PDK…')
+    appendLog('Starting synthesis on SKY130 PDKâ€¦')
     try {
       const design = language === 'verilog'
         ? (() => {
@@ -417,7 +417,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
       appendLog(`Parsed ${language === 'verilog' ? 'module' : 'entity'}: ${design.name} (${design.ports.length} ports)`)
       const result = synthesize(design.netlist, design.ports)
       setSynthResult(result)
-      appendLog(`Synthesis complete: ${result.cells.length} cells, ${result.totalArea.toFixed(2)} µm², critical path ${result.criticalPathPs.toFixed(0)} ps`)
+      appendLog(`Synthesis complete: ${result.cells.length} cells, ${result.totalArea.toFixed(2)} ÂµmÂ², critical path ${result.criticalPathPs.toFixed(0)} ps`)
       setStep('synthesis', { done: true, running: false, error: undefined })
       setActiveTab('floorplan')
       return result
@@ -445,7 +445,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
       if (!synthesized) return
       const plan = planFloorplan(synthesized)
       setFloorplanResult(plan)
-      appendLog(`Floorplan: die ${plan.dieWidthUm.toFixed(1)}×${plan.dieHeightUm.toFixed(1)} µm, utilization ${plan.utilizationPercent.toFixed(1)}%`)
+      appendLog(`Floorplan: die ${plan.dieWidthUm.toFixed(1)}Ã—${plan.dieHeightUm.toFixed(1)} Âµm, utilization ${plan.utilizationPercent.toFixed(1)}%`)
       setStep('floorplan', { done: true, running: false, error: undefined })
       const pkg = PACKAGE_TYPES.find((candidate) => candidate.id === 'qfn-32') ?? PACKAGE_TYPES[0]
       setSelectedPackage(pkg)
@@ -462,11 +462,11 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
   const handleFloorplan = useCallback(async () => {
     if (!synthResult) { appendLog('Run synthesis first.'); return }
     setStep('floorplan', { running: true, done: false, error: undefined })
-    appendLog('Planning floorplan…')
+    appendLog('Planning floorplanâ€¦')
     try {
       const result = planFloorplan(synthResult)
       setFloorplanResult(result)
-      appendLog(`Floorplan: die ${result.dieWidthUm.toFixed(1)}×${result.dieHeightUm.toFixed(1)} µm, utilization ${(result.utilizationPercent).toFixed(1)}%`)
+      appendLog(`Floorplan: die ${result.dieWidthUm.toFixed(1)}Ã—${result.dieHeightUm.toFixed(1)} Âµm, utilization ${(result.utilizationPercent).toFixed(1)}%`)
       setStep('floorplan', { done: true, running: false, error: undefined })
       setActiveTab('packaging')
     } catch (err) {
@@ -479,7 +479,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
   const handleExportGDSII = useCallback(() => {
     if (!synthResult || !floorplanResult) { appendLog('Complete synthesis and floorplan first.'); return }
     setStep('export', { running: true, done: false, error: undefined })
-    appendLog('Generating GDSII stream…')
+    appendLog('Generating GDSII streamâ€¦')
     try {
       const gds = exportGDSII(synthResult, floorplanResult)
       setGdsContent(gds)
@@ -517,7 +517,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
           <Cpu size={16} className="text-chart-4" />
-          <h2 className="text-sm font-semibold">IC Design — SkyWater SKY130</h2>
+          <h2 className="text-sm font-semibold">IC Design â€” SkyWater SKY130</h2>
         </div>
         {onClose && <HoverHelp title="Close the IC design panel; nothing is written by the act of closing." description="Close the IC design panel; nothing is written by the act of closing.">
 <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close IC design panel" className="text-muted-foreground"><X className="w-3.5 h-3.5" aria-hidden="true" /></Button>
@@ -550,7 +550,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
         {/* Main content */}
         <div className="min-h-0 flex-1 overflow-hidden">
           {activeTab === 'entry' && (
-            <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground text-sm">Loading editor…</div>}>
+            <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground text-sm">Loading editorâ€¦</div>}>
               <HDLEditor
                 initialCode={hdlCode}
                 language={hdlLanguage}
@@ -576,10 +576,10 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                   <div className="grid grid-cols-3 gap-3">
                     {[
                       { label: 'Cell count', value: synthResult.cells.length },
-                      { label: 'Total area', value: `${synthResult.totalArea.toFixed(2)} µm²` },
+                      { label: 'Total area', value: `${synthResult.totalArea.toFixed(2)} ÂµmÂ²` },
                       { label: 'Critical path', value: synthResult.metrics.criticalPathDelayPs > 0 ? `${synthResult.metrics.criticalPathDelayPs} ps` : 'n/a' },
                       { label: 'Max freq', value: synthResult.metrics.maxOperatingFreqMhz > 0 ? `${synthResult.metrics.maxOperatingFreqMhz} MHz` : 'n/a' },
-                      { label: 'Static power', value: `${compact(synthResult.staticPowerUw)} µW` },
+                      { label: 'Static power', value: `${compact(synthResult.staticPowerUw)} ÂµW` },
                       { label: 'Dynamic power', value: `${compact(synthResult.dynamicPowerMw)} mW` },
                     ].map(({ label, value }) => (
                       <div key={label} className="bg-card rounded p-2">
@@ -595,7 +595,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                       <table className="w-full text-xs">
                         <thead className="bg-card sticky top-0">
                           <tr>
-                            {['Cell', 'Drive', 'Count', 'Area (µm²)', 'Delay (ps)'].map(h => (
+                            {['Cell', 'Drive', 'Count', 'Area (ÂµmÂ²)', 'Delay (ps)'].map(h => (
                               <th key={h} className="text-left px-2 py-1 text-muted-foreground">{h}</th>
                             ))}
                           </tr>
@@ -616,7 +616,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                   </div>
 
                   <Button onClick={handleFloorplan} size="sm" className="bg-primary hover:bg-primary/90">
-                    Continue → Floorplan
+                    Continue â†’ Floorplan
                   </Button>
                 </div>
               )}
@@ -642,8 +642,8 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                     <div className="space-y-3">
                       <div className="grid grid-cols-2 gap-3">
                         {[
-                          { label: 'Die size', value: `${floorplanResult.dieWidthUm.toFixed(1)} × ${floorplanResult.dieHeightUm.toFixed(1)} µm` },
-                          { label: 'Core area', value: `${(floorplanResult.coreAreaUm2 / 1e6).toFixed(4)} mm²` },
+                          { label: 'Die size', value: `${floorplanResult.dieWidthUm.toFixed(1)} Ã— ${floorplanResult.dieHeightUm.toFixed(1)} Âµm` },
+                          { label: 'Core area', value: `${(floorplanResult.coreAreaUm2 / 1e6).toFixed(4)} mmÂ²` },
                           { label: 'Utilization', value: `${floorplanResult.utilizationPercent.toFixed(1)}%` },
                           { label: 'Rows', value: floorplanResult.rows },
                         ].map(({ label, value }) => (
@@ -671,7 +671,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                       </div>
 
                       <Button onClick={() => setActiveTab('packaging')} size="sm" className="bg-primary hover:bg-primary/90">
-                        Continue → Packaging
+                        Continue â†’ Packaging
                       </Button>
                     </div>
                   )}
@@ -714,7 +714,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                 </div>
               )}
               <Button onClick={() => setActiveTab('export')} size="sm" className="bg-primary hover:bg-primary/90">
-                Continue → GDSII (flow artifact)
+                Continue â†’ GDSII (flow artifact)
               </Button>
             </div>
           )}
@@ -730,7 +730,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                   className="w-full rounded border border-input bg-card px-2 py-1.5 text-sm text-foreground"
                 >
                   {STANDARD_MEMORY.map((part) => (
-                    <option key={part.id} value={part.id}>{part.partNumber} — {part.name}</option>
+                    <option key={part.id} value={part.id}>{part.partNumber} â€” {part.name}</option>
                   ))}
                 </select>
                 <p className="text-xs text-muted-foreground mt-1">{deviceSpec.description}</p>
@@ -743,7 +743,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                   className="space-y-1 rounded border border-chart-4/40 bg-chart-4/10 p-3 text-xs"
                 >
                   <p className="font-medium text-chart-4">
-                    Device lab demo — every line below comes from the behavioural models:
+                    Device lab demo â€” every line below comes from the behavioural models:
                   </p>
                   {deviceLabReport.map((line) => (
                     <p key={line} className="font-mono leading-relaxed text-foreground/90">{line}</p>
@@ -759,7 +759,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                   <div className="flex flex-wrap gap-3">
                     {([
                       ['ser', 'SER'], ['srclk', 'SRCLK'], ['rclk', 'RCLK'],
-                      ['srclrBar', 'SRCLR̅'], ['oeBar', 'OE̅'],
+                      ['srclrBar', 'SRCLRÌ…'], ['oeBar', 'OEÌ…'],
                     ] as const).map(([key, label]) => (
                       <label key={key} className="flex items-center gap-1.5 text-xs text-foreground">
                         <input
@@ -793,9 +793,9 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                         ))}
                       </div>
                       <p className="text-xs font-mono text-success">
-                        Shift 0x{shiftOutput.shiftRegister.toString(16).padStart(2, '0')} ·
-                        Latch 0x{shiftOutput.latchRegister.toString(16).padStart(2, '0')} ·
-                        QH′ {shiftOutput.serialOut} ·
+                        Shift 0x{shiftOutput.shiftRegister.toString(16).padStart(2, '0')} Â·
+                        Latch 0x{shiftOutput.latchRegister.toString(16).padStart(2, '0')} Â·
+                        QHâ€² {shiftOutput.serialOut} Â·
                         outputs {shiftOutput.outputsEnabled ? 'enabled' : 'high-Z'}
                       </p>
                     </div>
@@ -822,7 +822,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                   </div>
                   <div className="flex flex-wrap gap-3">
                     {([
-                      ['plBar', 'PL̅'], ['ceBar', 'CE'], ['cp', 'CP'], ['ser', 'SER'],
+                      ['plBar', 'PLÌ…'], ['ceBar', 'CE'], ['cp', 'CP'], ['ser', 'SER'],
                     ] as const).map(([key, label]) => (
                       <label key={key} className="flex items-center gap-1.5 text-xs text-foreground">
                         <input
@@ -840,8 +840,8 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                   </Button>
                   {parallelOutput && (
                     <p className="text-xs font-mono text-success">
-                      Register 0x{parallelOutput.register.toString(16).padStart(2, '0')} ·
-                      QH {parallelOutput.qh} · QH̅ {parallelOutput.qhBar}
+                      Register 0x{parallelOutput.register.toString(16).padStart(2, '0')} Â·
+                      QH {parallelOutput.qh} Â· QHÌ… {parallelOutput.qhBar}
                     </p>
                   )}
                 </div>
@@ -852,7 +852,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                   <div className="flex flex-wrap gap-3">
                     {([
                       ['a', 'A'], ['b', 'B'], ['c', 'C'], ['g1', 'G1'],
-                      ['g2aBar', 'G2A̅'], ['g2bBar', 'G2B̅'],
+                      ['g2aBar', 'G2AÌ…'], ['g2bBar', 'G2BÌ…'],
                     ] as const).map(([key, label]) => (
                       <label key={key} className="flex items-center gap-1.5 text-xs text-foreground">
                         <input
@@ -882,7 +882,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                   <p className="text-xs text-success">
                     {decode138(decoderInputs).enabled
                       ? `Selected Y${decode138(decoderInputs).selected} (active low)`
-                      : 'Disabled — all outputs high'}
+                      : 'Disabled â€” all outputs high'}
                   </p>
                 </div>
               )}
@@ -891,7 +891,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                 <div className="bg-card rounded p-3 space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label htmlFor="memory-address" className="text-xs text-muted-foreground block mb-1">Address (0x…)</label>
+                      <label htmlFor="memory-address" className="text-xs text-muted-foreground block mb-1">Address (0xâ€¦)</label>
                       <input
                         id="memory-address"
                         type="number"
@@ -907,7 +907,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                       />
                     </div>
                     <div>
-                      <label htmlFor="memory-value" className="text-xs text-muted-foreground block mb-1">Value (0–255)</label>
+                      <label htmlFor="memory-value" className="text-xs text-muted-foreground block mb-1">Value (0â€“255)</label>
                       <input
                         id="memory-value"
                         type="number"
@@ -937,9 +937,9 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
                   </div>
                   {memoryMessage && <p className="text-xs text-success">{memoryMessage}</p>}
                   <div className="text-xs text-muted-foreground">
-                    {Math.round((deviceSpec.capacityBits ?? 0) / 8)} bytes ·
-                    {' '}{deviceSpec.interface ?? 'parallel'} ·
-                    {' '}page {memoryRef.current?.pageSizeBytes ?? '—'} bytes ·
+                    {Math.round((deviceSpec.capacityBits ?? 0) / 8)} bytes Â·
+                    {' '}{deviceSpec.interface ?? 'parallel'} Â·
+                    {' '}page {memoryRef.current?.pageSizeBytes ?? 'â€”'} bytes Â·
                     {' '}write {memoryRef.current?.writeCycleMs ?? 0} ms
                   </div>
                   {memoryBytes && (
@@ -972,7 +972,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
 
               <p className="text-[11px] leading-snug text-muted-foreground">
                 The artifact is a representative floorplan in GDSII framing with proper
-                layer numbering — for inspecting the flow. It contains no placed-and-routed
+                layer numbering â€” for inspecting the flow. It contains no placed-and-routed
                 netlist and is not foundry sign-off; that needs a real PDK, routing and sign-off DRC/LVS.
               </p>
               {gdsContent && (
@@ -993,7 +993,7 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
           <div className="px-3 py-2 border-b border-border shrink-0">
             <p className="text-xs text-muted-foreground">Build log</p>
           </div>
-          <div className="flex-1 overflow-y-auto p-2">
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">
             {log.length === 0 && <p className="text-xs text-muted-foreground">No output yet.</p>}
             {log.map((line, i) => (
               <p key={i} className="text-xs font-mono text-muted-foreground leading-4">{line}</p>
@@ -1004,3 +1004,4 @@ export default function ICDesignPanel({ onClose }: ICDesignPanelProps) {
     </div>
   )
 }
+

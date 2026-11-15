@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Mechanical sizing workbench.
  *
  * The circuit autopilot tunes values on a schematic; this panel sizes a part in
@@ -77,7 +77,7 @@ const numberFrom = (value: string): number | undefined => {
 const mm = (metres: number): string => String(Number((metres * 1000).toPrecision(6)))
 
 const formatValue = (value: number | undefined, unit?: string): string => {
-  if (value === undefined || !Number.isFinite(value)) return '—'
+  if (value === undefined || !Number.isFinite(value)) return 'â€”'
   const magnitude = Math.abs(value)
   const text = magnitude !== 0 && (magnitude >= 1e6 || magnitude < 1e-3)
     ? value.toExponential(3)
@@ -98,7 +98,7 @@ const describeValues = (values: Record<string, number | string>): string =>
   DIMENSIONS.filter((entry) => typeof values[entry.value] === 'number')
     .map((entry) => `${entry.label.toLowerCase()} ${formatValue((values[entry.value] as number) * 1000, 'mm')}`)
     .concat(`material ${String(values.material)}`)
-    .join(' · ')
+    .join(' Â· ')
 
 const statusClass = (iteration: MechanicalAutopilotIteration): string => {
   if (iteration.error) return 'text-destructive'
@@ -289,7 +289,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
     liveSession = recordAgentSessionEvent(liveSession, {
       kind: 'goal',
       message:
-        `${goal.part} · ${goal.metric ?? 'mass'} · ${goal.knobs?.length ?? 0} dimension knob(s) · ` +
+        `${goal.part} Â· ${goal.metric ?? 'mass'} Â· ${goal.knobs?.length ?? 0} dimension knob(s) Â· ` +
         `${goal.materials?.length ?? 1} material(s)`,
     }, Date.now())
 
@@ -390,7 +390,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
 
   const stop = (): void => {
     abortRef.current?.abort()
-    setNotice('Stopping after the current candidate…')
+    setNotice('Stopping after the current candidateâ€¦')
   }
 
   const restoreBest = (): void => {
@@ -413,7 +413,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
   const previewSvg = selected?.assemblySvg ?? currentAssembly?.svg
 
   return (
-    <div className="flex-1 overflow-y-auto p-3 space-y-3">
+    <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-3">
       {error && (
         <div role="alert" className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-2 text-xs text-destructive">
           <AlertTriangle size={13} className="mt-0.5 shrink-0" />
@@ -463,7 +463,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
                   <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
                     <span>Section</span>
                     <span className="font-mono text-foreground">
-                      {mm(selectedPart.dimensions.length)} × {mm(selectedPart.dimensions.width)} ×{' '}
+                      {mm(selectedPart.dimensions.length)} Ã— {mm(selectedPart.dimensions.width)} Ã—{' '}
                       {mm(selectedPart.dimensions.height)} mm
                     </span>
                     <span>Material</span>
@@ -472,7 +472,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
                     <span className="font-mono text-foreground">{formatValue(selectedPart.properties.mass, 'kg')}</span>
                     <span>Assembly</span>
                     <span className="font-mono text-foreground">
-                      {parts.length} parts · {formatValue(currentAssembly?.summary.totalMassKg, 'kg')}
+                      {parts.length} parts Â· {formatValue(currentAssembly?.summary.totalMassKg, 'kg')}
                     </span>
                   </div>
                 )}
@@ -753,7 +753,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
               </h3>
               {selected && (
                 <span className={`text-xs ${statusClass(selected)}`}>
-                  {selected.phase} · {formatValue(selected.metric, selected.metricUnit)}
+                  {selected.phase} Â· {formatValue(selected.metric, selected.metricUnit)}
                 </span>
               )}
             </div>
@@ -781,8 +781,8 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
               </h3>
               <p className="text-xs text-foreground">
                 {selected.metricLabel} = {formatValue(selected.metric, selected.metricUnit)}
-                {selected.partMassKg !== undefined && ` · part ${formatValue(selected.partMassKg, 'kg')}`}
-                {selected.assemblyMassKg !== undefined && ` · assembly ${formatValue(selected.assemblyMassKg, 'kg')}`}
+                {selected.partMassKg !== undefined && ` Â· part ${formatValue(selected.partMassKg, 'kg')}`}
+                {selected.assemblyMassKg !== undefined && ` Â· assembly ${formatValue(selected.assemblyMassKg, 'kg')}`}
               </p>
               <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
                 <span>Peak stress</span>
@@ -792,7 +792,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
                 <span>Safety factor</span>
                 <span className={selected.analysis.yields ? 'font-mono text-destructive' : 'font-mono text-foreground'}>
                   {formatValue(selected.analysis.safetyFactor ?? undefined)}
-                  {selected.analysis.yields ? ' · yields' : ''}
+                  {selected.analysis.yields ? ' Â· yields' : ''}
                 </span>
                 <span>First mode</span>
                 <span className="font-mono text-foreground">
@@ -869,7 +869,7 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
             )}
             {session && (
               <p className="mt-2 text-xs text-muted-foreground">
-                Session {session.id} · {session.iterationCount} iteration(s) · saved locally
+                Session {session.id} Â· {session.iterationCount} iteration(s) Â· saved locally
               </p>
             )}
           </section>
@@ -878,3 +878,4 @@ export default function MechanicalSizingPanel({ onSessionSaved, onActivate }: Me
     </div>
   )
 }
+

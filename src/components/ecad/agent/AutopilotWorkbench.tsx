@@ -1,5 +1,5 @@
-/**
- * Autopilot workbench — a bounded, observable design loop.
+﻿/**
+ * Autopilot workbench â€” a bounded, observable design loop.
  *
  * The agent edits the live schematic, simulates every candidate, reads margins,
  * and keeps the best measured design. This panel exposes the goal, the knobs,
@@ -77,7 +77,7 @@ const numberFrom = (value: string): number | undefined => {
 }
 
 const formatValue = (value: number | undefined, unit?: string): string => {
-  if (value === undefined || !Number.isFinite(value)) return '—'
+  if (value === undefined || !Number.isFinite(value)) return 'â€”'
   const magnitude = Math.abs(value)
   const text = magnitude !== 0 && (magnitude >= 1e6 || magnitude < 1e-3)
     ? value.toExponential(3)
@@ -404,7 +404,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
     })
     liveSession = recordAgentSessionEvent(liveSession, {
       kind: 'goal',
-      message: `${goal.analysis.type} · ${metricLabel(goal)} · ${goal.knobs?.length ?? 0} knob(s)`,
+      message: `${goal.analysis.type} Â· ${metricLabel(goal)} Â· ${goal.knobs?.length ?? 0} knob(s)`,
     }, Date.now())
 
     try {
@@ -495,7 +495,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
 
   const stop = (): void => {
     abortRef.current?.abort()
-    setNotice('Stopping after the current candidate…')
+    setNotice('Stopping after the current candidateâ€¦')
   }
 
   const restoreBest = (): void => {
@@ -557,7 +557,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
   const knobHint = 'A knob is a part property the search may change within the given numeric range. Values are SI units.'
 
   return (
-    <div className="flex-1 overflow-y-auto p-3 space-y-3">
+    <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-3">
       {error && (
         <div role="alert" className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-2 text-xs text-destructive">
           <AlertTriangle size={13} className="mt-0.5 shrink-0" />
@@ -657,7 +657,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
               </>
             ) : (
               <p className="mt-2 text-xs text-muted-foreground">
-                Scores the highest declared-limit utilisation across every rated part. Add ambient/θJA below for thermal checks.
+                Scores the highest declared-limit utilisation across every rated part. Add ambient/Î¸JA below for thermal checks.
               </p>
             )}
 
@@ -673,7 +673,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                 />
               </label>
               <label className="block text-xs text-muted-foreground">
-                ± Tolerance
+                Â± Tolerance
                 <Input
                   className="mt-1 h-8 bg-background text-xs"
                   value={tolerance}
@@ -710,7 +710,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                     />
                   </label>
                   <label className="block text-xs text-muted-foreground">
-                    Step (µs)
+                    Step (Âµs)
                     <Input
                       className="mt-1 h-8 bg-background text-xs"
                       value={analysisParams.stepUs}
@@ -876,7 +876,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                   />
                 </label>
                 <label className="block">
-                  Ambient (°C)
+                  Ambient (Â°C)
                   <Input
                     className="mt-1 h-7 bg-background text-xs"
                     value={String(constraints.ambientCelsius ?? 25)}
@@ -888,7 +888,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                   />
                 </label>
                 <label className="block">
-                  θJA override
+                  Î¸JA override
                   <Input
                     className="mt-1 h-7 bg-background text-xs"
                     value={constraints.thetaJa === undefined ? '' : String(constraints.thetaJa)}
@@ -998,7 +998,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                 </div>
                 {cloudJob && (
                   <p className="text-xs">
-                    {cloudJob.id} · {cloudJob.state}{cloudJob.message ? ` · ${cloudJob.message}` : ''}
+                    {cloudJob.id} Â· {cloudJob.state}{cloudJob.message ? ` Â· ${cloudJob.message}` : ''}
                   </p>
                 )}
               </div>
@@ -1019,7 +1019,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
               </h3>
               {selected && (
                 <span className={`text-xs ${statusClass(selected)}`}>
-                  {selected.phase} · {formatValue(selected.metric, selected.metricUnit)}
+                  {selected.phase} Â· {formatValue(selected.metric, selected.metricUnit)}
                 </span>
               )}
             </div>
@@ -1071,7 +1071,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
               </h3>
               {currentBoard && (
                 <span className="truncate text-xs text-muted-foreground">
-                  {currentBoard.stats.components} parts · {currentBoard.stats.traces} traces ·{' '}
+                  {currentBoard.stats.components} parts Â· {currentBoard.stats.traces} traces Â·{' '}
                   {formatValue(currentBoard.stats.traceLengthMm, 'mm')} copper
                 </span>
               )}
@@ -1097,9 +1097,9 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
               </h3>
               {currentAssembly && currentAssembly.summary.partCount > 0 && (
                 <span className="truncate text-xs text-muted-foreground">
-                  {currentAssembly.summary.partCount} parts · {formatValue(currentAssembly.summary.totalMassKg, 'kg')} ·{' '}
+                  {currentAssembly.summary.partCount} parts Â· {formatValue(currentAssembly.summary.totalMassKg, 'kg')} Â·{' '}
                   {formatValue(currentAssembly.summary.highestStressMPa, 'MPa')} peak
-                  {currentAssembly.warnings > 0 ? ` · ${currentAssembly.warnings} warning(s)` : ''}
+                  {currentAssembly.warnings > 0 ? ` Â· ${currentAssembly.warnings} warning(s)` : ''}
                 </span>
               )}
             </div>
@@ -1197,7 +1197,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
           {session && (
             <p className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
               <Wrench size={11} />
-              Session {session.id} · {session.iterationCount} iteration(s) · saved locally
+              Session {session.id} Â· {session.iterationCount} iteration(s) Â· saved locally
             </p>
           )}
         </div>
@@ -1205,3 +1205,4 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
     </div>
   )
 }
+

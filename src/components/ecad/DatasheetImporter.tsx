@@ -1,10 +1,10 @@
-import HoverHelp from '../ui/HoverHelp'
+﻿import HoverHelp from '../ui/HoverHelp'
 /**
- * DatasheetImporter — paste text or drop a text file → instant schematic component.
+ * DatasheetImporter â€” paste text or drop a text file â†’ instant schematic component.
  *
  * Flow:
  *  1. User pastes raw datasheet text, drops a text-file, or enters a Digi-Key /
- *     LCSC part number (fetched through a public CORS proxy — see the URL tab).
+ *     LCSC part number (fetched through a public CORS proxy â€” see the URL tab).
  *  2. parseDatasheetText() or a URL-based extractor produces IngestedDatasheet.
  *  3. synthesizeComponentFromDatasheet() builds a component + footprint from the
  *     extracted facts. It synthesizes no SPICE model: a pinout is not device physics.
@@ -12,7 +12,7 @@ import HoverHelp from '../ui/HoverHelp'
  *  5. On confirm, the component joins this session's library and one instance is
  *     placed on the schematic at the next free grid slot.
  *
- * A PDF cannot be read here — there is no in-browser PDF text extractor in this
+ * A PDF cannot be read here â€” there is no in-browser PDF text extractor in this
  * build, and the drop zone says so rather than feeding binary noise to the parser.
  */
 
@@ -172,7 +172,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
     if (parsed.models.size === 0) {
       setVendorPick(null)
       setError(
-        `${entry.name}: no parsable .model card here (${parsed.errors.join(' ') || 'subcircuit-only text'}). Its SPICE text is a .subckt — paste it into the Simulation SPICE deck box, which flattens it for X instances.`,
+        `${entry.name}: no parsable .model card here (${parsed.errors.join(' ') || 'subcircuit-only text'}). Its SPICE text is a .subckt â€” paste it into the Simulation SPICE deck box, which flattens it for X instances.`,
       )
       return
     }
@@ -244,7 +244,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3">
         {/* Paste / Upload tab */}
         {tab === 'paste' && (
           <div className="space-y-3">
@@ -257,7 +257,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
               onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFileRead(f) }}
             >
               <Upload size={20} className="mx-auto mb-1 text-muted-foreground" />
-              <span className="block text-xs text-muted-foreground">Drop a .txt / .csv / .md file here or click to browse — PDF text must be pasted</span>
+              <span className="block text-xs text-muted-foreground">Drop a .txt / .csv / .md file here or click to browse â€” PDF text must be pasted</span>
             </button>
             <input ref={fileInputRef} type="file" accept=".txt,.csv,.md" aria-label="Upload datasheet text file" className="hidden"
               onChange={e => { const f = e.target.files?.[0]; if (f) handleFileRead(f) }} />
@@ -269,7 +269,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
                 value={rawText}
                 onChange={setRawText}
                 language="text"
-                placeholder="Paste datasheet text here — pinout tables, electrical specs, package info…"
+                placeholder="Paste datasheet text here â€” pinout tables, electrical specs, package infoâ€¦"
                 className="h-48"
                 status={false}
               />
@@ -290,20 +290,20 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
               <div className="flex gap-2">
                 <Input
                   className="flex-1 bg-card border-input text-sm"
-                  placeholder="https://www.ti.com/lit/ds/… or LCSC: C123456"
+                  placeholder="https://www.ti.com/lit/ds/â€¦ or LCSC: C123456"
                   value={urlInput}
                   onChange={e => setUrlInput(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleUrlFetch()}
                 />
                 <Button size="sm" onClick={handleUrlFetch} disabled={loading || !urlInput.trim()}>
                   <Link size={14} className="mr-1" />
-                  {loading ? 'Fetching…' : 'Fetch'}
+                  {loading ? 'Fetchingâ€¦' : 'Fetch'}
                 </Button>
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
               Fetching sends the URL through a public CORS proxy, so the request is visible to that third
-              service — do not use it for NDA-protected documents. The fetched text lands in the Paste tab,
+              service â€” do not use it for NDA-protected documents. The fetched text lands in the Paste tab,
               where you can review and edit it before parsing. PDFs have to be pasted by hand: this build
               reads text files only.
             </p>
@@ -316,7 +316,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
             <div className="flex gap-2">
               <Input
                 className="flex-1 bg-card border-input text-sm"
-                placeholder="Search: 2N3904, LM741, IRF540, 1N4148…"
+                placeholder="Search: 2N3904, LM741, IRF540, 1N4148â€¦"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSearch()}
@@ -346,7 +346,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
                         }`}>{entry.category.toUpperCase()}</span>
                       </span>
                       <span className="mt-0.5 block text-xs text-muted-foreground">{entry.description}</span>
-                      <span className="block text-xs text-muted-foreground">{entry.manufacturer} · {entry.footprint}</span>
+                      <span className="block text-xs text-muted-foreground">{entry.manufacturer} Â· {entry.footprint}</span>
                     </span>
                     <Plus size={14} className="shrink-0 text-primary" aria-hidden="true" />
                   </button>
@@ -362,7 +362,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
 
             {!searchQuery && (
               <p className="text-xs text-muted-foreground text-center py-4">
-                Search the built-in vendor model library — 2N3904, LM741, IRF540N, NE555, and more.
+                Search the built-in vendor model library â€” 2N3904, LM741, IRF540N, NE555, and more.
               </p>
             )}
           </div>
@@ -391,7 +391,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
                 <p className="text-foreground">
                   {ingestedData.packaging.packageName} ({ingestedData.packaging.pinCount} pins)
                   {!ingestedData.packaging.packageStated && (
-                    <span className="text-warning"> · assumed, not stated in the text</span>
+                    <span className="text-warning"> Â· assumed, not stated in the text</span>
                   )}
                 </p>
               </div>
@@ -400,8 +400,8 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
                 <p className="text-foreground">
                   {ingestedData.electrical.minSupplyVoltageV !== undefined &&
                   ingestedData.electrical.maxSupplyVoltageV !== undefined
-                    ? `${ingestedData.electrical.minSupplyVoltageV}–${ingestedData.electrical.maxSupplyVoltageV} V`
-                    : 'Not stated — no rating is declared'}
+                    ? `${ingestedData.electrical.minSupplyVoltageV}â€“${ingestedData.electrical.maxSupplyVoltageV} V`
+                    : 'Not stated â€” no rating is declared'}
                 </p>
               </div>
             </div>
@@ -460,7 +460,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
 
             {/* No model is invented: a pinout and ratings page is not device physics. */}
             <div className="rounded border border-border bg-card p-2.5 text-xs text-muted-foreground">
-              <p className="mb-1 font-medium text-foreground">Symbol and footprint only — no SPICE model</p>
+              <p className="mb-1 font-medium text-foreground">Symbol and footprint only â€” no SPICE model</p>
               <p>
                 This part gets a symbol, a footprint and the pin map you see above. It gets no
                 simulated electrical behaviour, because a datasheet pinout does not define the
@@ -469,7 +469,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
               </p>
               <p className="mt-1">
                 The footprint is a generated dual-row land pattern sized from the stated
-                dimensions — check its pads against the datasheet before fabrication.
+                dimensions â€” check its pads against the datasheet before fabrication.
               </p>
             </div>
 
@@ -485,7 +485,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
 
         {vendorPick && (
           <div className="space-y-1 rounded border border-success/40 bg-success/10 p-3 text-xs text-success">
-            <p className="font-medium">{vendorPick.name}: {vendorPick.cards.length} .model card(s) parsed — {vendorPick.cards.join(', ')}.</p>
+            <p className="font-medium">{vendorPick.name}: {vendorPick.cards.length} .model card(s) parsed â€” {vendorPick.cards.join(', ')}.</p>
             <p className="text-muted-foreground">
               A model card is not a schematic symbol, so nothing was placed. Copy these lines into the
               Simulation panel's model deck to run the device:
@@ -497,3 +497,4 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
     </div>
   )
 }
+

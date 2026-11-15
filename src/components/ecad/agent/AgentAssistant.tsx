@@ -1,15 +1,15 @@
-/**
- * Assistant — the two-mind surface.
+﻿/**
+ * Assistant â€” the two-mind surface.
  *
  * Every utterance is routed, not guessed at. A reflex answers what is already
  * measured or what one tool call can do, in microseconds and for nothing. A
  * planner holds the goal, decides one governed tool call at a time, and reads
- * the result back before concluding. A deterministic EDA plan (simulate → route
- * → DRC → fab) still runs when no model is reachable, so the panel does the same
+ * the result back before concluding. A deterministic EDA plan (simulate â†’ route
+ * â†’ DRC â†’ fab) still runs when no model is reachable, so the panel does the same
  * jobs it always did. Each reply says which of the three answered.
  *
  * The tools act on the live store the canvas renders, so an agent edit and a
- * human edit are the same edit — never a shadow copy.
+ * human edit are the same edit â€” never a shadow copy.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -152,21 +152,21 @@ function summariseCalls(calls: readonly AgentCall[]): string {
     const stats = result.stats as { components?: number; nets?: number; unconnectedPins?: number } | undefined
     const issues = Array.isArray(result.issues) ? result.issues as string[] : []
     if (stats) {
-      summary += `\n• Schematic: ${stats.components ?? 0} part(s), ${stats.nets ?? 0} net(s)` +
+      summary += `\nâ€¢ Schematic: ${stats.components ?? 0} part(s), ${stats.nets ?? 0} net(s)` +
         `${stats.unconnectedPins ? `, ${stats.unconnectedPins} unconnected pin(s)` : ''}`
       if (issues.length > 0) summary += `\n  ${issues.slice(0, 3).join('; ')}`
     }
     if ('success' in result) {
       const convergence = result.convergenceInfo as { converged?: boolean } | undefined
-      summary += `\n• Simulation: ${result.success ? 'solved' : `failed — ${String(result.error ?? 'unknown error')}`}` +
-        `${convergence ? convergence.converged ? ' · converged' : ' · did not converge' : ''}`
+      summary += `\nâ€¢ Simulation: ${result.success ? 'solved' : `failed â€” ${String(result.error ?? 'unknown error')}`}` +
+        `${convergence ? convergence.converged ? ' Â· converged' : ' Â· did not converge' : ''}`
     }
     if ('shippable' in result) {
       const violations = Array.isArray(result.violations) ? result.violations.length : 0
-      summary += `\n• DRC: ${result.shippable ? 'shippable' : `not shippable — ${violations} violation(s)`}`
+      summary += `\nâ€¢ DRC: ${result.shippable ? 'shippable' : `not shippable â€” ${violations} violation(s)`}`
     }
-    if ('traces' in result) summary += `\n• Route: ${String(result.traces)} trace(s) placed`
-    if ('files' in result) summary += `\n• Fab package: ${String(result.files)} file(s) prepared`
+    if ('traces' in result) summary += `\nâ€¢ Route: ${String(result.traces)} trace(s) placed`
+    if ('files' in result) summary += `\nâ€¢ Fab package: ${String(result.files)} file(s) prepared`
   }
   if (failed.length > 0) summary += `\n\n${failed.length} step(s) failed or were denied.`
   return summary
@@ -203,7 +203,7 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
   const [harness] = useState(() => {
     const instance = new AgentHarness()
     // The cad.* tools act on the same store the canvas renders, so an agent
-    // edit and a human edit are the same edit — never a shadow copy.
+    // edit and a human edit are the same edit â€” never a shadow copy.
     registerCadTools(instance, createStoreCadRuntime())
     registerEdaTools(instance)
     registerMechanicalTools(instance)
@@ -316,7 +316,7 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
     const budget = turnBudget(harness, { maxCalls: 20, maxWallMs: 60_000 })
     const calls: AgentCall[] = []
     for (const step of plan.steps) {
-      setStatus(`${step.tool} — ${step.rationale}`)
+      setStatus(`${step.tool} â€” ${step.rationale}`)
       const call = await harness.call(step.tool, step.args, budget, approve)
       calls.push(call)
       onCalls?.([...harness.auditTrail()])
@@ -328,7 +328,7 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
       content: summariseCalls(calls),
       calls,
       mind: 'plan',
-      mindDetail: `${calls.length} step(s) · deterministic`,
+      mindDetail: `${calls.length} step(s) Â· deterministic`,
       schematicSvg: svgFromCalls(calls),
     })
     return true
@@ -336,7 +336,7 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
 
   /** One gated tool call, answered without a model. */
   const runReflex = useCallback(async (fast: System1Verdict, route: RouteDecision) => {
-    const detail = `${route.elapsedMs} ms · no model called`
+    const detail = `${route.elapsedMs} ms Â· no model called`
     if (!fast.call) {
       addMessage({ role: 'agent', content: fast.reply ?? 'I had no verified answer for that.', mind: 'reflex', mindDetail: detail })
       return
@@ -344,7 +344,7 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
     if (fast.reply) {
       addMessage({ role: 'agent', content: fast.reply, mind: 'reflex', mindDetail: detail })
     }
-    setStatus(`${fast.call.tool} — ${route.reason}`)
+    setStatus(`${fast.call.tool} â€” ${route.reason}`)
     const call = await harness.call(
       fast.call.tool,
       fast.call.args,
@@ -363,7 +363,7 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
     })
   }, [addMessage, approve, harness, onCalls])
 
-  /** The planner: observe → decide one call → read the result, until it stops. */
+  /** The planner: observe â†’ decide one call â†’ read the result, until it stops. */
   const runDeliberate = useCallback(async (
     text: string,
     observation: CadObservation,
@@ -403,7 +403,7 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
       approve,
       signal,
       onEvent: (event) => {
-        setStatus(`${event.message} · ${harness.auditTrail().length - trailBefore} call(s) this turn`)
+        setStatus(`${event.message} Â· ${harness.auditTrail().length - trailBefore} call(s) this turn`)
       },
     })
 
@@ -429,7 +429,7 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
       content,
       calls,
       mind: 'planner',
-      mindDetail: `${route.elapsedMs} ms to route · ${calls.length} call(s) · ${tokens} tokens`,
+      mindDetail: `${route.elapsedMs} ms to route Â· ${calls.length} call(s) Â· ${tokens} tokens`,
       schematicSvg: svgFromCalls(calls),
       error: failure.message ?? undefined,
     })
@@ -501,7 +501,7 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
 
   return (
     <div className="flex flex-1 min-h-0 flex-col">
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-3">
         {messages.map((message) => (
           <div key={message.id} className={`flex gap-2 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             {message.role !== 'user' && (
@@ -525,7 +525,7 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
                     : message.mind === 'planner'
                       ? <Brain size={9} className="text-primary" />
                       : <SlidersHorizontal size={9} className="text-info" />}
-                  <span>{MIND_LABEL[message.mind]}{message.mindDetail ? ` · ${message.mindDetail}` : ''}</span>
+                  <span>{MIND_LABEL[message.mind]}{message.mindDetail ? ` Â· ${message.mindDetail}` : ''}</span>
                 </div>
               )}
               <p className="whitespace-pre-wrap">{message.content}</p>
@@ -611,7 +611,7 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
             <code className="rounded bg-warning/15 px-1 font-mono">{pendingApproval.call.tool}</code>
           </p>
           <p className="mb-2 line-clamp-2 text-muted-foreground">
-            Args: {JSON.stringify(pendingApproval.call.args).slice(0, 120)}…
+            Args: {JSON.stringify(pendingApproval.call.args).slice(0, 120)}â€¦
           </p>
           <div className="flex gap-2">
             <Button
@@ -661,7 +661,7 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
         </span>
         <Input
           className="h-9 flex-1 border-input bg-card text-sm"
-          placeholder="Simulate, route, check DRC, export…"
+          placeholder="Simulate, route, check DRC, exportâ€¦"
           value={input}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={(event) => {
@@ -694,3 +694,4 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
     </div>
   )
 }
+
