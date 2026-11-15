@@ -133,7 +133,7 @@ export default function VoiceCommandBar({ onClose }: VoiceCommandBarProps) {
         {turns.length === 0 && !interim && (
           <p className="text-xs text-muted-foreground">
             Say things like “place a resistor”, “connect R1 to D1”, “open the pcb” or “stop listening”.
-            The assistant answers aloud and in text.
+            Scribe answers aloud and in text.
           </p>
         )}
         {turns.map((turn) => (

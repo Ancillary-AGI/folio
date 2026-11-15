@@ -1,4 +1,4 @@
-﻿import HoverHelp from '../ui/HoverHelp'
+import HoverHelp from '../ui/HoverHelp'
 import { useState, useRef, useCallback } from 'react';
 import {
   ReactFlow,
@@ -197,8 +197,8 @@ const blockCategories = {
   'Math': [
     { type: 'process', label: 'Add', icon: '+', data: { operation: 'add' } },
     { type: 'process', label: 'Subtract', icon: '-', data: { operation: 'subtract' } },
-    { type: 'process', label: 'Multiply', icon: 'Ã—', data: { operation: 'multiply' } },
-    { type: 'process', label: 'Divide', icon: 'Ã·', data: { operation: 'divide' } },
+    { type: 'process', label: 'Multiply', icon: '×', data: { operation: 'multiply' } },
+    { type: 'process', label: 'Divide', icon: '÷', data: { operation: 'divide' } },
     { type: 'process', label: 'Map', icon: 'MAP', data: { operation: 'map', parameters: { fromLow: 0, fromHigh: 1023, toLow: 0, toHigh: 255 } } },
   ],
   'Control': [
@@ -360,16 +360,16 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
       imageBytes: image.imageBytes,
       baseAddress: image.baseAddress,
       hex: image.hex,
-      errors: analysis.errors.map(error => `Line ${error.line}:${error.column} â€” ${error.message}`),
+      errors: analysis.errors.map(error => `Line ${error.line}:${error.column} — ${error.message}`),
       notes: [
         ...analysis.warnings.map(warning => ({
           severity: warning.severity as 'warning' | 'info',
-          text: `Line ${warning.line}:${warning.column} â€” ${warning.message}`,
+          text: `Line ${warning.line}:${warning.column} — ${warning.message}`,
         })),
         { severity: 'info' as const, text: describeImageCaveat() },
         {
           severity: 'info' as const,
-          text: 'Uploading to a physical board requires a connected programmer â€” see the Arduino / HIL workspace.',
+          text: 'Uploading to a physical board requires a connected programmer — see the Arduino / HIL workspace.',
         },
       ],
     });
@@ -488,12 +488,12 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
         try {
           parsed = JSON.parse(String(reader.result));
         } catch (error) {
-          setImportNote({ ok: false, text: `${file.name} is not JSON â€” ${error instanceof Error ? error.message : 'parse failed'}` });
+          setImportNote({ ok: false, text: `${file.name} is not JSON — ${error instanceof Error ? error.message : 'parse failed'}` });
           return;
         }
         const graph = readStoredGraph(parsed);
         if (!graph) {
-          setImportNote({ ok: false, text: `${file.name} has no nodes[] and edges[] arrays â€” it is not a block program file.` });
+          setImportNote({ ok: false, text: `${file.name} has no nodes[] and edges[] arrays — it is not a block program file.` });
           return;
         }
         const raw = parsed as { nodes: unknown[]; edges: unknown[] };
@@ -508,7 +508,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
           text:
             `Loaded ${graph.nodes.length} block${graph.nodes.length === 1 ? '' : 's'} and ` +
             `${graph.edges.length} wire${graph.edges.length === 1 ? '' : 's'} from ${file.name}` +
-            (rejected > 0 ? ` â€” ${rejected} malformed entr${rejected === 1 ? 'y' : 'ies'} rejected.` : '.'),
+            (rejected > 0 ? ` — ${rejected} malformed entr${rejected === 1 ? 'y' : 'ies'} rejected.` : '.'),
         });
       };
       reader.readAsText(file);
@@ -665,7 +665,7 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
                     : 'Build failed'
                   : 'Not built'}
               </div>
-              {buildReport && <div>Flash â‰ˆ {buildReport.flashEstimate} B</div>}
+              {buildReport && <div>Flash ≈ {buildReport.flashEstimate} B</div>}
             </div>
           </div>
         </div>
@@ -685,11 +685,11 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
                 <div className="mb-3 space-y-1 text-xs">
                   <div className={buildReport.ok ? 'text-success font-medium' : 'text-destructive font-medium'}>
                     {buildReport.ok
-                      ? `Static checks passed â€” image ${buildReport.imageBytes} bytes at 0x${buildReport.baseAddress
+                      ? `Static checks passed — image ${buildReport.imageBytes} bytes at 0x${buildReport.baseAddress
                           .toString(16)
                           .toUpperCase()
-                          .padStart(4, '0')}, flash â‰ˆ ${buildReport.flashEstimate} B, RAM â‰ˆ ${buildReport.ramEstimate} B`
-                      : `Static checks failed â€” ${buildReport.errors.length} error(s)`}
+                          .padStart(4, '0')}, flash ≈ ${buildReport.flashEstimate} B, RAM ≈ ${buildReport.ramEstimate} B`
+                      : `Static checks failed — ${buildReport.errors.length} error(s)`}
                   </div>
                   {buildReport.errors.map((error, index) => (
                     <div key={`error-${index}`} className="text-destructive">{error}</div>

@@ -55,6 +55,6 @@ describe('Assistant composer handoff', () => {
   it('consumes nothing when nothing was primed', () => {
     render(<AIChatPanel onClose={() => {}} />)
     expect(screen.queryByText('Analyze the rectifier for issues')).not.toBeInTheDocument()
-    expect(screen.getByText(/I'm Folio's design assistant/)).toBeInTheDocument()
+    expect(screen.getByText(/Scribe at the desk/)).toBeInTheDocument()
   })
 })

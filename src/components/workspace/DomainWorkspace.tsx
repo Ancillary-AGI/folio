@@ -4,10 +4,11 @@ import {
   Activity, ArrowRightLeft, Box, Cable, Camera, CircuitBoard, Code2,
   Construction, Cpu, Dna, FlaskConical,
   Gauge, GitBranch, Grid3X3, HelpCircle, Layers, List, Microscope, Package, PenTool, Plug, Radio, RadioTower, RotateCw,
-  ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, Terminal, Wrench, Zap,
+  ShieldCheck, ShoppingBag, SlidersHorizontal, Terminal, Wrench, Zap,
   type LucideIcon,
 } from 'lucide-react'
 import RobotArmIcon from './RobotArmIcon'
+import ScribeIcon from './ScribeIcon'
 import SchematicCanvas from '../SchematicCanvas'
 import DomainLibraryDock from '../library/DomainLibraryDock'
 import PropertiesPanel from '../PropertiesPanel'
@@ -126,7 +127,7 @@ const MODE_ICONS: Readonly<Record<WorkspaceMode, LucideIcon>> = {
   hil: FlaskConical,
   biology: Dna,
   twin: RadioTower,
-  agents: Sparkles,
+  agents: ScribeIcon as LucideIcon,
   components: Package,
   plugins: Plug,
   dashboard: Gauge,

@@ -1,10 +1,11 @@
-﻿import HoverHelp from '../ui/HoverHelp'
+import HoverHelp from '../ui/HoverHelp'
+import ScribeIcon from './ScribeIcon'
 /**
  * Canvas Floating HUD
  *
  * A glassmorphic telemetry capsule docked over the sheet: live cursor position
  * (click to cycle mm/mil/in), grid snapping, zoom and framing, the active
- * copper layer, a DRC pulse and the split-viewport verbs â€” the instrument
+ * copper layer, a DRC pulse and the split-viewport verbs — the instrument
  * strip a modern EDA shell is expected to carry.
  */
 import {
@@ -14,7 +15,6 @@ import {
   Layers,
   Maximize2,
   RotateCcw,
-  Sparkles,
   Split,
   ZoomIn,
   ZoomOut,
@@ -32,11 +32,11 @@ interface CanvasFloatingHUDProps {
 
 const GRID_PRESETS = [0.1, 0.25, 0.5, 1.0, 2.54]
 
-/* Same id space as the board panel's DEFAULT_LAYERS â€” one truth, one accent. */
+/* Same id space as the board panel's DEFAULT_LAYERS — one truth, one accent. */
 const PCB_LAYERS = [
   { id: 'top-cu', label: 'Top Cu' },
-  { id: 'in1-cu', label: 'In1 Â· GND' },
-  { id: 'in2-cu', label: 'In2 Â· PWR' },
+  { id: 'in1-cu', label: 'In1 · GND' },
+  { id: 'in2-cu', label: 'In2 · PWR' },
   { id: 'bot-cu', label: 'Bot Cu' },
   { id: 'top-silk', label: 'Silkscreen' },
   { id: 'top-mask', label: 'Soldermask' },
@@ -94,7 +94,7 @@ export default function CanvasFloatingHUD({ mode, onFitView, onTidyLayout }: Can
           <span>
             X: <strong className="font-semibold text-foreground">{formatValue(cursorX)}</strong>
           </span>
-          <span className="text-muted-foreground/60">â€¢</span>
+          <span className="text-muted-foreground/60">•</span>
           <span>
             Y: <strong className="font-semibold text-foreground">{formatValue(cursorY)}</strong>
           </span>
@@ -104,7 +104,7 @@ export default function CanvasFloatingHUD({ mode, onFitView, onTidyLayout }: Can
         </button>
         )}
 
-        {/* Grid & Snapping â€” snap is shared with the board editor (hidden in 3D, which has no snap) */}
+        {/* Grid & Snapping — snap is shared with the board editor (hidden in 3D, which has no snap) */}
         {isSchematicOrPcb && (
         <div className="flex items-center gap-1.5 px-2.5">
           <button
@@ -141,7 +141,7 @@ export default function CanvasFloatingHUD({ mode, onFitView, onTidyLayout }: Can
         </div>
         )}
 
-        {/* Zoom & Framing â€” the sheet's viewport only */}
+        {/* Zoom & Framing — the sheet's viewport only */}
         {mode === 'schematic' && (
         <div className="flex items-center gap-1 px-2.5">
           <button
@@ -193,7 +193,7 @@ export default function CanvasFloatingHUD({ mode, onFitView, onTidyLayout }: Can
         </div>
         )}
 
-        {/* PCB Active Layer Quick Switcher â€” feeds the board panel's selection */}
+        {/* PCB Active Layer Quick Switcher — feeds the board panel's selection */}
         {mode === 'pcb' && (
           <div className="flex items-center gap-1 px-2.5">
             <Layers className="h-3.5 w-3.5 text-primary/70" aria-hidden="true" />
@@ -213,7 +213,7 @@ export default function CanvasFloatingHUD({ mode, onFitView, onTidyLayout }: Can
           </div>
         )}
 
-        {/* Live ERC / Design Health Indicator â€” the sheet is the thing checked */}
+        {/* Live ERC / Design Health Indicator — the sheet is the thing checked */}
         {mode === 'schematic' && (
         <button
           type="button"
@@ -275,19 +275,19 @@ export default function CanvasFloatingHUD({ mode, onFitView, onTidyLayout }: Can
           </div>
         )}
 
-        {/* Design assistant â€” the real, mounted AI surface (same button as the header) */}
+        {/* Scribe — the mounted assistant, same as the header button */}
         <div className="px-2">
-          <HoverHelp title="Open the design assistant" description="Open the design assistant">
+          <HoverHelp title="Open Scribe" description="Open Scribe, the sheet-true assistant">
 <button type="button"
             onClick={toggleAiChat}
-            aria-label="Toggle design assistant" aria-pressed={aiChatOpen}
+            aria-label="Toggle Scribe" aria-pressed={aiChatOpen}
             className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${
               aiChatOpen
                 ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/30'
                 : 'bg-primary/15 text-primary hover:bg-primary/25 hover:shadow-md'
             }`}>
-            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>Assistant</span>
+            <ScribeIcon className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>Scribe</span>
           </button>
 </HoverHelp>
         </div>
@@ -295,4 +295,3 @@ export default function CanvasFloatingHUD({ mode, onFitView, onTidyLayout }: Can
     </div>
   )
 }
-

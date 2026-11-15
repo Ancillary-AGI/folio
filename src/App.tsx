@@ -1,12 +1,13 @@
-﻿import HoverHelp from './components/ui/HoverHelp'
+import HoverHelp from './components/ui/HoverHelp'
 import { lazy, Suspense, useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
-  FolderOpen, PanelLeft, Sparkles, BarChart3, Settings, Package, Users,
+  FolderOpen, PanelLeft, BarChart3, Settings, Package, Users,
   Download, Image, FileText, List, Lock, LogOut, Mic, MicOff,
   ArrowLeft, History, RotateCcw, Moon, Sun, AlertCircle,
   MoreHorizontal, ShieldAlert, ShieldCheck, HelpCircle, X, ScrollText, Send, CloudOff,
   Cloud, HardDrive, Cable, MousePointer2, Grid3X3, Magnet, Wrench, CircleUserRound,
 } from 'lucide-react'
+import ScribeIcon from './components/workspace/ScribeIcon'
 import { Button } from './components/ui/button'
 import type { PlacedComponent, Wire, User } from './types'
 import { supabase, isSupabaseConfigured, type Project, type Schematic, type Component } from './lib/supabase'
@@ -237,7 +238,7 @@ function App() {
   /*
    * Which steps the guide actually opened. The count lives here, beside the step
    * state, so the ledger can say how much was read instead of assuming the whole
-   * curriculum was â€” a card closed on step two is not a finished tour.
+   * curriculum was — a card closed on step two is not a finished tour.
    */
   const tourStepsOpened = useRef<Set<number>>(new Set())
   const tourIsOpen = useRef(false)
@@ -252,7 +253,7 @@ function App() {
   const [backupList, setBackupList] = useState<ProjectBackup[]>([])
   const [showProjectManager, setShowProjectManager] = useState(false)
   /* Set when the URL matches nothing in the app: render the 404 surface
-     instead of silently bouncing to the launcher. The visitorâ€™s path stands;
+     instead of silently bouncing to the launcher. The visitor’s path stands;
      replacing it would hide the reason the page exists. Initialised null and
      set by the location effect so `/` keeps redirecting to the launcher. */
   const [notFoundPath, setNotFoundPath] = useState<string | null>(null)
@@ -270,7 +271,7 @@ function App() {
    * sentence instead of a system box, and lets a test click the real buttons.
    */
   const { spec: confirmSpec, confirm, resolve: resolveConfirm } = useConfirm()
-  // â€¦and one that takes a secret: the passphrase that seals an export.
+  // …and one that takes a secret: the passphrase that seals an export.
   const { request: secretRequest, ask: askSecret, resolve: resolveSecret } = useSecretPrompt()
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
@@ -418,7 +419,7 @@ function App() {
   /*
    * Theming is entirely owned by `useTheme`, which writes validated tokens from
    * `lib/theme/tokens.ts` onto <html>. App must never touch `documentElement`
-   * colours directly â€” doing so is what produced the mixed light/dark UI.
+   * colours directly — doing so is what produced the mixed light/dark UI.
    */
   const { isDark: isDarkTheme, toggle: toggleTheme } = useTheme()
 
@@ -426,10 +427,10 @@ function App() {
   useEffect(() => {
     const mode = WORKSPACE_MODE_META[workspaceMode].label
     document.title = currentProject
-      ? `${isDirty ? 'Unsaved â€” ' : ''}${currentProject.name} â€” ${mode} Â· Folio`
+      ? `${isDirty ? 'Unsaved — ' : ''}${currentProject.name} — ${mode} · Folio`
       : showProjectManager
-        ? 'Projects Â· Folio'
-        : `${mode} Â· Folio`
+        ? 'Projects · Folio'
+        : `${mode} · Folio`
   }, [currentProject, isDirty, showProjectManager, workspaceMode])
 
   /* Opening a workspace is the workbench's most meaningful usage signal. */
@@ -438,7 +439,7 @@ function App() {
     recordPlatformUsage('workspace.open', user, offlineMode, { mode: workspaceMode })
   }, [user, offlineMode, currentProject, workspaceMode])
 
-  // â”€â”€ Auth â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Auth ────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isSupabaseConfigured) {
       setLoading(false)
@@ -528,7 +529,7 @@ function App() {
     setVcsMessage('')
   }, [currentProject])
 
-  // â”€â”€ Plugin system â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Plugin system ────────────────────────────────────────────────────────────
   useEffect(() => {
     const handlePluginLoaded = (...args: unknown[]) => console.info('Plugin loaded:', args[0])
     const handlePluginError = (...args: unknown[]) => console.error('Plugin error:', args[0])
@@ -540,7 +541,7 @@ function App() {
     }
   }, [])
 
-  // â”€â”€ Collaboration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Collaboration ────────────────────────────────────────────────────────────
   const collabUser: CollabUser | null = useMemo(() => {
     if (!user) return null
     const metadata = (user as User & { user_metadata?: { full_name?: string; avatar_url?: string } }).user_metadata
@@ -557,14 +558,14 @@ function App() {
 
   useCollaborationPresence(collabUser, currentProject?.id ?? null, !offlineMode, setCollaborativeUsers)
 
-  /* The presence host runs in the header, so it shows the other people only â€”
+  /* The presence host runs in the header, so it shows the other people only —
    * an avatar of yourself next to your own name is noise. */
   const othersPresent = useMemo(
     () => collaborativeUsers.filter((person) => person.id !== collabUser?.id),
     [collaborativeUsers, collabUser],
   )
 
-  // â”€â”€ SIEM monitoring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── SIEM monitoring ─────────────────────────────────────────────────────────
   useEffect(() => {
     siemService.startMonitoring()
     const refreshAlerts = () => {
@@ -586,10 +587,10 @@ function App() {
     }
   }, [])
 
-  // â”€â”€ Always-on agent jobs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Always-on agent jobs ────────────────────────────────────────────────────
   // A tab closed mid-run leaves the active job marked running; recover() brings
   // it back as paused with a recovery flag, then the FIFO runner drains the
-  // queue against the live sheet. Jobs run only while Folio is open â€” 24/7
+  // queue against the live sheet. Jobs run only while Folio is open — 24/7
   // execution needs the cloud runner documented in docs/AGENT_CLOUD.md.
   useEffect(() => {
     agentJobRunner.recover()
@@ -599,11 +600,11 @@ function App() {
     }
   }, [])
 
-  // In-app notifications: the bell surfaces what the workbench just did â€”
-  // agent verdicts, exports, community opens â€” straight from the stores.
+  // In-app notifications: the bell surfaces what the workbench just did —
+  // agent verdicts, exports, community opens — straight from the stores.
   useEffect(() => watchAgentJobsForNotifications(), [])
 
-  // â”€â”€ NLP intent â†’ store dispatch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── NLP intent → store dispatch ─────────────────────────────────────────────
 
   /*
    * Help, its tutorial runner and the palette open from global shortcuts that
@@ -626,7 +627,7 @@ function App() {
     return () => window.clearTimeout(timer)
   }, [])
 
-  // â”€â”€ Keyboard entry points: command palette, demo gallery, agents and help â”€â”€â”€
+  // ── Keyboard entry points: command palette, demo gallery, agents and help ───
   // Keys come from the shared shortcut registry, so a rebind applies here too.
   const shortcutOverrides = useShortcutStore((s) => s.overrides)
   useEffect(() => {
@@ -687,11 +688,11 @@ function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [shortcutOverrides])
 
-  // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Helpers ──────────────────────────────────────────────────────────────────
   /*
    * Both create paths end the same way: the design state is cleared, the new
-   * project is put on screen, and â€” when the launcher's family tile was the one
-   * that asked for it â€” the workspace opens on that family's first tab instead of
+   * project is put on screen, and — when the launcher's family tile was the one
+   * that asked for it — the workspace opens on that family's first tab instead of
    * the default one. One function, so the two paths cannot drift apart.
    */
   const enterNewProject = (
@@ -721,16 +722,16 @@ function App() {
   }
 
   /* A project name a human would keep: the first few words of the brief,
-   * capitalised â€” never the 132-character prompt. */
+   * capitalised — never the 132-character prompt. */
   const deriveProjectName = (brief: string): string => {
     const first = brief.trim().split(/\s+/).slice(0, 6).join(' ')
     if (!first) return `New Project ${new Date().toLocaleDateString()}`
     const named = `${first.charAt(0).toUpperCase()}${first.slice(1)}`
-    return named.length > 58 ? `${named.slice(0, 57)}â€¦` : named
+    return named.length > 58 ? `${named.slice(0, 57)}…` : named
   }
 
   /* The handshake: after a brief creates a project, the assistant opens with
-   * the conversation already started â€” the user lands on a working session,
+   * the conversation already started — the user lands on a working session,
    * not an empty workspace and a blinking cursor. */
   const startBriefConversation = (brief: string) => {
     useAppStore.getState().setPendingAssistantPrompt(brief)
@@ -778,7 +779,7 @@ function App() {
 
   const closeOnboarding = (reason: TourExitReason) => {
     // One close of a running guide records. The register hand-off can reach here
-    // twice in a single click â€” from the tour's own button and from the shell â€”
+    // twice in a single click — from the tour's own button and from the shell —
     // and a duplicated ledger row would double-count the same tour.
     if (!tourIsOpen.current) return
     tourIsOpen.current = false
@@ -815,7 +816,7 @@ function App() {
 
   /*
    * Loading a board over a sheet that has parts on it throws that work away, so
-   * it asks first â€” in the app's own panel, and only when there is something to
+   * it asks first — in the app's own panel, and only when there is something to
    * lose. Every caller is a demo or a sample, so the question always names the
    * thing arriving and the thing leaving.
    */
@@ -835,7 +836,7 @@ function App() {
 
   /*
    * Adopting a community design persists the design under the template's name,
-   * never "New Project" â€” the adoption path owns that, and nothing else renames.
+   * never "New Project" — the adoption path owns that, and nothing else renames.
    */
 
   /*
@@ -850,7 +851,7 @@ function App() {
    * under an attributed synthetic shell that exists only in memory. The action
    * guard in `useProjectStore` renders every edit inert and routes it to the
    * banner ("make it yours"), which is the only point at which a project row is
-   * created â€” with the design carried over as it stands, never re-applied from
+   * created — with the design carried over as it stands, never re-applied from
    * scratch. Discarding throws the session away without persisting anything.
    */
   const previewCounter = useRef(0)
@@ -921,11 +922,11 @@ function App() {
       file = result.canvasData
     }
 
-    // Snapshot first â€” a failed open must hand the user their design back.
+    // Snapshot first — a failed open must hand the user their design back.
     const priorDesign = liveSnapshot()
     const priorProject = useProjectStore.getState().currentProject
 
-    // Swap in the attributed synthetic shell â€” nothing is persisted.
+    // Swap in the attributed synthetic shell — nothing is persisted.
     resetWorkingDesign()
     useProjectStore.setState({ currentProject: syntheticPreviewShell(template) })
 
@@ -995,7 +996,7 @@ function App() {
       return true
     } catch (err) {
       console.error('Could not create the project', err)
-      setNotice('Could not make it yours â€” check your connection and try again.')
+      setNotice('Could not make it yours — check your connection and try again.')
       return false
     }
   }, [offlineMode, user])
@@ -1010,10 +1011,10 @@ function App() {
     useProjectStore.getState().markClean()
     recordPlatformUsage('template.fork', user, offlineMode, { template: current.templateId, source: current.source })
     useCommunityPreviewStore.getState().clear()
-    setNotice(`â€œ${current.name}â€ is yours â€” edit away.`)
+    setNotice(`“${current.name}” is yours — edit away.`)
   }, [offlineMode, persistAdoptedDesign, user])
 
-  /* Import is ownership from the first click â€” a file in hand is the user's. */
+  /* Import is ownership from the first click — a file in hand is the user's. */
   const adoptImportedFile = useCallback(async (
     file: CommunityTemplateFile,
     template: CommunityTemplate,
@@ -1028,7 +1029,7 @@ function App() {
     }
     setShowProjectManager(false)
     setShowCommunity(false)
-    setNotice(`â€œ${template.name}â€ imported as your project.`)
+    setNotice(`“${template.name}” imported as your project.`)
   }, [offlineMode, persistAdoptedDesign, user])
 
   const discardCommunityPreview = useCallback(() => {
@@ -1090,7 +1091,7 @@ function App() {
   const startTutorial = async (tutorial: Tutorial) => {
     const scenario = DEMO_SCENARIOS.find((entry) => entry.id === tutorial.demoId)
     if (!scenario) {
-      setNotice(`This tutorial starts from the â€œ${tutorial.demoId}â€ demo, which is not in this build.`)
+      setNotice(`This tutorial starts from the “${tutorial.demoId}” demo, which is not in this build.`)
       return
     }
     if (!(await openDemoScenario(scenario))) return
@@ -1237,8 +1238,8 @@ function App() {
   }
 
   /*
-   * Renaming from the header writes the same row the launcher cards write â€” the
-   * local store offline, the projects table when the workspace is cloud-owned â€”
+   * Renaming from the header writes the same row the launcher cards write — the
+   * local store offline, the projects table when the workspace is cloud-owned —
    * because a title that only moved in the shell would be overwritten by the next
    * save and would export files under a name nothing else knows.
    *
@@ -1293,13 +1294,13 @@ function App() {
         return
       }
       setShowCommunity(false)
-      // `/app/demos/:demoId` â€” the marketing CTA and a deep link: open the
+      // `/app/demos/:demoId` — the marketing CTA and a deep link: open the
       // gallery demo instead of a blank workspace.
       if (route.demoId) {
         const scenario = DEMO_SCENARIOS.find((entry) => entry.id === route.demoId)
         if (!scenario) {
           // An unknown demo id is the user landing on an address that does not
-          // exist â€” name it plainly instead of bouncing them to the launcher.
+          // exist — name it plainly instead of bouncing them to the launcher.
           setNotFoundPath(window.location.pathname)
           return
         }
@@ -1315,9 +1316,9 @@ function App() {
       if (!route.mode) {
         const path = window.location.pathname
         // `/app/*` routes that resolve to nothing are the visitor landing on a
-        // URL that does not exist â€” name the failure plainly instead of
+        // URL that does not exist — name the failure plainly instead of
         // bouncing to the launcher. Anything outside /app is not a document
-        // either â€” that one keeps the old redirect to the launcher.
+        // either — that one keeps the old redirect to the launcher.
         if (path.startsWith('/app/') || path === '/app') {
           setNotFoundPath(path)
           setShowProjectManager(false)
@@ -1365,14 +1366,14 @@ function App() {
   const routeProjectId = currentProject?.id ?? null
   useEffect(() => {
     // The community page (and a read-only community preview holding a synthetic
-    // shell) are their own URLs â€” never rewrite them back to a workspace.
+    // shell) are their own URLs — never rewrite them back to a workspace.
     if (!routeProjectId || showProjectManager || showCommunity || previewActive) return
     writeWorkspaceRoute(workspaceMode, routeProjectId)
   }, [routeProjectId, workspaceMode, showProjectManager, showCommunity, previewActive])
 
   const handleSave = useCallback(async (data: Record<string, unknown>) => {
     if (previewActive) {
-      setNotice('This is someone elseâ€™s design â€” make it yours before saving.')
+      setNotice('This is someone else’s design — make it yours before saving.')
       return
     }
     if (!currentProject) return
@@ -1414,7 +1415,7 @@ function App() {
   /*
    * Auto-save, on the interval from Settings. Both halves of the preference are
    * honoured: the switch and the period, so the timer is rebuilt when either
-   * moves. It fires only while the document is actually dirty â€” a "save" that
+   * moves. It fires only while the document is actually dirty — a "save" that
    * writes an unchanged design is noise that makes people distrust the timer.
    */
   const autoSave = settings.autoSave
@@ -1444,7 +1445,7 @@ function App() {
 
   const handleVcsCommit = () => {
     if (previewActive) {
-      setNotice('This is someone elseâ€™s design â€” make it yours before committing.')
+      setNotice('This is someone else’s design — make it yours before committing.')
       return
     }
     if (!currentProject) return
@@ -1457,7 +1458,7 @@ function App() {
       refreshVcs()
       const persistenceError = vcsService.getPersistenceError()
       if (persistenceError) {
-        setVcsStatus(`Committed for this session only â€” ${persistenceError}. Export the project to keep a copy.`)
+        setVcsStatus(`Committed for this session only — ${persistenceError}. Export the project to keep a copy.`)
       }
       siemService.logAuditEvent({
         user: user?.id || 'unknown',
@@ -1478,7 +1479,7 @@ function App() {
   const handleVcsCheckout = async (commit: VcsCommit) => {
     if (!currentProject) return
     const accepted = await confirm({
-      title: `Restore the commit â€œ${commit.message}â€?`,
+      title: `Restore the commit “${commit.message}”?`,
       detail:
         'The sheet, the board and the code go back to what that commit held. Anything you have not committed stays available: a backup of the current state is taken first and appears in the restore list.',
       confirmLabel: 'Restore commit',
@@ -1538,7 +1539,7 @@ function App() {
     setShowVcsMenu(false)
     const backupError = backupService.getStorageError()
     if (backupError) {
-      setVcsStatus(`Restored â€œ${commit.message}â€. The safety backup is session-only â€” ${backupError}.`)
+      setVcsStatus(`Restored “${commit.message}”. The safety backup is session-only — ${backupError}.`)
     }
     siemService.logAuditEvent({
       user: user?.id || 'unknown',
@@ -1550,7 +1551,7 @@ function App() {
 
   const createCheckpoint = () => {
     if (previewActive) {
-      setNotice('This is someone elseâ€™s design â€” make it yours before checkpointing.')
+      setNotice('This is someone else’s design — make it yours before checkpointing.')
       return
     }
     if (!currentProject) return
@@ -1580,7 +1581,7 @@ function App() {
   const restoreCheckpoint = async (checkpoint: ProjectBackup) => {
     if (!currentProject) return
     const accepted = await confirm({
-      title: `Restore the backup â€œ${checkpoint.label}â€?`,
+      title: `Restore the backup “${checkpoint.label}”?`,
       detail:
         'The sheet goes back to the state saved in that backup. The current state is kept as a new backup first, so this is reversible from the same list.',
       confirmLabel: 'Restore backup',
@@ -1629,7 +1630,7 @@ function App() {
     setShowVcsMenu(false)
     const backupError = backupService.getStorageError()
     setVcsStatus(backupError
-      ? `Restored ${checkpoint.label}. The safety backup is session-only â€” ${backupError}.`
+      ? `Restored ${checkpoint.label}. The safety backup is session-only — ${backupError}.`
       : `Restored ${checkpoint.label}`)
     await handleSave(restored)
     siemService.logAuditEvent({
@@ -1640,7 +1641,7 @@ function App() {
     })
   }
 
-  // â”€â”€ Export handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Export handlers ──────────────────────────────────────────────────────────
   /* Quotas are checked before the file is produced; usage is recorded only after
    * it actually exists, so a failed export does not consume the daily allowance. */
   const exportQuotaError = (): string | null => {
@@ -1668,7 +1669,7 @@ function App() {
     notifyNotification({
       kind: 'export',
       title: `${labels[format] ?? format} export ready`,
-      detail: currentProject ? `${currentProject.name} â€” downloaded to this device.` : undefined,
+      detail: currentProject ? `${currentProject.name} — downloaded to this device.` : undefined,
     })
     triggerHaptic('success')
     setShowExportMenu(false)
@@ -1778,7 +1779,7 @@ function App() {
   const themeToggleLabel = isDarkTheme ? 'Switch to light theme' : 'Switch to dark theme'
   /* The palette chord is branded per platform rather than always saying Ctrl:
    * a Mac user reading a Windows keycap learns the wrong gesture. */
-  const commandKey = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.platform) ? 'âŒ˜' : 'Ctrl'
+  const commandKey = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.platform) ? '⌘' : 'Ctrl'
 
   const toggleVoice = () => {
     voiceController.toggleListening()
@@ -1800,7 +1801,7 @@ function App() {
    * each group is named for what its rows have in common. */
   const moreMenuSections = [
     {
-      group: 'Assistant',
+      group: 'Scribe',
       items: [
         { label: voiceListening ? 'Stop voice control' : 'Start voice control', icon: voiceListening ? MicOff : Mic, action: toggleVoice },
       ],
@@ -1824,7 +1825,7 @@ function App() {
     ...(offlineMode ? [] : [{ group: 'Account', items: [{ label: 'Sign out', icon: LogOut, action: () => void handleSignOut() }] }]),
   ]
 
-  // â”€â”€ Voice â†’ shell actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Voice → shell actions ───────────────────────────────────────────────────
   // Save and export live in this component; the voice controller asks here
   // instead of duplicating them. Results report what really happened. The
   // effect deliberately has no dependency array: the hooks are reassigned on
@@ -1835,7 +1836,7 @@ function App() {
       await handleSave(getCheckpointData())
       const stillDirty = useProjectStore.getState().isDirty
       return stillDirty
-        ? { applied: true, detail: 'Save requested, but the project still shows unsaved changes â€” check the save.' }
+        ? { applied: true, detail: 'Save requested, but the project still shows unsaved changes — check the save.' }
         : { applied: true, detail: 'Saved the project.' }
     }
 
@@ -1858,7 +1859,7 @@ function App() {
         return { applied: false, detail: 'There is no canvas to capture, so no image was exported.' }
       }
       run()
-      return { applied: true, detail: `Started the ${format} export â€” check your downloads.` }
+      return { applied: true, detail: `Started the ${format} export — check your downloads.` }
     }
 
     nlpService.registerActionHooks({ saveDesign, exportDesign })
@@ -1877,7 +1878,7 @@ function App() {
     const passphrase = await askSecret({
       title: 'Passphrase for the encrypted export',
       detail:
-        'The design is sealed with this passphrase before it is downloaded. Folio never stores it and cannot recover it â€” lose it and the file stays sealed.',
+        'The design is sealed with this passphrase before it is downloaded. Folio never stores it and cannot recover it — lose it and the file stays sealed.',
       fieldLabel: 'Passphrase',
       confirmLabel: 'Seal and export',
       hint: 'At least 8 characters. Type it somewhere nobody is watching the screen.',
@@ -1900,7 +1901,7 @@ function App() {
       notifyNotification({
         kind: 'export',
         title: 'Encrypted JSON export ready',
-        detail: `${currentProject.name} â€” encrypted with ${encrypted.algorithm}, downloaded to this device.`,
+        detail: `${currentProject.name} — encrypted with ${encrypted.algorithm}, downloaded to this device.`,
       })
       triggerHaptic('success')
       setExportStatus(`Encrypted with ${encrypted.algorithm}.`)
@@ -1909,13 +1910,13 @@ function App() {
     }
   }
 
-  // â”€â”€ Render gates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Render gates ─────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3" role="status" aria-live="polite">
           <LoadingSpinner size="lg" />
-          <span className="text-muted-foreground">Loading Folioâ€¦</span>
+          <span className="text-muted-foreground">Loading Folio…</span>
         </div>
       </div>
     )
@@ -2005,11 +2006,11 @@ function App() {
   /*
    * Outside the stack, because the stack sits inside a `Suspense`: a lazy chunk
    * that mounts after the click would hold the fallback and swallow the busy
-   * state â€” the one moment the user needs to be told the tab is working.
+   * state — the one moment the user needs to be told the tab is working.
    */
   const demoBusyOverlay = demoBusy ? <DemoLoadingOverlay title={demoBusy} /> : null
 
-  /* Unknown routes render the 404 surface before any identity gate â€” a bad URL
+  /* Unknown routes render the 404 surface before any identity gate — a bad URL
      should not bounce a visitor through a sign-in they don't need to see. */
   if (notFoundPath !== null) {
     return <NotFound path={notFoundPath} />
@@ -2051,7 +2052,7 @@ function App() {
         <AuroraField />
         {/* Chrome is full-bleed: the lockup sits on the window's left edge, where
             every app bar puts a brand, and the actions on the right edge. The
-            launcher's *content* below keeps its own centred column â€” a bar that
+            launcher's *content* below keeps its own centred column — a bar that
             marched to the same inner gutter as the cards read as a centred block
             floating in the header instead of a header. */}
         <header className="app-chrome app-chrome-divider flex-shrink-0" data-tour="app-header">
@@ -2113,7 +2114,7 @@ function App() {
           >
             <span className="min-w-0">
               <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Community</span>
-              <span className="mt-0.5 block text-sm font-semibold text-foreground">Browse community designs â†’</span>
+              <span className="mt-0.5 block text-sm font-semibold text-foreground">Browse community designs →</span>
             </span>
             <span className="flex-shrink-0 text-[11px] text-muted-foreground">Open, inspect and make yours</span>
           </button>
@@ -2124,7 +2125,7 @@ function App() {
     )
   }
 
-  // â”€â”€ Main IDE layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Main IDE layout ───────────────────────────────────────────────────────────
   return (
     <div className="app-shell">
       {/* Scenery, not chrome: the field follows the open workspace family and
@@ -2137,7 +2138,7 @@ function App() {
           keypress to skip past them (WCAG 2.4.1). */}
       <a href="#workspace" className="skip-link">Skip to the workspace</a>
 
-      {/* â”€â”€ Header â”€â”€ */}
+      {/* ── Header ── */}
       <header className="app-chrome ide-header flex min-w-0 flex-shrink-0 items-center justify-between gap-2 border-b border-border/80 px-3 py-1.5" data-tour="app-header" style={{ minHeight: '46px' }}>
         {/* Left: brand + project identity */}
         <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -2178,14 +2179,14 @@ function App() {
                 titleClassName="text-[13px] font-semibold tracking-[-0.015em] leading-tight"
               />
               <div className="flex items-center gap-1.5 mt-0.5">
-                {/* Mode badge â€” instrument chip, no trinkets */}
+                {/* Mode badge — instrument chip, no trinkets */}
                 <span
                   className="folio-mode-badge"
                   title={WORKSPACE_MODE_META[workspaceMode].description}
                 >
                   {WORKSPACE_MODE_META[workspaceMode].label}
                 </span>
-                {/* Save state â€” text carries the signal, nothing else */}
+                {/* Save state — text carries the signal, nothing else */}
                 <span
                   className={`inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${isDirty ? 'text-warning' : 'text-muted-foreground/60'}`}
                   role="status"
@@ -2204,7 +2205,7 @@ function App() {
             <button
               type="button"
               onClick={() => setShowCommandPalette(true)}
-              aria-label="Command palette â€” search parts, nets, commands"
+              aria-label="Command palette — search parts, nets, commands"
               aria-haspopup="dialog"
               data-tour="command-palette"
               className="shell-command-pill"
@@ -2212,7 +2213,7 @@ function App() {
               <span className="shell-command-pill__sheen" aria-hidden="true" />
               <span className="agent-orb" aria-hidden="true" />
               <span className="shell-command__label min-w-0 flex-1 truncate text-left text-muted-foreground/85">
-                Ask Folio â€” parts, nets, workspaces, actionsâ€¦
+                Ask Folio — parts, nets, workspaces, actions…
               </span>
               <span className="shell-command__key flex shrink-0 items-center gap-0.5" aria-hidden="true">
                 <kbd className="cad-kbd">{commandKey}</kbd>
@@ -2230,13 +2231,13 @@ function App() {
               variant={aiChatOpen ? 'default' : 'ghost'}
               size="bar"
               onClick={toggleAiChat}
-              aria-label="Design assistant"
+              aria-label="Ask Scribe"
               aria-pressed={aiChatOpen}
               data-tour="agent-button"
               className={`gap-1.5 ${aiChatOpen ? 'cad-agent-ring' : 'hover:border-primary/50 hover:text-primary'}`}
             >
-              <Sparkles />
-              <span className="hidden lg:inline">Ask AI</span>
+              <ScribeIcon />
+              <span className="hidden lg:inline">Ask Scribe</span>
             </Button>
           </HoverHelp>
 
@@ -2259,7 +2260,7 @@ function App() {
                 <div className="bg-surface/50 p-3 border-b border-border/60">
                   <h2 className="text-sm font-semibold">Version history</h2>
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    Content-addressed commits of every domain â€” schematic, PCB, mechanical,
+                    Content-addressed commits of every domain — schematic, PCB, mechanical,
                     firmware and more. Restore snaps the whole project back as one coherent state.
                   </p>
                   <form
@@ -2269,7 +2270,7 @@ function App() {
                     <input
                       value={vcsMessage}
                       onChange={event => setVcsMessage(event.target.value)}
-                      placeholder="Commit messageâ€¦"
+                      placeholder="Commit message…"
                       aria-label="Commit message"
                       maxLength={120}
                       className="min-w-0 flex-1 rounded-lg border border-input bg-background/60 px-2.5 py-1.5 text-xs focus:outline-none focus:border-ring focus:ring-0"
@@ -2290,7 +2291,7 @@ function App() {
                     <div key={`c-${commit.id}`} className="flex items-center gap-2.5 px-3 py-2.5 border-b border-border/40 last:border-0 hover:bg-accent/40 transition-colors">
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-xs font-medium" title={commit.message}>{commit.message}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{new Date(commit.timestamp).toLocaleString()} Â· {commit.id.slice(0, 8)}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{new Date(commit.timestamp).toLocaleString()} · {commit.id.slice(0, 8)}</p>
                       </div>
                       <Button
                         variant="ghost"
@@ -2308,7 +2309,7 @@ function App() {
                     <div key={`b-${backup.id}`} className="flex items-center gap-2.5 px-3 py-2.5 border-b border-border/40 last:border-0 hover:bg-accent/40 transition-colors">
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-xs font-medium" title={backup.label}>{backup.label} <span className="text-muted-foreground font-normal">(backup)</span></p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{new Date(backup.createdAt).toLocaleString()} Â· {(backup.sizeBytes / 1024).toFixed(1)} KB</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{new Date(backup.createdAt).toLocaleString()} · {(backup.sizeBytes / 1024).toFixed(1)} KB</p>
                       </div>
                       <Button
                         variant="ghost"
@@ -2373,7 +2374,7 @@ function App() {
                   { label: 'Export JSON', icon: FileText, action: handleExportJSON },
                   { label: 'Gerber (.gbr)', icon: FileText, action: handleExportGerber },
                   { label: 'Bill of Materials', icon: List, action: handleExportBOM },
-                  { label: 'Encrypted JSONâ€¦', icon: Lock, action: handleExportEncrypted },
+                  { label: 'Encrypted JSON…', icon: Lock, action: handleExportEncrypted },
                 ].map(({ label, icon: Icon, action }) => (
                   <button
                     key={label}
@@ -2393,7 +2394,7 @@ function App() {
             )}
           </div>
 
-          {/* Who else is in this project â€” the roster itself, not a toggle to it. */}
+          {/* Who else is in this project — the roster itself, not a toggle to it. */}
           <UserPresence users={othersPresent} />
 
           <span className="folio-sep" aria-hidden="true" />
@@ -2475,7 +2476,7 @@ function App() {
         >
           <span className="min-w-0">
             <span className="font-bold text-primary">Community design</span>
-            <span className="text-muted-foreground"> â€” by {preview.authorName} Â· {licenseLabel(preview.license)}</span>
+            <span className="text-muted-foreground"> — by {preview.authorName} · {licenseLabel(preview.license)}</span>
           </span>
           {previewFlash && (
             <span className="truncate font-semibold text-amber-500">{previewFlash}</span>
@@ -2493,7 +2494,7 @@ function App() {
 
       {voiceOpen && <VoiceCommandBar onClose={closeVoiceBar} />}
 
-      {/* â”€â”€ Main area â”€â”€ */}
+      {/* ── Main area ── */}
       <main id="workspace" aria-label="Workspace" className="relative flex min-w-0 flex-1 overflow-hidden">
         {/* Domain workspace with 13-mode tab routing */}
         <DomainWorkspace
@@ -2505,7 +2506,7 @@ function App() {
           onSimulationRun={recordSimulationRun}
         />
 
-        {/* Right panel stack â€” docked on desktop, a drawer over the sheet below xl. */}
+        {/* Right panel stack — docked on desktop, a drawer over the sheet below xl. */}
         {(simulationPanelOpen || aiChatOpen || showCollaborativePanel || showPluginPanel) && (
           <div
             className="fixed inset-0 z-40 bg-overlay/40 xl:hidden"
@@ -2547,9 +2548,9 @@ function App() {
         </div>
       </main>
 
-      {/* â”€â”€ Status bar: document metrics on the sheet, workspace context elsewhere â”€â”€ */}
+      {/* ── Status bar: document metrics on the sheet, workspace context elsewhere ── */}
       <footer className="status-bar" aria-label="Workspace status" data-tour="status-bar">
-        {/* Where you are: family â€º document, in instrument-tape caps. */}
+        {/* Where you are: family › document, in instrument-tape caps. */}
         <span className="status-segment text-foreground" title={WORKSPACE_MODE_META[workspaceMode].description}>
           <span className="seg-label hidden lg:inline">
             {WORKSPACE_GROUPS.find((group) => group.id === groupForMode(workspaceMode))?.label}
@@ -2651,7 +2652,7 @@ function App() {
             {WORKSPACE_MODE_META[workspaceMode].description}
           </span>
         )}
-        {/* Save state â€” text only; amber when the buffer holds work */}
+        {/* Save state — text only; amber when the buffer holds work */}
         <span
           className={`status-segment hidden sm:inline-flex ${isDirty ? 'status-segment--warn' : 'text-muted-foreground/70'}`}
           title={isDirty ? 'Changes are held in the editor until the next save.' : 'Every change has been written to the project.'}
@@ -2705,7 +2706,7 @@ function App() {
             <span className="cad-readout">{activeAlertCount} alert{activeAlertCount !== 1 ? 's' : ''}</span>
           </button>
         )}
-        {/* Limits register â€” right-aligned */}
+        {/* Limits register — right-aligned */}
         <HoverHelp topicId="nav.limits" placement="top">
           <button
             type="button"
@@ -2738,4 +2739,3 @@ function App() {
 }
 
 export default App
-

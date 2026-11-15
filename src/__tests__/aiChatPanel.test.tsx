@@ -39,10 +39,10 @@ describe('AIChatPanel', () => {
 
   it('renders welcome message, quick actions and input', () => {
     render(<AIChatPanel onClose={() => {}} />)
-    expect(screen.getByText('Design assistant')).toBeInTheDocument()
-    expect(screen.getByText(/I'm Folio's design assistant/)).toBeInTheDocument()
-    expect(screen.getByText('Agent')).toBeInTheDocument()
-    expect(screen.getByText(/Suggestions are advisory/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Scribe' })).toBeInTheDocument()
+    expect(screen.getByText(/Scribe at the desk/)).toBeInTheDocument()
+    expect(screen.getByText(/every claim traced/i)).toBeInTheDocument()
+    expect(screen.getByText(/It advises; the rule checks/i)).toBeInTheDocument()
     for (const action of ['Analyze circuit', 'Suggest components', 'Optimize power', 'Review assumptions']) {
       expect(screen.getByRole('button', { name: new RegExp(action) })).toBeInTheDocument()
     }
@@ -50,7 +50,7 @@ describe('AIChatPanel', () => {
 
   it('sends a message and renders the analysis reply', async () => {
     render(<AIChatPanel onClose={() => {}} />)
-    const input = screen.getByPlaceholderText(/Ask about your design/)
+    const input = screen.getByPlaceholderText(/Ask Scribe/)
     fireEvent.change(input, { target: { value: 'Analyze my circuit for issues' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
     await waitFor(() => expect(screen.getByText(/Circuit Analysis Report/)).toBeInTheDocument())
@@ -65,12 +65,12 @@ describe('AIChatPanel', () => {
 
   it('clears the chat back to the welcome message', async () => {
     render(<AIChatPanel onClose={() => {}} />)
-    const input = screen.getByPlaceholderText(/Ask about your design/)
+    const input = screen.getByPlaceholderText(/Ask Scribe/)
     fireEvent.change(input, { target: { value: 'hello' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
     await waitFor(() => expect(screen.getAllByText('U').length).toBeGreaterThan(0))
     fireEvent.click(screen.getByRole('button', { name: 'Clear conversation' }))
-    expect(screen.getByText('Design assistant')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Scribe' })).toBeInTheDocument()
     expect(screen.queryByText(/Circuit Analysis Report/)).not.toBeInTheDocument()
   })
 

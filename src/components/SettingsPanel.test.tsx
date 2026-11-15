@@ -120,7 +120,7 @@ describe('SettingsPanel', () => {
     goto('Keyboard shortcuts')
     expect(screen.getByText(/Click a binding, then press the chord/)).toBeInTheDocument()
 
-    goto('Assistant models')
+    goto('Scribe models')
     expect(
       within(screen.getByRole('dialog')).getByText(/bring your own key/i),
     ).toBeInTheDocument()

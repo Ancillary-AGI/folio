@@ -1,5 +1,5 @@
-﻿import {
-  Activity, Sparkles, CircuitBoard, Cpu, GitBranch, HelpCircle, History, Layers3, MousePointerClick, ScrollText,
+import {
+  Activity, Bot, CircuitBoard, Cpu, GitBranch, HelpCircle, History, Layers3, MousePointerClick, ScrollText,
   Shield, TrendingUp, type LucideIcon,
 } from 'lucide-react'
 import type { WorkspaceMode } from '../../stores/useAppStore'
@@ -107,7 +107,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     title: 'This is your workbench',
     summary: 'One project holds the schematic, the board, the firmware and the mechanical model.',
     detail:
-      'Every domain â€” schematic, PCB, simulation, firmware, mechanical, robotics â€” works on the same project, in one file. Each domain checks its own work; nothing shares a hidden state. You can open an empty canvas and the validation is the same.',
+      'Every domain — schematic, PCB, simulation, firmware, mechanical, robotics — works on the same project, in one file. Each domain checks its own work; nothing shares a hidden state. You can open an empty canvas and the validation is the same.',
     checklist: [
       'One project per design revision',
       'Keep requirements and units written down',
@@ -122,7 +122,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     id: 'families',
     chapter: 'orientation',
     title: 'This is the family strip',
-    summary: 'Design, Electrical, Mechanical, Life systems and Operations â€” each tab opens its familyâ€™s workspaces.',
+    summary: 'Design, Electrical, Mechanical, Life systems and Operations — each tab opens its family’s workspaces.',
     detail:
       'The strip groups the 28 workspaces by discipline. Design holds schematic, simulation, PCB and fabrication. Electrical holds control, machines, RF, HDL and silicon. Mechanical holds CAD, robotics, firmware and imaging. Life systems holds reactions, tissue and whole-body models. Operations holds agents, parts, plugins and the marketplace. Hover a tab to see what it computes before you open it.',
     checklist: [
@@ -142,7 +142,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     title: 'This is the Help button',
     summary: 'One-line answers on hover; F1 opens guides and tutorials.',
     detail:
-      'Rest the pointer on any control in the rail, the header or a workspace tab and a short explanation appears â€” with its shortcut keycap. Press F1 or ? anywhere to open the help centre: tutorials that load a working demo and walk the real buttons, a guide per workspace, a control reference and the shortcut list. Tutorials check themselves; the workbench never watches your screen.',
+      'Rest the pointer on any control in the rail, the header or a workspace tab and a short explanation appears — with its shortcut keycap. Press F1 or ? anywhere to open the help centre: tutorials that load a working demo and walk the real buttons, a guide per workspace, a control reference and the shortcut list. Tutorials check themselves; the workbench never watches your screen.',
     checklist: [
       'Hover the wire tool on the left rail',
       'Press F1 and open Tutorials',
@@ -157,7 +157,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     id: 'schematic',
     chapter: 'capture',
     title: 'This is the component library',
-    summary: 'Drag parts onto the sheet â€” that is how every circuit here starts.',
+    summary: 'Drag parts onto the sheet — that is how every circuit here starts.',
     detail:
       'Parts carry their models with them: a transistor drops in with a real part number behind it (2N3904 unless you change it), a diode with its reverse rating, a resistor with its power rating. Wire tool is click-to-click: arm it on the left rail, click a pin, click the next pin. Netlist extraction rebuilds connectivity from the wires you drew.',
     checklist: [
@@ -176,7 +176,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     id: 'editor-tools',
     chapter: 'capture',
     title: 'This is the tool rail',
-    summary: 'Select (V), wire (W) and delete (D); grid (G), fit (F), snap â€” each button prints its key.',
+    summary: 'Select (V), wire (W) and delete (D); grid (G), fit (F), snap — each button prints its key.',
     detail:
       'Three tools cover most edits: V for select, W for wire, D for delete. G toggles the grid, F fits the view to the design. Snap decides where parts land: on, they snap to the grid pitch the router can reason about; off, you place freely. Undo is on the rail and on Ctrl+Z.',
     checklist: [
@@ -196,7 +196,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     title: 'This is the simulator',
     summary: 'The solver runs the exact circuit drawn, with models you can inspect.',
     detail:
-      'DC operating point uses modified nodal analysis. Transient, AC sweep, noise and Monte Carlo run on the same netlist you drew â€” nothing is re-invented for the run. Transistors we ship carry a built-in model (2N2222 family); other parts fall back to a generic model unless you drop a vendor card â€” the deck will say so. A clean number is not hardware certification â€” check limiting cases.',
+      'DC operating point uses modified nodal analysis. Transient, AC sweep, noise and Monte Carlo run on the same netlist you drew — nothing is re-invented for the run. Transistors we ship carry a built-in model (2N2222 family); other parts fall back to a generic model unless you drop a vendor card — the deck will say so. A clean number is not hardware certification — check limiting cases.',
     checklist: [
       'Use vendor models for critical active devices',
       'Simulate nominal plus a tolerance corner',
@@ -211,7 +211,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     title: 'This is the waveform plot',
     summary: 'Drag to zoom, click to pin a cursor, read values off the solved samples.',
     detail:
-      'Drag across a region to zoom it, shift-drag to pan, scroll to zoom under the pointer, click to drop a pinned cursor that reads a value at a solved sample â€” never one interpolated between samples. Plus, minus and arrow keys work when the chart has focus. A pinned cursor is the number that goes into the report.',
+      'Drag across a region to zoom it, shift-drag to pan, scroll to zoom under the pointer, click to drop a pinned cursor that reads a value at a solved sample — never one interpolated between samples. Plus, minus and arrow keys work when the chart has focus. A pinned cursor is the number that goes into the report.',
     checklist: [
       'Zoom the edge you care about',
       'Pin a cursor, do not eyeball the axis',
@@ -225,10 +225,10 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   {
     id: 'convert',
     chapter: 'physical',
-    title: 'This is Schematic â†’ PCB',
-    summary: 'The sheet converts into a placed board â€” a draft, not approval.',
+    title: 'This is Schematic → PCB',
+    summary: 'The sheet converts into a placed board — a draft, not approval.',
     detail:
-      'Conversion places parts onto the board outline with footprints mapped and nets routed. Review the placement, the clearances and the copper before you order anything: DRC and ERC findings are the facts of the layout â€” read them as a manufacturing engineer would.',
+      'Conversion places parts onto the board outline with footprints mapped and nets routed. Review the placement, the clearances and the copper before you order anything: DRC and ERC findings are the facts of the layout — read them as a manufacturing engineer would.',
     checklist: [
       'Check every symbol mapped to its footprint',
       'Resolve or waive every ERC and DRC finding',
@@ -241,7 +241,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     id: 'mechanical',
     chapter: 'physical',
     title: 'This is the mechanical view',
-    summary: 'Check fit, clearance and envelope in 3D â€” geometry is not the same as physics.',
+    summary: 'Check fit, clearance and envelope in 3D — geometry is not the same as physics.',
     detail:
       'Inspect the board outline, connector access and component heights in the 3-D view. Mechanical and PCB data can only be combined when the coordinate systems and the exported assembly agree with the target toolchain.',
     checklist: [
@@ -282,7 +282,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
       'Review the diff before keeping a change',
     ],
     mode: 'agents',
-    icon: Sparkles,
+    icon: Bot,
     target: 'agent-button',
     fallbackTarget: 'workspace-canvas',
     placement: 'bottom',
@@ -310,7 +310,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     title: 'This is the limits registry',
     summary: 'Every analysis lists its method, its tests and what it does not model.',
     detail:
-      'The LIMITS button opens the registry: the method behind each number (LU on the MNA matrix, Newtonâ€“Raphson, damped least-squares IK, Lee/A* routing), the test file that pins it, and the list of what is not modelled. It is deliberately blunt; read it before a number goes into a report.',
+      'The LIMITS button opens the registry: the method behind each number (LU on the MNA matrix, Newton–Raphson, damped least-squares IK, Lee/A* routing), the test file that pins it, and the list of what is not modelled. It is deliberately blunt; read it before a number goes into a report.',
     checklist: [
       'Read the Not covered block first',
       'Filter by the workspace you are in',
@@ -360,4 +360,3 @@ export function stepPositionInChapter(index: number): { position: number; size: 
   const indices = chapterStepIndices(ONBOARDING_STEPS[clamped].chapter)
   return { position: indices.indexOf(clamped) + 1, size: indices.length }
 }
-

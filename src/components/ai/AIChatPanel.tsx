@@ -1,6 +1,7 @@
-﻿import HoverHelp from '../ui/HoverHelp'
+import HoverHelp from '../ui/HoverHelp'
 import React, { useState, useRef, useEffect, useCallback } from 'react'
-import { Sparkles, Send, Trash2, Lightbulb, Cpu, Wrench, X, Mic, MicOff, Copy, Check, AlertTriangle } from 'lucide-react'
+import { Send, Trash2, Lightbulb, Cpu, Wrench, X, Mic, MicOff, Copy, Check, AlertTriangle } from 'lucide-react'
+import ScribeIcon from '../workspace/ScribeIcon'
 import { Button } from '../ui/button'
 import { aiService } from '../../lib/ai/aiService'
 import { nlpService } from '../../lib/nlp/nlpService'
@@ -23,7 +24,7 @@ const QUICK_ACTIONS: QuickAction[] = [
   { label: 'Analyze circuit', prompt: 'Analyze the current circuit for issues and improvements', icon: <Cpu className="w-3 h-3" /> },
   { label: 'Suggest components', prompt: 'Suggest missing components for a complete design', icon: <Lightbulb className="w-3 h-3" /> },
   { label: 'Optimize power', prompt: 'Optimize the design for lower power consumption', icon: <Wrench className="w-3 h-3" /> },
-  { label: 'Review assumptions', prompt: 'List the assumptions, missing evidence, and validation steps for this design', icon: <Sparkles className="w-3 h-3" /> },
+  { label: 'Review assumptions', prompt: 'List the assumptions, missing evidence, and validation steps for this design', icon: <ScribeIcon className="w-3 h-3" /> },
 ]
 
 const toDomainComponent = (placed: CanvasComponent): DomainComponent => ({
@@ -52,7 +53,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
   const [messages, setMessages] = useState<AIMessage[]>([{
     id: 'welcome',
     role: 'assistant',
-    content: 'Hello. I\'m Folio\'s design assistant. I can analyze the schematic, suggest components, explore trade-offs and answer engineering questions. My responses are advisory; verify designs with the workbench\'s rule checks, simulations, datasheets and manufacturing reviews.',
+    content: 'Scribe at the desk. I read the sheet before I touch it, and what I can\'t measure I won\'t invent. Ask me to run the check, pull the parts, or chase the net — I answer with evidence, or I tell you plainly I can\'t. The rule checks, the solver and the datasheets remain the arbiters; I advise, Folio verifies.',
     timestamp: Date.now(),
     metadata: { type: 'general' },
   }])
@@ -143,7 +144,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
     } catch (err) {
       addMessage({
         role: 'assistant',
-        content: `I encountered an error processing your request: ${err instanceof Error ? err.message : 'Unknown error'}. Please try again or rephrase your question.`,
+        content: `Scribe hit a wall reading that: ${err instanceof Error ? err.message : 'Unknown error'}. Say it narrower, or ask for something I can measure.`,
         metadata: { type: 'general' },
       })
     } finally {
@@ -225,7 +226,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
     setMessages([{
       id: 'welcome-reset',
       role: 'assistant',
-      content: 'Chat cleared. How can I help you with your engineering design?',
+      content: 'Cleared. The sheet is yours to question — ask Scribe anything about it.',
       timestamp: Date.now(),
       metadata: { type: 'general' },
     }])
@@ -242,13 +243,10 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold leading-tight tracking-tight">Design assistant</h2>
-              <span className="rounded border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-primary">
-                Agent
-              </span>
+              <h2 className="text-sm font-semibold leading-tight tracking-tight">Scribe</h2>
             </div>
-            <p className="mt-1 truncate text-[11px] capitalize leading-tight text-muted-foreground">
-              {workspaceMode} workspace Â· schematic context attached
+            <p className="mt-1 truncate text-[11px] leading-tight text-muted-foreground">
+              every claim traced to the sheet
             </p>
           </div>
         </div>
@@ -258,8 +256,8 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
             <Trash2 />
           </Button>
 </HoverHelp>
-          <HoverHelp title="Close the assistant panel" description="Close the assistant panel">
-<Button variant="ghost" size="bar-icon" onClick={onClose} aria-label="Close AI assistant">
+          <HoverHelp title="Close Scribe" description="Close Scribe; your sheet stays as it is">
+<Button variant="ghost" size="bar-icon" onClick={onClose} aria-label="Close Scribe">
             <X />
           </Button>
 </HoverHelp>
@@ -291,13 +289,13 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
                 ? 'bg-primary/90 text-primary-foreground'
                 : 'border border-primary/30 bg-primary/10 text-primary'
             }`} style={msg.role === 'assistant' ? { boxShadow: '0 0 8px -2px hsl(var(--primary) / 0.25)' } : {}}>
-              {msg.role === 'user' ? 'U' : <Sparkles className="h-3 w-3" aria-hidden="true" />}
+              {msg.role === 'user' ? 'U' : <ScribeIcon className="h-3 w-3" aria-hidden="true" />}
             </div>
 
             {/* Bubble */}
             <div className={`group relative flex max-w-[85%] flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
               <span className="mb-1 px-1 text-[10px] font-medium text-muted-foreground">
-                {msg.role === 'user' ? 'You' : 'Folio Â· Agent'}
+                {msg.role === 'user' ? 'You' : 'Scribe'}
               </span>
               <div className={`rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap ${
                 msg.role === 'user'
@@ -318,7 +316,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
                     onClick={() => handleCopy(msg.id, msg.content)}
                     aria-label={
                       copyFailedId === msg.id
-                        ? 'Copy failed â€” clipboard access denied.'
+                        ? 'Copy failed — clipboard access denied.'
                         : copiedId === msg.id
                           ? 'Copied to clipboard'
                           : 'Copy reply to clipboard'
@@ -342,7 +340,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
           <div className="flex gap-2">
             <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-primary"
               style={{ boxShadow: '0 0 8px -2px hsl(var(--primary) / 0.25)' }}>
-              <Sparkles className="h-3 w-3" aria-hidden="true" />
+              <ScribeIcon className="h-3 w-3" aria-hidden="true" />
             </div>
             <div className="rounded-xl rounded-tl-sm border border-border/60 bg-muted/70 px-3 py-2">
               <div className="flex items-center gap-1">
@@ -356,19 +354,19 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Context and verification note keep the assistant's scope visible. */}
+      {/* Context and verification note keep Scribe's scope visible. */}
       <div className="shrink-0 border-t border-border/60 bg-muted/20 px-4 py-2.5">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
-          <span className="font-semibold uppercase tracking-[0.1em] text-foreground/75">Current context</span>
-          <span className="text-border" aria-hidden="true">Â·</span>
+          <span className="font-semibold uppercase tracking-[0.1em] text-foreground/75">In front of Scribe</span>
+          <span className="text-border" aria-hidden="true">·</span>
           <span className="capitalize">{workspaceMode}</span>
-          <span className="text-border" aria-hidden="true">Â·</span>
+          <span className="text-border" aria-hidden="true">·</span>
           <span>{components.length} parts</span>
-          <span className="text-border" aria-hidden="true">Â·</span>
+          <span className="text-border" aria-hidden="true">·</span>
           <span>{wires.length} wires</span>
         </div>
         <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
-          Suggestions are advisory. Verify simulation results, datasheets, design rules and manufacturing limits before release.
+          It advises; the rule checks and the solver decide. Verify simulation results, datasheets and manufacturing limits before release.
         </p>
       </div>
 
@@ -391,8 +389,8 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isVoice ? 'Listeningâ€¦' : 'Ask about your design or describe a changeâ€¦'}
-              aria-label="Message the design assistant"
+              placeholder={isVoice ? 'Listening…' : 'Ask Scribe — or describe the change you want…'}
+              aria-label="Message Scribe"
               disabled={isLoading || isVoice}
               rows={2}
               className="max-h-28 min-h-12 w-full resize-none bg-transparent px-3 py-2.5 text-[13px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/80 disabled:cursor-not-allowed disabled:opacity-60"
@@ -409,14 +407,14 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
 </HoverHelp>
         </div>
         <p className="mt-2 pl-1 text-[10px] text-muted-foreground">
-          Enter to send <span className="mx-1 text-border">Â·</span> Shift+Enter for a new line
+          Enter to send <span className="mx-1 text-border">·</span> Shift+Enter for a new line
         </p>
       </div>
     </div>
   )
 }
 
-// â”€â”€ Formatting helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Formatting helpers ──────────────────────────────────────────────────────────
 
 function formatCircuitAnalysis(analysis: { analysis: string; issues: Array<{ severity: string; message: string }>; recommendations: string[] }): string {
   const lines: string[] = ['Circuit Analysis Report\n']
@@ -429,21 +427,21 @@ function formatCircuitAnalysis(analysis: { analysis: string; issues: Array<{ sev
     const infos = analysis.issues.filter(i => i.severity === 'info')
     if (errors.length) {
       lines.push(`Errors (${errors.length}):`)
-      errors.forEach(e => lines.push(`  â€¢ ${e.message}`))
+      errors.forEach(e => lines.push(`  • ${e.message}`))
     }
     if (warnings.length) {
       lines.push(`Warnings (${warnings.length}):`)
-      warnings.forEach(w => lines.push(`  â€¢ ${w.message}`))
+      warnings.forEach(w => lines.push(`  • ${w.message}`))
     }
     if (infos.length) {
       lines.push(`Information (${infos.length}):`)
-      infos.forEach(i => lines.push(`  â€¢ ${i.message}`))
+      infos.forEach(i => lines.push(`  • ${i.message}`))
     }
   }
 
   if (analysis.recommendations.length) {
     lines.push('\n**Recommendations:**')
-    analysis.recommendations.forEach(r => lines.push(`  â†’ ${r}`))
+    analysis.recommendations.forEach(r => lines.push(`  → ${r}`))
   }
 
   return lines.join('\n')
@@ -467,7 +465,7 @@ function formatOptimizationResult(result: { improvements: Array<{ parameter: str
     lines.push('\n**Improvements achieved:**')
     result.improvements.forEach(imp => {
       const sign = imp.improvement > 0 ? '+' : ''
-      lines.push(`  â€¢ ${imp.parameter}: ${sign}${imp.improvement.toFixed(1)}%`)
+      lines.push(`  • ${imp.parameter}: ${sign}${imp.improvement.toFixed(1)}%`)
     })
   }
   return lines.join('\n')
@@ -486,7 +484,7 @@ type MaintenancePredictionView = {
 }
 
 function formatMaintenancePredictions(preds: MaintenancePredictionView[]): string {
-  if (preds.length === 0) return 'No maintenance predictions available â€” add components first.'
+  if (preds.length === 0) return 'No maintenance predictions available — add components first.'
   const lines = ['**Predictive Maintenance Analysis:**\n']
   const sorted = [...preds].sort((a, b) => b.failureProbability - a.failureProbability)
   sorted.slice(0, 5).forEach(p => {
@@ -496,9 +494,9 @@ function formatMaintenancePredictions(preds: MaintenancePredictionView[]): strin
     lines.push(`   Est. time to failure: ${Math.round(p.timeToFailure).toLocaleString()} h`)
     lines.push(`   Mode: ${p.failureMode}`)
     lines.push(`   Basis: ${p.basis}`)
-    if (p.recommendations.length) lines.push(`   â†’ ${p.recommendations[0]}`)
+    if (p.recommendations.length) lines.push(`   → ${p.recommendations[0]}`)
   })
-  if (preds.length > 5) lines.push(`\nâ€¦and ${preds.length - 5} more components`)
+  if (preds.length > 5) lines.push(`\n…and ${preds.length - 5} more components`)
   const gapCount = preds.filter(p => p.inputsMissing.length > 0).length
   lines.push(
     `\nConfidence counts the stress inputs the design actually declares; undeclared ones are listed as gaps rather than guessed.` +
@@ -512,10 +510,9 @@ function formatSmartSuggestions(suggs: Array<{ suggestion: string; reasoning: st
   const lines = ['**Smart Design Suggestions:**\n']
   suggs.slice(0, 6).forEach((s, i) => {
     lines.push(`${i + 1}. **[${s.type}]** ${s.suggestion}`)
-    lines.push(`   Confidence: ${Math.round(s.confidence * 100)}% â€” ${s.reasoning}`)
+    lines.push(`   Confidence: ${Math.round(s.confidence * 100)}% — ${s.reasoning}`)
   })
   return lines.join('\n')
 }
 
 export default AIChatPanel
-

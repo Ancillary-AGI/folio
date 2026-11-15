@@ -254,7 +254,7 @@ describe('AgentPanel surfaces', () => {
     seed(board.components, board.wires)
 
     render(<AgentPanel />)
-    fireEvent.click(screen.getByRole('tab', { name: 'Assistant' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Scribe' }))
     fireEvent.click(screen.getByRole('button', { name: 'Inspect schematic' }))
 
     expect(await screen.findByAltText('Schematic after agent step')).toBeInTheDocument()
@@ -262,13 +262,13 @@ describe('AgentPanel surfaces', () => {
     expect(screen.getByText(new RegExp(`Schematic: ${board.components.length} part`))).toBeInTheDocument()
   }, 45_000)
 
-  it('runs the assistant EDA plan against the live canvas payloads', async () => {
+  it('runs the Scribe EDA plan against the live canvas payloads', async () => {
     const board = buildDemoBoard()
     seed(board.components, board.wires)
 
     render(<AgentPanel />)
-    fireEvent.click(screen.getByRole('tab', { name: 'Assistant' }))
-    fireEvent.change(screen.getByLabelText('Assistant prompt'), { target: { value: 'Auto-route board' } })
+    fireEvent.click(screen.getByRole('tab', { name: 'Scribe' }))
+    fireEvent.change(screen.getByLabelText('Scribe prompt'), { target: { value: 'Auto-route board' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
 
     await screen.findByText(/Route:/, {}, { timeout: 30_000 })

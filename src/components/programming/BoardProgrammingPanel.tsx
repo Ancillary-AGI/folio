@@ -1,4 +1,4 @@
-﻿import HoverHelp from '../ui/HoverHelp'
+import HoverHelp from '../ui/HoverHelp'
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -106,7 +106,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
   const handleTemplateChange = (template: string) => {
     setSelectedTemplate(template);
     setSnippetNotice(null);
-    // The rectifier companion is a real, proven sketch â€” pull it from the
+    // The rectifier companion is a real, proven sketch — pull it from the
     // demo module rather than shipping a second copy here.
     if (template === 'demo_rectifier') {
       void import('../../lib/demo/demoFirmware').then((m) => {
@@ -243,7 +243,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
       const { WebSerialBridge } = await import('../../lib/hardware/hardwareInterfaces')
       const bridge = new WebSerialBridge()
       if (!bridge.isAvailable) {
-        setSerialStatus('WebSerial is not available in this browser â€” use Chrome or Edge over USB.')
+        setSerialStatus('WebSerial is not available in this browser — use Chrome or Edge over USB.')
         return
       }
       const granted = await bridge.requestPort()
@@ -258,7 +258,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
       }
       boardProgrammer.setBrowserTransport(bridge)
       setSelectedPort('webserial')
-      setSerialStatus('Serial port connected at 115200 baud â€” upload is live.')
+      setSerialStatus('Serial port connected at 115200 baud — upload is live.')
     } catch (error) {
       setSerialStatus(`Serial connect failed: ${describeError(error)}`)
     }
@@ -273,7 +273,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
     if (!compilationResult?.success || compilationResult.analysisOnly) {
       setToolchainError(
         compilationResult?.analysisOnly
-          ? 'Upload needs a compiled image. This build ran static analysis only â€” compile with arduino-cli or the Arduino IDE to flash the board.'
+          ? 'Upload needs a compiled image. This build ran static analysis only — compile with arduino-cli or the Arduino IDE to flash the board.'
           : 'Compile the sketch successfully before uploading.',
       );
       return;
@@ -386,7 +386,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
   return (
     <div className="fixed inset-0 bg-overlay/70 flex items-center justify-center z-50">
       <div className="app-panel flex max-h-[92dvh] w-full max-w-7xl flex-col overflow-y-auto rounded-xl border border-border shadow-2xl lg:h-[90vh] lg:flex-row lg:overflow-hidden">
-        {/* Code Editor â€” natural height while the panel stacks on narrow
+        {/* Code Editor — natural height while the panel stacks on narrow
             viewports, so the configuration column cannot squeeze it to zero. */}
         <div className="flex shrink-0 flex-col lg:min-h-0 lg:shrink lg:flex-1">
           <div className="app-panel-header">
@@ -510,7 +510,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
             Drag a library row onto the sketch to insert it at the caret; a row written for another domain says why it cannot land here.
           </div>
 
-          <div className="cad-dropzone relative flex min-h-0 flex-1 gap-0 p-4" role="group" aria-label="Firmware sketch editor â€” drop a code snippet here" {...snippetZone.zoneProps}>
+          <div className="cad-dropzone relative flex min-h-0 flex-1 gap-0 p-4" role="group" aria-label="Firmware sketch editor — drop a code snippet here" {...snippetZone.zoneProps}>
             <CodeEditor
               ref={editorRef}
               value={code}
@@ -556,7 +556,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                 className="flex items-center gap-2"
                 title={
                   compilationResult?.analysisOnly
-                    ? 'Static analysis produces no machine code to flash â€” install arduino-cli or use the Arduino IDE.'
+                    ? 'Static analysis produces no machine code to flash — install arduino-cli or use the Arduino IDE.'
                     : 'Flash the compiled image to the selected port.'
                 }
               >
@@ -854,7 +854,7 @@ export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanel
                    * claiming avr-gcc would be a lie about what produced the numbers.
                    */}
                   <span className={arduinoIDEVersion ? '' : 'text-muted-foreground'}>
-                    {arduinoIDEVersion ? 'avr-gcc (via detected toolchain)' : 'none detected â€” static analysis only'}
+                    {arduinoIDEVersion ? 'avr-gcc (via detected toolchain)' : 'none detected — static analysis only'}
                   </span>
                 </div>
                 <div className="flex justify-between">

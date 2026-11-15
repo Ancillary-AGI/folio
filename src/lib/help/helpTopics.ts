@@ -170,8 +170,8 @@ export const HELP_TOPICS = [
   {
     id: 'header.assistant',
     group: 'header',
-    title: 'Design assistant',
-    description: 'Ask the sheet a question or order a change: a reflex answers what is already measured, a planner works out anything multi-step, and the Models tab is where you point it at your own local model or key.',
+    title: 'Scribe',
+    description: 'Folio\'s scribe: ask the sheet a question or order a change. Scribe answers with evidence from the sheet — parts, nets, checks, dimensions — or states plainly that it cannot. Rule checks and the solver remain the arbiters.',
   },
   {
     id: 'header.theme',

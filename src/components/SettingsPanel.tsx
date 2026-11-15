@@ -51,9 +51,9 @@ const EMBEDDED_SECTIONS = [
   },
   {
     id: 'models',
-    title: 'Assistant models',
+    title: 'Scribe models',
     blurb:
-      'Bring your own key or point at a local model. Keys stay in this browser and are never written into a design, a snapshot or a transcript.',
+      'Bring your own key or point at a local model for Scribe\'s tool plans. Keys stay in this browser and are never written into a design, a snapshot or a transcript.',
     icon: MessageSquare,
     keywords: ['byok', 'api', 'key', 'openai', 'anthropic', 'ollama', 'llm', 'provider', 'agent'],
   },
@@ -554,7 +554,7 @@ export default function SettingsPanel({ onClose, onRestartOnboarding }: Settings
                   </Button>
                 </div>
                 <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
-                  The JSON is the same object the app acts on, so pasting it into a chat tells the assistant how you
+                  The JSON is the same object the app acts on, so pasting it into a chat tells Scribe how you
                   work. It holds no keys and no project data.
                 </p>
               </div>

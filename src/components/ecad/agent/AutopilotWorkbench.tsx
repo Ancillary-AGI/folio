@@ -1,5 +1,5 @@
-﻿/**
- * Autopilot workbench â€” a bounded, observable design loop.
+/**
+ * Autopilot workbench — a bounded, observable design loop.
  *
  * The agent edits the live schematic, simulates every candidate, reads margins,
  * and keeps the best measured design. This panel exposes the goal, the knobs,
@@ -77,7 +77,7 @@ const numberFrom = (value: string): number | undefined => {
 }
 
 const formatValue = (value: number | undefined, unit?: string): string => {
-  if (value === undefined || !Number.isFinite(value)) return 'â€”'
+  if (value === undefined || !Number.isFinite(value)) return '—'
   const magnitude = Math.abs(value)
   const text = magnitude !== 0 && (magnitude >= 1e6 || magnitude < 1e-3)
     ? value.toExponential(3)
@@ -404,7 +404,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
     })
     liveSession = recordAgentSessionEvent(liveSession, {
       kind: 'goal',
-      message: `${goal.analysis.type} Â· ${metricLabel(goal)} Â· ${goal.knobs?.length ?? 0} knob(s)`,
+      message: `${goal.analysis.type} · ${metricLabel(goal)} · ${goal.knobs?.length ?? 0} knob(s)`,
     }, Date.now())
 
     try {
@@ -495,7 +495,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
 
   const stop = (): void => {
     abortRef.current?.abort()
-    setNotice('Stopping after the current candidateâ€¦')
+    setNotice('Stopping after the current candidate…')
   }
 
   const restoreBest = (): void => {
@@ -657,7 +657,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
               </>
             ) : (
               <p className="mt-2 text-xs text-muted-foreground">
-                Scores the highest declared-limit utilisation across every rated part. Add ambient/Î¸JA below for thermal checks.
+                Scores the highest declared-limit utilisation across every rated part. Add ambient/θJA below for thermal checks.
               </p>
             )}
 
@@ -673,7 +673,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                 />
               </label>
               <label className="block text-xs text-muted-foreground">
-                Â± Tolerance
+                ± Tolerance
                 <Input
                   className="mt-1 h-8 bg-background text-xs"
                   value={tolerance}
@@ -710,7 +710,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                     />
                   </label>
                   <label className="block text-xs text-muted-foreground">
-                    Step (Âµs)
+                    Step (µs)
                     <Input
                       className="mt-1 h-8 bg-background text-xs"
                       value={analysisParams.stepUs}
@@ -876,7 +876,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                   />
                 </label>
                 <label className="block">
-                  Ambient (Â°C)
+                  Ambient (°C)
                   <Input
                     className="mt-1 h-7 bg-background text-xs"
                     value={String(constraints.ambientCelsius ?? 25)}
@@ -888,7 +888,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                   />
                 </label>
                 <label className="block">
-                  Î¸JA override
+                  θJA override
                   <Input
                     className="mt-1 h-7 bg-background text-xs"
                     value={constraints.thetaJa === undefined ? '' : String(constraints.thetaJa)}
@@ -998,7 +998,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
                 </div>
                 {cloudJob && (
                   <p className="text-xs">
-                    {cloudJob.id} Â· {cloudJob.state}{cloudJob.message ? ` Â· ${cloudJob.message}` : ''}
+                    {cloudJob.id} · {cloudJob.state}{cloudJob.message ? ` · ${cloudJob.message}` : ''}
                   </p>
                 )}
               </div>
@@ -1019,7 +1019,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
               </h3>
               {selected && (
                 <span className={`text-xs ${statusClass(selected)}`}>
-                  {selected.phase} Â· {formatValue(selected.metric, selected.metricUnit)}
+                  {selected.phase} · {formatValue(selected.metric, selected.metricUnit)}
                 </span>
               )}
             </div>
@@ -1071,7 +1071,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
               </h3>
               {currentBoard && (
                 <span className="truncate text-xs text-muted-foreground">
-                  {currentBoard.stats.components} parts Â· {currentBoard.stats.traces} traces Â·{' '}
+                  {currentBoard.stats.components} parts · {currentBoard.stats.traces} traces ·{' '}
                   {formatValue(currentBoard.stats.traceLengthMm, 'mm')} copper
                 </span>
               )}
@@ -1097,9 +1097,9 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
               </h3>
               {currentAssembly && currentAssembly.summary.partCount > 0 && (
                 <span className="truncate text-xs text-muted-foreground">
-                  {currentAssembly.summary.partCount} parts Â· {formatValue(currentAssembly.summary.totalMassKg, 'kg')} Â·{' '}
+                  {currentAssembly.summary.partCount} parts · {formatValue(currentAssembly.summary.totalMassKg, 'kg')} ·{' '}
                   {formatValue(currentAssembly.summary.highestStressMPa, 'MPa')} peak
-                  {currentAssembly.warnings > 0 ? ` Â· ${currentAssembly.warnings} warning(s)` : ''}
+                  {currentAssembly.warnings > 0 ? ` · ${currentAssembly.warnings} warning(s)` : ''}
                 </span>
               )}
             </div>
@@ -1197,7 +1197,7 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
           {session && (
             <p className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
               <Wrench size={11} />
-              Session {session.id} Â· {session.iterationCount} iteration(s) Â· saved locally
+              Session {session.id} · {session.iterationCount} iteration(s) · saved locally
             </p>
           )}
         </div>
@@ -1205,4 +1205,3 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
     </div>
   )
 }
-
