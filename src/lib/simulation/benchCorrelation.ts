@@ -59,13 +59,14 @@ const sameGrid = (
  * A signal only becomes a band when the sweep emitted all three traces on the
  * same x grid; anything else is listed in `gridMismatch` so the caller can say
  * the envelope was not formed, rather than showing a band that is an artefact of
- * index alignment.
+ * index alignment. Signals the sweep measured but without a full mean/±3σ set
+ * are listed in `unformedEnvelopes` for the same reason.
  */
 export function toleranceEnvelope(
   model: CircuitModel,
   run: (perturbed: CircuitModel) => AnalysisOutcome,
   options: { iterations?: number; tolerance?: number; seed?: number } = {},
-): { bands: EnvelopeBand[]; sweep: MonteCarloResult; gridMismatch: string[] } {
+): { bands: EnvelopeBand[]; sweep: MonteCarloResult; gridMismatch: string[]; unformedEnvelopes: string[] } {
   const sweep = runMonteCarlo(model, run, {
     iterations: options.iterations ?? 100,
     tolerance: options.tolerance ?? 0.05,
@@ -83,8 +84,14 @@ export function toleranceEnvelope(
   }
   const bands: EnvelopeBand[] = []
   const gridMismatch: string[] = []
+  const unformedEnvelopes: string[] = []
   for (const [signal, entry] of bySignal) {
-    if (entry.mean.length === 0 || !entry.plus || !entry.minus) continue
+    if (entry.mean.length === 0 || !entry.plus || !entry.minus) {
+      // No trace set at all: silence here would make a broken sweep look like
+      // a design with nothing to measure.
+      unformedEnvelopes.push(signal)
+      continue
+    }
     // A band is only a band if the ±3σ traces sit on the mean's grid. Pairing
     // points by index across different x arrays — or inventing a zero-width
     // point when one is short — would silently narrow the envelope the bench
@@ -104,7 +111,7 @@ export function toleranceEnvelope(
       })),
     })
   }
-  return { bands, sweep, gridMismatch }
+  return { bands, sweep, gridMismatch, unformedEnvelopes }
 }
 
 /** Linear interpolation of the band at `x`; `undefined` outside the grid. */

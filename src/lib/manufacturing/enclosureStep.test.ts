@@ -30,7 +30,7 @@ describe('enclosure STEP', () => {
     expect(step.startsWith('ISO-10303-21;')).toBe(true)
     expect(step.trimEnd().endsWith('END-ISO-10303-21;')).toBe(true)
     expect(step).toContain('CLOSED_SHELL')
-    expect(step).toContain('MANIFOLD_SOLID_BREP')
+    expect(step).toContain('FACETED_BREP')
     const points = step.split('\n').filter((line) => line.includes('=CARTESIAN_POINT'))
     expect(points.length).toBeGreaterThan(100)
     for (const point of points) {
@@ -44,9 +44,9 @@ describe('enclosure STEP', () => {
 
   it('cuts four corner standoff holes through floor and lid', () => {
     const { step, outerW, outerD } = enclosureStep(spec)
-    // 8 prisms × 12 sides = 96 side faces; each carries 4 new points.
-    const polys = step.split('\n').filter((line) => line.includes('POLYLINE'))
-    expect(polys.length).toBeGreaterThan(96)
+    // 8 prisms × 12 side faces = 96 side faces alone; ADVANCED_FACE is the face entity.
+    const faces = step.split('\n').filter((line) => line.includes('=ADVANCED_FACE'))
+    expect(faces.length).toBeGreaterThan(96)
     // Corner hole centres sit inside the outer box.
     expect(outerW).toBeGreaterThan(0)
     expect(outerD).toBeGreaterThan(0)

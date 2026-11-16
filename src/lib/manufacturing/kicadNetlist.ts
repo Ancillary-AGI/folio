@@ -15,7 +15,7 @@ export interface KicadNetlist {
   nets: Array<{ code: string; name: string; nodes: Array<{ ref: string; pin: string }> }>
 }
 
-/** Tokenize an s-expression: parens, quoted strings, atoms. */
+/** Tokenize an s-expression: parens, quoted strings (with backslash escapes), atoms. */
 function tokenize(text: string): string[] {
   const tokens: string[] = []
   let current = ''
@@ -23,13 +23,21 @@ function tokenize(text: string): string[] {
   for (let i = 0; i < text.length; i++) {
     const char = text[i]
     if (quoted !== null) {
+      if (char === '\\' && i + 1 < text.length) {
+        // Backslash escape: `\"` is a literal quote, `\\` a literal
+        // backslash — the round-trip KiCad and this module both need.
+        current += text[i + 1]
+        i += 1
+        continue
+      }
       if (char === '"') {
-        tokens.push(`"${current}"`)
+        // Re-quote so the token round-trips through parseTokens/unquote.
+        tokens.push(`"${current.replace(/"/g, '\\"')}"`)
         current = ''
         quoted = null
-      } else {
-        current += char
+        continue
       }
+      current += char
       continue
     }
     if (char === '"') {
@@ -46,19 +54,25 @@ function tokenize(text: string): string[] {
       current += char
     }
   }
+  if (quoted !== null) throw new Error('KiCad: unterminated quoted string.')
   if (current.trim()) tokens.push(current.trim())
   return tokens
 }
 
+const MAX_SEXPR_DEPTH = 64
+
 type SExpr = string | SExpr[]
 
-function parseTokens(tokens: string[]): SExpr {
+function parseTokens(tokens: string[], depth = 0): SExpr {
+  if (depth > MAX_SEXPR_DEPTH) {
+    throw new Error(`KiCad: nesting deeper than ${MAX_SEXPR_DEPTH} levels.`)
+  }
   const token = tokens.shift()
   if (token === '(') {
     const list: SExpr[] = []
     while (tokens[0] !== ')') {
       if (tokens.length === 0) throw new Error('KiCad: unterminated list.')
-      list.push(parseTokens(tokens))
+      list.push(parseTokens(tokens, depth + 1))
     }
     tokens.shift()
     return list
@@ -68,7 +82,9 @@ function parseTokens(tokens: string[]): SExpr {
 }
 
 const unquote = (value: string): string =>
-  value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value
+  value.startsWith('"') && value.endsWith('"')
+    ? value.slice(1, -1).replace(/\\(.)/g, '$1')
+    : value
 
 const field = (list: SExpr[], name: string): string | undefined => {
   for (const entry of list.slice(1)) {
@@ -76,6 +92,16 @@ const field = (list: SExpr[], name: string): string | undefined => {
   }
   return undefined
 }
+
+/** Quote a string for the s-expression dialect: embedded backslashes first,
+ * then quotes. Used for net names and values. */
+const escapeSExprString = (value: string): string =>
+  `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+
+/** Emit an atom that survives the tokenizer: a bare atom when it is simple,
+ * a quoted string otherwise. */
+const escapeSExprAtom = (value: string): string =>
+  /^[A-Za-z0-9_.\-+/]+$/.test(String(value)) ? String(value) : escapeSExprString(String(value))
 
 /** Parse a KiCad s-expression netlist into components + nets. */
 export function parseKicadNetlist(text: string): KicadNetlist {
@@ -118,7 +144,7 @@ export function emitKicadNetlist(netlist: CircuitNetlist): string {
   lines.push('  (components')
   for (const component of netlist.components) {
     const value = String(component.parameters.value ?? '')
-    lines.push(`    (comp (ref ${component.name}) (value "${value}") (footprint ""))`)
+    lines.push(`    (comp (ref ${escapeSExprAtom(component.name)}) (value ${escapeSExprString(value)}) (footprint ""))`)
   }
   lines.push('  )')
   // Group pins by node name into numbered nets. Unconnected terminals have no
@@ -137,9 +163,9 @@ export function emitKicadNetlist(netlist: CircuitNetlist): string {
   lines.push('  (nets')
   let code = 1
   for (const [name, nodes] of nets) {
-    lines.push(`    (net ${code} "${name}"`)
+    lines.push(`    (net ${code} ${escapeSExprString(name)}`)
     for (const node of nodes) {
-      lines.push(`      (node (ref ${node.ref}) (pin ${node.pin}))`)
+      lines.push(`      (node (ref ${escapeSExprAtom(node.ref)}) (pin ${escapeSExprAtom(node.pin)}))`)
     }
     lines.push('    )')
     code += 1

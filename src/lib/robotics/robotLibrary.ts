@@ -325,7 +325,7 @@ const GANTRY_400: RobotArchitecture = {
   name: 'Cartesian gantry, 400 × 400 × 100 mm',
   category: 'SCARA and gantry',
   dof: 3,
-  reachMm: 583,
+  reachMm: 574,
   payloadKg: 3,
   spec: 'PPP · 400×400×100 mm',
   description:

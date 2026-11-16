@@ -146,11 +146,32 @@ export function calculateBuckConverter(input: BuckDesignInput): BuckDesignResult
   if (ioutA <= 0) throw new Error('Output current must be positive.');
   if (switchingFreqHz <= 0) throw new Error('Switching frequency must be positive.');
 
-  const efficiency = (input.efficiencyPercent ?? 90) / 100;
+  // Efficiency is declared by the input but does not belong in the ideal
+  // volt-second balance; conduction losses are friction, not physics. It is
+  // validated so a nonsense value still fails loudly when given.
+  if (input.efficiencyPercent !== undefined) {
+    const efficiencyPercent = input.efficiencyPercent;
+    if (!Number.isFinite(efficiencyPercent) || efficiencyPercent <= 0 || efficiencyPercent > 100) {
+      throw new Error(`Buck efficiency must be in (0, 100] %, got ${efficiencyPercent} %.`);
+    }
+  }
   const rippleRatio = input.inductorRippleRatio ?? 0.35;
   const maxRippleV = input.maxVoutRippleV ?? (voutV * 0.01); // 1% default
 
-  const d = voutV / (vinV * efficiency);
+  if (!Number.isFinite(vinV) || !Number.isFinite(voutV) || !Number.isFinite(ioutA) || !Number.isFinite(switchingFreqHz)) {
+    throw new Error('Vin, Vout, Iout and switching frequency must all be finite.');
+  }
+  if (!Number.isFinite(rippleRatio) || rippleRatio <= 0 || rippleRatio > 1) {
+    throw new Error(`Inductor ripple ratio must be in (0, 1], got ${rippleRatio}.`);
+  }
+  if (!Number.isFinite(maxRippleV) || maxRippleV <= 0) {
+    throw new Error('Maximum output ripple must be positive.');
+  }
+
+  // Volt-second balance for a synchronous buck sets the ideal duty cycle;
+  // efficiency is a conduction-loss estimate, not a correction to the ideal
+  // ratio. Using vout/(vin·η) inflated D and biased the inductance low.
+  const d = voutV / vinV;
   const deltaIl = rippleRatio * ioutA;
   const l = (voutV * (1 - d)) / (deltaIl * switchingFreqHz);
   const iPeak = ioutA + deltaIl / 2;
@@ -189,6 +210,21 @@ export function calculateLdoThermal(
   ambientTempC: number = 25,
   maxAllowedJunctionTempC: number = 125,
 ): LdoThermalResult {
+  if (!Number.isFinite(vinV) || !Number.isFinite(voutV)) {
+    throw new Error('LDO Vin and Vout must be finite.');
+  }
+  if (!Number.isFinite(iloadA) || iloadA < 0) {
+    throw new Error(`LDO load current must be non-negative and finite, got ${iloadA} A.`);
+  }
+  if (!Number.isFinite(quiescentCurrentA) || quiescentCurrentA < 0) {
+    throw new Error(`LDO quiescent current must be non-negative and finite, got ${quiescentCurrentA} A.`);
+  }
+  if (!Number.isFinite(thetaJaCperW) || thetaJaCperW < 0) {
+    throw new Error(`LDO θJA must be non-negative and finite, got ${thetaJaCperW} °C/W.`);
+  }
+  if (!Number.isFinite(ambientTempC) || !Number.isFinite(maxAllowedJunctionTempC)) {
+    throw new Error('LDO ambient temperature and maximum junction temperature must be finite.');
+  }
   if (vinV < voutV) throw new Error('LDO Vin must be >= Vout.');
   const pd = (vinV - voutV) * iloadA + vinV * quiescentCurrentA;
   const tj = ambientTempC + pd * thetaJaCperW;

@@ -88,6 +88,7 @@ export interface MechanicalAssembly {
 export class MechanicalDesignEngine {
   private assemblies: Map<string, MechanicalAssembly> = new Map();
   private idSeq = 0;
+  private assemblySeq = 0;
 
   createComponent(
     type: MechanicalComponent['type'],
@@ -291,8 +292,12 @@ export class MechanicalDesignEngine {
   }
 
   createAssembly(name: string): MechanicalAssembly {
+    this.assemblySeq += 1;
     const assembly: MechanicalAssembly = {
-      id: `assembly_${Date.now()}`,
+      // Monotonic sequence, not wall-clock time, decides uniqueness within
+      // the process; Date.now() is only for human readability. A dedicated
+      // counter keeps component naming stable.
+      id: `assembly_${Date.now()}_${this.assemblySeq}`,
       name,
       components: [],
       constraints: [],
@@ -308,18 +313,29 @@ export class MechanicalDesignEngine {
 
   addComponentToAssembly(assemblyId: string, component: MechanicalComponent): void {
     const assembly = this.assemblies.get(assemblyId);
-    if (assembly) {
-      assembly.components.push(component);
-      this.updateAssemblyMetadata(assembly);
+    if (!assembly) {
+      throw new Error(`Unknown assembly "${assemblyId}".`);
     }
+    assembly.components.push(component);
+    this.updateAssemblyMetadata(assembly);
   }
 
   addConstraint(assemblyId: string, constraint: MechanicalConstraint): void {
     const assembly = this.assemblies.get(assemblyId);
-    if (assembly) {
-      assembly.constraints.push(constraint);
-      this.validateConstraints(assembly);
+    if (!assembly) {
+      throw new Error(`Unknown assembly "${assemblyId}".`);
     }
+    if (!Array.isArray(constraint.components) || constraint.components.length < 2) {
+      throw new Error('An assembly constraint needs at least two components.');
+    }
+    // Validate against the prospective constraint set before storing it;
+    // an invalid constraint is refused, not stored and warned about.
+    const valid = this.validateConstraints({ ...assembly, constraints: [...assembly.constraints, constraint] });
+    if (!valid) {
+      const target = constraint.type === 'distance' ? 'components are not at the declared distance' : 'constraint is not satisfied';
+      throw new Error(`Constraint "${constraint.type}" is not satisfied — ${target}.`);
+    }
+    assembly.constraints.push(constraint);
   }
 
   private updateAssemblyMetadata(assembly: MechanicalAssembly): void {
@@ -344,6 +360,15 @@ export class MechanicalDesignEngine {
       maxY = Math.max(maxY, comp.position.y + halfHeight);
     });
 
+    if (assembly.components.length === 0) {
+      // An empty assembly's bounds are zero — ±Infinity would JSON-serialise
+      // to null the next time this is persisted.
+      assembly.metadata.totalWeight = 0;
+      assembly.metadata.centerOfMass = { x: 0, y: 0 };
+      assembly.metadata.boundingBox = { min: { x: 0, y: 0 }, max: { x: 0, y: 0 } };
+      return;
+    }
+
     assembly.metadata.totalWeight = totalWeight;
     assembly.metadata.centerOfMass = {
       x: totalWeight > 0 ? centerX / totalWeight : 0,
@@ -355,23 +380,32 @@ export class MechanicalDesignEngine {
     };
   }
 
+  /** Tolerance for a distance constraint, in the assembly's own units (metres): 1 mm. */
+  private static readonly CONSTRAINT_DISTANCE_TOLERANCE = 1e-3;
+
   private validateConstraints(assembly: MechanicalAssembly): boolean {
-    // Basic constraint validation
+    // Distance constraints are checked; angle/coincident/parallel/perpendicular
+    // are stored but not validated here — this is a bookkeeping engine, not a
+    // constraint solver, and that is the declared limit.
     for (const constraint of assembly.constraints) {
       if (constraint.type === 'distance') {
-        // Check if components are at specified distance
-        const comp1 = assembly.components.find(c => c.id === constraint.components[0]);
-        const comp2 = assembly.components.find(c => c.id === constraint.components[1]);
-        if (comp1 && comp2) {
-          const dx = comp1.position.x - comp2.position.x;
-          const dy = comp1.position.y - comp2.position.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          const targetDistance = constraint.parameters.distance || 0;
-          if (Math.abs(distance - targetDistance) > 1) {
-            console.warn(`Constraint violation: distance between ${comp1.name} and ${comp2.name}`);
-            return false;
-          }
+        // Components referenced by the constraint must exist.
+        const first = assembly.components.find(c => c.id === constraint.components[0]);
+        const second = assembly.components.find(c => c.id === constraint.components[1]);
+        if (!first || !second) return false;
+        const dx = first.position.x - second.position.x;
+        const dy = first.position.y - second.position.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const targetDistance = constraint.parameters.distance;
+        if (typeof targetDistance !== 'number' || !Number.isFinite(targetDistance) || targetDistance < 0) {
+          return false;
         }
+        if (Math.abs(distance - targetDistance) > MechanicalDesignEngine.CONSTRAINT_DISTANCE_TOLERANCE) {
+          console.warn(`Constraint violation: distance between ${first.name} and ${second.name} (${distance.toFixed(4)} ≠ ${targetDistance})`);
+          return false;
+        }
+      } else if (constraint.components.length !== 2) {
+        return false;
       }
     }
     return true;
@@ -379,14 +413,20 @@ export class MechanicalDesignEngine {
 
   /**
    * AP214 STEP assembly: one faceted closed shell per component, positioned and
+   * rotated in assembly coordinates, written with a SI_UNIT metre context so
+   * the coordinates import at their true scale. Coordinates stay in this
+   * engine's metres throughout.
+   */
+  /**
+   * AP214 STEP assembly: one faceted closed shell per component, positioned and
    * rotated in assembly coordinates. Emitted through the shared
    * `stepGeometry` writer so the dialect matches the enclosure and mechanism
-   * exporters. Coordinates stay in this engine's metres; the writer emits no
-   * unit context, so downstream tools must not assume millimetres.
+   * exporters. Coordinates are metres; the writer emits millimetre unit
+   * context for the export — see the exporter note.
    */
   exportToSTEP(assemblyId: string): string {
     const assembly = this.assemblies.get(assemblyId);
-    if (!assembly) return '';
+    if (!assembly) throw new Error(`Unknown assembly "${assemblyId}".`);
 
     const solids = assembly.components.map(comp => {
       const halfWidth = comp.dimensions.width / 2;
@@ -405,12 +445,12 @@ export class MechanicalDesignEngine {
       return { name: comp.name, faces };
     });
 
-    return stepAssemblyDocument(solids, 'folio-mechanical-assembly');
+    return stepAssemblyDocument(solids, 'folio-mechanical-assembly', '1970-01-01T00:00:00Z', 'm');
   }
 
   exportToSTL(assemblyId: string): string {
     const assembly = this.assemblies.get(assemblyId);
-    if (!assembly) return '';
+    if (!assembly) throw new Error(`Unknown assembly "${assemblyId}".`);
 
     let stlContent = 'solid mechanical_assembly\n';
 

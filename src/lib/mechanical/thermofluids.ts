@@ -424,6 +424,23 @@ const LAMINAR_LIMIT = 2300
 const TURBULENT_ONSET = 4000
 
 /**
+ * Darcy friction factor, one shared implementation: Hagen–Poiseuille below
+ * LAMINAR_LIMIT, Swamee–Jain above. Both pipe solvers consume this so the
+ * laminar/turbulent decision cannot drift between the single-pipe and the
+ * network analysis.
+ */
+function frictionFactorFor(
+  reynolds: number,
+  relativeRoughness: number,
+): { frictionFactor: number; turbulent: boolean } {
+  if (reynolds < LAMINAR_LIMIT) {
+    return { frictionFactor: 64 / reynolds, turbulent: false }
+  }
+  const argument = relativeRoughness / 3.7 + 5.74 / reynolds ** 0.9
+  return { frictionFactor: 0.25 / Math.log10(argument) ** 2, turbulent: true }
+}
+
+/**
  * Darcy–Weisbach head loss for a single pipe.
  *
  * The friction factor is exact Hagen–Poiseuille in the laminar branch and the
@@ -455,15 +472,9 @@ export function analysePipeFlow(input: PipeFlowInput): PipeFlowResult {
   let frictionFactor = 0
   let regime: PipeFlowResult['regime'] = 'laminar'
   if (reynolds > 0) {
-    if (reynolds < LAMINAR_LIMIT) {
-      frictionFactor = 64 / reynolds
-      regime = 'laminar'
-    } else {
-      const relativeRoughness = (roughness * 1e-3) / diameter
-      const argument = relativeRoughness / 3.7 + 5.74 / reynolds ** 0.9
-      frictionFactor = 0.25 / Math.log10(argument) ** 2
-      regime = reynolds < TURBULENT_ONSET ? 'transitional' : 'turbulent'
-    }
+    const solved = frictionFactorFor(reynolds, (roughness * 1e-3) / diameter)
+    frictionFactor = solved.frictionFactor
+    regime = !solved.turbulent ? 'laminar' : reynolds < TURBULENT_ONSET ? 'transitional' : 'turbulent'
   }
 
   const velocityHead = (velocity * velocity) / (2 * STANDARD_GRAVITY)
@@ -661,12 +672,7 @@ export function solvePipeNetwork(input: PipeNetworkInput): PipeNetworkResult {
       const reynolds = (density * velocity * pipe.diameterM) / viscosity
       let frictionFactor = 0
       if (reynolds > 0) {
-        if (reynolds < LAMINAR_LIMIT) {
-          frictionFactor = 64 / reynolds
-        } else {
-          const argument = (pipe.roughnessMm * 1e-3) / pipe.diameterM / 3.7 + 5.74 / reynolds ** 0.9
-          frictionFactor = 0.25 / Math.log10(argument) ** 2
-        }
+        frictionFactor = frictionFactorFor(reynolds, (pipe.roughnessMm * 1e-3) / pipe.diameterM).frictionFactor
       }
       const velocityHead = (velocity * velocity) / (2 * STANDARD_GRAVITY)
       const headLoss = frictionFactor * (pipe.lengthM / pipe.diameterM) * velocityHead + (pipe.minorLossCoefficient ?? 0) * velocityHead

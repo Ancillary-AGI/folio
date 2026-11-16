@@ -37,6 +37,24 @@ export interface OpAmpConfig {
 /** Closed-loop voltage gain (signed for inverting). Throws on non-positive resistors. */
 export function opAmpGain(config: OpAmpConfig): number {
   if (config.kind === 'voltage-follower') return 1;
+  if (config.kind === 'differential') {
+    // A difference amplifier needs both sides: R1/RF set the inverting gain,
+    // rIn/r2 set the non-inverting divider. Only when the ratios match is the
+    // difference-mode gain a single number; otherwise the common-mode
+    // response is not zero and no one number describes the circuit.
+    const { r1, rF, rIn, r2 } = config;
+    if (!(r1! > 0) || !(rF! > 0) || !(rIn! > 0) || !(r2! > 0)) {
+      throw new Error('differential op-amp needs positive r1, rF, rIn and r2.');
+    }
+    const inverting = rF / r1;
+    const nonInverting = r2 / rIn;
+    if (Math.abs(inverting - nonInverting) > 1e-9 * Math.max(inverting, nonInverting)) {
+      throw new Error(
+        `differential op-amp needs matched ratios (rF/r1 = r2/rIn, got ${inverting.toPrecision(4)} and ${nonInverting.toPrecision(4)}).`,
+      );
+    }
+    return inverting;
+  }
   const { rIn, rF } = config;
   if (!(rIn! > 0) || !(rF! > 0)) throw new Error('op-amp config needs positive rIn and rF.');
   if (config.kind === 'inverting') return -rF! / rIn!;

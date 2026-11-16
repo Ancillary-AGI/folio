@@ -511,13 +511,13 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
       )
       const { model, errors } = buildCircuitModel(netlist)
       if (errors.length > 0) throw new Error(errors.join(' '))
-      const { bands, gridMismatch } = toleranceEnvelope(model, (perturbed) => runOperatingPoint(perturbed, { temperatureCelsius: 27 }).outcome, { iterations: 60, tolerance: 0.05 })
+      const { bands, gridMismatch, unformedEnvelopes } = toleranceEnvelope(model, (perturbed) => runOperatingPoint(perturbed, { temperatureCelsius: 27 }).outcome, { iterations: 60, tolerance: 0.05 })
       const verdict = correlateBench(bands, samples)
-      setBenchVerdict(
-        gridMismatch.length > 0
-          ? `${verdict.summary} No envelope for ${gridMismatch.join(', ')}: the sweep's ±3σ traces were not on the mean's grid.`
-          : verdict.summary,
-      )
+      const misses = [
+        gridMismatch.length > 0 ? `${gridMismatch.join(', ')}: ±3σ traces were not on the mean's grid` : null,
+        unformedEnvelopes.length > 0 ? `${unformedEnvelopes.join(', ')}: no mean/±3σ trace set from the sweep` : null,
+      ].filter(Boolean)
+      setBenchVerdict(misses.length > 0 ? `${verdict.summary} No envelope for ${misses.join('; ')}.` : verdict.summary)
     } catch (thrown) {
       setBenchVerdict(`Bench correlation failed: ${describeError(thrown)}`)
     }

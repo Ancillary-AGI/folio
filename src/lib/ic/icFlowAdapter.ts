@@ -237,7 +237,7 @@ export function synthesize(netlist: DigitalNetlist, ports?: PortDirection[]): Sy
     primaryOutputs,
     metrics: {
       gateCount: 0, totalCellAreaUm2: 0, totalLeakagePowerUw: 0,
-      estimatedDynamicPowerMwAt100Mhz: 0, criticalPathDelayPs: 0,
+      estimatedDynamicPowerMw: 0, criticalPathDelayPs: 0,
       maxOperatingFreqMhz: 0, criticalPath: [],
     },
     cells: [],
@@ -264,7 +264,7 @@ export function synthesize(netlist: DigitalNetlist, ports?: PortDirection[]): Sy
     totalArea: module.metrics.totalCellAreaUm2,
     criticalPathPs: module.metrics.criticalPathDelayPs,
     staticPowerUw: module.metrics.totalLeakagePowerUw,
-    dynamicPowerMw: module.metrics.estimatedDynamicPowerMwAt100Mhz,
+    dynamicPowerMw: module.metrics.estimatedDynamicPowerMw,
   }
 }
 

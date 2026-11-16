@@ -51,6 +51,12 @@ export interface ThermalAnalysisResult {
   simulatedTime: number;
   timeToSteadyState: number | null;
   recommendations: string[];
+  /**
+   * Things the run had to do that change how far the result may be trusted —
+   * an aborted, non-finite iteration, a truncated timeline. Absent or empty
+   * means the run finished cleanly.
+   */
+  warnings?: string[];
 }
 
 export interface ThermalSimulationConfig {
@@ -162,14 +168,19 @@ export class ThermalAnalysisEngine {
 
     const environments = this.buildEnvironments(nodes, boundaries, config);
     const links = this.buildLinks(nodes, config);
-    let temperatures = nodes.map(node =>
-      Number.isFinite(node.temperature) ? node.temperature : config.ambientTemperature
-    );
+    let temperatures = nodes.map(node => node.temperature);
 
-    const substepsPerStep = this.substepCount(environments, links, temperatures, config.timeStep);
+    const { substeps: substepsPerStep, capped, stableStep } = this.substepCount(environments, links, temperatures, config.timeStep);
     const substep = config.timeStep / substepsPerStep;
     const totalSteps = Math.ceil(config.simulationTime / config.timeStep);
 
+    const warnings: string[] = [];
+    if (capped) {
+      warnings.push(
+        `The explicit integrator needed more than ${MAX_SUBSTEPS} substeps per output step to hold its stability bound ` +
+          `(stable step ≈ ${(stableStep * 1000).toFixed(3)} ms). The field may oscillate; treat the transient as not converged even where it stays finite.`,
+      );
+    }
     let converged = false;
     let simulatedTime = 0;
     let timeToSteadyState: number | null = null;
@@ -177,7 +188,15 @@ export class ThermalAnalysisEngine {
     simulate: for (let step = 0; step < totalSteps; step++) {
       for (let sub = 0; sub < substepsPerStep; sub++) {
         const next = this.computeNextTemperatures(environments, links, temperatures, substep);
-        if (next.some(temperature => !Number.isFinite(temperature))) break simulate;
+        if (next.some(temperature => !Number.isFinite(temperature))) {
+          // Never return a silently truncated transient as if it solved:
+          // name the time it died at and what was left undone.
+          warnings.push(
+            `The solver produced a non-finite temperature at t = ${simulatedTime.toFixed(6)} s (step ${step + 1}/${totalSteps}). ` +
+              'The reported field is the last finite state, not a steady-state solution.',
+          );
+          break simulate;
+        }
 
         const maxDelta = next.reduce(
           (max, temperature, index) => Math.max(max, Math.abs(temperature - temperatures[index])),
@@ -203,9 +222,12 @@ export class ThermalAnalysisEngine {
       hotspots,
       thermalGradient,
       maxTemperature: Math.max(...temperatures),
-      converged,
+      // Any warning (non-finite abort, capped integrator) refuses the
+      // converged flag outright.
+      converged: warnings.length > 0 ? false : converged,
       simulatedTime,
       timeToSteadyState,
+      ...(warnings.length > 0 ? { warnings } : {}),
       recommendations: this.generateThermalRecommendations(resultNodes, hotspots)
     };
   }
@@ -359,12 +381,18 @@ export class ThermalAnalysisEngine {
     return links;
   }
 
+  /**
+   * Subdivide the requested step so explicit Euler stays under the
+   * stability bound 0.5·C/G. When even MAX_SUBSTEPS cannot get there, the
+   * result says so — an oscillating-but-finite temperature field must not
+   * come back labelled a normal solve.
+   */
   private substepCount(
     environments: NodeEnvironment[],
     links: ThermalLink[],
     temperatures: number[],
     requestedStep: number
-  ): number {
+  ): { substeps: number; capped: boolean; stableStep: number } {
     const conductances = environments.map((environment, index) => {
       const absolute = Math.max(temperatures[index] + KELVIN_OFFSET, 1);
       return environment.convectionCoefficientWPerM2K * environment.convectionAreaM2
@@ -386,8 +414,13 @@ export class ThermalAnalysisEngine {
       }
     });
 
-    if (!Number.isFinite(stableStep)) return 1;
-    return Math.max(1, Math.min(MAX_SUBSTEPS, Math.ceil(requestedStep / stableStep)));
+    if (!Number.isFinite(stableStep)) return { substeps: 1, capped: false, stableStep: Infinity };
+    const needed = Math.ceil(requestedStep / stableStep);
+    return {
+      substeps: Math.max(1, Math.min(MAX_SUBSTEPS, needed)),
+      capped: needed > MAX_SUBSTEPS,
+      stableStep,
+    };
   }
 
   private computeNextTemperatures(

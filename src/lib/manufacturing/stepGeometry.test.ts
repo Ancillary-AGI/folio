@@ -40,9 +40,9 @@ describe('STEP assembly document', () => {
     expect(text.endsWith('END-ISO-10303-21;')).toBe(true)
     expect(text).toContain("FILE_SCHEMA(('AUTOMOTIVE_DESIGN'));")
     expect(count(text, 'CLOSED_SHELL')).toBe(2)
-    expect(count(text, 'MANIFOLD_SOLID_BREP')).toBe(2)
-    expect(text).toContain("MANIFOLD_SOLID_BREP('lid'")
-    expect(text).toContain("MANIFOLD_SOLID_BREP('base'")
+    expect(count(text, 'FACETED_BREP')).toBe(2)
+    expect(text).toContain("FACETED_BREP('lid'")
+    expect(text).toContain("FACETED_BREP('base'")
   })
 
   it('defines every referenced entity and numbers them monotonically', () => {
@@ -56,6 +56,21 @@ describe('STEP assembly document', () => {
       .flatMap(match => match[1].split(','))
       .map(reference => Number(reference.slice(1)))
     for (const reference of references) expect(definitions).toContain(reference)
+  })
+
+  it('closes the reference graph on a mixed box/prism shell', () => {
+    // Every #reference — not just the parenthesised lists, which the cube
+    // test above catches — must resolve to a defined entity, or a strict
+    // reader rejects the file.
+    const faces = [...boxFaces(0, 0, 0, 100, 80, 10), ...holePrism(10, 10, 0, 10, 3, 16)]
+    const text = stepDocument(faces, 'tray')
+    const definitions = new Set([...text.matchAll(/^#(\d+)=/gm)].map(match => Number(match[1])))
+    const dangling = new Set<number>()
+    for (const match of text.matchAll(/#(\d+)/g)) {
+      const id = Number(match[1])
+      if (!definitions.has(id)) dangling.add(id)
+    }
+    expect([...dangling]).toEqual([])
   })
 
   it('escapes quotes in names and is deterministic across calls', () => {

@@ -170,6 +170,9 @@ export async function checkTaskPath(options: {
   });
 
   // Finite-difference joint velocities give the service a real motion record.
+  // A central difference is the honest estimator: (q(i+1) − q(i−1)) / (t(i+1) − t(i−1)).
+  // The old code divided the one-sided backward difference by the same two-interval
+  // dt, halving every interior velocity.
   waypoints.forEach((waypoint, index) => {
     if (samples === 1) {
       waypoint.velocities = Object.fromEntries(joints.map((joint) => [joint.id, 0]));
@@ -180,7 +183,7 @@ export async function checkTaskPath(options: {
     const dt = waypoints[next].timestamp - waypoints[previous].timestamp;
     waypoint.velocities = Object.fromEntries(
       joints.map((joint) => {
-        const delta = waypoint.jointAngles[joint.id] - waypoints[previous].jointAngles[joint.id];
+        const delta = waypoints[next].jointAngles[joint.id] - waypoints[previous].jointAngles[joint.id];
         return [joint.id, dt > 0 ? delta / dt : 0];
       }),
     );
@@ -202,8 +205,11 @@ export async function checkTaskPath(options: {
       position: joint.position,
       orientation: { roll: 0, pitch: 0, yaw: 0 },
       limits: joint.limits,
-      velocity: 0,
-      acceleration: 0,
+      // The service boundary requires positive velocity/acceleration caps;
+      // this caller declares no actuator model, so it states a permissive
+      // cap and says so — it is not a claim about a real drive.
+      velocity: 1,
+      acceleration: 1,
       // Holding torque scale; only used by the service's energy metric.
       torque: 0,
     })),

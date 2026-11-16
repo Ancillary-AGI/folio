@@ -66,9 +66,9 @@ describe('MechanicalDesignEngine', () => {
     expect(step.startsWith('ISO-10303-21;')).toBe(true);
     expect(step).toContain("FILE_SCHEMA(('AUTOMOTIVE_DESIGN'))");
     expect(step.match(/=CLOSED_SHELL\(/g)).toHaveLength(2);
-    expect(step.match(/=MANIFOLD_SOLID_BREP\(/g)).toHaveLength(2);
-    expect(step).toContain("MANIFOLD_SOLID_BREP('structural_1'");
-    expect(step).toContain("MANIFOLD_SOLID_BREP('enclosure_2'");
+    expect(step.match(/=FACETED_BREP\(/g)).toHaveLength(2);
+    expect(step).toContain("FACETED_BREP('structural_1'");
+    expect(step).toContain("FACETED_BREP('enclosure_2'");
 
     const points = [...step.matchAll(/CARTESIAN_POINT\('',\(([^)]*)\)\)/g)]
       .map(match => match[1].split(',').map(Number));

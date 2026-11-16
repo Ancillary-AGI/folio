@@ -1,9 +1,14 @@
 /**
  * DDR routing rules (Pi-class leg 7).
  * DDR3/4 on a Pi-class board: DQS groups with DQ-to-strobe match, fly-by
- * address/command/clock topology, write-levelling window. Lengths in mm,
- * skew in ps at 6 ps/mm.
+ * address/command/clock topology, write-levelling window. Lengths in mm.
+ * Skew in ps is derived from the declared ε_eff (default FR-4 ε_eff 3.2,
+ * ≈ 6 ps/mm) — never a bare constant.
  */
+import { delayPsPerMm } from './stackup'
+
+/** FR-4 ε_eff 3.2 default — override via the `delayPsPerMm` argument. */
+const DEFAULT_DDR_DELAY_PS_PER_MM = delayPsPerMm(3.2)
 export interface DqsGroup {
   name: string
   strobeLength: number
@@ -20,12 +25,15 @@ export interface DqsViolation {
 }
 
 /** Every DQ inside the window around its strobe, or violations per bit. */
-export function checkDqsGroup(group: DqsGroup): { skewPs: number[]; violations: DqsViolation[] } {
+export function checkDqsGroup(
+  group: DqsGroup,
+  delayPsPerMmOption: number = DEFAULT_DDR_DELAY_PS_PER_MM,
+): { skewPs: number[]; violations: DqsViolation[] } {
   const violations: DqsViolation[] = []
   const skewPs: number[] = []
   group.dqLengths.forEach((length, bit) => {
     const mismatch = length - group.strobeLength
-    skewPs.push(mismatch * 6)
+    skewPs.push(mismatch * delayPsPerMmOption)
     if (Math.abs(mismatch) > group.windowMm) {
       violations.push({ group: group.name, bit, mismatchMm: mismatch, message: `${group.name} DQ${bit}: ${mismatch.toFixed(2)} mm off strobe, window ${group.windowMm} mm.` })
     }

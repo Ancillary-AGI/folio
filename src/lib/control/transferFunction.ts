@@ -275,7 +275,12 @@ export function tfDcGain(tf: TransferFunction): number {
   const valid = validateTransferFunction(tf);
   const numerator = evaluatePolynomial(valid.numerator, complex(0)).re;
   const denominator = evaluatePolynomial(valid.denominator, complex(0)).re;
-  if (denominator === 0) return Math.abs(numerator) > 0 ? Infinity : Number.NaN;
+  if (denominator === 0) {
+    // An integrator (or pole at the origin): infinite gain, with the
+    // numerator's sign — an integrator loop with negative DC gain is not
+    // positive feedback, it reports -∞.
+    return numerator === 0 ? Number.NaN : Math.sign(numerator) * Number.POSITIVE_INFINITY;
+  }
   return numerator / denominator;
 }
 
@@ -408,6 +413,7 @@ export function polynomialRoots(coefficients: readonly number[]): Complex[] {
     return result;
   };
 
+  let converged = false;
   for (let iteration = 0; iteration < 2000; iteration += 1) {
     let largestCorrection = 0;
     for (let i = 0; i < degree; i += 1) {
@@ -428,7 +434,18 @@ export function polynomialRoots(coefficients: readonly number[]): Complex[] {
         complexMagnitude(correction) / Math.max(1, complexMagnitude(zi)),
       );
     }
-    if (largestCorrection < ROOT_TOLERANCE) break;
+    if (largestCorrection < ROOT_TOLERANCE) {
+      converged = true;
+      break;
+    }
+  }
+
+  if (!converged) {
+    // Returning non-converged roots would let a stability classification be
+    // computed off guesses — refuse, the same way a non-finite root is refused.
+    throw new Error(
+      `Root finder of degree ${degree} did not converge within 2000 iterations — the polynomial is too ill-conditioned for a dense solve.`,
+    );
   }
 
   const finalised = roots.map((root) => {

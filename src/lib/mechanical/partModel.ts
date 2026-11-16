@@ -165,6 +165,72 @@ export function createDefaultMechanicalParts(): MechanicalPart[] {
  * Closed-form analysis
  * ------------------------------------------------------------------ */
 
+/**
+ * World-frame direction of the part's local +X (the beam's long axis), from
+ * intrinsic-XYZ Euler angles in the panel's Rz·Ry·Rx convention.
+ */
+function localXAxisInWorld(rotation: [number, number, number]): [number, number, number] {
+  const [rx, ry, rz] = rotation;
+  const cy = Math.cos(ry), sz = Math.sin(rz), cz = Math.cos(rz);
+  const sy = Math.sin(ry);
+  // First column of Rz·Ry·Rx.
+  return [cz * cy, sz * cy, -sy];
+}
+
+/**
+ * Decompose loads onto the beam axis and off it.
+ *
+ * Sign convention: `magnitude` is authoritative; the (x, y, z) triple is a
+ * direction (normalised here if it is not unit already). Forces/moments with
+ * a component along the long axis load it axially (and are reported, not
+ * dumped into bending); the remainder is transverse and is what the bending
+ * and deflection formulas consume. Each load's off-axis component is summed
+ * in magnitude — conservative: it never understates a combined bending case.
+ */
+function decomposeLoads(
+  part: MechanicalPart,
+): { axialForce: number; transverseForce: number; bendingMoment: number } {
+  const axis = localXAxisInWorld(part.rotation);
+  let axialForce = 0;
+  let transverseForce = 0;
+  let bendingMoment = 0;
+  const decompose = (
+    loads: Array<{ x: number; y: number; z: number; magnitude: number }>,
+  ): { axial: number; transverse: number } => {
+    let axial = 0;
+    let transverse = 0;
+    for (const load of loads) {
+      const vector: [number, number, number] = [load.x, load.y, load.z];
+      const norm = Math.hypot(vector[0], vector[1], vector[2]);
+      // Signed magnitude: a negative value flips the direction, which is
+      // how a compressive axial load is written.
+      const magnitude = load.magnitude;
+      if (norm === 0) {
+        // No direction declared: the conservative reading is a transverse load.
+        transverse += Math.abs(magnitude);
+        continue;
+      }
+      const direction = [vector[0] / norm, vector[1] / norm, vector[2] / norm];
+      const along = direction[0] * axis[0] + direction[1] * axis[1] + direction[2] * axis[2];
+      const axialComponent = along * magnitude;
+      const transverseVector = [
+        direction[0] * magnitude - axialComponent * axis[0],
+        direction[1] * magnitude - axialComponent * axis[1],
+        direction[2] * magnitude - axialComponent * axis[2],
+      ];
+      axial += axialComponent;
+      transverse += Math.hypot(transverseVector[0], transverseVector[1], transverseVector[2]);
+    }
+    return { axial, transverse };
+  };
+  const force = decompose(part.loads.forces);
+  axialForce = force.axial;
+  transverseForce = force.transverse;
+  const moment = decompose(part.loads.moments);
+  bendingMoment = moment.transverse;
+  return { axialForce, transverseForce, bendingMoment };
+}
+
 export interface PartAnalysis {
   partId: string
   partName: string
@@ -206,14 +272,13 @@ export function analysePart(part: MechanicalPart): PartAnalysis {
     yieldStrength: part.material.yieldStrength,
     density: part.material.density,
   }
-  const transverseForce = part.loads.forces.reduce((sum, load) => sum + load.magnitude, 0)
-  const appliedMoment = part.loads.moments.reduce((sum, load) => sum + load.magnitude, 0)
+  const { axialForce, transverseForce, bendingMoment: appliedMoment } = decomposeLoads(part)
   // Pressure acts on the span × width face, so it is a line load of p·b N/m.
   const distributedLoad = part.loads.pressure * part.dimensions.width
   const beam = analyseBeam(
     section,
     material,
-    { transverseForce, moment: appliedMoment, distributedLoad, span },
+    { force: axialForce, transverseForce, moment: appliedMoment, distributedLoad, span },
     { support },
   )
   return {

@@ -13,46 +13,93 @@ export interface EagleNetlist {
   nets: Array<{ code: string; name: string; nodes: Array<{ ref: string; pin: string }> }>;
 }
 
+const decodeXmlEntities = (value: string): string =>
+  value.replace(/&(#x[0-9a-fA-F]+|#X[0-9a-fA-F]+|#\d+|amp|lt|gt|quot|apos);/g, (match, entity: string) => {
+    switch (entity) {
+      case 'amp': return '&';
+      case 'lt': return '<';
+      case 'gt': return '>';
+      case 'quot': return '"';
+      case 'apos': return "'";
+      default: {
+        const codePoint = entity.startsWith('#x') || entity.startsWith('#X')
+          ? parseInt(entity.slice(2), 16)
+          : parseInt(entity.slice(1), 10);
+        return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+      }
+    }
+  });
+
 const attr = (tag: string, name: string): string | undefined => {
   const match = tag.match(new RegExp(`${name}\\s*=\\s*"([^"]*)"`));
-  return match ? match[1] : undefined;
+  return match ? decodeXmlEntities(match[1]) : undefined;
 };
 
-/** Parse an EAGLE `.sch` string into components + nets. */
+/** Parse an EAGLE `.sch` string into components + nets.
+ *
+ * Multi-sheet designs are first-class: parts are shared across sheets, and
+ * nets with the same name on several sheets are the *same* net (the classic
+ * EAGLE way of wiring across pages), merged into one with every pinref.
+ * The old reader looked at the first sheet only, silently dropping every
+ * other sheet's parts and pins.
+ */
 export function parseEagleSchematic(text: string): EagleNetlist {
   if (!/<\s*eagle\b/i.test(text)) throw new Error('EAGLE: root must be an <eagle> document.');
-  const sheetMatch = text.match(/<\s*sheet\b[^>]*>([\s\S]*?)<\s*\/\s*sheet\s*>/i);
-  if (!sheetMatch) throw new Error('EAGLE: no <sheet> found.');
-  const sheet = sheetMatch[1];
+  const sheetMatches = [...text.matchAll(/<\s*sheet\b[^>]*>([\s\S]*?)<\s*\/\s*sheet\s*>/gi)];
+  if (sheetMatches.length === 0) throw new Error('EAGLE: no <sheet> found.');
   const components: EagleNetlist['components'] = [];
-  const partsMatch = sheet.match(/<\s*parts\b[^>]*>([\s\S]*?)<\s*\/\s*parts\s*>/i);
-  const partsBlock = partsMatch ? partsMatch[1] : '';
-  const partTags = partsBlock.match(/<\s*part\b[^>]*\/?>/gi) ?? [];
   const partNames = new Set<string>();
-  for (const tag of partTags) {
-    const ref = attr(tag, 'name');
-    if (!ref) throw new Error('EAGLE: <part> without name.');
-    partNames.add(ref);
-    components.push({ ref, value: attr(tag, 'value') ?? '', footprint: attr(tag, 'package') ?? '' });
-  }
-  const nets: EagleNetlist['nets'] = [];
-  const netsMatch = sheet.match(/<\s*nets\b[^>]*>([\s\S]*?)<\s*\/\s*nets\s*>/i);
-  const netsBlock = netsMatch ? netsMatch[1] : '';
-  const netBlocks = [...netsBlock.matchAll(/<\s*net\b([^>]*)>([\s\S]*?)<\s*\/\s*net\s*>/gi)];
-  let code = 1;
-  for (const block of netBlocks) {
-    const header = block[0].split('>')[0] + '>';
-    const netName = attr(header, 'name') ?? '';
-    const nodes: Array<{ ref: string; pin: string }> = [];
-    const pinrefs = block[2].match(/<\s*pinref\b[^>]*\/?>/gi) ?? [];
-    for (const pinref of pinrefs) {
-      const ref = attr(pinref, 'part');
-      const pin = attr(pinref, 'pin');
-      if (!ref || !pin) throw new Error(`EAGLE: net ${netName} has a pinref without part/pin.`);
-      if (!partNames.has(ref)) throw new Error(`EAGLE: net ${netName} references unknown part ${ref}.`);
-      nodes.push({ ref, pin });
+  const mergedNets = new Map<string, Array<{ ref: string; pin: string }>>();
+  const anonymousNets: Array<{ name: string; nodes: Array<{ ref: string; pin: string }> }> = [];
+  for (const sheetMatch of sheetMatches) {
+    const sheet = sheetMatch[1];
+    const partsMatch = sheet.match(/<\s*parts\b[^>]*>([\s\S]*?)<\s*\/\s*parts\s*>/i);
+    const partsBlock = partsMatch ? partsMatch[1] : '';
+    const partTags = partsBlock.match(/<\s*part\b[^>]*\/?>/gi) ?? [];
+    for (const tag of partTags) {
+      const ref = attr(tag, 'name');
+      if (!ref) throw new Error('EAGLE: <part> without name.');
+      if (partNames.has(ref)) throw new Error(`EAGLE: duplicate part ${ref} across sheets.`);
+      partNames.add(ref);
+      components.push({ ref, value: attr(tag, 'value') ?? '', footprint: attr(tag, 'package') ?? '' });
     }
-    nets.push({ code: String(code), name: netName, nodes });
+    const netsMatch = sheet.match(/<\s*nets\b[^>]*>([\s\S]*?)<\s*\/\s*nets\s*>/i);
+    const netsBlock = netsMatch ? netsMatch[1] : '';
+    const netBlocks = [...netsBlock.matchAll(/<\s*net\b([^>]*)>([\s\S]*?)<\s*\/\s*net\s*>/gi)];
+    for (const block of netBlocks) {
+      const header = block[0].split('>')[0] + '>';
+      const netName = attr(header, 'name') ?? '';
+      const nodes: Array<{ ref: string; pin: string }> = [];
+      const pinrefs = block[2].match(/<\s*pinref\b[^>]*\/?>/gi) ?? [];
+      for (const pinref of pinrefs) {
+        const ref = attr(pinref, 'part');
+        const pin = attr(pinref, 'pin');
+        if (!ref || !pin) throw new Error(`EAGLE: net ${netName} has a pinref without part/pin.`);
+        nodes.push({ ref, pin });
+      }
+      // Same net name on multiple sheets is one net; an unnamed net is its own.
+      if (netName) {
+        const list = mergedNets.get(netName) ?? [];
+        list.push(...nodes);
+        mergedNets.set(netName, list);
+      } else {
+        anonymousNets.push({ name: netName, nodes });
+      }
+    }
+  }
+  // Every pinref must reference a part the design actually declares.
+  const nets: EagleNetlist['nets'] = [];
+  let code = 1;
+  for (const [name, nodes] of mergedNets) {
+    const unknown = nodes.find((node) => !partNames.has(node.ref));
+    if (unknown) throw new Error(`EAGLE: net ${name} references unknown part ${unknown.ref}.`);
+    nets.push({ code: String(code), name, nodes });
+    code += 1;
+  }
+  for (const { name, nodes } of anonymousNets) {
+    const unknown = nodes.find((node) => !partNames.has(node.ref));
+    if (unknown) throw new Error(`EAGLE: net ${name} references unknown part ${unknown.ref}.`);
+    nets.push({ code: String(code), name, nodes });
     code += 1;
   }
   if (components.length === 0 && nets.length === 0) {

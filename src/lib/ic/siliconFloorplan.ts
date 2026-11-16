@@ -38,7 +38,7 @@ export interface DieFloorplan {
   utilizationPercent: number;
   ioPads: IoPad[];
   powerStripes: PowerStripe[];
-  estimatedCoreCurrentMa: number;
+  estimatedCoreCurrentUa: number;
   estimatedIrDropMv: number;
 }
 
@@ -102,9 +102,6 @@ export function generateDieFloorplan(
   const coreHeight = rowCount * rowHeight;
   const coreWidth = Math.ceil((coreArea / coreHeight) / SKY130_PDK.sitePitchUm) * SKY130_PDK.sitePitchUm;
 
-  const dieWidth = Number((coreWidth + 2 * margin).toFixed(2));
-  const dieHeight = Number((coreHeight + 2 * margin).toFixed(2));
-
   // 2. I/O Pad Allocation
   const signalList: Array<{ name: string; kind: IoPad['kind'] }> = [];
   for (const clk of options.clocks ?? signals.clocks ?? ['clk']) {
@@ -124,44 +121,56 @@ export function generateDieFloorplan(
   signalList.push({ name: 'VDD', kind: 'vdd' });
   signalList.push({ name: 'VSS', kind: 'vss' });
 
+  // The die must fit its pad ring: grow each axis past the pad pitch when
+  // the core wants less edge than the perimeter content. The old modulo
+  // wrapped pad indices onto the same edge, overlapping every pad past
+  // capacity — a ring that collides with itself is worse than a bigger die.
+  const padPitchEff = Math.max(padPitch, padWidth + 4); // never tighter than pad body + 4 µm clearance
+  const perSideMax = Math.ceil(signalList.length / 4);
+  const neededEdge = perSideMax * padPitchEff;
+  const dieWidth = Number(Math.max(coreWidth + 2 * margin, neededEdge).toFixed(2));
+  const dieHeight = Number(Math.max(coreHeight + 2 * margin, neededEdge).toFixed(2));
+
   const ioPads: IoPad[] = [];
   const sides: Array<'south' | 'east' | 'north' | 'west'> = ['south', 'east', 'north', 'west'];
-  let currentSideIdx = 0;
-
-  for (let i = 0; i < signalList.length; i += 1) {
-    const side = sides[currentSideIdx % 4];
-    currentSideIdx += 1;
-    const pad = signalList[i];
-
-    let x = 0;
-    let y = 0;
-    const offset = margin / 2;
-
-    if (side === 'south') {
-      x = offset + (i * padPitch) % (dieWidth - 2 * offset);
-      y = offset;
-    } else if (side === 'north') {
-      x = offset + (i * padPitch) % (dieWidth - 2 * offset);
-      y = dieHeight - offset;
-    } else if (side === 'west') {
-      x = offset;
-      y = offset + (i * padPitch) % (dieHeight - 2 * offset);
-    } else {
-      x = dieWidth - offset;
-      y = offset + (i * padPitch) % (dieHeight - 2 * offset);
+  // Assign round-robin, then place each side's pads evenly along that edge.
+  // The old modulo wrapped the index back to the start of the same edge, so
+  // past the edge's capacity every pad landed on top of an earlier one.
+  const assigned: Record<(typeof sides)[number], typeof signalList> = { south: [], east: [], north: [], west: [] };
+  signalList.forEach((pad, i) => {
+    assigned[sides[i % 4]].push(pad);
+  });
+  const offset = margin / 2;
+  const edgeSpan = (side: (typeof sides)[number]) => (side === 'south' || side === 'north' ? dieWidth : dieHeight);
+  const place = (side: (typeof sides)[number], indexOnSide: number, count: number): { x: number; y: number } => {
+    const span = edgeSpan(side);
+    // Even centres with equal end margins: no modulo, no overlap.
+    const centre = ((indexOnSide + 0.5) / count) * span;
+    switch (side) {
+      case 'south': return { x: centre, y: offset };
+      case 'north': return { x: centre, y: dieHeight - offset };
+      case 'west': return { x: offset, y: centre };
+      default: return { x: dieWidth - offset, y: centre };
     }
-
-    ioPads.push({
-      index: i + 1,
-      name: pad.name,
-      kind: pad.kind,
-      side,
-      xUm: Number(x.toFixed(2)),
-      yUm: Number(y.toFixed(2)),
-      widthUm: padWidth,
-      heightUm: padHeight,
+  };
+  let padIndex = 0;
+  sides.forEach((side) => {
+    const pads = assigned[side];
+    pads.forEach((pad, indexOnSide) => {
+      const { x, y } = place(side, indexOnSide, pads.length);
+      ioPads.push({
+        index: padIndex + 1,
+        name: pad.name,
+        kind: pad.kind,
+        side,
+        xUm: Number(x.toFixed(2)),
+        yUm: Number(y.toFixed(2)),
+        widthUm: padWidth,
+        heightUm: padHeight,
+      });
+      padIndex += 1;
     });
-  }
+  });
 
   // 3. Power Distribution Network (PDN) Stripes
   const powerStripes: PowerStripe[] = [];
@@ -200,11 +209,12 @@ export function generateDieFloorplan(
   }
 
   // 4. IR Drop Estimation
-  // Estimate core current: ~15 uA per cell area unit in um2 at typical activity
-  const estimatedCoreCurrentMa = (totalCellAreaUm2 * 0.015);
+  // Typical activity assumption: ~0.015 µA per µm² of standard-cell area
+  // ( ≈ 1.5 mA at 100 kµm² core ). Heuristic, not a signoff number.
+  const estimatedCoreCurrentUa = totalCellAreaUm2 * 0.015;
   // Grid resistance based on copper/aluminum sheet rho_sq ~ 0.03 ohms/sq
   const gridResistanceOhms = (aspectRatio * 0.03) / Math.max(1, powerStripes.length / 4);
-  const irDropMv = (estimatedCoreCurrentMa * 1e-3) * gridResistanceOhms * 1e3;
+  const irDropMv = estimatedCoreCurrentUa * 1e-6 * gridResistanceOhms * 1e3;
 
   return {
     moduleName,
@@ -216,7 +226,7 @@ export function generateDieFloorplan(
     utilizationPercent: Number(((totalCellAreaUm2 / (coreWidth * coreHeight)) * 100).toFixed(1)),
     ioPads,
     powerStripes,
-    estimatedCoreCurrentMa: Number(estimatedCoreCurrentMa.toFixed(2)),
+    estimatedCoreCurrentUa: Number(estimatedCoreCurrentUa.toFixed(2)),
     estimatedIrDropMv: Number(irDropMv.toFixed(2)),
   };
 }

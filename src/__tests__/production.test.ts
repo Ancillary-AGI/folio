@@ -100,7 +100,7 @@ describe('Production Readiness - Core Engineering Capabilities', () => {
       expect(exported.ok).toBe(true);
       if (!exported.ok) return;
       expect(exported.step.startsWith('ISO-10303-21;')).toBe(true);
-      expect(exported.step).toContain('MANIFOLD_SOLID_BREP');
+      expect(exported.step).toContain('FACETED_BREP');
       expect(exported.chainLength).toBeCloseTo(300, 9);
 
       const overBed = exportMechanismStep(

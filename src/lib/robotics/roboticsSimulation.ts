@@ -123,6 +123,8 @@ export interface SimulationResult {
   collisions: number;
   energyConsumption: number;
   errors: string[];
+  /** Diagnostics that did not change the outcome (e.g. clamped policy overrides). */
+  notes?: string[];
   performanceMetrics: {
     pathLength: number;
     /**
@@ -220,8 +222,47 @@ export class RoboticsSimulationService {
   }
   private simulations: Map<string, SimulationResult> = new Map();
 
-  // Robot Management
+  /**
+   * Reject a configuration that cannot produce a simulable mechanism: finite
+   * limits, min ≤ max, positive velocity/acceleration caps and non-negative
+   * link masses. A robot the engine cannot step is refused at the door, not
+   * mid-trajectory.
+   */
+  private validateRobotConfiguration(config: Omit<RobotConfiguration, 'id'>): void {
+    if (!config.name || !config.name.trim()) throw new Error('A robot needs a non-empty name.');
+    if (!Array.isArray(config.joints) || config.joints.length === 0) {
+      throw new Error('A robot needs at least one joint.');
+    }
+    for (const joint of config.joints) {
+      if (!joint || typeof joint.id !== 'string' || joint.id.length === 0) {
+        throw new Error('A joint needs a non-empty id.');
+      }
+      const { min, max } = joint.limits ?? { min: NaN, max: NaN };
+      if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) {
+        throw new Error(`Joint ${joint.id} has invalid limits [${min}, ${max}].`);
+      }
+      if (!Number.isFinite(joint.velocity) || joint.velocity <= 0) {
+        throw new Error(`Joint ${joint.id} has a non-positive velocity limit (${joint.velocity}).`);
+      }
+      if (!Number.isFinite(joint.acceleration) || joint.acceleration <= 0) {
+        throw new Error(`Joint ${joint.id} has a non-positive acceleration limit (${joint.acceleration}).`);
+      }
+    }
+    for (const link of config.links ?? []) {
+      if (!link || typeof link.id !== 'string' || link.id.length === 0) {
+        throw new Error('A link needs a non-empty id.');
+      }
+      if (!Number.isFinite(link.length) || link.length <= 0) {
+        throw new Error(`Link ${link.id} has a non-positive length (${link.length}).`);
+      }
+      if (!Number.isFinite(link.mass) || link.mass < 0) {
+        throw new Error(`Link ${link.id} has a negative mass (${link.mass}).`);
+      }
+    }
+  }
+
   createRobot(config: Omit<RobotConfiguration, 'id'>): RobotConfiguration {
+    this.validateRobotConfiguration(config);
     const robot: RobotConfiguration = {
       ...config,
       id: this.nextId('robot')
@@ -237,9 +278,18 @@ export class RoboticsSimulationService {
 
   updateRobot(robotId: string, updates: Partial<RobotConfiguration>): void {
     const robot = this.robots.get(robotId);
-    if (robot) {
-      Object.assign(robot, updates);
+    if (!robot) throw new Error(`Robot '${robotId}' not found.`);
+    // Identity is not updatable; a caller trying to rename the id gets told.
+    if ((updates as { id?: string }).id !== undefined && (updates as { id?: string }).id !== robotId) {
+      throw new Error('updateRobot cannot change a robot id.');
     }
+    const rest = { ...updates } as Partial<RobotConfiguration> & { id?: string };
+    delete rest.id;
+    const merged = { ...robot, ...rest };
+    // The merged configuration must still be simulable — no corrupting the
+    // store into an unsimulable robot that fails three calls later.
+    this.validateRobotConfiguration(merged);
+    this.robots.set(robotId, merged);
   }
 
   /**
@@ -523,6 +573,36 @@ export class RoboticsSimulationService {
       throw new Error('Task has no waypoints to execute');
     }
 
+    const policyNotes: string[] = [];
+    if (policyId && !policy) {
+      // A typo'd policy id used to run the task silently policy-free, which
+      // reads as "the policy approved this" to whoever asked for it.
+      throw new Error(`Policy '${policyId}' not found.`);
+    }
+    if (policy && policy.trained) {
+      // The engine integrates no policy — no RL backend is bundled. The
+      // override map is audited (unknown joint / non-finite value named in
+      // the notes) but never actuates, and the stored robot is untouched.
+      const override = policy.parameters?.velocityOverride;
+      if (override !== undefined) {
+        if (override === null || typeof override !== 'object' || Array.isArray(override)) {
+          policyNotes.push(`Policy '${policy.id}' declares a velocityOverride that is not an object; it was audited, not applied.`);
+        } else {
+          for (const [jointId, value] of Object.entries(override)) {
+            if (typeof value !== 'number' || !Number.isFinite(value)) {
+              policyNotes.push(`Override for joint '${jointId}' is not a finite number (${String(value)}); audited, not applied.`);
+              continue;
+            }
+            const joint = robot.joints.find((candidate) => candidate.id === jointId);
+            if (!joint) {
+              policyNotes.push(`Override names unknown joint '${jointId}'; audited, not applied.`);
+            }
+          }
+        }
+        policyNotes.push(`Policy '${policy.id}' is audited, not actuated: no controller is bundled with this build. The robot's stored configuration is unchanged.`);
+      }
+    }
+
     const startTime = Date.now();
     const trajectory: TrajectoryPoint[] = [];
     let collisions = 0;
@@ -560,12 +640,10 @@ export class RoboticsSimulationService {
       }
       previousWaypoint = waypoint;
 
+      // Policy application is a no-op by design: the audit happened once up
+      // front (a bundled controller does not exist yet). The stored robot is
+      // never mutated by a policy.
       trajectory.push(judgedWaypoint);
-
-      // Apply control policy if available
-      if (policy && policy.trained) {
-        await this.applyControlPolicy(policy, robot);
-      }
     }
 
     const executionTime = Date.now() - startTime;
@@ -581,10 +659,13 @@ export class RoboticsSimulationService {
       collisions,
       energyConsumption,
       errors: collisions > 0 ? ['Collision detected'] : [],
+      ...(policyNotes.length > 0 ? { notes: policyNotes } : {}),
       performanceMetrics: {
         pathLength: this.calculatePathLength(trajectory),
         smoothness: this.calculateTrajectorySmoothness(trajectory),
-        efficiency: success ? 1.0 - (collisions / task.waypoints.length) : 0
+        // Fraction of waypoints completed without a collision — a real,
+        // collision-count-derived number, not a constant dressed as efficiency.
+        efficiency: task.waypoints.length === 0 ? 0 : Math.max(0, (task.waypoints.length - collisions) / task.waypoints.length)
       }
     };
 
@@ -720,20 +801,6 @@ export class RoboticsSimulationService {
     }
 
     return power * durationSeconds;
-  }
-
-  private async applyControlPolicy(policy: AgenticControlPolicy, robot: RobotConfiguration): Promise<void> {
-    // Gating layer: an untrained policy has no authority, so it must not mutate
-    // the robot. A trained policy contributes a documented velocity override map
-    // (joint id → target velocity), which executeTask can merge into waypoints.
-    if (!policy.trained) return;
-    const override = policy.parameters?.velocityOverride;
-    if (override === null || typeof override !== 'object' || Array.isArray(override)) return;
-    for (const [jointId, value] of Object.entries(override as Record<string, unknown>)) {
-      if (typeof value !== 'number' || !Number.isFinite(value)) continue;
-      const joint = robot.joints.find(candidate => candidate.id === jointId);
-      if (joint) joint.velocity = value;
-    }
   }
 
   private calculatePathLength(trajectory: TrajectoryPoint[]): number {

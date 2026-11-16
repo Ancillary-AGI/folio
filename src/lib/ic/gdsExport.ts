@@ -27,24 +27,34 @@ export interface GdsLibrary {
 /**
  * SkyWater 130nm GDSII Layer Mapping
  */
+/**
+ * GDSII layer numbers used by the IC flow's teaching-layer export.
+ *
+ * These follow the SKY130 mask *order* (nwell → poly → li1 → metals), one
+ * number per layer, no two layers sharing a number (the previous table
+ * aliased contact↔li1 and every via↔the metal below it, which merged
+ * distinct physical masks into one drawing in any GDS reader). They are
+ * self-consistent for inspection and education — not the foundry's tapeout
+ * layer table; a real submission imports the PDK's own layer map.
+ */
 export const SKY130_GDS_LAYERS: Record<string, number> = {
   PRBoundary: 235,
   NWell: 64,
   PWell: 122,
   Diffusion: 65,
   Poly: 66,
-  Contact: 67,
   Li1: 67, // Local interconnect
-  Metal1: 68,
-  Via1: 68,
-  Metal2: 69,
-  Via2: 69,
-  Metal3: 70,
-  Via3: 70,
-  Metal4: 71,
-  Via4: 71,
-  Metal5: 72,
-  Pad: 76,
+  Contact: 68, // Contact over diffusion/poly/li1
+  Metal1: 69,
+  Via1: 70,
+  Metal2: 71,
+  Via2: 72,
+  Metal3: 73,
+  Via3: 74,
+  Metal4: 75,
+  Via4: 76,
+  Metal5: 77,
+  Pad: 78,
 };
 
 // GDSII Record Types (Tokens)
@@ -105,7 +115,14 @@ class GdsStreamWriter {
   }
 
   writeStringRecord(recordType: number, text: string) {
-    // Strings in GDSII must have an even length (padded with 0 if odd)
+    // GDSII strings are single-byte; non-ASCII names would be silently
+    // mangled in every reader downstream — refuse them here.
+    for (let i = 0; i < text.length; i += 1) {
+      const code = text.charCodeAt(i);
+      if (code > 0xff) {
+        throw new Error(`GDSII strings are single-byte; "${text.slice(0, 32)}" contains U+${code.toString(16).toUpperCase().padStart(4, '0')} at index ${i}.`);
+      }
+    }
     let len = text.length;
     let pad = false;
     if (len % 2 !== 0) {
@@ -138,10 +155,14 @@ class GdsStreamWriter {
       }
       const expByte = (exponent + 64) | sign;
       buf[i * 8] = expByte;
-      const mantissaInt = Math.floor(mantissa * Math.pow(2, 56));
+      // 56-bit mantissa exceeds a double's 53-bit integer precision, so
+      // build it from two exact 28-bit pieces instead of one 56-bit multiply.
+      const high = Math.floor(mantissa * 2 ** 28);
+      const low = Math.floor((mantissa * 2 ** 28 - high) * 2 ** 28);
+      const mantissaInt = (BigInt(high) << 28n) | BigInt(low);
       for (let b = 1; b < 8; b += 1) {
-        const shift = (7 - b) * 8;
-        buf[i * 8 + b] = Number((BigInt(mantissaInt) >> BigInt(shift)) & 0xffn);
+        const shift = BigInt((7 - b) * 8);
+        buf[i * 8 + b] = Number((mantissaInt >> shift) & 0xffn);
       }
     }
     this.pushChunk(buf);

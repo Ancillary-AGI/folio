@@ -38,6 +38,8 @@ const readProjects = (): OfflineProject[] => {
 
 const writeProjects = (projects: OfflineProject[]): void => {
   if (typeof localStorage === 'undefined') return
+  // A full or blocked store throws here; callers that need to know pass
+  // through saveCanvasWithStatus instead of catching blindly.
   localStorage.setItem(storageKey, JSON.stringify(projects))
 }
 
@@ -87,6 +89,25 @@ export const offlineProjectStore = {
         ? { ...project, canvas_data: canvasData, updated_at: new Date().toISOString() }
         : project
     ))
+  },
+
+  /**
+   * Same write, but the failure is a thrown Error with a readable message
+   * instead of an exception type the caller cannot distinguish from a bug.
+   * The store is the only place that knows the quota actually ran out.
+   */
+  saveCanvasWithStatus(projectId: string, canvasData: Record<string, unknown>): void {
+    try {
+      writeProjects(readProjects().map((project) =>
+        project.id === projectId
+          ? { ...project, canvas_data: canvasData, updated_at: new Date().toISOString() }
+          : project
+      ))
+    } catch (err) {
+      throw new Error(
+        `The project could not be stored on this device: ${err instanceof Error ? err.message : String(err)}. Browser storage is full or blocked.`,
+      )
+    }
   },
 
   delete(projectId: string): void {

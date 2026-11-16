@@ -502,7 +502,14 @@ function thermalFor(
     estimated: theta.estimated,
     package: theta.package,
     limitC,
-    status: limitC === undefined ? undefined : statusFor(junctionC / limitC),
+    // Utilization normalized to the ambient→limit span, not a ratio of
+    // absolute Celsius temperatures — a ratio of °C readings has no thermal
+    // meaning (at Tamb = −50 °C every part would read "fail").
+    status: limitC === undefined
+      ? undefined
+      : statusFor(limitC > ambientC
+        ? (junctionC - ambientC) / (limitC - ambientC)
+        : Number.POSITIVE_INFINITY),
   }
 }
 
@@ -663,7 +670,11 @@ export function assessDesignMargins(
       basis: string,
       thermal?: ThermalEstimate,
     ): void => {
-      const utilization = value / rated.limit
+      const utilization = quantity === 'junction-temperature' && rated.limit > ambientCelsius
+        // Same ambient→limit normalization as the thermal estimate; a ratio of
+        // absolute Celsius values is meaningless.
+        ? (value - ambientCelsius) / (rated.limit - ambientCelsius)
+        : value / rated.limit
       componentItems.push({
         id: `${component.reference}.${quantity}`,
         componentId: component.id,

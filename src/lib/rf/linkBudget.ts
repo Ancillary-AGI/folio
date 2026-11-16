@@ -76,9 +76,13 @@ export function arrayGainDb(elements: number | undefined): number {
   return 10 * Math.log10(count)
 }
 
-/** Free-space path loss, dB. */
+/** Free-space path loss, dB. Inputs must be positive — an unusable frequency
+ * or distance is a caller bug, so it throws rather than returns an ∞ that
+ * silently poisons every downstream link budget. */
 export function freeSpaceLossDb(frequencyHz: number, distanceM: number): number {
-  if (!(frequencyHz > 0) || !(distanceM > 0)) return Number.POSITIVE_INFINITY
+  if (!(frequencyHz > 0) || !(distanceM > 0)) {
+    throw new Error('free-space path loss needs a positive frequency and distance.')
+  }
   return 20 * Math.log10((4 * Math.PI * distanceM * frequencyHz) / SPEED_OF_LIGHT)
 }
 
@@ -209,7 +213,7 @@ export function slantRangeM(altitudeM: number, elevationDeg: number, earthRadius
 
 /** One-way thermal noise floor, dBm, for a declared bandwidth and noise figure. */
 export function noiseFloorDbm(bandwidthHz: number, noiseFigureDb: number): number {
-  if (!(bandwidthHz > 0)) return Number.NEGATIVE_INFINITY
+  if (!(bandwidthHz > 0)) throw new Error('noise floor needs a positive bandwidth.')
   const kTBWatts = BOLTZMANN * REFERENCE_TEMPERATURE_K * bandwidthHz
   return 10 * Math.log10(kTBWatts) + 30 + noiseFigureDb
 }

@@ -88,11 +88,17 @@ export function createZipBytes(
   }> = []
 
   let cursor = 0
+  if (entries.length > 0xffff) {
+    throw new Error(`Zip64 is required for more than ${0xffff} entries; refusing to emit a corrupt archive`)
+  }
   for (const entry of entries) {
     if (!entry.name || entry.name.includes('/') || entry.name.includes('\\')) {
       throw new Error(`Zip entry name must be a flat file name, got ${JSON.stringify(entry.name)}`)
     }
     const nameBytes = encoder.encode(entry.name)
+    if (nameBytes.length > 0xffff) {
+      throw new Error(`Zip entry name too long (${nameBytes.length} bytes); refusing to emit a corrupt archive`)
+    }
     const crc = crc32(entry.data)
     rows.push({ nameBytes, data: entry.data, crc, localOffset: cursor })
     cursor += 30 + nameBytes.length + entry.data.length

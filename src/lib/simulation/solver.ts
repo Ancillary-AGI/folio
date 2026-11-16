@@ -601,9 +601,10 @@ export function buildSweepValues(options: {
   const span = Math.abs(stopValue - startValue)
   const step = Math.abs(stepValue)
   const rawPoints = span / step
-  const points = Math.floor(rawPoints + 1e-9) + 1
   const exact = Math.abs(rawPoints - Math.round(rawPoints)) < 1e-9
+  const points = Math.floor(rawPoints + 1e-9) + 1
   const count = Math.min(points, maxPoints)
+  const direction = stopValue >= startValue ? 1 : -1
 
   const values: number[] = []
   for (let index = 0; index < count; index += 1) {
@@ -611,9 +612,15 @@ export function buildSweepValues(options: {
      * The final point is snapped to `stopValue` when the interval is an exact
      * multiple of the step: a thousand float additions drift, and a sweep whose
      * last point is 4.999999999 instead of 5 is a sweep nobody can line up with
-     * a hand calculation.
+     * a hand calculation. Even when the ratio is a hair over an integer, clamp
+     * to the interval end rather than emit one point past it.
      */
-    values.push(exact && index === points - 1 ? stopValue : startValue + index * stepValue)
+    if (exact && index === points - 1) {
+      values.push(stopValue)
+      continue
+    }
+    const raw = startValue + index * stepValue
+    values.push(direction >= 0 ? Math.min(raw, stopValue) : Math.max(raw, stopValue))
   }
   return values
 }
@@ -1486,6 +1493,13 @@ export function prepareAcSweep(model: CircuitModel, options: AcSweepOptions): Ac
         converged: false,
         notes,
       },
+    }
+  }
+  if (options.linearPoints === undefined || options.linearPoints <= 0) {
+    const decades = Math.log10(options.stopFrequency / options.startFrequency)
+    const desired = Math.round(decades * (options.pointsPerDecade ?? 20)) + 1
+    if (desired > MAX_AC_SWEEP_POINTS) {
+      notes.push(`The frequency grid was capped at ${MAX_AC_SWEEP_POINTS} of ${desired} requested points; the sweep ends below the requested stop frequency.`)
     }
   }
 

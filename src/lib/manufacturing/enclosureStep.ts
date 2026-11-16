@@ -37,12 +37,15 @@ export function enclosureStep(spec: EnclosureSpec): StepExport {
   const faces: number[][][] = []
   // Floor slab.
   faces.push(...boxFaces(0, 0, 0, outerW, outerD, floorT))
-  // Four walls.
+  // Four walls — front/back run full width, left/right close the open ends
+  // between them, so corner volumes belong to exactly one wall. (The side
+  // walls used to start at `floorT` — borrowed from the floor's z-thickness —
+  // and ran into the front and back walls, double-filling every corner.)
   const t = spec.wall
   faces.push(...boxFaces(0, 0, floorT, outerW, t, tubH))
   faces.push(...boxFaces(0, outerD - t, floorT, outerW, outerD, tubH))
-  faces.push(...boxFaces(0, floorT, floorT, t, outerD, tubH))
-  faces.push(...boxFaces(outerW - t, floorT, floorT, outerW, outerD, tubH))
+  faces.push(...boxFaces(0, t, floorT, t, outerD - t, tubH))
+  faces.push(...boxFaces(outerW - t, t, floorT, outerW, outerD - t, tubH))
   // Lid slab on top.
   faces.push(...boxFaces(0, 0, tubH, outerW, outerD, outerH))
   // Corner standoff holes through floor + lid.

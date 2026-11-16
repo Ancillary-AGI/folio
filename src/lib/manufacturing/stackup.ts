@@ -87,7 +87,16 @@ export function validateStackup(layers: StackupLayer[]): { stackup: Stackup; vio
   return { stackup: { layers, totalThickness: validTotal ? total : Number.NaN }, violations }
 }
 
-/** Nearest plane above/below a signal layer, with dielectric distance. */
+/**
+ * Nearest plane above/below a signal layer, with dielectric distance.
+ *
+ * The walk passes *through* intervening signal layers — a signal conductor
+ * does not block coupling to a plane beyond it — and accumulates every
+ * dielectric it crosses. The board's adjacent dielectric sets εr (that is
+ * the h in the impedance formulas); the old scan stopped dead at the first
+ * signal layer, so a plane two dielectrics down was never reported and the
+ * adjacent-dielectric εr belonged to whatever happened to touch the plane.
+ */
 export function nearestPlane(
   layers: StackupLayer[],
   signalIndex: number,
@@ -95,18 +104,20 @@ export function nearestPlane(
   let best: { planeIndex: number; distance: number; er: number } | undefined
   const scan = (step: -1 | 1): void => {
     let distance = 0
+    let firstDielectricEr: number | undefined
     for (let i = signalIndex + step; i >= 0 && i < layers.length; i += step) {
       const layer = layers[i]
       if (layer.kind === 'dielectric') {
+        if (firstDielectricEr === undefined) firstDielectricEr = layer.er ?? 4.4
         distance += layer.thickness ?? 0
         continue
       }
       if (layer.kind === 'plane') {
-        const adjacent = layers[i - step]
-        const er = adjacent?.kind === 'dielectric' ? adjacent.er ?? 4.4 : 4.4
+        const er = firstDielectricEr ?? 4.4
         if (!best || distance < best.distance) best = { planeIndex: i, distance, er }
+        return
       }
-      break
+      // Signal copper in between: no dielectric to add, coupling continues.
     }
   }
   scan(-1)

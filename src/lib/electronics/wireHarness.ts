@@ -33,9 +33,20 @@ const COPPER_TEMP_COEFF = 0.00393; // 1/°C at 20°C
 
 /**
  * Conductor resistance adjusted for temperature.
+ * Below about −254 °C the linear copper coefficient predicts a negative
+ * resistance; refused instead of returned, because a negative resistance is
+ * not a small error, it is a sign the model left its validity range.
  */
 export function copperResistanceAtTemp(r20Ohms: number, tempC: number): number {
-  return r20Ohms * (1 + COPPER_TEMP_COEFF * (tempC - 20));
+  if (!Number.isFinite(r20Ohms) || r20Ohms < 0) {
+    throw new Error(`r20Ohms must be finite and non-negative, got ${r20Ohms}.`);
+  }
+  if (!Number.isFinite(tempC)) throw new Error(`tempC must be finite, got ${tempC}.`);
+  const factor = 1 + COPPER_TEMP_COEFF * (tempC - 20);
+  if (factor <= 0) {
+    throw new Error(`copperResistanceAtTemp: ${tempC} °C is outside the linear copper model's validity range.`);
+  }
+  return r20Ohms * factor;
 }
 
 /**
@@ -74,6 +85,9 @@ export function calculateHarnessLoopDrop(
   if (!spec) throw new Error(`AWG ${awg} is not in standard lookup table (10–32).`);
   if (oneWayLengthMeters <= 0) throw new Error('Length must be positive.');
   if (currentA < 0) throw new Error('Current must be non-negative.');
+  if (!Number.isFinite(systemVoltageV) || systemVoltageV <= 0) {
+    throw new Error(`System voltage must be positive and finite, got ${systemVoltageV} V.`);
+  }
 
   // Round trip length = 2 * oneWayLength
   const totalLengthKm = (2 * oneWayLengthMeters) / 1000;
@@ -107,6 +121,18 @@ export function recommendWireGauge(
   conductorsInBundle: number = 1,
   ambientTempC: number = 25,
 ): { recommendedAwg: number; result: LoopDropResult } {
+  if (!Number.isFinite(systemVoltageV) || systemVoltageV <= 0) {
+    throw new Error(`System voltage must be positive and finite, got ${systemVoltageV} V.`);
+  }
+  if (!Number.isFinite(currentA) || currentA < 0) {
+    throw new Error(`Current must be non-negative and finite, got ${currentA} A.`);
+  }
+  if (!Number.isFinite(oneWayLengthMeters) || oneWayLengthMeters <= 0) {
+    throw new Error(`One-way length must be positive and finite, got ${oneWayLengthMeters} m.`);
+  }
+  if (!Number.isFinite(maxAllowableDropPercent) || maxAllowableDropPercent <= 0 || maxAllowableDropPercent > 100) {
+    throw new Error(`Maximum allowable drop must be in (0, 100] %, got ${maxAllowableDropPercent} %.`);
+  }
   const availableGauges = Object.keys(AWG_TABLE)
     .map(Number)
     .sort((a, b) => b - a); // Start from thinnest (32 down to 10)

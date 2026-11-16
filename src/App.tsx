@@ -753,7 +753,15 @@ function App() {
     const name = brief ? deriveProjectName(brief) : `New Project ${new Date().toLocaleDateString()}`
     let projectCount = offlineProjectStore.list().filter((entry) => entry.user_id === uid).length
     if (!offlineMode) {
-      const { count } = await supabase.from('projects').select('id', { count: 'exact', head: true }).eq('user_id', uid)
+      // A failed count must not fail the quota check open — the server quota
+      // still backstops this, but then the user gets a generic failure with
+      // no explanation. Say what actually happened instead.
+      const { count, error } = await supabase.from('projects').select('id', { count: 'exact', head: true }).eq('user_id', uid)
+      if (error) {
+        console.error('Could not verify project quota', error)
+        setNotice('Could not check your remaining project allowance — check your connection and try again.')
+        return
+      }
       projectCount = count ?? 0
     }
     const quota = checkQuotaCapacity('project', resolveQuotaRole(user, offlineMode), {
@@ -764,9 +772,14 @@ function App() {
       return
     }
     if (offlineMode) {
-      const project = offlineProjectStore.create(uid, name)
-      enterNewProject(project, project.canvas_data ?? null, uid, 'local', family, mode)
-      if (brief) startBriefConversation(brief)
+      try {
+        const project = offlineProjectStore.create(uid, name)
+        enterNewProject(project, project.canvas_data ?? null, uid, 'local', family, mode)
+        if (brief) startBriefConversation(brief)
+      } catch (err) {
+        console.error('Error creating project (offline):', err)
+        setNotice(err instanceof Error ? err.message : 'The project could not be stored on this device.')
+      }
       return
     }
     try {
@@ -995,10 +1008,16 @@ function App() {
     payload: Record<string, unknown>,
   ): Promise<boolean> => {
     if (offlineMode) {
-      const created = offlineProjectStore.create(user?.id ?? 'offline-local', name)
-      offlineProjectStore.saveCanvas(created.id, payload)
-      useProjectStore.setState({ currentProject: created })
-      return true
+      try {
+        const created = offlineProjectStore.create(user?.id ?? 'offline-local', name)
+        offlineProjectStore.saveCanvasWithStatus(created.id, payload)
+        useProjectStore.setState({ currentProject: created })
+        return true
+      } catch (err) {
+        console.error('Could not store the project on this device', err)
+        setNotice(err instanceof Error ? err.message : 'Could not make it yours — this device cannot store more projects.')
+        return false
+      }
     }
     try {
       const { data, error } = await supabase.from('projects').insert({
@@ -1433,23 +1452,47 @@ function App() {
       domainDesigns: data.domainDesigns === undefined ? live.domainDesigns : data.domainDesigns,
     }
     if (offlineMode) {
-      offlineProjectStore.saveCanvas(currentProject.id, payload)
+      try {
+        offlineProjectStore.saveCanvasWithStatus(currentProject.id, payload)
+      } catch (err) {
+        // Out of quota or storage blocked: keep the document dirty and say so.
+        console.error('Error saving (offline):', err)
+        setNotice(err instanceof Error ? err.message : 'The project could not be stored on this device.')
+        return
+      }
       setCanvasData(payload)
       markClean()
       return
     }
     try {
-      const { data: schematic } = await supabase.from('schematics').select('id')
+      const { data: schematic, error: selectError } = await supabase.from('schematics').select('id')
         .eq('project_id', currentProject.id).order('order_index', { ascending: true }).limit(1).maybeSingle()
+      if (selectError) throw selectError
       if (schematic) {
-        await supabase.from('schematics').update({ canvas_data: payload, updated_at: new Date().toISOString() }).eq('id', schematic.id)
-        await supabase.from('projects').update({ updated_at: new Date().toISOString() }).eq('id', currentProject.id)
+        const { error: updateError } = await supabase.from('schematics')
+          .update({ canvas_data: payload, updated_at: new Date().toISOString() }).eq('id', schematic.id)
+        if (updateError) throw updateError
+        const { error: projectError } = await supabase.from('projects')
+          .update({ updated_at: new Date().toISOString() }).eq('id', currentProject.id)
+        if (projectError) throw projectError
         setCanvasData(payload)
         markClean()
         if (user) siemService.logAuditEvent({ user: user.id, action: 'project:save', resource: currentProject.id, details: {} })
+        return
       }
+      // No schematic row for this project (legacy data or a row removed by
+      // hand): create it instead of pretending the save happened.
+      const { error: insertError } = await supabase.from('schematics').insert({
+        project_id: currentProject.id, name: 'Main Schematic', order_index: 0,
+        canvas_data: payload, updated_at: new Date().toISOString(),
+      })
+      if (insertError) throw insertError
+      setCanvasData(payload)
+      markClean()
+      if (user) siemService.logAuditEvent({ user: user.id, action: 'project:save', resource: currentProject.id, details: {} })
     } catch (err) {
       console.error('Error saving:', err)
+      setNotice('The design could not be saved — check your connection and try again. It stays marked as unsaved.')
     }
   }, [currentProject, offlineMode, markClean, user, previewActive])
 

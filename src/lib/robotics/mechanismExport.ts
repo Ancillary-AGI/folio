@@ -16,7 +16,7 @@
  * not produce a file that looks ready to print.
  */
 
-import { boxFaces, holePrism, stepDocument } from '../manufacturing/stepGeometry';
+import { holePrism, orientedBoxFaces, stepDocument } from '../manufacturing/stepGeometry';
 import { assessManufacturability, type JointLimit, type ManufacturabilityInput } from './manufacturability';
 
 /** One link in the export description, in millimetres. */
@@ -201,14 +201,19 @@ export function mechanismStep(
       throw new Error(`Link ${link.id} has a non-finite angle: ${link.angle}.`);
     }
     angle += link.angle;
-    const half = link.depth / 2;
     const dx = link.length * Math.cos(angle);
     const dy = link.length * Math.sin(angle);
+    const axisU: [number, number, number] = [Math.cos(angle), Math.sin(angle), 0];
+    const axisV: [number, number, number] = [-Math.sin(angle), Math.cos(angle), 0];
 
-    // A box from this joint to the next, standing half its depth above the plane.
-    faces.push(...boxFaces(x, y - half, 0, x + dx, y + dy + half, link.depth));
+    // The link as it actually lies: centred on the joint axis, extruded
+    // through its depth. (The old code emitted an axis-aligned box over the
+    // joint-to-joint delta, which folded to self-intersecting soup on any
+    // non-zero angle and was wrong whenever dx or dy went negative.)
+    faces.push(...orientedBoxFaces([x, y, 0], axisU, axisV, [0, 0, 1], link.length, link.depth, link.depth));
     if (options.jointBore > 0) {
-      faces.push(...holePrism(x, y + dy / 2, 0, link.depth, options.jointBore));
+      // Bore centred on the joint this link swings about.
+      faces.push(...holePrism(x, y, 0, link.depth, options.jointBore));
     }
 
     minX = Math.min(minX, x, x + dx);

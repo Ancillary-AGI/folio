@@ -59,14 +59,15 @@ export async function buildDemoHilTwin(): Promise<DemoHilTwin> {
   const netlist = buildCircuitNetlist('rectifier twin', board.components, board.wires, { type: 'dc' });
   const { model, errors } = buildCircuitModel(netlist);
   if (errors.length > 0) throw new Error(`Rectifier twin model failed: ${errors.join('; ')}`);
-  const { bands, gridMismatch } = toleranceEnvelope(model, operatingPointOf, { iterations: 40, tolerance: 0.05, seed: 7 });
+  const { bands, gridMismatch, unformedEnvelopes } = toleranceEnvelope(model, operatingPointOf, { iterations: 40, tolerance: 0.05, seed: 7 });
   const target = bands.find((b) => b.signal === 'V(OUT)') ?? bands[0];
   if (!target) {
-    throw new Error(
-      `Rectifier twin produced no envelope bands${gridMismatch.length > 0
-        ? ` — ${gridMismatch.join(', ')} had no ±3σ trace on the mean's grid`
-        : ''}.`,
-    );
+    const why = gridMismatch.length > 0
+      ? `${gridMismatch.join(', ')} had no ±3σ trace on the mean's grid`
+      : unformedEnvelopes.length > 0
+        ? `${unformedEnvelopes.join(', ')} got no trace set from the sweep`
+        : 'the sweep produced no bandable signals';
+    throw new Error(`Rectifier twin produced no envelope bands — ${why}.`);
   }
   const centre = (target.points[0].low + target.points[0].high) / 2;
   const good = correlateBench(bands, [{ signal: target.signal, x: target.points[0].x, value: centre }]);

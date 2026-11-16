@@ -89,6 +89,12 @@ export function parseIbis(text: string): IbisFile {
     currentModel = null;
   };
 
+  const flushComponent = (): void => {
+    if (!currentComponent) return;
+    file.components.push(currentComponent);
+    currentComponent = null;
+  };
+
   for (const { n, raw, line } of nonEmpty) {
     const section = line.match(/^\[([^\]]+)\]/);
     if (section) {
@@ -98,23 +104,30 @@ export function parseIbis(text: string): IbisFile {
       if (name === 'ibis ver') file.version = line.slice(section[0].length).trim();
       else if (name === 'file name') file.fileName = line.slice(section[0].length).trim();
       else if (name === 'component') {
-        if (currentComponent) file.components.push(currentComponent);
+        flushComponent();
         const compName = line.slice(section[0].length).trim();
         if (!compName) throw new IbisParseError('[Component] without a name', n, raw);
         currentComponent = { name: compName, pins: [] };
       } else if (name === 'pin') {
         if (!currentComponent) throw new IbisParseError('[Pin] outside [Component]', n, raw);
-      } else if (name === 'model') {
-        flushModel();
-        const modelName = line.slice(section[0].length).trim().split(/\s+/)[0] ?? '';
-        if (!modelName) throw new IbisParseError('[Model] without a name', n, raw);
-        currentModel = { name: modelName, modelType: 'I/O', cComp: { typical: NaN }, pullup: [], pulldown: [], gndClamp: [], powerClamp: [] };
-      } else if (name === 'pullup' || name === 'pulldown' || name === 'gnd clamp' || name === 'power clamp') {
-        if (!currentModel) throw new IbisParseError(`[${section[1]}] outside [Model]`, n, raw);
-        currentTable = name === 'pullup' ? currentModel.pullup
-          : name === 'pulldown' ? currentModel.pulldown
-          : name === 'gnd clamp' ? currentModel.gndClamp : currentModel.powerClamp;
-      } else if (name === 'end') break;
+        if (currentTable) currentTable = null;
+      } else {
+        // Any other section closes the component: a later [Pin] without a new
+        // [Component] is an error, and pins can no longer leak into a part
+        // whose sections are interleaved with [Model]/[End].
+        if (name !== 'end') flushComponent();
+        if (name === 'model') {
+          flushModel();
+          const modelName = line.slice(section[0].length).trim().split(/\s+/)[0] ?? '';
+          if (!modelName) throw new IbisParseError('[Model] without a name', n, raw);
+          currentModel = { name: modelName, modelType: 'I/O', cComp: { typical: NaN }, pullup: [], pulldown: [], gndClamp: [], powerClamp: [] };
+        } else if (name === 'pullup' || name === 'pulldown' || name === 'gnd clamp' || name === 'power clamp') {
+          if (!currentModel) throw new IbisParseError(`[${section[1]}] outside [Model]`, n, raw);
+          currentTable = name === 'pullup' ? currentModel.pullup
+            : name === 'pulldown' ? currentModel.pulldown
+            : name === 'gnd clamp' ? currentModel.gndClamp : currentModel.powerClamp;
+        } else if (name === 'end') break;
+      }
       continue;
     }
     if (/^model_type\b/i.test(line)) {
@@ -149,9 +162,17 @@ export function parseIbis(text: string): IbisFile {
     }
   }
   flushModel();
-  if (currentComponent) file.components.push(currentComponent);
+  flushComponent();
   for (const m of file.models) {
     if (!Number.isFinite(m.cComp.typical)) throw new IbisParseError(`model ${m.name} missing C_comp`, 1, m.name);
+  }
+  const modelNames = new Set(file.models.map((m) => m.name.toLowerCase()));
+  for (const c of file.components) {
+    for (const p of c.pins) {
+      if (!modelNames.has(p.model.toLowerCase())) {
+        throw new IbisParseError(`pin ${p.pin} of ${c.name} references unknown model "${p.model}".`, 1, p.model);
+      }
+    }
   }
   return file;
 }

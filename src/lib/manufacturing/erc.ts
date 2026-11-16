@@ -183,33 +183,133 @@ export class ElectricalRuleChecker {
 
   /**
    * Merge declared nets and wire-carried connectivity into one net list.
-   * A wire without a `netName` is its own anonymous net, so two drivers on
-   * the same unnamed wire are still detected.
+   *
+   * Wires are unified exactly as the netlist builder unifies them: by net
+   * name, by shared pin, and — because a T-tap drawn on the canvas is one
+   * node — by an endpoint of one wire landing on another wire's segment.
+   * Without the geometry union, two drivers on a canvas T-tap report clean.
+   * A wire with no others attached stays its own anonymous net, so two
+   * drivers on the same unnamed wire are still detected.
    */
   private effectiveNets(): Array<{ id: string; name: string; connectedPins: Net['connectedPins'] }> {
-    const byName = new Map<string, { id: string; name: string; connectedPins: Net['connectedPins'] }>()
-
-    for (const net of this.nets) {
-      const key = net.name || net.id
-      const existing = byName.get(key)
-      if (existing) {
-        existing.connectedPins.push(...net.connectedPins)
-      } else {
-        byName.set(key, { id: net.id, name: key, connectedPins: [...net.connectedPins] })
+    // Union-find over wires, keyed by wire identity.
+    const parent = new Map<string, string>()
+    const find = (id: string): string => {
+      let root = id
+      while (parent.get(root) !== root) root = parent.get(root) as string
+      let current = id
+      while (current !== root) {
+        const next = parent.get(current) as string
+        parent.set(current, root)
+        current = next
       }
+      return root
+    }
+    const union = (first: string, second: string): void => {
+      const rootA = find(first)
+      const rootB = find(second)
+      if (rootA !== rootB) parent.set(rootA, rootB)
     }
 
+    for (const wire of this.wires) parent.set(wire.id, wire.id)
+
+    // Name joins.
+    const byName = new Map<string, string>()
     for (const wire of this.wires) {
-      const key = wire.netName || `wire:${wire.id}`
-      const existing = byName.get(key)
-      if (existing) {
-        existing.connectedPins.push(...wire.connectedPins)
-      } else {
-        byName.set(key, { id: key, name: key, connectedPins: [...wire.connectedPins] })
+      if (!wire.netName?.trim()) continue
+      const name = wire.netName.trim().toLowerCase().replace(/\s+/g, ' ')
+      const existing = byName.get(name)
+      if (existing) union(existing, wire.id)
+      else byName.set(name, wire.id)
+    }
+
+    // Shared pin joins: two wires claiming the same pin are one node.
+    const firstWireByPin = new Map<string, string>()
+    for (const wire of this.wires) {
+      for (const connection of wire.connectedPins) {
+        const key = connectionKey(connection.componentId, connection.pinId)
+        const existing = firstWireByPin.get(key)
+        if (existing) union(existing, wire.id)
+        else firstWireByPin.set(key, wire.id)
       }
     }
 
-    for (const net of byName.values()) {
+    // Geometry joins: a wire end landing on another wire's segment is the
+    // same node the canvas draws a junction dot for.
+    const pointOnSegment = (
+      end: { x: number; y: number },
+      a: { x: number; y: number },
+      b: { x: number; y: number },
+    ): boolean => {
+      const abx = b.x - a.x
+      const aby = b.y - a.y
+      const lengthSquared = abx * abx + aby * aby
+      const tolerance = 0.5
+      if (lengthSquared === 0) return Math.hypot(end.x - a.x, end.y - a.y) <= tolerance
+      const t = ((end.x - a.x) * abx + (end.y - a.y) * aby) / lengthSquared
+      if (t < 0 || t > 1) return false
+      return Math.hypot(end.x - (a.x + t * abx), end.y - (a.y + t * aby)) <= tolerance
+    }
+    for (const wire of this.wires) {
+      if (wire.points.length === 0) continue
+      const ends = [wire.points[0], wire.points[wire.points.length - 1]]
+      for (const other of this.wires) {
+        if (other.id === wire.id || other.points.length === 0) continue
+        for (const end of ends) {
+          for (let k = 0; k + 1 < other.points.length; k += 1) {
+            if (pointOnSegment(end, other.points[k], other.points[k + 1])) {
+              union(wire.id, other.id)
+              break
+            }
+          }
+        }
+      }
+    }
+
+    // Group wires by root in one pass (no per-root rescans).
+    const groups = new Map<string, Wire[]>()
+    for (const wire of this.wires) {
+      const root = find(wire.id)
+      const bucket = groups.get(root)
+      if (bucket) bucket.push(wire)
+      else groups.set(root, [wire])
+    }
+    const nameFor = (root: string): string => {
+      const group = groups.get(root) ?? []
+      const named = group.map((wire) => wire.netName?.trim()).find((name) => !!name)
+      return named ?? `wire:${group[0]?.id ?? root}`
+    }
+
+    const merged = new Map<string, { id: string; name: string; connectedPins: Net['connectedPins'] }>()
+    for (const [root, group] of groups) {
+      merged.set(root, {
+        id: root,
+        name: nameFor(root),
+        connectedPins: group.flatMap((wire) => wire.connectedPins),
+      })
+    }
+
+    // Declared nets merge by name, carrying their pins — and join the
+    // wire-derived nets they name, so a netlist net and its wires are one.
+    const byNetName = new Map<string, string>() // normalized name -> merged wire root id
+    for (const [root, entry] of merged) {
+      if (!entry.name.startsWith('wire:')) {
+        byNetName.set(entry.name.toLowerCase(), root)
+      }
+    }
+    for (const net of this.nets) {
+      const key = (net.name || net.id).trim().toLowerCase().replace(/\s+/g, ' ')
+      const root = byNetName.get(key)
+      if (root) {
+        merged.get(root)?.connectedPins.push(...net.connectedPins)
+        continue
+      }
+      const existing = merged.get(key)
+      if (existing) existing.connectedPins.push(...net.connectedPins)
+      else merged.set(key, { id: net.id, name: net.name || net.id, connectedPins: [...net.connectedPins] })
+    }
+
+    for (const net of merged.values()) {
       const seen = new Set<string>()
       net.connectedPins = net.connectedPins.filter(connection => {
         const key = connectionKey(connection.componentId, connection.pinId)
@@ -219,7 +319,7 @@ export class ElectricalRuleChecker {
       })
     }
 
-    return Array.from(byName.values())
+    return Array.from(merged.values())
   }
 
   private checkNetConflicts(): ERCViolation[] {

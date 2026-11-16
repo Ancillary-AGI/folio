@@ -62,8 +62,8 @@ function pinType(pin: CatalogPin): Component['pins'][number]['type'] {
 
 /**
  * Lay a datasheet pin list out in DIP order: pin 1 at the top-left, numbering
- * down the left edge, then continuing up the right edge. Pins beyond the two
- * edges (a module with an odd pin count) alternate edges rather than overlap.
+ * down the left edge, then continuing up the right edge. With an odd pin
+ * count the left edge simply carries one more pin than the right.
  */
 export function layoutPins(pins: readonly CatalogPin[]): {
   pins: Component['pins'];

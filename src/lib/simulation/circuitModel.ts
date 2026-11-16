@@ -1414,9 +1414,9 @@ function parseBehavioralExpression(expression: string, name: string): { expressi
         if (arity >= 0 && count !== arity) return fail(`"${func}" takes ${arity} argument(s).`)
         if (arity < 0 && count < 1) return fail(`"${func}" takes at least one argument.`)
         output.push(`F:${func}:${count}`)
-      } else if (argCounts.length > 0 && stack.some((entry) => entry.kind === 'lparen')) {
-        void 0
       }
+      // A `(` without a matching `func` on top is a plain parenthesised
+      // group; the operator/paren handling below takes care of it.
     }
   }
   while (stack.length > 0) {

@@ -122,9 +122,12 @@ function linkArea(link: PrintableLink): number {
 }
 
 /**
- * Bounding box of the mechanism laid out in a straight line from the base. The real
- * assembled pose is folded by the joint angles, so the horizontal reach uses the sum of
- * each link's projected length and the height is the tallest link standing off the bed.
+ * Bounding box of the mechanism folded by its joint angles. Joint angles are
+ * relative to the previous link, the same cumulative fold the STEP export
+ * applies, so the gate and the exported solid cannot describe two different
+ * mechanisms. Each axis length contributes |link·cos θ| to the reach and
+ * |link·sin θ| to the height — a conservative bound, not the exact folded
+ * silhouette — plus the thickest link's depth in height.
  */
 function envelopeOf(
   links: readonly PrintableLink[],
@@ -132,8 +135,9 @@ function envelopeOf(
 ): { width: number; depth: number; height: number } {
   let reach = 0;
   let height = 0;
+  let angle = 0;
   links.forEach((link, index) => {
-    const angle = joints[index]?.assembled ?? 0;
+    angle += joints[index]?.assembled ?? 0;
     reach += Math.abs(link.length * Math.cos(angle));
     height = Math.max(height, Math.abs(link.length * Math.sin(angle)));
   });
@@ -191,6 +195,11 @@ export function assessManufacturability(
   for (const link of links) {
     positive(link.length, `link ${link.id} length`);
     positive(link.depth, `link ${link.id} depth`);
+    // A negative mass shrinks the carried load and lets an overstressed link
+    // pass; a zero-mass link also corrupts the inertia math downstream.
+    if (!Number.isFinite(link.mass) || link.mass <= 0) {
+      throw new Error(`link ${link.id} mass must be a positive finite number, got ${link.mass}.`);
+    }
     if (link.length > smallest) {
       findings.push({
         check: 'bed-fit',
@@ -205,6 +214,9 @@ export function assessManufacturability(
   for (const joint of joints) {
     if (!Number.isFinite(joint.assembled)) {
       throw new Error(`Joint ${joint.id} has a non-finite assembled angle.`);
+    }
+    if (!Number.isFinite(joint.min) || !Number.isFinite(joint.max)) {
+      throw new Error(`Joint ${joint.id} has non-finite limits [${joint.min}, ${joint.max}].`);
     }
     if (joint.min > joint.max) {
       throw new Error(`Joint ${joint.id} has min ${joint.min} greater than max ${joint.max}.`);
@@ -223,14 +235,26 @@ export function assessManufacturability(
   }
 
   // Structural: each link is a cantilever carrying everything downstream of it.
+  // Bending moment about link i's root is the payload at the chain tip plus
+  // every downstream link's weight acting at its own centre of mass — the old
+  // `carried * link.length` charged the full downstream load at this link's own
+  // length, under-predicting stress everywhere but the tip.
+  const linkWeights = links.map((link) => link.mass * 9.81);
+  const prefixLengths: number[] = [0];
+  for (const link of links) prefixLengths.push(prefixLengths[prefixLengths.length - 1] + link.length);
+  const chainLength = prefixLengths[prefixLengths.length - 1];
+  const centresOfMass = links.map((link, index) => prefixLengths[index] + link.length / 2);
   let carried = payload;
   for (let index = links.length - 1; index >= 0; index -= 1) {
     const link = links[index];
     const inertia = linkInertia(link);
     const extremeFibre = linkExtremeFibre(link);
 
-    // Bending at the root from the load at the tip, in N·mm against MPa of yield.
-    const moment = carried * link.length;
+    const rootPosition = prefixLengths[index];
+    let moment = payload * (chainLength - rootPosition);
+    for (let downstream = index; downstream < links.length; downstream += 1) {
+      moment += linkWeights[downstream] * (centresOfMass[downstream] - rootPosition);
+    }
     const stress = bendingStress(moment, extremeFibre, inertia);
     if (stress > yieldMPa) {
       findings.push({

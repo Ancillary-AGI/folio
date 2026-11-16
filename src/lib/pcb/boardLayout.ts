@@ -209,12 +209,16 @@ export function placeFromRoutedLayout(
   }
 }
 
-/** Nets named by the sheet's wires, the same grouping the router consumes. */
+/** Nets named by the sheet's wires, the same grouping the router consumes.
+ * Net names are folded case-insensitively (and trimmed): 'Out' and 'OUT' are
+ * one net on the sheet, so they are one net to the router too. */
 export function netsFromWires(wires: readonly CanvasWire[]): Net[] {
   const netsById = new Map<string, Net>()
   wires.forEach((wire, index) => {
-    const id = wire.netName || `NET${index}`
-    const net = netsById.get(id) ?? { id, name: id, connectedPins: [], wires: [] }
+    const raw = wire.netName?.trim()
+    const id = raw ? raw.toLowerCase().replace(/\s+/g, ' ') : `NET${index}`
+    const display = raw || `NET${index}`
+    const net = netsById.get(id) ?? { id, name: display, connectedPins: [], wires: [] }
     net.connectedPins.push(...(wire.connectedPins ?? []))
     net.wires.push(wire.id)
     netsById.set(id, net)
@@ -261,6 +265,9 @@ export function sceneFromRouting(
     traces: routing.result.traces.map((trace, index) => ({
       id: `trace_${index}`,
       net: trace.netId,
+      // F.Cu routes map to top copper, B.Cu to bottom; any future inner layer
+      // would be dropped loudly by PCBDesignPanel's layer check rather than
+      // silently drawn on top.
       layerId: trace.layerId === 'B.Cu' ? 'bot-cu' : 'top-cu',
       widthMm: trace.widthMm,
       points: trace.points.map((point) => ({ ...point })),

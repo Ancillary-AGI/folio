@@ -36,7 +36,8 @@ export interface SynthesisMetrics {
   gateCount: number;
   totalCellAreaUm2: number;
   totalLeakagePowerUw: number;
-  estimatedDynamicPowerMwAt100Mhz: number;
+  /** Dynamic power at the synthesis clock (`clockFreqMhz`, default 100 MHz). */
+  estimatedDynamicPowerMw: number;
   criticalPathDelayPs: number;
   maxOperatingFreqMhz: number;
   criticalPath: string[];
@@ -310,7 +311,7 @@ export function synthesizeGates(
       gateCount: instances.length,
       totalCellAreaUm2: Number(totalArea.toFixed(2)),
       totalLeakagePowerUw: Number(leakageUw.toPrecision(4)),
-      estimatedDynamicPowerMwAt100Mhz: Number(dynPowerMw.toPrecision(4)),
+      estimatedDynamicPowerMw: Number(dynPowerMw.toPrecision(4)),
       criticalPathDelayPs: Math.round(maxPathDelayPs),
       maxOperatingFreqMhz: Math.round(maxFreqMhz),
       criticalPath,
