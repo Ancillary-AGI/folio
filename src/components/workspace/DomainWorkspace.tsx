@@ -377,6 +377,36 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
             wires: project.wires,
           })
         }
+      } else if (event.key.startsWith('Arrow') && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        /*
+         * Arrow keys nudge the selection one grid step; Shift takes ten. This
+         * bypasses the shortcut registry deliberately: all four directions are
+         * one gesture, and rebinding a single arrow via the guide would leave
+         * the set half-bound. The sketch tool keeps its own arrow semantics.
+         */
+        const sketch = useSketchStore.getState()
+        if (useAppStore.getState().activeTool === 'sketch') return
+        const project = useProjectStore.getState()
+        const selectedIds = useAppStore.getState().selectedComponents
+        if (selectedIds.length === 0) return
+        const step = (settings.gridSize || 10) * (event.shiftKey ? 10 : 1)
+        const offsets: Record<string, { dx: number; dy: number }> = {
+          ArrowLeft: { dx: -step, dy: 0 },
+          ArrowRight: { dx: step, dy: 0 },
+          ArrowUp: { dx: 0, dy: -step },
+          ArrowDown: { dx: 0, dy: step },
+        }
+        const move = offsets[event.key]
+        if (!move) return
+        event.preventDefault()
+        const selected = new Set(selectedIds)
+        // One replaceDesign = one undo entry, like the marquee-driven edits.
+        project.replaceDesign({
+          components: project.components.map((comp) =>
+            selected.has(comp.id) ? { ...comp, x: comp.x + move.dx, y: comp.y + move.dy } : comp,
+          ),
+          wires: project.wires,
+        })
       } else if (matches('schematic.grid')) {
         updateSettings({ showGrid: !settings.showGrid })
       } else if (matches('schematic.fit')) {

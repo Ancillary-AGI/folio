@@ -100,6 +100,13 @@ export const HELP_TOPICS = [
     shortcutId: 'schematic.tidy',
   },
   {
+    id: 'rail.nudge',
+    group: 'rail',
+    title: 'Nudge parts',
+    description: 'Move every selected part one grid step with the arrow keys; hold Shift for ten steps.',
+    keys: ['↑', '↓', '←', '→'],
+  },
+  {
     id: 'rail.save',
     group: 'rail',
     title: 'Save',

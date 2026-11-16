@@ -847,9 +847,10 @@ function App() {
     })
   }
 
-  const ensureProject = async (): Promise<boolean> => {
-    if (!useProjectStore.getState().currentProject) await handleNewProject()
-    return Boolean(useProjectStore.getState().currentProject)
+  const ensureProject = async (): Promise<'created' | 'existing' | null> => {
+    if (useProjectStore.getState().currentProject) return 'existing'
+    await handleNewProject()
+    return useProjectStore.getState().currentProject ? 'created' : null
   }
 
   /*
@@ -1118,8 +1119,23 @@ function App() {
   // must never silently overwrite an unsaved schematic.
   const openDemoScenario = async (scenario: DemoScenario): Promise<boolean> => {
     if (isBoardDemoLoad(scenario.load) && !(await confirmReplace(scenario.title))) return false
-    if (!(await ensureProject())) return false
+    const canOpen = await ensureProject()
+    if (!canOpen) return false
     await runDemoLoad(scenario)
+    /*
+     * A demo opened on a fresh project inherits the demo's name — the header
+     * stops saying "New Project <date>" beside a half-wave rectifier, and
+     * exports land under a name the designer recognises. The auto-name is the
+     * marker: a project the user typed deliberately is never renamed.
+     */
+    const opened = useProjectStore.getState().currentProject
+    if (opened && /^New Project\s/.test(opened.name)) {
+      try {
+        await renameCurrentProject(scenario.title)
+      } catch {
+        // A demo that could not be renamed is still the demo.
+      }
+    }
     recordPlatformUsage('demo.load', user, offlineMode, { scenario: scenario.title })
     return true
   }
@@ -1309,7 +1325,9 @@ function App() {
    */
   const renameCurrentProject = async (nextName: string) => {
     if (previewActive) throw new Error('Make it yours before renaming.')
-    const project = currentProject
+    // The store is the source of truth — the closure's `currentProject` can be
+    // stale here, e.g. mid-demo-load when this runs right after creation.
+    const project = useProjectStore.getState().currentProject
     if (!project) throw new Error('No project is open to rename.')
     const trimmed = nextName.trim()
     if (!trimmed) throw new Error('A project needs a name.')
