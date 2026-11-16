@@ -274,10 +274,11 @@ function App() {
   useEffect(() => {
     if (!showVcsMenu) return
     const panel = vcsPanelRef.current
+    const trigger = vcsTriggerRef.current
     const target = panel?.querySelector<HTMLInputElement>('input') ?? panel?.querySelector<HTMLButtonElement>('button')
     target?.focus()
     const onMouseDown = (event: MouseEvent) => {
-      const inside = panel?.contains(event.target as Node) || vcsTriggerRef.current?.contains(event.target as Node)
+      const inside = panel?.contains(event.target as Node) || trigger?.contains(event.target as Node)
       if (!inside) setShowVcsMenu(false)
     }
     const onKeyDown = (event: KeyboardEvent) => {
@@ -292,7 +293,7 @@ function App() {
     return () => {
       document.removeEventListener('mousedown', onMouseDown)
       document.removeEventListener('keydown', onKeyDown)
-      vcsTriggerRef.current?.focus()
+      trigger?.focus()
     }
   }, [showVcsMenu])
   const [vcsMessage, setVcsMessage] = useState('')
@@ -334,10 +335,11 @@ function App() {
   // arrows/Home/End cycle, Escape closes and hands focus back to the trigger.
   useEffect(() => {
     if (!showMoreMenu) return
+    const trigger = moreMenuTriggerRef.current
     const items = moreMenuPanelRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
     items?.[0]?.focus()
     return () => {
-      moreMenuTriggerRef.current?.focus()
+      trigger?.focus()
     }
   }, [showMoreMenu])
 

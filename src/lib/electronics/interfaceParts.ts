@@ -151,7 +151,7 @@ export const IC_PC817: InterfaceSpec = {
   id: 'iso-pc817',
   partNumber: 'PC817',
   name: 'Phototransistor optocoupler',
-  manufacturer: 'Sharp',
+  manufacturer: 'Vishay',
   family: 'optocoupler',
   package: 'DIP-4',
   pinCount: 4,
@@ -160,7 +160,7 @@ export const IC_PC817: InterfaceSpec = {
   ]),
   supplyVolts: 5,
   keyRating: '5 kVrms isolation; VCEO 80 V; CTR 50–400 %',
-  datasheetUrl: 'https://partsplanai.com/datasheet/04c5dfe12e1140687ec47236af43378758d2b84e2195cdf498cba06646b672f2/sharp-pc817',
+  datasheetUrl: 'https://www.vishay.com/docs/84100/pc817.pdf',
   description: 'LED on 1/2 drives a phototransistor on 3/4; the classic way to break a ground loop around a feedback pin.',
 };
 
@@ -205,7 +205,7 @@ export const IC_ULN2003A: InterfaceSpec = {
   ]),
   supplyVolts: 5,
   keyRating: 'VCEO 50 V; 500 mA per output; free-wheeling diodes to COM',
-  datasheetUrl: 'https://partsplanai.com/datasheet/d803ad3bdaae394f2536287061f7fa740ce8d20c79cc5cdf833c9eb415122087/stmicroelectronics-uln2003a',
+  datasheetUrl: 'https://www.st.com/resource/en/datasheet/uln2003a.pdf',
   description: 'Logic-level inputs sink relay coils and stepper phases; outputs are numbered opposite the inputs, and COM clamps the flyback.',
 };
 
