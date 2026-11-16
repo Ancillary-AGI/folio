@@ -39,6 +39,7 @@ import { assetSecurity } from './lib/security/assetSecurity'
 import { backupService, type ProjectBackup } from './lib/backup/backupService'
 import { buildCheckpointPayload } from './lib/backup/checkpoint'
 import { useAppStore, type WorkspaceMode } from './stores/useAppStore'
+import { WORKSPACE_MODES } from './lib/workspace/modes'
 import { useShortcutStore } from './stores/useShortcutStore'
 import { useDesignHealthStore } from './stores/useDesignHealthStore'
 import { isEditableTarget, matchesShortcut } from './lib/keymap/shortcuts'
@@ -129,6 +130,23 @@ function asPcbLayout(value: unknown): PcbLayout {
     : null
 }
 
+/**
+ * The workspace mode stored in the payload's viewport (as of v2 checkpoints).
+ * Validated against the registry so a hand-edited file cannot pick an unknown
+ * mode; unknown values are ignored rather than guessed.
+ */
+const VALID_MODES = new Set(WORKSPACE_MODES.map((mode) => mode.id))
+function asStoredMode(viewport: unknown): WorkspaceMode | null {
+  const mode = (viewport as { mode?: unknown } | undefined)?.mode
+  return typeof mode === 'string' && VALID_MODES.has(mode as WorkspaceMode)
+    ? (mode as WorkspaceMode)
+    : null
+}
+/** Apply the payload's stored workspace mode, when it is one we ship. */
+function applyStoredMode(viewport: unknown): void {
+  const mode = asStoredMode(viewport)
+  if (mode) useAppStore.getState().setWorkspaceMode(mode)
+}
 /** Saved mechanical assemblies and domain bags may be absent in older files. */
 function asMechanicalParts(value: unknown): MechanicalPart[] {
   return Array.isArray(value) ? value as MechanicalPart[] : createDefaultMechanicalParts()
@@ -411,7 +429,7 @@ function App() {
       domains: live.domainDesigns,
       netlist: null,
       simConfig: null,
-      meta: { viewport: useAppStore.getState().viewport },
+      meta: { viewport: buildCheckpointPayload().viewport as Record<string, unknown> },
     }
   }
 
@@ -1272,6 +1290,7 @@ function App() {
         isDirty: false,
       })
       setCurrentSchematic(schematic)
+      applyStoredMode(savedCanvas?.viewport)
       const viewport = savedCanvas?.viewport as { zoom?: unknown; pan?: unknown } | undefined
       const hasSavedView =
         (viewport && typeof viewport.zoom === 'number' && Number.isFinite(viewport.zoom)) ||
@@ -1620,6 +1639,7 @@ function App() {
       liveFrame: null,
       isDirty: true,
     })
+    applyStoredMode(snapshot.meta?.viewport)
     const viewportMeta = snapshot.meta?.viewport
     const hasSavedView =
       viewportMeta &&
@@ -1722,6 +1742,7 @@ function App() {
       liveFrame: null,
       isDirty: true,
     })
+    applyStoredMode(restored.viewport)
     const viewport = restored.viewport as { zoom?: unknown; pan?: unknown } | undefined
     const hasSavedView =
       (viewport && typeof viewport.zoom === 'number' && Number.isFinite(viewport.zoom)) ||

@@ -384,7 +384,6 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
          * one gesture, and rebinding a single arrow via the guide would leave
          * the set half-bound. The sketch tool keeps its own arrow semantics.
          */
-        const sketch = useSketchStore.getState()
         if (useAppStore.getState().activeTool === 'sketch') return
         const project = useProjectStore.getState()
         const selectedIds = useAppStore.getState().selectedComponents

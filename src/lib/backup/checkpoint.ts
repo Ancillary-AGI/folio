@@ -16,6 +16,8 @@ export function buildCheckpointPayload(): Record<string, unknown> {
     pcbLayout: design.pcbLayout,
     mechanicalParts: design.mechanicalParts,
     domainDesigns: design.domainDesigns,
-    viewport: useAppStore.getState().viewport,
+    // The workspace mode travels with the project, so reopening it lands where
+    // the designer left off instead of always the schematic.
+    viewport: { ...useAppStore.getState().viewport, mode: useAppStore.getState().workspaceMode },
   }
 }

@@ -549,8 +549,8 @@ interface RoutedDrcReport {
  *  is reported as split instead of passing on the strength of any copper. */
 function copperGroups(layout: PcbSceneInput, netId: string): number {
   const key = normalizeBoardNetName(netId)
-  const traces = layout.traces.filter((trace) => normalizeBoardNetName(trace.net) === key)
-  const vias = layout.vias.filter((via) => normalizeBoardNetName(via.net) === key)
+  const traces = layout.traces.filter((trace) => normalizeBoardNetName(trace.net ?? '') === key)
+  const vias = layout.vias.filter((via) => normalizeBoardNetName(via.net ?? '') === key)
   const count = traces.length + vias.length
   if (count <= 1) return count
   const parent = Array.from({ length: count }, (_, index) => index)
@@ -609,8 +609,8 @@ function checkRoutedLayout(layout: PcbSceneInput, profile: FabProfile): RoutedDr
   const splitNets: Array<{ net: string; groups: number }> = []
   for (const net of sheetNets) {
     if (net.connectedPins.length < 2) continue
-    const traces = layout.traces.filter((trace) => normalizeBoardNetName(trace.net) === normalizeBoardNetName(net.id))
-    const vias = layout.vias.filter((via) => normalizeBoardNetName(via.net) === normalizeBoardNetName(net.id))
+    const traces = layout.traces.filter((trace) => normalizeBoardNetName(trace.net ?? '') === normalizeBoardNetName(net.id))
+    const vias = layout.vias.filter((via) => normalizeBoardNetName(via.net ?? '') === normalizeBoardNetName(net.id))
     if (traces.length + vias.length === 0) {
       unroutedNets.push(net.id)
       continue
