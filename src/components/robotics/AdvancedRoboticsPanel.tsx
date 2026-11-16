@@ -156,6 +156,15 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
   const [pathBusy, setPathBusy] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  /**
+   * Generation counter for the demo's fly-to-target animation. Every demo
+   * load or manual joint edit bumps it, so a stale tick chain stops instead
+   * of yanking the arm out of the user's hand mid-drag.
+   */
+  const demoAnimRef = useRef(0);
+  useEffect(() => () => {
+    demoAnimRef.current += 1;
+  }, []);
 
   usePublishDomainDesign('robotics', {
     selectedMechanismId: selectedMechanism?.id ?? null,
@@ -242,15 +251,20 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
     const frames = advancedRobotics.simulateMechanism(mechanism.id, trajectory.duration, 0.05, {
       start: [...start], target: [...end], profile: trajectory.profile,
     });
+    // Bump the generation so any earlier demo's tick chain stops, and defer
+    // the first frame a beat: the arm starts visibly from rest instead of
+    // teleporting to the first sampled instant.
+    const generation = (demoAnimRef.current += 1);
     let frameIndex = 0;
     const stepMs = 33; // ~30 fps playback; the quintic still completes exactly once
     const tick = () => {
+      if (demoAnimRef.current !== generation) return;
       if (frameIndex >= frames.length) return;
       setJointAngles([...frames[frameIndex].jointAngles]);
       frameIndex += 1;
       window.setTimeout(tick, stepMs);
     };
-    tick();
+    window.setTimeout(tick, stepMs);
     const demo = buildDemoArm();
     setRunMessage({ kind: demo.export.ok ? 'ok' : 'error', text: demo.verdict });
   };
@@ -324,6 +338,7 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
     );
 
     if (result.success) {
+      demoAnimRef.current += 1; // a user-driven solve cancels any demo fly-to in flight
       setJointAngles(result.jointAngles);
       // A new pose invalidates dynamics and any move planned from the previous one.
       setDynamicsResult(null);
@@ -449,8 +464,12 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
           + contactNote,
       });
 
-      // Animate the simulation
+      // Animate the simulation. The generation token lets a joint edit, a
+      // manual solve or a second click on the button cancel the replay instead
+      // of painting over the operator's pose.
+      const generation = (demoAnimRef.current += 1);
       for (const result of results) {
+        if (demoAnimRef.current !== generation) return;
         setJointAngles(result.jointAngles);
         await new Promise(resolve => setTimeout(resolve, 100));
       }
@@ -611,6 +630,8 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
   };
 
   const updateJointAngle = (jointIndex: number, angle: number) => {
+    // The user took the wheel: stop any demo fly-to mid-animation.
+    demoAnimRef.current += 1;
     const newAngles = [...jointAngles];
     newAngles[jointIndex] = angle;
     setJointAngles(newAngles);
