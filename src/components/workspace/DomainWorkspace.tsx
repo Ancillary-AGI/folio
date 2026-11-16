@@ -428,7 +428,7 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [workspaceMode, shortcutOverrides, saveSnapshot, clearSelection, setActiveTool, updateSettings, settings.showGrid, setArmedLibraryItem, toggleHealthPanel, stepFinding])
+  }, [workspaceMode, shortcutOverrides, saveSnapshot, clearSelection, setActiveTool, updateSettings, settings.showGrid, settings.gridSize, setArmedLibraryItem, toggleHealthPanel, stepFinding])
 
   /*
    * Every other workspace takes the same Escape rule as the sheet: an armed row

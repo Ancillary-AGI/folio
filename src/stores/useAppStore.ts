@@ -235,6 +235,25 @@ const defaultViewport: ViewportState = {
   pan: { x: 0, y: 0 }
 }
 
+/** A stored zoom that is finite, positive and bounded to the canvas's own 5×. */
+const clampZoom = (value: unknown): number => {
+  const zoom = Number(value)
+  return Number.isFinite(zoom) && zoom > 0 ? Math.min(5, zoom) : 1
+}
+
+/** A stored pan that is finite and bounded; anything else becomes the origin. */
+const sanitizePan = (pan: unknown): { x: number; y: number } => {
+  if (!pan || typeof pan !== 'object') return { x: 0, y: 0 }
+  const p = pan as { x?: unknown; y?: unknown }
+  const bound = 100_000
+  const x = Number(p.x)
+  const y = Number(p.y)
+  return {
+    x: Number.isFinite(x) ? Math.max(-bound, Math.min(bound, x)) : 0,
+    y: Number.isFinite(y) ? Math.max(-bound, Math.min(bound, y)) : 0,
+  }
+}
+
 /* Each request gets a new token so asking twice for the same part still moves
  * the viewport, and a consumer cannot clear a newer request by accident. */
 let focusNonce = 0
@@ -369,9 +388,12 @@ export const useAppStore = create<AppState>()(
           const stored = (persisted ?? {}) as Partial<AppState> & { viewport?: Partial<ViewportState> }
           const merged = { ...current, ...stored }
           merged.settings = normalizeSettings(stored.settings ?? current.settings)
+          // A hand-edited or corrupt blob could carry zoom 1e9 or NaN pan and
+          // every transform would follow it there — clamp on the way in.
+          const zoom = clampZoom(stored.viewport?.zoom)
           merged.viewport = {
-            zoom: stored.viewport?.zoom ?? 1,
-            pan: stored.viewport?.pan ?? { x: 0, y: 0 },
+            zoom,
+            pan: sanitizePan(stored.viewport?.pan),
           }
           merged.sidebarOpen = stored.sidebarOpen ?? true
           merged.simulationPanelOpen = stored.simulationPanelOpen ?? false
@@ -389,8 +411,8 @@ export const useAppStore = create<AppState>()(
           return {
             settings: state.settings ? normalizeSettings(state.settings) : DEFAULT_SETTINGS,
             viewport: {
-              zoom: state.viewport?.zoom ?? 1,
-              pan: state.viewport?.pan ?? { x: 0, y: 0 },
+              zoom: clampZoom(state.viewport?.zoom),
+              pan: sanitizePan(state.viewport?.pan),
             },
             sidebarOpen: state.sidebarOpen ?? true,
             simulationPanelOpen: state.simulationPanelOpen ?? false,

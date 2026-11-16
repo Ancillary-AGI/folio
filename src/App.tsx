@@ -264,6 +264,37 @@ function App() {
   const [libraryComponents, setLibraryComponents] = useState<Component[]>([])
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [showVcsMenu, setShowVcsMenu] = useState(false)
+  const vcsTriggerRef = useRef<HTMLButtonElement>(null)
+  const vcsPanelRef = useRef<HTMLDivElement>(null)
+
+  /*
+   * The version-history popover behaves like its siblings: focus drops into it,
+   * Escape closes, a click outside dismisses, and focus returns to the trigger.
+   */
+  useEffect(() => {
+    if (!showVcsMenu) return
+    const panel = vcsPanelRef.current
+    const target = panel?.querySelector<HTMLInputElement>('input') ?? panel?.querySelector<HTMLButtonElement>('button')
+    target?.focus()
+    const onMouseDown = (event: MouseEvent) => {
+      const inside = panel?.contains(event.target as Node) || vcsTriggerRef.current?.contains(event.target as Node)
+      if (!inside) setShowVcsMenu(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        setShowVcsMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown)
+      document.removeEventListener('keydown', onKeyDown)
+      vcsTriggerRef.current?.focus()
+    }
+  }, [showVcsMenu])
   const [vcsMessage, setVcsMessage] = useState('')
   const [vcsLog, setVcsLog] = useState<VcsCommit[]>([])
   const [vcsStatus, setVcsStatus] = useState('')
@@ -296,6 +327,39 @@ function App() {
   const [activeTutorial, setActiveTutorial] = useState<Tutorial | null>(null)
   const [showCollaborativePanel, setShowCollaborativePanel] = useState(false)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
+  const moreMenuTriggerRef = useRef<HTMLButtonElement>(null)
+  const moreMenuPanelRef = useRef<HTMLDivElement>(null)
+
+  // The menu owns the keyboard while it is open: focus lands on the first item,
+  // arrows/Home/End cycle, Escape closes and hands focus back to the trigger.
+  useEffect(() => {
+    if (!showMoreMenu) return
+    const items = moreMenuPanelRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+    items?.[0]?.focus()
+    return () => {
+      moreMenuTriggerRef.current?.focus()
+    }
+  }, [showMoreMenu])
+
+  const onMoreMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      setShowMoreMenu(false)
+      return
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') return
+    event.preventDefault()
+    const items = Array.from(moreMenuPanelRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])
+    if (items.length === 0) return
+    const current = items.indexOf(document.activeElement as HTMLButtonElement)
+    let next = 0
+    if (event.key === 'ArrowDown') next = current < 0 ? 0 : (current + 1) % items.length
+    else if (event.key === 'ArrowUp') next = current < 0 ? items.length - 1 : (current - 1 + items.length) % items.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = items.length - 1
+    items[next]?.focus()
+  }
   const [collaborativeUsers, setCollaborativeUsers] = useState<CollabUser[]>([])
   const voiceListening = useVoiceStore((state) => state.listening)
   const voiceOpen = useVoiceStore((state) => state.open)
@@ -2388,6 +2452,7 @@ function App() {
           <div className="relative" data-tour="version-history">
             <HoverHelp topicId="header.version-history" placement="bottom">
               <Button
+                ref={vcsTriggerRef}
                 variant="ghost"
                 size="bar-icon"
                 onClick={() => { setShowVcsMenu(value => !value); refreshVcs() }}
@@ -2398,7 +2463,7 @@ function App() {
               </Button>
             </HoverHelp>
             {showVcsMenu && (
-              <div className="cad-glass-panel cad-popover-enter absolute right-0 z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border shadow-2xl">
+              <div ref={vcsPanelRef} className="cad-glass-panel cad-popover-enter absolute right-0 z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border shadow-2xl">
                 <div className="bg-surface/50 p-3 border-b border-border/60">
                   <h2 className="text-sm font-semibold">Version history</h2>
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
@@ -2563,6 +2628,7 @@ function App() {
           <div className="relative">
             <HoverHelp topicId="header.more" placement="bottom">
               <Button
+                ref={moreMenuTriggerRef}
                 variant={showMoreMenu ? 'default' : 'ghost'}
                 size="bar-icon"
                 onClick={() => setShowMoreMenu(value => !value)}
@@ -2577,9 +2643,11 @@ function App() {
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} aria-hidden="true" />
                 <div
+                  ref={moreMenuPanelRef}
                   className="cad-glass-panel cad-popover-enter absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-border py-1 shadow-2xl"
                   role="menu"
                   aria-label="More tools"
+                  onKeyDown={onMoreMenuKeyDown}
                 >
                   {moreMenuSections.map(({ group, items }) => (
                     <div key={group} role="group" aria-label={group} className="pb-1">

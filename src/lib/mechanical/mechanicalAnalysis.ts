@@ -81,7 +81,7 @@ function conductingArea(dimensions: PrismDimensions): number {
  * One-dimensional conduction from the hot face to ambient.
  *
  * `R = L/(kA)` with `L` the thickness the heat crosses — the term the old code dropped.
- * `τ = m·c_p/R`, and the steady rise is `P·R`.
+ * The thermal time constant is `τ = m·c_p·R`, and the steady rise is `P·R`.
  */
 export function analyseConduction(
   dimensions: PrismDimensions,

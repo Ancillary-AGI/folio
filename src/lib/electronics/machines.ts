@@ -36,7 +36,10 @@ export interface MachineSpec {
 
 /** Shaft power P = τω, watts. */
 export function shaftPowerW(torqueNm: number, speedRpm: number): number {
-  if (!(speedRpm >= 0)) throw new Error(`Speed must be non-negative, got ${speedRpm}.`);
+  if (!(speedRpm >= 0) || !Number.isFinite(speedRpm)) {
+    throw new Error(`Speed must be non-negative and finite, got ${speedRpm}.`);
+  }
+  if (!Number.isFinite(torqueNm)) throw new Error(`Torque must be finite, got ${torqueNm}.`);
   return torqueNm * ((speedRpm * 2 * Math.PI) / 60);
 }
 

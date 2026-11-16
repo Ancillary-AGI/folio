@@ -26,9 +26,10 @@ export default function PlanSection({ offlineMode, user }: PlanSectionProps) {
 
   const rows = useMemo(() => {
     const uid = user?.id ?? 'offline-local'
-    const projectsUsed = offlineMode
-      ? offlineProjectStore.list().length
-      : offlineProjectStore.list().filter((entry) => entry.user_id === uid).length
+    // The device cannot see the server's project rows, so an online account's
+    // project count is honestly "not measured" instead of a local number
+    // presented as the account's usage.
+    const projectsUsed = offlineMode ? offlineProjectStore.list().length : null
     const exportsUsed = countUsage('export.run', startOfToday(), uid)
     const simulationsUsed = countUsage('simulation.run', startOfToday(), uid)
     return [
@@ -52,7 +53,9 @@ export default function PlanSection({ offlineMode, user }: PlanSectionProps) {
       <section aria-labelledby="limits-heading">
         <h2 id="limits-heading" className="text-sm font-bold text-foreground">What this account can use</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Enforced here on this device — and by the server too when you use online mode.
+          {offlineMode
+            ? 'Enforced here on this device.'
+            : 'Enforced by the deployment when you sign in online; the usage rows below count this device’s own events, not the server’s ledger.'}
         </p>
         <div className="mt-2 overflow-hidden rounded-xl border border-border/70">
           <table className="w-full text-left text-xs">
