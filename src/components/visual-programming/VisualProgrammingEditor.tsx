@@ -399,9 +399,24 @@ export default function VisualProgrammingEditor({ onClose }: VisualProgrammingEd
 
       const reactFlowBounds = reactFlowWrapper.current?.getBoundingClientRect();
       const type = event.dataTransfer.getData('application/reactflow');
-      const blockData = JSON.parse(event.dataTransfer.getData('application/json'));
 
       if (typeof type === 'undefined' || !type || !reactFlowBounds) {
+        return;
+      }
+
+      // External drag-and-drop (files, browser links, other apps) can put
+      // anything in this MIME slot; parse failure is a no-op, never an
+      // uncaught exception.
+      let blockData: { data?: Record<string, unknown>; label?: string } = {};
+      try {
+        const raw = event.dataTransfer.getData('application/json');
+        if (raw) {
+          const parsed = JSON.parse(raw) as unknown;
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            blockData = parsed as { data?: Record<string, unknown>; label?: string };
+          }
+        }
+      } catch {
         return;
       }
 

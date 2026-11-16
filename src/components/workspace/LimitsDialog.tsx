@@ -1,5 +1,6 @@
 import HoverHelp from '../ui/HoverHelp'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useModalFocus } from '../ui/useModalFocus'
 import { ChevronRight, Cloud, FileCheck2, Search, ShieldAlert, X } from 'lucide-react'
 import { Button } from '../ui/button'
 import { WORKSPACE_MODE_META } from '../../lib/workspace/modes'
@@ -45,32 +46,18 @@ export default function LimitsDialog({ open, onClose, currentMode = null }: Limi
   const [modeOnly, setModeOnly] = useState(false)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const searchRef = useRef<HTMLInputElement>(null)
-
-  // Callers pass an inline close handler; reacting to its identity would reset
-  // the filter and steal focus on every unrelated parent render.
-  const onCloseRef = useRef(onClose)
-  useEffect(() => {
-    onCloseRef.current = onClose
-  }, [onClose])
+  const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
     setQuery('')
     setFilter('all')
     setModeOnly(false)
-    const frame = requestAnimationFrame(() => searchRef.current?.focus())
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onCloseRef.current()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      cancelAnimationFrame(frame)
-      window.removeEventListener('keydown', onKeyDown)
-    }
   }, [open])
+
+  // The modal contract: focus arrives on the search field, Tab circulates
+  // inside the panel, Escape closes, focus returns to the trigger.
+  useModalFocus(panelRef, onClose, { initialFocus: searchRef, active: open })
 
   const visible = useMemo(
     () => filterCapabilities(filter, query, modeOnly && currentMode ? currentMode : null),
@@ -104,6 +91,7 @@ export default function LimitsDialog({ open, onClose, currentMode = null }: Limi
       if (event.target === event.currentTarget) onClose()
     }}>
       <div
+        ref={panelRef}
         className="app-panel cad-panel-shell animate-rise-in max-w-5xl"
         role="dialog"
         aria-modal="true"

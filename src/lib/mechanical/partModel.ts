@@ -170,7 +170,7 @@ export function createDefaultMechanicalParts(): MechanicalPart[] {
  * intrinsic-XYZ Euler angles in the panel's Rz·Ry·Rx convention.
  */
 function localXAxisInWorld(rotation: [number, number, number]): [number, number, number] {
-  const [rx, ry, rz] = rotation;
+  const [, ry, rz] = rotation;
   const cy = Math.cos(ry), sz = Math.sin(rz), cz = Math.cos(rz);
   const sy = Math.sin(ry);
   // First column of Rz·Ry·Rx.

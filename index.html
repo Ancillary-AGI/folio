@@ -63,10 +63,17 @@
         root.dataset.theme = theme;
         if (isDark) root.classList.add('dark');
         root.style.colorScheme = isDark ? 'dark' : 'light';
-        /* folio-dark background = hsl(228 30% 4%) ≈ #07080d */
-        root.style.backgroundColor = isDark
-          ? (theme === 'folio-dark' ? '#07080d' : theme === 'professional' ? '#080d10' : '#0a0f1a')
-          : '#ffffff';
+        /* Exact THEMES[*]['--background'] tokens from src/lib/theme/tokens.ts:
+           light #ffffff, dark #0a0f1a, folio-dark #07080d, professional (spreads dark) #0a0f1a, high-contrast #000000.
+           theme.test.ts pins every one of these literals. */
+        var backgrounds = {
+          'light': '#ffffff',
+          'dark': '#0a0f1a',
+          'folio-dark': '#07080d',
+          'professional': '#0a0f1a',
+          'high-contrast': '#000000',
+        };
+        root.style.backgroundColor = backgrounds[theme] || '#07080d';
       })();
     </script>
     <script type="module" src="/src/main.tsx"></script>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { AlertTriangle, CheckCircle2, RefreshCw, ShieldAlert, XCircle } from 'lucide-react'
 import { siemService, type SIEMAlert, type SIEMEvent } from '../../lib/siem/siemService'
 import { backupService } from '../../lib/backup/backupService'
@@ -54,12 +54,25 @@ function relativeTime(timestamp: number, now: number): string {
   return `${Math.round(seconds / 86400)}d ago`
 }
 
+/** Stable subscribers — a fresh arrow each render would resubscribe React
+ * every commit. Module scope so their identity never changes. */
+const subscribeToSiem = (listener: () => void) => siemService.subscribe(listener)
+const getSiemRevision = () => siemService.getRevision()
+
 export default function SIEMDashboard() {
   const [checking, setChecking] = useState(false)
   const [checkError, setCheckError] = useState<string | null>(null)
   const [backupStatus, setBackupStatus] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const currentProject = useProjectStore((state) => state.currentProject)
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const runCompliance = useCallback(async () => {
     setChecking(true)
@@ -70,9 +83,9 @@ export default function SIEMDashboard() {
       // checkpoint store), so refresh them from the same action.
       siemService.checkHealth()
     } catch (error) {
-      setCheckError(`Compliance check failed: ${describeError(error)}`)
+      if (mountedRef.current) setCheckError(`Compliance check failed: ${describeError(error)}`)
     } finally {
-      setChecking(false)
+      if (mountedRef.current) setChecking(false)
     }
   }, [])
 
@@ -118,29 +131,29 @@ export default function SIEMDashboard() {
    * whenever the security state actually changes, and the reads below always
    * see the current data.
    */
-  useSyncExternalStore(
-    (listener) => siemService.subscribe(listener),
-    () => siemService.getRevision(),
-    () => siemService.getRevision(),
+  /*
+   * The service caps its own collections (10k events / 50k audit entries).
+   * Deriving on every render was O(n log n) per second for the clock tick and
+   * defeated the `byType` memo entirely; memoising on the monotonic revision
+   * re-derives exactly when the security state actually changes.
+   */
+  const revision = useSyncExternalStore(
+    subscribeToSiem,
+    getSiemRevision,
+    getSiemRevision,
   )
 
-  /*
-   * The service caps its own collections (10k events / 50k audit entries) and we
-   * only render the newest handful, so deriving on render is cheaper than the
-   * bookkeeping a memo would add. It also removes an entire class of stale-cache
-   * bug: there is no cache.
-   */
-  const events = siemService.getEvents()
-  const checks = siemService.getComplianceChecks()
-  const openAlerts = siemService
-    .getAlerts()
+  const events = useMemo(() => siemService.getEvents(), [revision])
+  const checks = useMemo(() => siemService.getComplianceChecks(), [revision])
+  const alerts = useMemo(() => siemService.getAlerts(), [revision])
+  const auditTrail = useMemo(() => siemService.getAuditTrail().slice(0, 6), [revision])
+  const openAlerts = alerts
     .filter((alert) => alert.status === 'active')
     .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || b.timestamp - a.timestamp)
   const failing = checks.filter((check) => check.status === 'non_compliant')
   const audited = checks.filter((check) => check.status !== 'not_applicable')
   const passRate = audited.length > 0 ? (audited.length - failing.length) / audited.length : 1
   const recentEvents = events.slice(0, 8)
-  const auditTrail = siemService.getAuditTrail().slice(0, 6)
 
   const logProbe = () => {
     siemService.logEvent({

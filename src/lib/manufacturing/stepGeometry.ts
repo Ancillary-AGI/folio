@@ -67,7 +67,7 @@ export function orientedBoxFaces(
   const vHalf = scale(v, sizeV / 2);
   const wVec = scale(w, sizeW);
   const originArray = [origin[0], origin[1], origin[2]] as const;
-  const add = (...points: ReadonlyArray<readonly [number, number, number]>) => [
+  const add = (...points: ReadonlyArray<readonly [number, number, number]>): [number, number, number] => [
     points.reduce((sum, point) => sum + point[0], 0),
     points.reduce((sum, point) => sum + point[1], 0),
     points.reduce((sum, point) => sum + point[2], 0),

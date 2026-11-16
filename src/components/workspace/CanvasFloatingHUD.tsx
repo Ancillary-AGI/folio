@@ -43,18 +43,16 @@ const PCB_LAYERS = [
 ]
 
 export default function CanvasFloatingHUD({ mode, onFitView, onTidyLayout }: CanvasFloatingHUDProps) {
-  const {
-    viewport,
-    setZoom,
-    settings,
-    updateSettings,
-    splitMode,
-    setSplitMode,
-    activePcbLayer,
-    setActivePcbLayer,
-    toggleAiChat,
-    aiChatOpen,
-  } = useAppStore()
+  const viewport = useAppStore((state) => state.viewport)
+  const setZoom = useAppStore((state) => state.setZoom)
+  const settings = useAppStore((state) => state.settings)
+  const updateSettings = useAppStore((state) => state.updateSettings)
+  const splitMode = useAppStore((state) => state.splitMode)
+  const setSplitMode = useAppStore((state) => state.setSplitMode)
+  const activePcbLayer = useAppStore((state) => state.activePcbLayer)
+  const setActivePcbLayer = useAppStore((state) => state.setActivePcbLayer)
+  const toggleAiChat = useAppStore((state) => state.toggleAiChat)
+  const aiChatOpen = useAppStore((state) => state.aiChatOpen)
 
   const cursorX = useCursorTelemetry((state) => state.x)
   const cursorY = useCursorTelemetry((state) => state.y)

@@ -5,7 +5,7 @@
  * cross-domain engineering (Schematic + PCB, PCB + 3D Photorealistic, etc.)
  * with live cross-probing and floating 3D Picture-in-Picture.
  */
-import React, { useState, useRef, useCallback, type ReactNode } from 'react'
+import React, { useState, useRef, useCallback, useEffect, type ReactNode } from 'react'
 import { Box, Maximize2, X } from 'lucide-react'
 import { useAppStore, type WorkspaceMode } from '../../stores/useAppStore'
 
@@ -20,10 +20,27 @@ export default function SplitViewportEngine({
   primaryNode,
   secondaryNode,
 }: SplitViewportEngineProps) {
-  const { splitMode, setSplitMode, secondaryWorkspace, splitRatio, setSplitRatio } = useAppStore()
+  const splitMode = useAppStore((state) => state.splitMode)
+  const setSplitMode = useAppStore((state) => state.setSplitMode)
+  const secondaryWorkspace = useAppStore((state) => state.secondaryWorkspace)
+  const splitRatio = useAppStore((state) => state.splitRatio)
+  const setSplitRatio = useAppStore((state) => state.setSplitRatio)
 
   const [isDragging, setIsDragging] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const listenersRef = useRef<{ move: (event: PointerEvent) => void; up: () => void } | null>(null)
+
+  // Release the window-level drag listeners on unmount or split close —
+  // otherwise they leak and keep driving splitRatio on a dead tree.
+  useEffect(() => () => {
+    const listeners = listenersRef.current
+    if (listeners) {
+      window.removeEventListener('pointermove', listeners.move)
+      window.removeEventListener('pointerup', listeners.up)
+      listenersRef.current = null
+    }
+    setIsDragging(false)
+  }, [])
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault()
@@ -32,6 +49,7 @@ export default function SplitViewportEngine({
     const onPointerMove = (moveEvent: PointerEvent) => {
       if (!containerRef.current) return
       const rect = containerRef.current.getBoundingClientRect()
+      if (rect.width <= 0) return
       const newRatio = (moveEvent.clientX - rect.left) / rect.width
       setSplitRatio(newRatio)
     }
@@ -40,11 +58,26 @@ export default function SplitViewportEngine({
       setIsDragging(false)
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
+      listenersRef.current = null
     }
 
+    listenersRef.current = { move: onPointerMove, up: onPointerUp }
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerup', onPointerUp)
   }, [setSplitRatio])
+
+  const handleSeparatorKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    // Arrow keys move the divider; Shift+arrows move faster; Home/End dock it.
+    const step = event.shiftKey ? 0.1 : 0.02
+    let next: number | null = null
+    if (event.key === 'ArrowLeft') next = splitRatio - step
+    else if (event.key === 'ArrowRight') next = splitRatio + step
+    else if (event.key === 'Home') next = 0.2
+    else if (event.key === 'End') next = 0.8
+    if (next === null) return
+    event.preventDefault()
+    setSplitRatio(next)
+  }, [setSplitRatio, splitRatio])
 
   if (splitMode === 'single' || !secondaryNode) {
     return <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{primaryNode}</div>
@@ -117,14 +150,20 @@ export default function SplitViewportEngine({
         {primaryNode}
       </div>
 
-      {/* Draggable Divider */}
+      {/* Draggable Divider — fully keyboard operable (arrows, Shift for
+          larger steps, Home/End to dock), not pointer-only. */}
       <div
         onPointerDown={handlePointerDown}
+        onKeyDown={handleSeparatorKeyDown}
         role="separator"
+        tabIndex={0}
         aria-orientation="vertical"
+        aria-valuenow={Math.round(splitRatio * 100)}
+        aria-valuemin={20}
+        aria-valuemax={80}
         aria-label="Split viewport resize handle"
-        title="Drag to resize split viewports"
-        className="cad-split-divider"
+        title="Drag or use arrow keys to resize split viewports"
+        className="cad-split-divider cad-split-divider-focusable"
       />
 
       {/* Right / Secondary Viewport */}

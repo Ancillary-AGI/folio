@@ -239,22 +239,33 @@ describe('shell geometry', () => {
 
 describe('pre-paint bootstrap', () => {
   /*
-   * `index.html` needs two literal colours to avoid a white flash before the
-   * bundle evaluates. Literals drift, so this test pins them to the tokens.
+   * Every page needs five literal colours to avoid a white flash before the
+   * bundle evaluates. Literals drift, so this test pins them to the tokens in
+   * all three documents that carry the bootstrap.
    */
-  const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8')
+  const pages = ['index.html', 'admin.html', 'console.html'] as const
 
-  it('uses the exact dark background token for the dark first paint', () => {
-    const hex = rgbToHex(hslTripletToRgb(THEMES.dark['--background']))
-    expect(html).toContain(`'${hex}'`)
-  })
-
-  it('uses the exact light background token for the light first paint', () => {
-    const hex = rgbToHex(hslTripletToRgb(THEMES.light['--background']))
-    expect(html).toContain(`'${hex}'`)
+  it('pins every theme background the bootstrap can paint to the tokens', () => {
+    const hex = (theme: keyof typeof THEMES): string => rgbToHex(hslTripletToRgb(THEMES[theme]['--background']))
+    // professional spreads dark, so its background is dark's.
+    const expected: Record<string, string> = {
+      light: hex('light'),
+      dark: hex('dark'),
+      'folio-dark': hex('folio-dark'),
+      professional: hex('professional'),
+      'high-contrast': hex('high-contrast'),
+    }
+    for (const page of pages) {
+      const html = readFileSync(resolve(process.cwd(), page), 'utf8')
+      expect(html).toContain("'circuit-cad-app-store'")
+      for (const [theme, literal] of Object.entries(expected)) {
+        expect(html, `${page} must paint ${theme} as ${literal}`).toContain(`'${literal}'`)
+      }
+    }
   })
 
   it('reads the same storage key the app persists to', () => {
+    const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8')
     expect(html).toContain("'circuit-cad-app-store'")
   })
 })

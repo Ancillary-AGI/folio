@@ -144,27 +144,28 @@ const GROUP_ICONS: Readonly<Record<WorkspaceGroupId, LucideIcon>> = {
 }
 
 export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos, onOpenHelp, beforeSimulationRun, onSimulationRun }: DomainWorkspaceProps) {
-  const {
-    workspaceMode,
-    setWorkspaceMode,
-    setActiveTool,
-    settings,
-    updateSettings,
-    sidebarOpen,
-    toggleSidebar,
-    selectedComponents,
-    clearSelection,
-    selectedNet,
-    selectNet,
-    setSelectedComponents,
-    requestComponentFocus,
-    armedLibraryItem,
-    setArmedLibraryItem,
-    splitMode,
-    secondaryWorkspace,
-    setSplitMode,
-  } = useAppStore()
-  const { components, wires, currentProject, updateComponent } = useProjectStore()
+  const workspaceMode = useAppStore((state) => state.workspaceMode)
+  const setWorkspaceMode = useAppStore((state) => state.setWorkspaceMode)
+  const setActiveTool = useAppStore((state) => state.setActiveTool)
+  const settings = useAppStore((state) => state.settings)
+  const updateSettings = useAppStore((state) => state.updateSettings)
+  const sidebarOpen = useAppStore((state) => state.sidebarOpen)
+  const toggleSidebar = useAppStore((state) => state.toggleSidebar)
+  const selectedComponents = useAppStore((state) => state.selectedComponents)
+  const clearSelection = useAppStore((state) => state.clearSelection)
+  const selectedNet = useAppStore((state) => state.selectedNet)
+  const selectNet = useAppStore((state) => state.selectNet)
+  const setSelectedComponents = useAppStore((state) => state.setSelectedComponents)
+  const requestComponentFocus = useAppStore((state) => state.requestComponentFocus)
+  const armedLibraryItem = useAppStore((state) => state.armedLibraryItem)
+  const setArmedLibraryItem = useAppStore((state) => state.setArmedLibraryItem)
+  const splitMode = useAppStore((state) => state.splitMode)
+  const secondaryWorkspace = useAppStore((state) => state.secondaryWorkspace)
+  const setSplitMode = useAppStore((state) => state.setSplitMode)
+  const components = useProjectStore((state) => state.components)
+  const wires = useProjectStore((state) => state.wires)
+  const currentProject = useProjectStore((state) => state.currentProject)
+  const updateComponent = useProjectStore((state) => state.updateComponent)
 
   /*
    * Four workspace families keep 25 domains navigable without a 25-tab ribbon.
@@ -363,16 +364,19 @@ export default function DomainWorkspace({ libraryComponents, onSave, onOpenDemos
       } else if (matches('schematic.sketchTool')) {
         setActiveTool(useAppStore.getState().activeTool === 'sketch' ? 'select' : 'sketch')
       } else if (matches('schematic.rotate')) {
-        // Rotate every selected part 90° clockwise.
+        // Rotate every selected part 90° clockwise, as ONE undo step — one
+        // replaceDesign push, not N pushes the user has to walk back through.
         const project = useProjectStore.getState()
         const selectedIds = useAppStore.getState().selectedComponents
-        let touched = false
-        for (const comp of project.components) {
-          if (!selectedIds.includes(comp.id)) continue
-          project.updateComponent(comp.id, { rotation: (comp.rotation + 90) % 360 })
-          touched = true
+        if (selectedIds.length > 0) {
+          const selected = new Set(selectedIds)
+          project.replaceDesign({
+            components: project.components.map((comp) =>
+              selected.has(comp.id) ? { ...comp, rotation: (comp.rotation + 90) % 360 } : comp,
+            ),
+            wires: project.wires,
+          })
         }
-        if (touched) project.markDirty()
       } else if (matches('schematic.grid')) {
         updateSettings({ showGrid: !settings.showGrid })
       } else if (matches('schematic.fit')) {

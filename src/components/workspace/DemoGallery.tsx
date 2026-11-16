@@ -1,5 +1,6 @@
 import HoverHelp from '../ui/HoverHelp'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useModalFocus } from '../ui/useModalFocus'
 import { ArrowRight, CheckCircle2, FlaskConical, GraduationCap, Search, X } from 'lucide-react'
 import { Button } from '../ui/button'
 import { DEMO_SCENARIOS, type DemoScenario } from '../../lib/demo/demoScenarios'
@@ -50,6 +51,7 @@ export default function DemoGallery({ open, onClose, onOpenScenario, onStartTuto
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
 
   /* A tutorial is a demo plus a route through it; linking them here means the
    * discovery surface and the guided surface cannot name different boards. */
@@ -58,29 +60,15 @@ export default function DemoGallery({ open, onClose, onOpenScenario, onStartTuto
     [],
   )
 
-  // Callers pass an inline close handler; reacting to its identity would clear
-  // the query and steal focus on every unrelated parent render.
-  const onCloseRef = useRef(onClose)
-  useEffect(() => {
-    onCloseRef.current = onClose
-  }, [onClose])
-
+  // Fresh gallery each open: last session's query is not carried over.
   useEffect(() => {
     if (!open) return
     setQuery('')
-    const frame = requestAnimationFrame(() => searchRef.current?.focus())
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onCloseRef.current()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      cancelAnimationFrame(frame)
-      window.removeEventListener('keydown', onKeyDown)
-    }
   }, [open])
+
+  // Focus arrives on the search field, Tab circulates in-panel, Escape closes,
+  // focus returns to whatever opened the gallery.
+  useModalFocus(panelRef, onClose, { initialFocus: searchRef, active: open })
 
   const visible = useMemo(
     () =>
@@ -102,6 +90,7 @@ export default function DemoGallery({ open, onClose, onOpenScenario, onStartTuto
       if (event.target === event.currentTarget) onClose()
     }}>
       <div
+        ref={panelRef}
         className="app-panel cad-panel-shell animate-rise-in max-w-6xl"
         role="dialog"
         aria-modal="true"

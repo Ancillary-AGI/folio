@@ -139,6 +139,21 @@ export default function SchematicCanvas({
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   const cursorFrame = useRef<number | null>(null)
   const pendingCursor = useRef<{ x: number; y: number } | null>(null)
+  /**
+   * Removers for window-level listeners registered mid-gesture (wire pull,
+   * rubber band). A mid-gesture unmount would otherwise leak them, and a
+   * stale mousemove would keep firing against a canvas that no longer exists.
+   */
+  const detachRef = useRef<Array<() => void>>([])
+
+  useEffect(
+    () => () => {
+      const removers = detachRef.current
+      detachRef.current = []
+      for (const remove of removers) remove()
+    },
+    [],
+  )
   /** Pin under the pointer: drives the hover readout that follows the cursor. */
   const [hoveredPin, setHoveredPin] = useState<{
     id: string; ref: string; name: string; pin: { id: string; name: string }; at: { x: number; y: number }
@@ -165,35 +180,31 @@ export default function SchematicCanvas({
     return wire?.netName ?? '—'
   }
 
-  const {
-    viewport,
-    settings,
-    activeTool,
-    setActiveTool,
-    setZoom,
-    setPan,
-    selectedComponents,
-    setSelectedComponents,
-    selectedNet,
-    selectNet,
-    clearSelection,
-    focusRequest,
-    consumeComponentFocus,
-    netFocusRequest,
-    consumeNetFocus,
-  } = useAppStore()
+  const viewport = useAppStore((state) => state.viewport)
+  const settings = useAppStore((state) => state.settings)
+  const activeTool = useAppStore((state) => state.activeTool)
+  const setActiveTool = useAppStore((state) => state.setActiveTool)
+  const setZoom = useAppStore((state) => state.setZoom)
+  const setPan = useAppStore((state) => state.setPan)
+  const selectedComponents = useAppStore((state) => state.selectedComponents)
+  const setSelectedComponents = useAppStore((state) => state.setSelectedComponents)
+  const selectedNet = useAppStore((state) => state.selectedNet)
+  const selectNet = useAppStore((state) => state.selectNet)
+  const clearSelection = useAppStore((state) => state.clearSelection)
+  const focusRequest = useAppStore((state) => state.focusRequest)
+  const consumeComponentFocus = useAppStore((state) => state.consumeComponentFocus)
+  const netFocusRequest = useAppStore((state) => state.netFocusRequest)
+  const consumeNetFocus = useAppStore((state) => state.consumeNetFocus)
 
-  const {
-    components: canvasComponents,
-    wires,
-    addComponent,
-    addWire,
-    removeComponent,
-    markDirty,
-    liveFrame,
-    currentProject,
-    currentSchematic,
-  } = useProjectStore()
+  const canvasComponents = useProjectStore((state) => state.components)
+  const wires = useProjectStore((state) => state.wires)
+  const addComponent = useProjectStore((state) => state.addComponent)
+  const addWire = useProjectStore((state) => state.addWire)
+  const removeComponent = useProjectStore((state) => state.removeComponent)
+  const markDirty = useProjectStore((state) => state.markDirty)
+  const liveFrame = useProjectStore((state) => state.liveFrame)
+  const currentProject = useProjectStore((state) => state.currentProject)
+  const currentSchematic = useProjectStore((state) => state.currentSchematic)
 
   // Konva renders raw strings, not CSS variables, so resolve the canvas
   // palette from the active theme's validated tokens. Every colour below
@@ -888,9 +899,14 @@ export default function SchematicCanvas({
       })
       setDragWires(latest)
     }
-    const onUp = () => {
+    const detach = () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
+      const index = detachRef.current.indexOf(detach)
+      if (index >= 0) detachRef.current.splice(index, 1)
+    }
+    const onUp = () => {
+      detach()
       const drag = wireDragRef.current
       wireDragRef.current = null
       setDragWires(null)
@@ -907,6 +923,7 @@ export default function SchematicCanvas({
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
+    detachRef.current.push(detach)
   }
 
   /**
@@ -1883,6 +1900,7 @@ export default function SchematicCanvas({
       className={`relative h-full w-full overflow-hidden bg-canvas text-canvas-foreground ${
         pendingComponent || activeTool === 'delete' || activeTool === 'wire' ? 'cursor-crosshair' : ''
       }`}
+      data-folio-sheet="true"
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onMouseMove={handleMouseMove}
@@ -1932,12 +1950,20 @@ export default function SchematicCanvas({
             additive: e.evt.shiftKey,
             moved: false,
           }
-          // A release outside the sheet never reaches the div.
-          const onUp = () => {
+          // A release outside the sheet never reaches the div. Unmounting
+          // mid-marquee detaches without committing the selection; a normal
+          // release detaches and then finishes.
+          const detach = () => {
             window.removeEventListener('mouseup', onUp)
+            const index = detachRef.current.indexOf(detach)
+            if (index >= 0) detachRef.current.splice(index, 1)
+          }
+          const onUp = () => {
+            detach()
             finishMarquee()
           }
           window.addEventListener('mouseup', onUp)
+          detachRef.current.push(detach)
         }}
       >
         <Layer>

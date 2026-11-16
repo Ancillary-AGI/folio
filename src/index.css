@@ -3592,9 +3592,15 @@ li[role='option'] > button[data-active='true'] > span:nth-child(2) {
 }
 
 .cad-split-divider:hover,
-.cad-split-divider:active {
+.cad-split-divider:active,
+.cad-split-divider:focus-visible {
   background: hsl(var(--primary) / 0.55);
   box-shadow: 0 0 14px hsl(var(--primary) / 0.4);
+}
+
+.cad-split-divider:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {

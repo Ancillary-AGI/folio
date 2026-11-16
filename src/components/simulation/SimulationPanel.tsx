@@ -283,7 +283,9 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, playDuration])
 
-  const { components, wires, addSimulationRun } = useProjectStore()
+  const components = useProjectStore((state) => state.components)
+  const wires = useProjectStore((state) => state.wires)
+  const addSimulationRun = useProjectStore((state) => state.addSimulationRun)
   const { theme } = useTheme()
   const seriesColors = useMemo(() => chartSeriesColors(theme), [theme])
 

@@ -315,7 +315,8 @@ function PayloadEditor({
 }
 
 export default function HILTestingPanel() {
-  const { components, wires } = useProjectStore();
+  const components = useProjectStore((state) => state.components);
+  const wires = useProjectStore((state) => state.wires);
   const { theme } = useTheme();
   const { spec, confirm, resolve } = useConfirm();
 

@@ -17,9 +17,9 @@
     <script>
       /*
        * Pre-paint theme bootstrap, identical in behaviour to the workbench's so
-       * the console never flashes white. The hex literals must equal
-       * `THEMES['folio-dark']['--background']` and `THEMES.light['--background']` in
-       * src/lib/theme/tokens.ts — theme.test.ts asserts that.
+       * the console never flashes white. The background map holds the exact
+       * THEMES[*]['--background'] hexes from src/lib/theme/tokens.ts —
+       * theme.test.ts pins them in all three documents.
        */
       (function () {
         var key = 'circuit-cad-app-store';
@@ -55,7 +55,16 @@
         root.dataset.theme = theme;
         if (isDark) root.classList.add('dark');
         root.style.colorScheme = isDark ? 'dark' : 'light';
-        root.style.backgroundColor = isDark ? '#07080d' : '#ffffff';
+        /* Exact THEMES[*]['--background'] tokens from src/lib/theme/tokens.ts.
+           theme.test.ts pins every one of these literals. */
+        var backgrounds = {
+          'light': '#ffffff',
+          'dark': '#0a0f1a',
+          'folio-dark': '#07080d',
+          'professional': '#0a0f1a',
+          'high-contrast': '#000000',
+        };
+        root.style.backgroundColor = backgrounds[theme] || '#0a0f1a';
       })();
     </script>
     <script type="module" src="/src/console/main.tsx"></script>

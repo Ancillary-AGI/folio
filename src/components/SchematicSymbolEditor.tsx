@@ -1,4 +1,5 @@
 import HoverHelp from './ui/HoverHelp'
+import { useModalFocus } from './ui/useModalFocus'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, RotateCcw, Trash2, X } from 'lucide-react'
 import { Button } from './ui/button'
@@ -110,22 +111,10 @@ export default function SchematicSymbolEditor({ componentId, onClose }: Schemati
     setDraft(draftFromComponent(placed))
   }, [placed])
 
-  const onCloseRef = useRef(onClose)
-  useEffect(() => {
-    onCloseRef.current = onClose
-  }, [onClose])
-
-  useEffect(() => {
-    if (!placed) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onCloseRef.current()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [placed])
+  const panelRef = useRef<HTMLDivElement>(null)
+  // Focus arrives on the first field, Tab circulates in-panel, Escape closes,
+  // focus returns to whatever opened the editor.
+  useModalFocus(panelRef, onClose, { active: placed !== null })
 
   const faults = useMemo(() => (draft ? symbolDraftFaults(draft) : []), [draft])
   const instances = useProjectStore((state) =>
@@ -181,6 +170,7 @@ export default function SchematicSymbolEditor({ componentId, onClose }: Schemati
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation">
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="symbol-editor-title"

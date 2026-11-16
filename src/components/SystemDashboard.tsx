@@ -95,10 +95,23 @@ export const SystemDashboard: React.FC = () => {
   const [capabilities, setCapabilities] = useState<AccelerationCapabilities | null>(null)
   const [probingCompute, setProbingCompute] = useState(false)
 
-  const { components, wires, currentProject, pcbLayout, mechanicalParts } = useProjectStore()
-  const { workspaceMode } = useAppStore()
+  const components = useProjectStore((state) => state.components)
+  const wires = useProjectStore((state) => state.wires)
+  const currentProject = useProjectStore((state) => state.currentProject)
+  const pcbLayout = useProjectStore((state) => state.pcbLayout)
+  const mechanicalParts = useProjectStore((state) => state.mechanicalParts)
+  const workspaceMode = useAppStore((state) => state.workspaceMode)
+
+  // The refresh reads through refs so the 30 s interval is built once on
+  // mount — a stable `refresh` identity — instead of being torn down and
+  // re-run on every edit frame, competing with the gesture for the main thread.
+  const live = useRef({ components, wires, currentProject, workspaceMode })
+  useEffect(() => {
+    live.current = { components, wires, currentProject, workspaceMode }
+  }, [components, wires, currentProject, workspaceMode])
 
   const refresh = useCallback(async () => {
+    const { components: liveComponents, wires: liveWires, currentProject: project, workspaceMode: mode } = live.current
     setLoading(true)
     try {
       // ── SIEM ──────────────────────────────────────────────────────────────
@@ -125,8 +138,8 @@ export const SystemDashboard: React.FC = () => {
 
       // ── Backup ────────────────────────────────────────────────────────────
       let lastBackupAgo = 'Never'
-      if (currentProject) {
-        const backups = backupService.listBackups(currentProject.id)
+      if (project) {
+        const backups = backupService.listBackups(project.id)
         if (backups.length > 0) {
           const latest = Math.max(...backups.map(backup => backup.createdAt))
           lastBackupAgo = humanDuration(Date.now() - latest)
@@ -136,16 +149,22 @@ export const SystemDashboard: React.FC = () => {
       // ── Codesign sync ─────────────────────────────────────────────────────
       let syncScore: number | null = null
       let syncIssues = 0
-      if (currentProject) {
+      if (project) {
         try {
-          const namedNets = new Set(wires.map(wire => wire.netName).filter((name): name is string => Boolean(name)))
-          const snapshot = crossDomainOrchestrator.synchronize(currentProject.id, {
+          const namedNets = new Set(liveWires.map(wire => wire.netName).filter((name): name is string => Boolean(name)))
+          const snapshot = crossDomainOrchestrator.synchronize(project.id, {
             schematic: { nets: namedNets.size },
             siem: { alerts: activeAlerts.length },
           })
           syncScore = snapshot.syncScore
           syncIssues = snapshot.issues.length
-        } catch { /* orchestrator unavailable */ }
+        } catch (error) {
+          // The orchestrator is an enhancement; its absence must not take the
+          // dashboard down with it — but it is reported, not swallowed.
+          console.warn('Codesign sync unavailable; sync metrics not measured:', error)
+          syncScore = null
+          syncIssues = 0
+        }
       }
 
       setMetrics({
@@ -156,10 +175,10 @@ export const SystemDashboard: React.FC = () => {
         devicesOnline,
         devicesTotal,
         fleetHealthScore,
-        componentCount: components.length,
-        wireCount: wires.length,
+        componentCount: liveComponents.length,
+        wireCount: liveWires.length,
         pluginsLoaded,
-        workspaceMode,
+        workspaceMode: mode,
         lastBackupAgo,
         syncScore,
         syncIssues,
@@ -170,7 +189,7 @@ export const SystemDashboard: React.FC = () => {
     } finally {
       setLoading(false)
     }
-  }, [components, wires, workspaceMode, currentProject])
+  }, [])
 
   // Auto-refresh every 30 s
   useEffect(() => {
@@ -289,7 +308,11 @@ export const SystemDashboard: React.FC = () => {
                   {
                     name: 'Codesign sync',
                     live: (metrics.syncScore ?? 0) >= 70,
-                    detail: metrics.syncScore !== null ? `sync score ${metrics.syncScore.toFixed(0)}%` : 'no project open',
+                    detail: metrics.syncScore !== null
+                      ? `sync score ${metrics.syncScore.toFixed(0)}%`
+                      : currentProject
+                        ? 'not measured — orchestrator unavailable'
+                        : 'no project open',
                   },
                 ].map(item => (
                   <div key={item.name} className="flex items-center justify-between text-sm">

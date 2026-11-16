@@ -113,7 +113,12 @@ function UndoRedoRailButtons() {
  * keyboard shortcuts, display toggles, and view controls.
  */
 export default function ToolRail({ onSave }: ToolRailProps) {
-  const { activeTool, setActiveTool, settings, updateSettings, viewport, setZoom } = useAppStore()
+  const activeTool = useAppStore((state) => state.activeTool)
+  const setActiveTool = useAppStore((state) => state.setActiveTool)
+  const settings = useAppStore((state) => state.settings)
+  const updateSettings = useAppStore((state) => state.updateSettings)
+  const viewport = useAppStore((state) => state.viewport)
+  const setZoom = useAppStore((state) => state.setZoom)
   const shortcutOverrides = useShortcutStore((state) => state.overrides)
   const healthErrors = useDesignHealthStore((state) => state.result?.summary.errors ?? 0)
   const healthPanelOpen = useDesignHealthStore((state) => state.panelOpen)

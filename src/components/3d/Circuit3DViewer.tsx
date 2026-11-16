@@ -55,6 +55,7 @@ import {
 
 interface XRSessionLike {
   addEventListener(type: 'end', listener: () => void): void;
+  removeEventListener(type: 'end', listener: () => void): void;
 }
 
 interface XRSystemLike {
@@ -451,7 +452,8 @@ function fitVerdict(fit: EnclosureFit): string {
 }
 
 export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
-  const { components, wires } = useProjectStore();
+  const components = useProjectStore((s) => s.components);
+  const wires = useProjectStore((s) => s.wires);
   const pcbLayout = useProjectStore((s) => s.pcbLayout);
   const liveFrame = useProjectStore((s) => s.liveFrame);
   const [currentView, setCurrentView] = useState('iso');
@@ -484,11 +486,18 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
   const [xrBusy, setXrBusy] = useState(false);
   const glRef = useRef<THREE.WebGLRenderer | null>(null);
   const environmentRef = useRef<{ texture: THREE.Texture; generator: THREE.PMREMGenerator } | null>(null);
+  const xrSessionRef = useRef<{ session: XRSessionLike; onEnd: () => void } | null>(null);
 
   useEffect(() => () => {
     environmentRef.current?.texture.dispose();
     environmentRef.current?.generator.dispose();
     environmentRef.current = null;
+    // A session whose panel closed under it must not call setState on the
+    // dead tree.
+    if (xrSessionRef.current) {
+      xrSessionRef.current.session.removeEventListener('end', xrSessionRef.current.onEnd);
+      xrSessionRef.current = null;
+    }
   }, []);
 
   // The routed layout wins: it is the only representation that matches the
@@ -903,8 +912,15 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
         { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] },
       );
       await (gl.xr as unknown as { setSession: (session: XRSessionLike) => Promise<void> }).setSession(session);
+      // Track the live session so a component unmount mid-session detaches
+      // the listener instead of writing into a dead tree.
+      if (xrSessionRef.current) {
+        xrSessionRef.current.session.removeEventListener('end', xrSessionRef.current.onEnd);
+      }
+      const onEnd = () => setXrStatus('Session ended — back to the orbit camera.');
+      session.addEventListener('end', onEnd);
+      xrSessionRef.current = { session, onEnd };
       setXrStatus(`${mode.toUpperCase()} session started · ${preview.tracking} tracking.`);
-      session.addEventListener('end', () => setXrStatus('Session ended — back to the orbit camera.'));
     } catch (error) {
       setXrStatus(error instanceof Error ? error.message : 'Could not start the XR session.');
     } finally {

@@ -40,7 +40,11 @@ export function usePublishDomainDesign<T extends object>(
   const serialized = JSON.stringify(design)
   const lastPublished = useRef<string | null>(null)
   const hydrateRef = useRef(hydrate)
-  hydrateRef.current = hydrate
+  // Keep the hydrate callback current without a render-phase write: the ref
+  // is assigned in an effect, so a discarded render never leaks a stale one.
+  useEffect(() => {
+    hydrateRef.current = hydrate
+  }, [hydrate])
 
   useEffect(() => {
     const storedJson = isPlainObject(stored) ? JSON.stringify(stored) : ''

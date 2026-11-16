@@ -136,6 +136,8 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
                   onChange={(e) => setFullName(e.target.value)}
                   className="w-full rounded-lg border border-input bg-background py-2 pl-10 pr-4 text-foreground placeholder:text-muted-foreground"
                   required={!isLogin}
+                  aria-label="Full name"
+                  autoComplete="name"
                 />
               </div>
             )}
@@ -149,6 +151,8 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full rounded-lg border border-input bg-background py-2 pl-10 pr-4 text-foreground placeholder:text-muted-foreground"
                 required
+                aria-label="Email"
+                autoComplete="email"
               />
             </div>
 
@@ -161,6 +165,8 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-lg border border-input bg-background py-2 pl-10 pr-12 text-foreground placeholder:text-muted-foreground"
                 required
+                aria-label="Password"
+                autoComplete={isLogin ? 'current-password' : 'new-password'}
               />
               <button
                 type="button"
@@ -183,6 +189,8 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="w-full rounded-lg border border-input bg-background py-2 pl-10 pr-4 text-foreground placeholder:text-muted-foreground"
                   required={!isLogin}
+                  aria-label="Confirm password"
+                  autoComplete="new-password"
                 />
               </div>
             )}

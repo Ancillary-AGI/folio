@@ -1,5 +1,6 @@
 import HoverHelp from '../ui/HoverHelp'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useModalFocus } from '../ui/useModalFocus'
 import {
   ArrowRight,
   BookOpen,
@@ -117,31 +118,17 @@ export default function HelpCenter({
   const [tab, setTab] = useState<HelpTab>(initialTab)
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
-
-  // Callers pass an inline close handler; reacting to its identity would reset
-  // the tab and query and steal focus on every unrelated parent render.
-  const onCloseRef = useRef(onClose)
-  useEffect(() => {
-    onCloseRef.current = onClose
-  }, [onClose])
+  const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
     setTab(initialTab)
     setQuery('')
-    const frame = requestAnimationFrame(() => searchRef.current?.focus())
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onCloseRef.current()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      cancelAnimationFrame(frame)
-      window.removeEventListener('keydown', onKeyDown)
-    }
   }, [open, initialTab])
+
+  // Focus arrives on the search field, Tab circulates in-panel, Escape closes,
+  // focus returns to whatever opened the help centre.
+  useModalFocus(panelRef, onClose, { initialFocus: searchRef, active: open })
 
   const terms = useMemo(() => termsFor(query), [query])
 
@@ -200,6 +187,7 @@ export default function HelpCenter({
       }}
     >
       <div
+        ref={panelRef}
         className="app-panel cad-panel-shell animate-rise-in max-w-6xl"
         role="dialog"
         aria-modal="true"

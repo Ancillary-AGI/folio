@@ -46,8 +46,8 @@ export function opAmpGain(config: OpAmpConfig): number {
     if (!(r1! > 0) || !(rF! > 0) || !(rIn! > 0) || !(r2! > 0)) {
       throw new Error('differential op-amp needs positive r1, rF, rIn and r2.');
     }
-    const inverting = rF / r1;
-    const nonInverting = r2 / rIn;
+    const inverting = rF! / r1!;
+    const nonInverting = r2! / rIn!;
     if (Math.abs(inverting - nonInverting) > 1e-9 * Math.max(inverting, nonInverting)) {
       throw new Error(
         `differential op-amp needs matched ratios (rF/r1 = r2/rIn, got ${inverting.toPrecision(4)} and ${nonInverting.toPrecision(4)}).`,

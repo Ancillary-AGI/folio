@@ -1778,8 +1778,14 @@ function App() {
   }
 
   const handleExportImage = () => {
-    const canvas = document.querySelector('canvas')
-    if (!canvas || !currentProject) return
+    // The sheet canvas carries this hook attribute; a stray canvas elsewhere
+    // in the document (3D view, sketch overlay) is never captured by accident.
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-folio-sheet="true"] canvas')
+    if (!canvas) {
+      setNotice('Nothing to capture yet — the sheet has not been rendered.')
+      return
+    }
+    if (!currentProject) return
     const quotaError = exportQuotaError()
     if (quotaError) { setNotice(quotaError); setShowExportMenu(false); return }
     const dataUrl = exportToImage(canvas, { resolution: settings.imageExportScale })
@@ -1791,12 +1797,16 @@ function App() {
   }
 
   const handleExportNetlist = () => {
-    if (!canvasData || !currentProject) return
+    if (!currentProject) return
+    // Read the live sheet, not the saved-canvas snapshot: every other export
+    // does, and a netlist taken between an edit and the next save would
+    // describe a different circuit than the one on screen.
     const quotaError = exportQuotaError()
     if (quotaError) { setNotice(quotaError); setShowExportMenu(false); return }
+    const live = useProjectStore.getState()
     const netlist = exportToNetlist(
-      (canvasData.components as PlacedComponent[]) || [],
-      (canvasData.wires as Wire[]) || [],
+      live.components.map((c) => ({ ...c, position: { x: c.x, y: c.y }, scale: 1 } as unknown as PlacedComponent)),
+      live.wires.map((w) => ({ ...w, points: w.points } as unknown as Wire)),
       currentProject.name,
     )
     downloadFile(netlist, `${currentProject.name}.net`, 'text/plain')
@@ -1957,7 +1967,7 @@ function App() {
       if (!currentProject) return { applied: false, detail: 'No project is open to export.' }
       const quotaError = exportQuotaError()
       if (quotaError) return { applied: false, detail: quotaError }
-      if (format === 'png' && !document.querySelector('canvas')) {
+      if (format === 'png' && !document.querySelector('[data-folio-sheet="true"] canvas')) {
         return { applied: false, detail: 'There is no canvas to capture, so no image was exported.' }
       }
       run()

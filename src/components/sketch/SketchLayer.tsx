@@ -66,7 +66,9 @@ const imageFromFile = (file: File): Promise<HTMLImageElement> =>
  * (ERC, netlist, simulation, PCB) sees a normal schematic.
  */
 export default function SketchLayer({ library }: SketchLayerProps) {
-  const { viewport, setZoom, setPan } = useAppStore()
+  const viewport = useAppStore((state) => state.viewport)
+  const setZoom = useAppStore((state) => state.setZoom)
+  const setPan = useAppStore((state) => state.setPan)
   const strokes = useSketchStore((state) => state.strokes)
   const addStroke = useSketchStore((state) => state.addStroke)
   const undoStroke = useSketchStore((state) => state.undoStroke)

@@ -62,7 +62,8 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
   const [sessions, setSessions] = useState<AgentSession[]>(() => agentSessionStore.list())
   const [expandedSession, setExpandedSession] = useState<string | null>(null)
 
-  const { components, wires } = useProjectStore()
+  const components = useProjectStore((state) => state.components)
+  const wires = useProjectStore((state) => state.wires)
   const [verification, setVerification] = useState<SymbolicVerificationResult | null>(null)
   const [verificationError, setVerificationError] = useState<string | null>(null)
   const cloud = useMemo(() => cloudAgentConfigFromEnv(), [])

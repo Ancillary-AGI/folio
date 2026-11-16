@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useModalFocus } from '../ui/useModalFocus'
 import { ArrowRight, Cable, Command, CornerDownLeft, Cpu, FlaskConical, type LucideIcon } from 'lucide-react'
 import { DEMO_SCENARIOS, type DemoScenario } from '../../lib/demo/demoScenarios'
 import { loadDemoScenario } from '../../lib/demo/loadDemo'
@@ -207,29 +208,15 @@ export default function CommandPalette({
     return matched.sort((a, b) => rank(a) - rank(b))
   }, [commands, query])
 
-  // Callers pass an inline close handler; reacting to its identity would clear
-  // the query and steal focus on every unrelated parent render.
-  const onCloseRef = useRef(onClose)
-  useEffect(() => {
-    onCloseRef.current = onClose
-  }, [onClose])
+  // Focus arrives on the search field, Tab circulates in-panel, Escape closes,
+  // focus returns to whatever opened the palette.
+  const panelRef = useRef<HTMLDivElement>(null)
+  useModalFocus(panelRef, onClose, { initialFocus: inputRef, active: open })
 
   useEffect(() => {
     if (!open) return
     setQuery('')
     setActiveIndex(0)
-    const frame = requestAnimationFrame(() => inputRef.current?.focus())
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onCloseRef.current()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      cancelAnimationFrame(frame)
-      window.removeEventListener('keydown', onKeyDown)
-    }
   }, [open])
 
   useEffect(() => {
@@ -267,6 +254,7 @@ export default function CommandPalette({
       if (event.target === event.currentTarget) onClose()
     }}>
       <div
+        ref={panelRef}
         className="app-panel animate-rise-in flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-border shadow-2xl"
         role="dialog"
         aria-modal="true"
@@ -288,6 +276,7 @@ export default function CommandPalette({
               aria-controls="command-palette-results"
               aria-autocomplete="list"
               aria-activedescendant={filtered[activeIndex] ? `command-${activeIndex}` : undefined}
+              aria-label="Command palette search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={onKeyDown}

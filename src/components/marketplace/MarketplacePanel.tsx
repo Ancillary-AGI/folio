@@ -51,6 +51,8 @@ export default function MarketplacePanel() {
         placeholder="Search PCB, robotics, plugins…"
         value={query}
         onChange={(e) => search(e.target.value)}
+        aria-label="Search the marketplace"
+        type="search"
       />
       <div className="grid md:grid-cols-2 gap-4">
         {items.map((item) => (

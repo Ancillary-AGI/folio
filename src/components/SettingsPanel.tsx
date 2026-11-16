@@ -1,4 +1,5 @@
 import HoverHelp from './ui/HoverHelp'
+import { useModalFocus } from './ui/useModalFocus'
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
@@ -111,27 +112,12 @@ export default function SettingsPanel({ onClose, onRestartOnboarding }: Settings
   const searching = needle.length > 0;
 
   const searchRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   /*
-   * Escape and a click on the scrim close the page, as every other workbench
-   * overlay does. `onClose` is held in a ref so the listener is attached once
-   * rather than re-registered — and kept current — on every keystroke.
+   * The modal contract: focus arrives on the search field, Tab circulates
+   * inside the panel, Escape closes, focus returns to whatever opened it.
    */
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => searchRef.current?.focus());
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        closeRef.current();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, []);
+  useModalFocus(panelRef, onClose, { initialFocus: searchRef });
 
   const visibleDefinitions = useMemo(
     () =>
@@ -161,6 +147,14 @@ export default function SettingsPanel({ onClose, onRestartOnboarding }: Settings
     updateSettings(patch as Partial<AppSettings>);
   };
 
+  const copyTimerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+    },
+    [],
+  );
+
   const copyAsJson = async () => {
     try {
       await navigator.clipboard.writeText(JSON.stringify(settings, null, 2));
@@ -168,7 +162,13 @@ export default function SettingsPanel({ onClose, onRestartOnboarding }: Settings
     } catch {
       setCopyState('failed');
     }
-    window.setTimeout(() => setCopyState('idle'), 2500);
+    // One pending reset only: an earlier copy's timer must not flip a later
+    // copy back to idle mid-window, and no timer outlives the panel.
+    if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = window.setTimeout(() => {
+      copyTimerRef.current = null;
+      setCopyState('idle');
+    }, 2500);
   };
 
   /*
@@ -432,6 +432,7 @@ export default function SettingsPanel({ onClose, onRestartOnboarding }: Settings
       }}
     >
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"

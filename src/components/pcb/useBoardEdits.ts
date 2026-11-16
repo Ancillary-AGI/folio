@@ -11,7 +11,7 @@
  * A drag would otherwise push one snapshot per pointer event, so a drag passes a
  * coalescing key and the pointer release seals it: one gesture, one undo.
  */
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import {
   commitHistory,
   createHistory,
@@ -51,30 +51,34 @@ export interface BoardEditor {
 
 export function useBoardEdits(initial: () => BoardEdits): BoardEditor {
   const [history, setHistory] = useState<History<BoardEdits>>(() => createHistory(initial()))
-  const [gesture, setGesture] = useState<string | null>(null)
+  // The coalescing key lives in a ref, not state: pointer-event bursts inside
+  // one frame must each see the key their predecessor just set, and a state
+  // read inside one synchronous batch is always the pre-gesture value.
+  const gestureRef = useRef<string | null>(null)
 
   const apply = useCallback((mutate: (current: BoardEdits) => BoardEdits, coalesceKey?: string) => {
-    const continuing = coalesceKey !== undefined && coalesceKey === gesture
+    const continuing = coalesceKey !== undefined && coalesceKey === gestureRef.current
     setHistory((current) => (continuing
       ? { ...current, present: mutate(current.present) }
       : commitHistory(current, mutate(current.present))))
-    if (coalesceKey !== undefined) setGesture(coalesceKey)
-  }, [gesture])
+    // No key starts a fresh gesture; a different key replaces the current one.
+    gestureRef.current = coalesceKey ?? null
+  }, [])
 
-  const seal = useCallback(() => setGesture(null), [])
+  const seal = useCallback(() => { gestureRef.current = null }, [])
 
   const adopt = useCallback((next: BoardEdits) => {
-    setGesture(null)
+    gestureRef.current = null
     setHistory(createHistory(next))
   }, [])
 
   const undo = useCallback(() => {
-    setGesture(null)
+    gestureRef.current = null
     setHistory(undoHistory)
   }, [])
 
   const redo = useCallback(() => {
-    setGesture(null)
+    gestureRef.current = null
     setHistory(redoHistory)
   }, [])
 

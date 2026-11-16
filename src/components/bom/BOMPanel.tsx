@@ -27,6 +27,7 @@ import { Badge } from '../ui/badge'
 import { Card, CardContent } from '../ui/card'
 import { useProjectStore } from '../../stores/useProjectStore'
 import { downloadFile } from '../../lib/exportUtils'
+import { toCsv } from '../../lib/csv'
 import { buildDemoBom, type DemoBomRow } from '../../lib/demo/demoBom'
 import { describeError } from '../../lib/utils'
 import { useDemoRequest } from '../workspace/useDemoRequest'
@@ -183,8 +184,35 @@ interface BOMPanelProps {
   onClose?: () => void
 }
 
+/** Column header button: keyboard-operable sort with aria-sort wiring. */
+const ColHeader: React.FC<{
+  label: string
+  sk: SortKey
+  sortKey: SortKey
+  sortDir: SortDir
+  onSort: (key: SortKey) => void
+}> = ({ label, sk, sortKey, sortDir, onSort }) => (
+  <th
+    className="text-left p-2 text-xs font-medium text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap"
+    aria-sort={sortKey === sk ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+  >
+    <button
+      type="button"
+      onClick={() => onSort(sk)}
+      className="inline-flex items-center gap-1 rounded-sm hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {label}
+      {sortKey === sk && (
+        sortDir === 'asc'
+          ? <ArrowUp className="h-3 w-3" aria-hidden="true" />
+          : <ArrowDown className="h-3 w-3" aria-hidden="true" />
+      )}
+    </button>
+  </th>
+)
+
 const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
-  const { components } = useProjectStore()
+  const components = useProjectStore((state) => state.components)
   const rawBOM = useMemo(() => buildBOM(components), [components])
 
   const [search, setSearch] = useState('')
@@ -302,8 +330,8 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
       i.unitCostUsd === null ? '' : `$${i.unitCostUsd.toFixed(2)}`,
       i.totalCostUsd === null ? '' : `$${i.totalCostUsd.toFixed(2)}`,
       i.lifecycle, i.availability, i.leadTimeDays ?? '', i.notes,
-    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
-    const csv = [headers.join(','), ...rows].join('\n')
+    ])
+    const csv = toCsv(headers, rows)
     downloadFile(csv, `bom_${Date.now()}.csv`, 'text/csv')
   }, [filteredBOM])
 
@@ -311,20 +339,9 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
     downloadFile(JSON.stringify({ generatedAt: new Date().toISOString(), totalParts: totalQty, totalUniqueParts: filteredBOM.length, totalCostUsd: totalCost, items: filteredBOM }, null, 2), `bom_${Date.now()}.json`, 'application/json')
   }, [filteredBOM, totalQty, totalCost])
 
-  // ── Column header ─────────────────────────────────────────────────────────
+  // ── Column header rendering ─────────────────────────────────────────────
 
-  const ColHeader: React.FC<{ label: string; sk: SortKey }> = ({ label, sk }) => (
-    <th className="text-left p-2 text-xs font-medium text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap" onClick={() => handleSort(sk)}>
-      <span className="inline-flex items-center gap-1">
-        {label}
-        {sortKey === sk && (
-          sortDir === 'asc'
-            ? <ArrowUp className="h-3 w-3" aria-hidden="true" />
-            : <ArrowDown className="h-3 w-3" aria-hidden="true" />
-        )}
-      </span>
-    </th>
-  )
+  const headerProps = { sortKey, sortDir, onSort: handleSort }
 
   return (
     <div className="h-full flex flex-col bg-background">
@@ -345,10 +362,16 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
               size="sm"
               className="text-xs"
               onClick={() => {
-                void import('../../lib/demo/demoBoard').then((m) => {
-                  const board = m.buildDemoBoard();
-                  useProjectStore.setState({ components: board.components, wires: board.wires, isDirty: true });
-                });
+                void import('../../lib/demo/demoBoard')
+                  .then((m) => {
+                    const board = m.buildDemoBoard();
+                    useProjectStore.setState({ components: board.components, wires: board.wires, isDirty: true });
+                  })
+                  .catch((error: unknown) => {
+                    // A chunk-load failure (offline, stale deploy) is a real
+                    // refusal, not a silent no-op.
+                    setDemoAuditError(error instanceof Error ? error.message : 'The demo board could not be loaded.');
+                  });
               }}
             >
               <Package className="w-3 h-3 mr-1" />Load rectifier
@@ -483,17 +506,17 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
           <table className="w-full text-xs border-collapse">
             <thead className="bg-muted/50 sticky top-0">
               <tr>
-                <ColHeader label="Qty" sk="qty" />
+                <ColHeader label="Qty" sk="qty" {...headerProps} />
                 <th className="text-left p-2 text-xs font-medium text-muted-foreground">References</th>
-                <ColHeader label="Part" sk="partName" />
-                <ColHeader label="Value" sk="value" />
-                <ColHeader label="Package" sk="package" />
-                <ColHeader label="Manufacturer" sk="manufacturer" />
-                <ColHeader label="Part #" sk="partNumber" />
-                <ColHeader label="Unit Cost" sk="unitCostUsd" />
-                <ColHeader label="Total Cost" sk="totalCostUsd" />
-                <ColHeader label="Lifecycle" sk="lifecycle" />
-                <ColHeader label="Availability" sk="availability" />
+                <ColHeader label="Part" sk="partName" {...headerProps} />
+                <ColHeader label="Value" sk="value" {...headerProps} />
+                <ColHeader label="Package" sk="package" {...headerProps} />
+                <ColHeader label="Manufacturer" sk="manufacturer" {...headerProps} />
+                <ColHeader label="Part #" sk="partNumber" {...headerProps} />
+                <ColHeader label="Unit Cost" sk="unitCostUsd" {...headerProps} />
+                <ColHeader label="Total Cost" sk="totalCostUsd" {...headerProps} />
+                <ColHeader label="Lifecycle" sk="lifecycle" {...headerProps} />
+                <ColHeader label="Availability" sk="availability" {...headerProps} />
                 <th className="text-left p-2 text-xs font-medium text-muted-foreground">Notes</th>
                 <th className="p-2" />
               </tr>

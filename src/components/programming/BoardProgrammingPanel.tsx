@@ -41,7 +41,8 @@ interface BoardProgrammingPanelProps {
 }
 
 export default function BoardProgrammingPanel({ onClose }: BoardProgrammingPanelProps) {
-  const { firmwareCode, setFirmwareCode } = useProjectStore()
+  const firmwareCode = useProjectStore((state) => state.firmwareCode)
+  const setFirmwareCode = useProjectStore((state) => state.setFirmwareCode)
   const [selectedBoard, setSelectedBoard] = useState<string>('arduino_uno');
   const [availablePorts, setAvailablePorts] = useState<string[]>([]);
   const [selectedPort, setSelectedPort] = useState<string>('');

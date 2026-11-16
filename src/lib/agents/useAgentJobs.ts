@@ -23,12 +23,17 @@ export interface AgentJobSummary {
 }
 
 const SERVER_SNAPSHOT: AgentJob[] = []
+// Module-scope subscribers: a fresh arrow per render would make React
+// unsubscribe/resubscribe on every commit.
+const subscribeToAgentJobs = (onStoreChange: () => void) => agentJobRunner.subscribe(onStoreChange)
+const getAgentJobsSnapshot = () => agentJobRunner.list()
+const getServerAgentJobsSnapshot = () => SERVER_SNAPSHOT
 
 function useJobs(): AgentJob[] {
   return useSyncExternalStore(
-    (onStoreChange) => agentJobRunner.subscribe(onStoreChange),
-    () => agentJobRunner.list(),
-    () => SERVER_SNAPSHOT,
+    subscribeToAgentJobs,
+    getAgentJobsSnapshot,
+    getServerAgentJobsSnapshot,
   )
 }
 

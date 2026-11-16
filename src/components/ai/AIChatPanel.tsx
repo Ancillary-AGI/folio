@@ -65,8 +65,9 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  const { components, wires } = useProjectStore()
-  const { workspaceMode } = useAppStore()
+  const components = useProjectStore((state) => state.components)
+  const wires = useProjectStore((state) => state.wires)
+  const workspaceMode = useAppStore((state) => state.workspaceMode)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
