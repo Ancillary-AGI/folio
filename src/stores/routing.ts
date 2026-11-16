@@ -189,20 +189,45 @@ export function subscribeToRoute(listener: () => void): () => void {
 }
 
 /**
- * Rewrite a pre-clean-URL `#/…?project=…` bookmark onto its path equivalent.
- * Runs once before the app mounts, so the router never sees two URL formats.
+ * Rewrite a pre-clean-URL `#/…?project=…` bookmark, and an un-prefixed legacy
+ * path (`/pcb`, `/projects`), onto their /app equivalents. Runs once before the
+ * app mounts, so the router never sees two URL formats.
  */
 export function normalizeLegacyUrl(): void {
   if (typeof window === 'undefined') return;
   const hash = window.location.hash;
-  if (!hash.startsWith('#/')) return;
-  const [path, query = ''] = hash.slice(1).split('?');
-  const mode = ROUTE_TO_MODE[path] ?? null;
-  const projectId = new URLSearchParams(query).get('project') || null;
-  const target = mode
-    ? workspacePath(mode, projectId)
-    : projectId
-      ? `${PROJECTS_ROUTE}/${encodeURIComponent(projectId)}`
-      : PROJECTS_ROUTE;
-  window.history.replaceState(null, '', target);
+  if (hash.startsWith('#/')) {
+    const [path, query = ''] = hash.slice(1).split('?');
+    const mode = ROUTE_TO_MODE[path] ?? null;
+    const projectId = new URLSearchParams(query).get('project') || null;
+    const target = mode
+      ? workspacePath(mode, projectId)
+      : projectId
+        ? `${PROJECTS_ROUTE}/${encodeURIComponent(projectId)}`
+        : PROJECTS_ROUTE;
+    window.history.replaceState(null, '', target);
+    return;
+  }
+  // Un-prefixed paths the pre-clean-URL app served (no /app prefix). The
+  // host configs serve the app shell for these; canonicalising here keeps
+  // the router blind to the difference.
+  const pathname = window.location.pathname;
+  if (!pathname || pathname === '/' || pathname.startsWith(`${APP_BASE}/`) || pathname === APP_BASE) {
+    return;
+  }
+  const segments = pathname.split('/').filter(Boolean);
+  const first = segments[0]?.toLowerCase();
+  if (!first) return;
+  const rest = segments.slice(1);
+  let target: string | null = null;
+  if (first === 'projects') {
+    target = rest.length === 0 ? PROJECTS_ROUTE : `${PROJECTS_ROUTE}/${rest.map(encodeURIComponent).join('/')}`;
+  } else if (first === 'community') {
+    target = COMMUNITY_ROUTE;
+  } else if (ROUTE_TO_MODE[`/${first}`]) {
+    target = `${APP_BASE}/${first}${rest.length > 0 ? `/${rest.map(encodeURIComponent).join('/')}` : ''}`;
+  }
+  if (!target) return;
+  const query = window.location.search;
+  window.history.replaceState(null, '', `${target}${query}${window.location.hash}`);
 }

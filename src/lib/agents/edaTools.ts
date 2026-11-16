@@ -12,6 +12,7 @@ import { spiceEngine, type CircuitNetlist } from '../simulation/spiceEngine'
 import { buildFabPackage, fabLayerFromId, fabTracesFromWires, JLCPCB_1OZ, type FabOptions, type FabPlane, type FabProfile } from '../manufacturing/fabExport'
 import { DesignRuleChecker, type DRCSettings, type DRCViolation } from '../manufacturing/drc'
 import { polylineDistance } from '../geometry/distance'
+import { normalizeBoardNetName } from '../simulation/netlistBuilder'
 import type { PCBDesign } from '../manufacturing/pcb'
 import type { PcbSceneInput } from '../pcb/pcbScene'
 import { buildPcbScene } from '../pcb/pcbScene'
@@ -547,8 +548,9 @@ interface RoutedDrcReport {
  *  joined when their copper touches, so a net the router only partly finished
  *  is reported as split instead of passing on the strength of any copper. */
 function copperGroups(layout: PcbSceneInput, netId: string): number {
-  const traces = layout.traces.filter((trace) => trace.net === netId)
-  const vias = layout.vias.filter((via) => via.net === netId)
+  const key = normalizeBoardNetName(netId)
+  const traces = layout.traces.filter((trace) => normalizeBoardNetName(trace.net) === key)
+  const vias = layout.vias.filter((via) => normalizeBoardNetName(via.net) === key)
   const count = traces.length + vias.length
   if (count <= 1) return count
   const parent = Array.from({ length: count }, (_, index) => index)
@@ -607,8 +609,8 @@ function checkRoutedLayout(layout: PcbSceneInput, profile: FabProfile): RoutedDr
   const splitNets: Array<{ net: string; groups: number }> = []
   for (const net of sheetNets) {
     if (net.connectedPins.length < 2) continue
-    const traces = layout.traces.filter((trace) => trace.net === net.id)
-    const vias = layout.vias.filter((via) => via.net === net.id)
+    const traces = layout.traces.filter((trace) => normalizeBoardNetName(trace.net) === normalizeBoardNetName(net.id))
+    const vias = layout.vias.filter((via) => normalizeBoardNetName(via.net) === normalizeBoardNetName(net.id))
     if (traces.length + vias.length === 0) {
       unroutedNets.push(net.id)
       continue

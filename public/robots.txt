@@ -8,5 +8,4 @@ Disallow: /console
 Disallow: /admin
 Disallow: /landing.html
 
-# Sitemap: add once a canonical origin is known, e.g.
-# Sitemap: https://<origin>/sitemap.xml
+Sitemap: https://folio.dev/sitemap.xml

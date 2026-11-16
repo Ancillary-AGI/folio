@@ -33,14 +33,24 @@ describe('storageSnapshot', () => {
     expect(snapshot.entries[1].label).toBe('Usage ledger')
   })
 
-  it('exports a complete JSON copy of every key', () => {
-    const storage = fakeStorage({ 'folio.vcs.v1': '{"a":1}', 'other': 'tail' })
+  it('exports only what this app writes, never session credentials', () => {
+    const storage = fakeStorage({
+      'folio.vcs.v1': '{"a":1}',
+      'circuit-cad-app-store': '{"state":{}}',
+      'sb-abc123-auth-token': 'SECRET-SESSION',
+      'folio.operator.session': 'SECRET-OPERATOR',
+      'other-app.key': 'tail',
+    })
     const { filename, json } = exportLocalData(storage)
 
     expect(filename).toMatch(/^folio-local-data-\d{4}-\d{2}-\d{2}\.json$/)
     const parsed = JSON.parse(json) as { keys: Record<string, string> }
-    expect(Object.keys(parsed.keys)).toEqual(['folio.vcs.v1', 'other'])
+    expect(Object.keys(parsed.keys).sort()).toEqual(['circuit-cad-app-store', 'folio.vcs.v1'])
     expect(parsed.keys['folio.vcs.v1']).toBe('{"a":1}')
+    // The workbench and operator sessions are credentials, not user data.
+    expect(json).not.toContain('SECRET-SESSION')
+    expect(json).not.toContain('SECRET-OPERATOR')
+    expect(json).not.toContain('tail')
   })
 })
 

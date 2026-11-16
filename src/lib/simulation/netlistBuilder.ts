@@ -45,7 +45,10 @@ export function orderedTerminalPins(
   })
 }
 
-const normalizeNetName = (name: string): string => {
+/** SPICE-compatible net key: trimmed, punctuation folded, case-folded, GND→0.
+ * The same spelling the router and the solver use, so net identity never
+ * drifts between the schematic, the board, the fab package and the solver. */
+export const normalizeNetName = (name: string): string => {
   const trimmed = name.trim()
   if (/^(?:0|gnd|ground)$/i.test(trimmed)) return '0'
   // SPICE is case-insensitive and the solver upper-cases every node before it
@@ -53,6 +56,12 @@ const normalizeNetName = (name: string): string => {
   // snapshot net named `out` cannot be matched to the solver's `OUT`.
   return trimmed.replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase()
 }
+
+/** Board-domain net key: trimmed, whitespace-collapsed, case-folded. Keeps
+ * GND as GND — a real net on a board, unlike the solver's `0` — while still
+ * folding 'Out', 'OUT' and 'out' into one net for the router, DRC and fab. */
+export const normalizeBoardNetName = (name: string): string =>
+  name.trim().replace(/\s+/g, ' ').toUpperCase()
 
 export function buildCircuitNetlist(
   title: string,

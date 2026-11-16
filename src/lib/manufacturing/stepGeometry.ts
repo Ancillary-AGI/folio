@@ -237,9 +237,7 @@ export function stepAssemblyDocument(
 
   const emitSolid = (solid: StepSolid): number => {
     const faceIds: number[] = [];
-    let faceIndex = 0;
     for (const face of solid.faces) {
-      faceIndex += 1;
       if (face.length < 3) continue; // degenerate: nothing to bound
       const vertices: number[][] = face.map((point) => point.map(Number));
       // Newell normal; zero-area faces are kept (readers tolerate them better

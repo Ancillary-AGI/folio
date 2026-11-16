@@ -143,10 +143,10 @@ export default function SIEMDashboard() {
     getSiemRevision,
   )
 
-  const events = useMemo(() => siemService.getEvents(), [revision])
-  const checks = useMemo(() => siemService.getComplianceChecks(), [revision])
-  const alerts = useMemo(() => siemService.getAlerts(), [revision])
-  const auditTrail = useMemo(() => siemService.getAuditTrail().slice(0, 6), [revision])
+  const events = useMemo(() => { void revision; return siemService.getEvents() }, [revision])
+  const checks = useMemo(() => { void revision; return siemService.getComplianceChecks() }, [revision])
+  const alerts = useMemo(() => { void revision; return siemService.getAlerts() }, [revision])
+  const auditTrail = useMemo(() => { void revision; return siemService.getAuditTrail().slice(0, 6) }, [revision])
   const openAlerts = alerts
     .filter((alert) => alert.status === 'active')
     .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || b.timestamp - a.timestamp)

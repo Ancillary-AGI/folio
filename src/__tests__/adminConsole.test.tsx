@@ -459,8 +459,8 @@ describe('operator console usage', () => {
     } finally {
       click.mockRestore()
     }
-    expect(csv.split('\r\n')[0]).toBe('"timestamp","account","email","kind","detail"')
-    expect(csv).toContain('"Chidi Eze","chidi@studio.dev","export.run"')
+    expect(csv.split('\r\n')[0]).toBe('timestamp,account,email,kind,detail')
+    expect(csv).toContain('Chidi Eze,chidi@studio.dev,export.run')
     expect(csv).not.toContain('simulation.run')
     expect(csv.split('\r\n')).toHaveLength(4)
   })
@@ -628,8 +628,8 @@ describe('operator console audit and deployment', () => {
     } finally {
       click.mockRestore()
     }
-    expect(csv.split('\r\n')[0]).toBe('"timestamp","operator","action","resource","details"')
-    expect(csv).toContain('"Ada Okoro","admin:role_change","eng-1"')
+    expect(csv.split('\r\n')[0]).toBe('timestamp,operator,action,resource,details')
+    expect(csv).toContain('Ada Okoro,admin:role_change,eng-1')
     expect(csv.split('\r\n')).toHaveLength(4)
   })
 

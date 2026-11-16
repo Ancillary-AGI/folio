@@ -3,12 +3,13 @@
  */
 import { describe, expect, it } from 'vitest'
 import { checkDqsGroup, checkFlyby, DDR3_1600 } from './ddrRouting'
+import { delayPsPerMm } from './stackup'
 
 describe('DDR routing', () => {
   it('passes a matched DQS group', () => {
     const { skewPs, violations } = checkDqsGroup({ name: 'DQS0', strobeLength: 40, dqLengths: [40.2, 39.8, 40.1, 40, 39.9, 40.3, 40, 39.8], windowMm: DDR3_1600.dqWindowMm })
     expect(violations).toEqual([])
-    expect(skewPs[0]).toBeCloseTo(1.2, 9)
+    expect(skewPs[0]).toBeCloseTo(0.2 * delayPsPerMm(3.2), 9) // FR-4 ε_eff 3.2, ≈ 1.19 ps
   })
 
   it('fails a bit outside the window with its index', () => {

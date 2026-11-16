@@ -78,7 +78,7 @@
 
 ## Demo Gallery & Workspace Navigation [done]
 
-- **Demo gallery**: 31 runnable scenarios — at least one per workspace mode —
+- **Demo gallery**: 43 runnable scenarios — at least one per workspace mode —
   searchable by title, summary or analysis name and filterable by family.
   Open with the header **Demos** button or **Ctrl/⌘+Shift+D**.
 - **One proven board across domains**: the half-wave rectifier demo seeds the

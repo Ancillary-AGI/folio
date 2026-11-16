@@ -33,7 +33,7 @@ describe('CollaborativePanel status row', () => {
       await collaborativeEditor.connect(user, 'project-status')
     })
 
-    const status = await screen.findByText(/operations apply in order/i)
+    const status = await screen.findByText(/changes apply in order/i)
     expect(status).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })

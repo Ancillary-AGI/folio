@@ -224,7 +224,8 @@ export class RoboticsSimulationService {
 
   /**
    * Reject a configuration that cannot produce a simulable mechanism: finite
-   * limits, min ≤ max, positive velocity/acceleration caps and non-negative
+   * limits, min ≤ max, finite velocity/acceleration caps (zero allowed —
+   * it declares a kinematics-only or unactuated joint) and non-negative
    * link masses. A robot the engine cannot step is refused at the door, not
    * mid-trajectory.
    */
@@ -241,11 +242,11 @@ export class RoboticsSimulationService {
       if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) {
         throw new Error(`Joint ${joint.id} has invalid limits [${min}, ${max}].`);
       }
-      if (!Number.isFinite(joint.velocity) || joint.velocity <= 0) {
-        throw new Error(`Joint ${joint.id} has a non-positive velocity limit (${joint.velocity}).`);
+      if (!Number.isFinite(joint.velocity) || joint.velocity < 0) {
+        throw new Error(`Joint ${joint.id} has a negative or non-finite velocity limit (${joint.velocity}).`);
       }
-      if (!Number.isFinite(joint.acceleration) || joint.acceleration <= 0) {
-        throw new Error(`Joint ${joint.id} has a non-positive acceleration limit (${joint.acceleration}).`);
+      if (!Number.isFinite(joint.acceleration) || joint.acceleration < 0) {
+        throw new Error(`Joint ${joint.id} has a negative or non-finite acceleration limit (${joint.acceleration}).`);
       }
     }
     for (const link of config.links ?? []) {

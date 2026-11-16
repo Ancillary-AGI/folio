@@ -10,6 +10,7 @@
 import type { CanvasComponent, CanvasWire } from '../../stores/useProjectStore'
 import { useAppStore } from '../../stores/useAppStore'
 import type { Net, PlacedComponent } from '../../types'
+import { normalizeBoardNetName } from '../simulation/netlistBuilder'
 import { fabLayerFromId, type FabTrace } from '../manufacturing/fabExport'
 import { resolveFootprint } from '../manufacturing/footprintLibrary'
 import {
@@ -210,13 +211,13 @@ export function placeFromRoutedLayout(
 }
 
 /** Nets named by the sheet's wires, the same grouping the router consumes.
- * Net names are folded case-insensitively (and trimmed): 'Out' and 'OUT' are
- * one net on the sheet, so they are one net to the router too. */
+ * Net identity is the SPICE-compatible normalised spelling, so 'Out', 'OUT'
+ * and 'out' are one net to the router, the DRC and the fab package alike. */
 export function netsFromWires(wires: readonly CanvasWire[]): Net[] {
   const netsById = new Map<string, Net>()
   wires.forEach((wire, index) => {
     const raw = wire.netName?.trim()
-    const id = raw ? raw.toLowerCase().replace(/\s+/g, ' ') : `NET${index}`
+    const id = raw ? normalizeBoardNetName(raw) : `NET${index}`
     const display = raw || `NET${index}`
     const net = netsById.get(id) ?? { id, name: display, connectedPins: [], wires: [] }
     net.connectedPins.push(...(wire.connectedPins ?? []))

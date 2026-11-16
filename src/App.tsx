@@ -244,7 +244,6 @@ function App() {
   const tourIsOpen = useRef(false)
   const [loading, setLoading] = useState(true)
   const [libraryComponents, setLibraryComponents] = useState<Component[]>([])
-  const [canvasData, setCanvasData] = useState<Record<string, unknown> | null>(null)
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [showVcsMenu, setShowVcsMenu] = useState(false)
   const [vcsMessage, setVcsMessage] = useState('')
@@ -697,7 +696,6 @@ function App() {
    */
   const enterNewProject = (
     project: Project,
-    canvasData: Record<string, unknown> | null,
     uid: string,
     storage: 'local' | 'cloud',
     family?: WorkspaceGroupId,
@@ -713,7 +711,6 @@ function App() {
     useAppStore.getState().clearSelection()
     useAppStore.getState().setArmedLibraryItem(null)
     setCurrentSchematic(null)
-    setCanvasData(canvasData)
     useAppStore.getState().setZoom(1)
     useAppStore.getState().setPan({ x: 0, y: 0 })
     // Open by framing the sheet, not at origin with the top clipped; the
@@ -774,7 +771,7 @@ function App() {
     if (offlineMode) {
       try {
         const project = offlineProjectStore.create(uid, name)
-        enterNewProject(project, project.canvas_data ?? null, uid, 'local', family, mode)
+        enterNewProject(project, uid, 'local', family, mode)
         if (brief) startBriefConversation(brief)
       } catch (err) {
         console.error('Error creating project (offline):', err)
@@ -790,7 +787,7 @@ function App() {
       }).select().single()
       if (error) throw error
       await supabase.from('schematics').insert({ project_id: data.id, name: 'Main Schematic', order_index: 0 })
-      enterNewProject(data, null, uid, 'cloud', family, mode)
+      enterNewProject(data, uid, 'cloud', family, mode)
       if (brief) startBriefConversation(brief)
     } catch (err) {
       console.error('Error creating project:', err)
@@ -1167,7 +1164,10 @@ function App() {
 
     const resistorDefinition = standardComponents.find(component => component.name === 'Resistor')
     const sourceDefinition = standardComponents.find(component => component.name === 'DC Voltage Source')
-    if (!resistorDefinition || !sourceDefinition) throw new Error('The standard library is missing a sample-circuit component')
+    if (!resistorDefinition || !sourceDefinition) {
+      setNotice('The standard library is missing a sample-circuit component, so the example was not built.')
+      return
+    }
 
     const makeComponent = (
       libraryId: string,
@@ -1256,7 +1256,6 @@ function App() {
         isDirty: false,
       })
       setCurrentSchematic(schematic)
-      setCanvasData(savedCanvas)
       const viewport = savedCanvas?.viewport as { zoom?: unknown; pan?: unknown } | undefined
       const hasSavedView =
         (viewport && typeof viewport.zoom === 'number' && Number.isFinite(viewport.zoom)) ||
@@ -1460,7 +1459,6 @@ function App() {
         setNotice(err instanceof Error ? err.message : 'The project could not be stored on this device.')
         return
       }
-      setCanvasData(payload)
       markClean()
       return
     }
@@ -1475,7 +1473,6 @@ function App() {
         const { error: projectError } = await supabase.from('projects')
           .update({ updated_at: new Date().toISOString() }).eq('id', currentProject.id)
         if (projectError) throw projectError
-        setCanvasData(payload)
         markClean()
         if (user) siemService.logAuditEvent({ user: user.id, action: 'project:save', resource: currentProject.id, details: {} })
         return
@@ -1487,7 +1484,6 @@ function App() {
         canvas_data: payload, updated_at: new Date().toISOString(),
       })
       if (insertError) throw insertError
-      setCanvasData(payload)
       markClean()
       if (user) siemService.logAuditEvent({ user: user.id, action: 'project:save', resource: currentProject.id, details: {} })
     } catch (err) {
@@ -1627,7 +1623,6 @@ function App() {
     // Keep the export/import canvas in step with the restored design; otherwise
     // netlist export would still describe the pre-restore sheet.
     const restoredData = getCheckpointData()
-    setCanvasData(restoredData)
     void handleSave(restoredData)
     refreshVcs()
     setShowVcsMenu(false)
@@ -1727,7 +1722,6 @@ function App() {
       useAppStore.getState().requestFit()
     }
 
-    setCanvasData(restored)
     refreshVcs()
     setShowVcsMenu(false)
     const backupError = backupService.getStorageError()
@@ -1875,7 +1869,6 @@ function App() {
       // A standalone workspace has no session to end; signing out returns to the project list.
       setCurrentProject(null)
       setCurrentSchematic(null)
-      setCanvasData(null)
       openProjectManager()
       return
     }
@@ -1883,7 +1876,6 @@ function App() {
     await supabase.auth.signOut()
     setCurrentProject(null)
     setCurrentSchematic(null)
-    setCanvasData(null)
     navigateTo(PROJECTS_ROUTE, { replace: true })
   }
 
@@ -1904,7 +1896,6 @@ function App() {
   const backToProjects = () => {
     setCurrentProject(null)
     setCurrentSchematic(null)
-    setCanvasData(null)
     openProjectManager()
   }
 

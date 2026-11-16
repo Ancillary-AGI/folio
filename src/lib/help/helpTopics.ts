@@ -96,7 +96,7 @@ export const HELP_TOPICS = [
     group: 'rail',
     title: 'Tidy arrange',
     description:
-      'Straighten the sheet: parts step onto the grid in signal-flow columns and wires re-route as clean orthogonal runs. Nets, connections and values are untouched, so the circuit does not change.',
+      'Straighten the sheet: parts step onto the grid in signal-flow columns and wires re-route into clean orthogonal runs; nets, connections and values are untouched.',
     shortcutId: 'schematic.tidy',
   },
   {
@@ -171,7 +171,7 @@ export const HELP_TOPICS = [
     id: 'header.assistant',
     group: 'header',
     title: 'Scribe',
-    description: 'Folio\'s scribe: ask the sheet a question or order a change. Scribe answers with evidence from the sheet — parts, nets, checks, dimensions — or states plainly that it cannot. Rule checks and the solver remain the arbiters.',
+    description: 'Folio\'s scribe: ask the sheet a question or order a change. It answers with evidence from the sheet — or states plainly that it cannot.',
   },
   {
     id: 'header.theme',
@@ -260,7 +260,7 @@ export const HELP_TOPICS = [
     group: 'header',
     title: 'Voice conversation',
     description:
-      'Start or stop the spoken conversation from the More tools menu. Dictate commands such as “place a resistor” or “connect R1 to D1”, hear the reply, or type in the panel instead.',
+      'Start or stop the spoken conversation from the More tools menu. Dictate commands like “place a resistor” — or type them in the panel instead.',
   },
 
   // ── Workspace navigation ───────────────────────────────────────────────────

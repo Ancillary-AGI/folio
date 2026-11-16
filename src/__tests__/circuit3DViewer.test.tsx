@@ -40,6 +40,11 @@ vi.mock('@react-three/fiber', () => {
       update: () => {},
     },
     size: { width: 800, height: 600 },
+    // The wheel-semantics child subscribes to `gl` to attach its capture-phase
+    // listener; the real fiber state carries the renderer's DOM element.
+    gl: {
+      domElement: document.createElement('canvas'),
+    },
   }
   return {
     Canvas: ({ children }: { children: React.ReactNode }) => <div data-testid="r3f-canvas">{children}</div>,
@@ -326,7 +331,7 @@ describe('Circuit3DViewer', () => {
     render(<Circuit3DViewer onClose={() => {}} />)
     uploadShell('housing.obj', boxMeshObj(120, 90, 20))
     await waitFor(() => expect(screen.getByText('housing.obj')).toBeInTheDocument())
-    expect(screen.getByText(/The fit needs a routed board layout/)).toBeInTheDocument()
+    expect(screen.getByText(/Checking the fit needs the routed board's stackup/)).toBeInTheDocument()
     expect(screen.queryByText(/Board fits/)).not.toBeInTheDocument()
   })
 

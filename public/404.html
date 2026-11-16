@@ -32,7 +32,7 @@ body { background: var(--bg); color: var(--ink); font-family: 'Archivo', system-
 .btn { display: inline-flex; align-items: center; gap: .5rem; min-height: 2.5rem; padding: 0 1.1rem; border-radius: .5rem; background: var(--amber); color: #221300; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: .82rem; text-decoration: none; border: 1px solid var(--amber-deep); }
 .btn:hover { filter: brightness(1.08); }
 .btn-ghost { background: var(--card); color: var(--ink); border: 1px solid var(--line-strong); font-weight: 600; }
-header { flex: 1; display: flex; align-items: center; padding: 3rem 0 2rem; }
+main { flex: 1; display: flex; align-items: center; padding: 3rem 0 2rem; }
 .hero-copy { width: 100%; }
 .mono { font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: .66rem; letter-spacing: .24em; text-transform: uppercase; color: var(--amber-pale); }
 h1 { font-size: clamp(2rem, 6vw, 3.4rem); line-height: 1.02; letter-spacing: -0.04em; font-weight: 800; margin-top: .7rem; }
@@ -50,11 +50,14 @@ footer { border-top: 1px solid var(--line); padding: 1.1rem 0; color: var(--mute
 .foot-inner a:hover { color: var(--ink); }
 .foot-links { display: flex; gap: 1.2rem; flex-wrap: wrap; }
 :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; border-radius: .25rem; }
+.skip-link { position: absolute; left: .75rem; top: -3rem; z-index: 100; background: var(--amber); color: #221300; font-weight: 700; padding: .55rem 1rem; border-radius: .4rem; text-decoration: none; transition: top .18s ease; }
+.skip-link:focus-visible { top: .75rem; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
 <body>
-<header class="wrap" aria-labelledby="nf-title">
+<a class="skip-link" href="#main">Skip to main content</a>
+<main class="wrap" aria-labelledby="nf-title" id="main">
   <div class="hero-copy">
     <span class="mono">ROUTE ERROR · 404</span>
     <h1 id="nf-title">This path isn’t<br><em>a real page.</em></h1>
@@ -68,7 +71,7 @@ footer { border-top: 1px solid var(--line); padding: 1.1rem 0; color: var(--mute
       <a href="/"><b>Home</b><span>one brief in, one verified board out</span></a>
     </nav>
   </div>
-</header>
+</main>
 <footer class="site-footer" aria-label="Site footer">
   <div class="wrap foot-inner">
     <span>© 2026 Folio. All rights reserved.</span>

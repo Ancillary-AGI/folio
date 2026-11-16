@@ -413,7 +413,6 @@ export function polynomialRoots(coefficients: readonly number[]): Complex[] {
     return result;
   };
 
-  let converged = false;
   for (let iteration = 0; iteration < 2000; iteration += 1) {
     let largestCorrection = 0;
     for (let i = 0; i < degree; i += 1) {
@@ -434,18 +433,7 @@ export function polynomialRoots(coefficients: readonly number[]): Complex[] {
         complexMagnitude(correction) / Math.max(1, complexMagnitude(zi)),
       );
     }
-    if (largestCorrection < ROOT_TOLERANCE) {
-      converged = true;
-      break;
-    }
-  }
-
-  if (!converged) {
-    // Returning non-converged roots would let a stability classification be
-    // computed off guesses — refuse, the same way a non-finite root is refused.
-    throw new Error(
-      `Root finder of degree ${degree} did not converge within 2000 iterations — the polynomial is too ill-conditioned for a dense solve.`,
-    );
+    if (largestCorrection < ROOT_TOLERANCE) break;
   }
 
   const finalised = roots.map((root) => {
@@ -456,6 +444,33 @@ export function polynomialRoots(coefficients: readonly number[]): Complex[] {
       im: Math.abs(im) < 1e-9 * Math.max(scale, Math.abs(re)) ? 0 : im,
     };
   });
+
+  /*
+   * Return the iterates as long as they are finite and backward stable — the
+   * roots annihilate the stored polynomial to ~machine precision, which is the
+   * guarantee a stability classification actually consumes. Roots that fail
+   * that check are refused, the same way a non-finite root is refused: a
+   * classification computed on guesses is not a result.
+   */
+  let worstBackwardError = 0;
+  for (const root of finalised) {
+    const rootScaled = { re: root.re / scale, im: root.im / scale };
+    const magnitude = Math.max(1, complexMagnitude(rootScaled));
+    let scaleOfRoot = 0;
+    let power = 1;
+    for (let k = scaled.length - 1; k >= 0; k -= 1) {
+      scaleOfRoot += Math.abs(scaled[k]) * power;
+      power *= magnitude;
+    }
+    if (scaleOfRoot === 0) scaleOfRoot = 1;
+    worstBackwardError = Math.max(worstBackwardError, complexMagnitude(evaluate(rootScaled)) / scaleOfRoot);
+  }
+  if (worstBackwardError > 1e-9) {
+    throw new Error(
+      `Root finder of degree ${degree} did not converge to backward-stable roots ` +
+        `(worst backward error ${worstBackwardError.toExponential(2)}); the polynomial is too ill-conditioned for a dense solve.`,
+    );
+  }
 
   for (const root of finalised) {
     if (!Number.isFinite(root.re) || !Number.isFinite(root.im)) {

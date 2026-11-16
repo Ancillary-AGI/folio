@@ -183,12 +183,12 @@ describe('fab package — file set and CAM validity', () => {
 
   it('emits JLCPCB-column centroid and MPN-carrying BOM', () => {
     const pkg = board()
-    const centroid = (pkg.files.get('demo-centroid.csv') ?? '').split('\n')
+    const centroid = (pkg.files.get('demo-centroid.csv') ?? '').split(/\r?\n/)
     expect(centroid[0]).toBe('Designator,Mid X,Mid Y,Rotation,Footprint,Side,Value')
     expect(centroid).toHaveLength(4)
     expect(centroid[1].split(',')[0]).toBe('R1')
     expect(centroidCsv(pkg.centroid)).toBe(pkg.files.get('demo-centroid.csv'))
-    const bom = (pkg.files.get('demo-bom.csv') ?? '').split('\n')
+    const bom = (pkg.files.get('demo-bom.csv') ?? '').split(/\r?\n/)
     expect(bom[0]).toBe('Reference,Value,Footprint,Manufacturer,PartNumber')
     expect(bom[1]).toContain('RC0805FR-0710KL')
     expect(bom[3]).toContain('NE555P')

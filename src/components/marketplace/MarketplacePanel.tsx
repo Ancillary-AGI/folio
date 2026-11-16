@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { designMarketplace } from '../../lib/marketplace/designMarketplace';
 import type { DemoMarketplaceBundle } from '../../lib/demo/demoMarketplace';
 import { Button } from '../ui/button';
@@ -25,10 +25,17 @@ export default function MarketplacePanel() {
     setItems(designMarketplace.search(query));
   };
 
+  // Guard setState against an unmount that lands mid-import.
+  const mountedRef = useRef(true);
+  useEffect(() => () => {
+    mountedRef.current = false;
+  }, []);
+
   const publishDemoBundle = () => {
     setPublishError(null);
     void import('../../lib/demo/demoMarketplace')
       .then((m) => {
+        if (!mountedRef.current) return;
         const result = m.buildDemoMarketplaceBundle(designMarketplace);
         setVerdict(result);
         setInstalled(designMarketplace.getInstalled());
@@ -36,6 +43,7 @@ export default function MarketplacePanel() {
         setItems(designMarketplace.search('rectifier'));
       })
       .catch((error: unknown) => {
+        if (!mountedRef.current) return;
         setVerdict(null);
         setPublishError(error instanceof Error ? error.message : 'Publish round-trip failed.');
       });

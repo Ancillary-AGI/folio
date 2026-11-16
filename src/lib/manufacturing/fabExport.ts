@@ -20,6 +20,7 @@
  */
 import type { Net, PlacedComponent, Point, Wire } from '../../types'
 import { csvRow } from '../csv'
+import { normalizeBoardNetName } from '../simulation/netlistBuilder'
 import { polylineDistance } from '../geometry/distance'
 import { footprintLibrary, type Footprint, type FootprintPad } from './footprintLibrary'
 import { generatedFootprint } from './landPattern'
@@ -553,7 +554,7 @@ export function buildFabPackage(
     const plane = planeByFilm.get(film)
     if (plane) {
       // A pour absorbs same-net copper; a foreign trace would be shorted to it.
-      if (trace.netName !== plane.netName) {
+      if (normalizeBoardNetName(trace.netName ?? '') !== normalizeBoardNetName(plane.netName)) {
         violations.push({ rule: 'plane-conflict', severity: 'error', message: `Trace ${index} (net "${trace.netName ?? 'unnamed'}") is routed on ${filmLabel(film)}, which is the "${plane.netName}" plane.`, elementId: `trace-${index}` })
       }
       return
@@ -672,7 +673,7 @@ export function buildFabPackage(
       continue
     }
     const barrels = [...pads.filter((pad) => pad.drill !== undefined), ...viaPads.filter((pad) => pad.layers.includes(film))]
-    const connects = barrels.filter((pad) => pad.netName !== undefined && pad.netName === plane.netName)
+    const connects = barrels.filter((pad) => pad.netName !== undefined && normalizeBoardNetName(pad.netName) === normalizeBoardNetName(plane.netName))
     const connected = new Set(connects)
     const antiPads = barrels.filter((pad) => !connected.has(pad))
     if (connects.length === 0) {

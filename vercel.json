@@ -42,131 +42,163 @@
     },
     {
       "source": "/projects",
-      "destination": "/app/projects"
+      "destination": "/index.html"
     },
     {
       "source": "/projects/(.*)",
-      "destination": "/app/projects/$1"
+      "destination": "/index.html"
     },
     {
       "source": "/community",
-      "destination": "/app/community"
+      "destination": "/index.html"
     },
     {
       "source": "/simulation",
-      "destination": "/app/simulation"
+      "destination": "/index.html"
     },
     {
       "source": "/control",
-      "destination": "/app/control"
+      "destination": "/index.html"
     },
     {
       "source": "/machines",
-      "destination": "/app/machines"
+      "destination": "/index.html"
     },
     {
       "source": "/grid",
-      "destination": "/app/grid"
+      "destination": "/index.html"
     },
     {
       "source": "/cad",
-      "destination": "/app/cad"
+      "destination": "/index.html"
     },
     {
       "source": "/structures",
-      "destination": "/app/structures"
+      "destination": "/index.html"
     },
     {
       "source": "/biology",
-      "destination": "/app/biology"
+      "destination": "/index.html"
     },
     {
       "source": "/pcb",
-      "destination": "/app/pcb"
+      "destination": "/index.html"
     },
     {
       "source": "/rf",
-      "destination": "/app/rf"
+      "destination": "/index.html"
     },
     {
       "source": "/schematic-pcb",
-      "destination": "/app/schematic-pcb"
+      "destination": "/index.html"
     },
     {
       "source": "/3d",
-      "destination": "/app/3d"
+      "destination": "/index.html"
     },
     {
       "source": "/robotics",
-      "destination": "/app/robotics"
+      "destination": "/index.html"
     },
     {
       "source": "/embedded",
-      "destination": "/app/embedded"
+      "destination": "/index.html"
     },
     {
       "source": "/imaging",
-      "destination": "/app/imaging"
+      "destination": "/index.html"
     },
     {
       "source": "/visual",
-      "destination": "/app/visual"
+      "destination": "/index.html"
     },
     {
       "source": "/fpga",
-      "destination": "/app/fpga"
+      "destination": "/index.html"
     },
     {
       "source": "/hil",
-      "destination": "/app/hil"
+      "destination": "/index.html"
     },
     {
       "source": "/twin",
-      "destination": "/app/twin"
+      "destination": "/index.html"
     },
     {
       "source": "/siem",
-      "destination": "/app/siem"
+      "destination": "/index.html"
     },
     {
       "source": "/marketplace",
-      "destination": "/app/marketplace"
+      "destination": "/index.html"
     },
     {
       "source": "/dashboard",
-      "destination": "/app/dashboard"
+      "destination": "/index.html"
     },
     {
       "source": "/bom",
-      "destination": "/app/bom"
+      "destination": "/index.html"
     },
     {
       "source": "/hdl",
-      "destination": "/app/hdl"
+      "destination": "/index.html"
     },
     {
       "source": "/icdesign",
-      "destination": "/app/icdesign"
+      "destination": "/index.html"
     },
     {
       "source": "/agents",
-      "destination": "/app/agents"
+      "destination": "/index.html"
     },
     {
       "source": "/components",
-      "destination": "/app/components"
+      "destination": "/index.html"
     },
     {
       "source": "/plugins",
-      "destination": "/app/plugins"
+      "destination": "/index.html"
     },
     {
       "source": "/",
       "destination": "/landing.html"
-    },
+    }
+  ],
+  "headers": [
     {
       "source": "/(.*)",
-      "destination": "/landing.html"
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(self), xr-spatial-tracking=(self)"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+        }
+      ]
+    },
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
     }
   ]
 }

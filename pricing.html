@@ -6,6 +6,21 @@
 <title>Pricing — Folio</title>
 <meta name="description" content="Folio, stated plainly. Free is forever and unlimited on your machine. Pro and Team add the cloud doors: hosted storage, publishing, the admin console. Billing has not shipped; prices below are what it will charge." />
 <meta name="theme-color" content="#07080D" />
+<meta property="og:title" content="Pricing — Folio" />
+<meta property="og:description" content="Folio, stated plainly. Free is forever and unlimited on your machine. Pro and Team add the cloud doors. Billing has not shipped." />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Folio" />
+<meta property="og:url" content="https://folio.dev/pricing" />
+<meta property="og:image" content="https://folio.dev/hero-cad.jpg" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="789" />
+<meta property="og:image:type" content="image/jpeg" />
+<meta property="og:locale" content="en_US" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Pricing — Folio" />
+<meta name="twitter:description" content="Free is forever. Pro and Team add the cloud doors. Billing has not shipped." />
+<meta name="twitter:image" content="https://folio.dev/hero-cad.jpg" />
+<link rel="canonical" href="https://folio.dev/pricing" />
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <link rel="preload" href="/fonts/Archivo-Variable.ttf" as="font" type="font/ttf" crossorigin />
 <style>
@@ -68,6 +83,10 @@ h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; letter-spacing: -0.0
 .foot-parent { display: inline-flex; align-items: center; gap: .45rem; }
 .foot-parent-mark { display: block; }
 :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+/* ── Skip link ───────────────────────────────────────────── */
+.skip-link { position: absolute; left: .75rem; top: -3rem; z-index: 100; background: var(--amber); color: #1D1300; font-weight: 700; padding: .55rem 1rem; border-radius: .4rem; text-decoration: none; transition: top .18s ease; }
+.skip-link:focus-visible { top: .75rem; }
 @media (max-width: 800px) { .nav-links { display: none; } }
 
 /* ── Motion — rise on arrival, everything respects reduced motion ────────── */
@@ -87,7 +106,7 @@ h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; letter-spacing: -0.0
 
 </head>
 <body>
-
+<a class="skip-link" href="#main">Skip to main content</a>
 <nav aria-label="Folio">
   <a class="brand" href="/" aria-label="Folio home">
     <svg viewBox="0 0 96 96" aria-hidden="true" style="height:20px;width:auto"><path fill="#F5A524" fill-rule="evenodd" d="M10 0H58L96 38V86L86 96H10L0 86V10ZM26 20H64L70 26V40H46V46H56L62 52V64H46V82H26Z"/></svg>
@@ -105,7 +124,7 @@ h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; letter-spacing: -0.0
   </div>
 </nav>
 
-<main>
+<main id="main">
 
 <section class="hero">
   <div class="wrap">

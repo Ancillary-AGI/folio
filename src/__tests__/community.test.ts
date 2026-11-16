@@ -47,7 +47,25 @@ describe('community template payload', () => {
 
   it('applies a well-formed payload to the live stores and marks it dirty', () => {
     useProjectStore.setState({
-      components: [{ id: 'p1', componentId: 'c1' }] as never,
+      components: [{
+        id: 'p1',
+        componentId: 'c1',
+        component: {
+          name: 'Resistor',
+          category: 'passive',
+          is_standard: true,
+          symbol_data: { width: 40, height: 20, paths: ['M 0 10 H 40'] },
+          pins: [
+            { id: 'p1', name: 'A', x: 0, y: 10, type: 'passive' },
+            { id: 'p2', name: 'B', x: 40, y: 10, type: 'passive' },
+          ],
+        },
+        x: 100,
+        y: 100,
+        rotation: 0,
+        reference: 'R1',
+        properties: {},
+      }] as never,
       wires: [],
       currentProject: null,
       isDirty: false,

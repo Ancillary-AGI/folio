@@ -11,7 +11,7 @@
  *  • Cross-domain orchestrator: sync score + issues
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
@@ -151,7 +151,11 @@ export const SystemDashboard: React.FC = () => {
       let syncIssues = 0
       if (project) {
         try {
-          const namedNets = new Set(liveWires.map(wire => wire.netName).filter((name): name is string => Boolean(name)))
+          const namedNets = new Set(
+            liveWires
+              .map((wire) => wire.netName)
+              .filter((name): name is string => Boolean(name)),
+          )
           const snapshot = crossDomainOrchestrator.synchronize(project.id, {
             schematic: { nets: namedNets.size },
             siem: { alerts: activeAlerts.length },

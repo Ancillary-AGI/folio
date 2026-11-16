@@ -503,7 +503,7 @@ The acceleration paths have been checked in a real browser (Chrome/Electron
 WebGPU): the GPU thermal grid matches the CPU reference peak and average within
 0.01 °C and is only labelled `webgpu` when converged.
 
-All 31 gallery scenarios were also opened in the in-app Chromium session against
+All 43 gallery scenarios were also opened in the in-app Chromium session against
 the dev server (2026-10-26): every workspace rendered without a console error or
 uncaught exception, and the 3D demo exposed its routed scene and STL/OBJ export.
 

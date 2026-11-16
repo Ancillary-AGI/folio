@@ -10,16 +10,27 @@
 <meta property="og:description" content="Folio is your engineer in the loop — across domains, verified end to end. Free on your machine." />
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Folio" />
+<meta property="og:url" content="https://folio.dev/" />
+<meta property="og:image" content="https://folio.dev/hero-cad.jpg" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="789" />
+<meta property="og:image:type" content="image/jpeg" />
+<meta property="og:image:alt" content="The Folio workbench showing a half-wave rectifier schematic, the DRC health panel and the assistant" />
+<meta property="og:locale" content="en_US" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Folio — From brief to shipped board" />
 <meta name="twitter:description" content="Folio is your engineer in the loop — across domains, verified end to end." />
+<meta name="twitter:image" content="https://folio.dev/hero-cad.jpg" />
+<link rel="canonical" href="https://folio.dev/" />
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "Folio",
+  "url": "https://folio.dev/",
   "applicationCategory": "EngineeringApplication",
   "operatingSystem": "Web",
+  "image": "https://folio.dev/hero-cad.jpg",
   "description": "Folio — your engineer in the loop, across domains, verified end to end.",
   "offers": {
     "@type": "Offer",
@@ -54,6 +65,8 @@ body { background: var(--bg); color: var(--ink); font-family: 'Archivo', system-
 .mono { font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: .66rem; letter-spacing: .24em; text-transform: uppercase; color: var(--mute); }
 a { color: inherit; }
 :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; border-radius: .25rem; }
+.skip-link { position: absolute; left: .75rem; top: -3rem; z-index: 100; background: var(--amber); color: #221300; font-weight: 700; padding: .55rem 1rem; border-radius: .4rem; text-decoration: none; transition: top .18s ease; }
+.skip-link:focus-visible { top: .75rem; }
 
 /* ── Buttons ── */
 .btn { display: inline-flex; align-items: center; gap: .5rem; min-height: 2.5rem; padding: 0 1.1rem; border-radius: .5rem; background: var(--amber); color: #221300; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: .82rem; text-decoration: none; border: 1px solid #D97A12; transition: transform .16s, filter .16s, box-shadow .16s, border-color .16s, background .16s; }
@@ -189,7 +202,7 @@ h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); letter-spacing: -0.03em; line-height
 
 </head>
 <body>
-
+<a class="skip-link" href="#main">Skip to main content</a>
 <nav aria-label="Folio">
   <div class="wrap">
     <a class="brand" href="/" aria-label="Folio — home">
@@ -209,6 +222,7 @@ h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); letter-spacing: -0.03em; line-height
   </div>
 </nav>
 
+<main id="main">
 <header class="hero">
   <div class="wrap">
     <div class="hero-copy">
@@ -221,7 +235,7 @@ h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); letter-spacing: -0.03em; line-height
       </div>
     </div>
     <div class="hero-visual anim anim-2">
-      <img class="hero-shot" src="/hero-cad.png" alt="Folio workbench — Half-wave rectifier schematic with the DRC health panel and the assistant open." />
+      <img class="hero-shot" src="/hero-cad.jpg" alt="Folio workbench — Half-wave rectifier schematic with the DRC health panel and the assistant open." />
       <div class="hero-caption">Half-wave rectifier · schematic · the assistant open</div>
     </div>
   </div>
@@ -308,6 +322,8 @@ h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); letter-spacing: -0.03em; line-height
     <small>No credit card. No account for the demos. Nothing leaves your machine.</small>
   </div>
 </section>
+
+</main>
 
 <footer class="site-footer" aria-label="Site footer">
   <div class="wrap foot-inner">

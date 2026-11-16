@@ -104,7 +104,8 @@ describe('TraceChart', () => {
     renderChart()
     const overlay = plotArea()
 
-    const wheel = new WheelEvent('wheel', { clientX: 25, bubbles: true, cancelable: true })
+    // Pinch arrives as ctrl/meta+wheel; a plain wheel scrolls the page by design.
+    const wheel = new WheelEvent('wheel', { clientX: 25, bubbles: true, cancelable: true, ctrlKey: true })
     // jsdom's constructor does not always carry deltaY through to the handler.
     Object.defineProperty(wheel, 'deltaY', { value: -100 })
     // A native dispatch skips testing-library's act() wrapper, so the React

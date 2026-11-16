@@ -1,10 +1,61 @@
 # SPA fallback for Netlify and Cloudflare Pages.
 # Static files (including hashed /assets/*) are served first; only unknown
-# paths reach the app shell. Folio routes are client-side History-API paths.
+# paths reach these rules. Folio routes are client-side History-API paths.
 #
 # The operator console is a separate document, not a workbench route: /admin
 # must reach admin.html so a designer's bundle never contains it. These rules
-# are ordered — the first match wins.
+# are ordered — the first match wins. Where the rule is a document, the
+# document is served with the path preserved; the app then canonicalises.
+
+# The workbench's sibling documents.
 /admin /admin.html 200
 /admin/ /admin.html 200
-/* /index.html 200
+/console /console.html 200
+/console/ /console.html 200
+/pricing /pricing.html 200
+/pricing/ /pricing.html 200
+/landing /landing.html 200
+/landing/ /landing.html 200
+
+# The site root is the marketing page, not the workbench.
+/ /landing.html 200
+
+# The workbench lives under /app.
+/app /index.html 200
+/app/* /index.html 200
+
+# Legacy un-prefixed bookmarks from the pre-clean-URL app: the app shell
+# canonicalises them to /app/* on boot (see stores/routing.ts).
+/projects /index.html 200
+/projects/* /index.html 200
+/community /index.html 200
+/simulation /index.html 200
+/control /index.html 200
+/machines /index.html 200
+/grid /index.html 200
+/cad /index.html 200
+/structures /index.html 200
+/biology /index.html 200
+/pcb /index.html 200
+/rf /index.html 200
+/schematic-pcb /index.html 200
+/3d /index.html 200
+/robotics /index.html 200
+/embedded /index.html 200
+/imaging /index.html 200
+/visual /index.html 200
+/fpga /index.html 200
+/hil /index.html 200
+/twin /index.html 200
+/siem /index.html 200
+/marketplace /index.html 200
+/dashboard /index.html 200
+/bom /index.html 200
+/hdl /index.html 200
+/icdesign /index.html 200
+/agents /index.html 200
+/components /index.html 200
+/plugins /index.html 200
+
+# Anything else: an honest 404, served with a 404 status.
+/* /404.html 404
