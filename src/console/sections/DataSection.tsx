@@ -130,9 +130,9 @@ export default function DataSection() {
       <div className="flex items-start gap-3 rounded-xl border border-border/70 bg-card/40 p-4">
         <Database className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
         <p className="text-xs leading-relaxed text-muted-foreground">
-          This is this browser profile only — a different device or browser starts empty. Cloud designs, history
-          and usage live in the deployment and are managed there, not here. Wipe is keyboard accessible; downloads
-          are copies, not moves.
+          This is this browser profile only — a different device or browser starts empty. When you use online mode, your
+          designs, history and usage live on the server and are managed there, not here. Wipe is keyboard accessible;
+          downloads are copies, not moves.
         </p>
       </div>
     </div>

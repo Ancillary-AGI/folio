@@ -460,7 +460,7 @@ const BOMPanel: React.FC<BOMPanelProps> = ({ onClose }) => {
           {lifecycleCounts.unknown === 0
             ? 'Every line item here carries a declared status.'
             : `${lifecycleCounts.unknown} of ${filteredBOM.length} line items carry none and show as Unverified: that is missing data, not a clean part, so confirm it with the manufacturer before ordering.`}{' '}
-          Live supplier or stock checks would need a parts data source, which this build does not have.
+          Live supplier or stock checks would need a parts data source, which Folio doesn't have.
         </p>
       </div>
 

@@ -23,7 +23,7 @@ export default function UsageSection() {
         <div>
           <h2 className="text-sm font-bold text-foreground">Usage on this device</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            From the local ledger — append-only, capped at 5,000 events. Cloud deployments mirror each event to the org ledger.
+            From the local ledger — append-only, capped at 5,000 events. Online mode mirrors each event to your org's ledger.
           </p>
         </div>
         <div className="flex items-center gap-2">

@@ -143,7 +143,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
     setError(null)
     setPlacedNote(null)
     if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
-      setError(`${file.name}: this build has no PDF text extractor, so the drop cannot read it. Open the datasheet, copy its pin table and ratings text, and paste that in the Paste tab.`)
+      setError(`${file.name}: PDF files can't be read here. Open the datasheet, copy its pin table and ratings text, and paste it in the Paste tab.`)
       return
     }
     const reader = new FileReader()
@@ -304,8 +304,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
             <p className="text-xs text-muted-foreground">
               Fetching sends the URL through a public CORS proxy, so the request is visible to that third
               service — do not use it for NDA-protected documents. The fetched text lands in the Paste tab,
-              where you can review and edit it before parsing. PDFs have to be pasted by hand: this build
-              reads text files only.
+              where you can review and edit it before parsing. PDFs have to be pasted by hand.
             </p>
           </div>
         )}

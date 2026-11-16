@@ -148,7 +148,7 @@ export default function OverviewSection({ offlineMode, user, localProfile, onOpe
           <p className="text-xs leading-relaxed text-muted-foreground">
             {offlineMode
               ? 'Everything you do in Folio stays on this device: projects, design history, the usage ledger. There is no server metering you and no sync to another machine — yet. Use Data → download your local copy if you want a backup.'
-              : 'Your designs live in the deployment’s database. The numbers in Usage are read from this device’s ledger; your organisation sees the mirrored events in its admin console.'}
+              : 'Your designs live on the server. The numbers in Usage are read from this device’s ledger; your organisation sees the mirrored events in its admin console.'}
           </p>
         </div>
       </div>

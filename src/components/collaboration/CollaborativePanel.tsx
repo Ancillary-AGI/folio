@@ -77,7 +77,7 @@ export default function CollaborativePanel({ onClose }: CollaborativePanelProps)
   const statusLabel = realtime
     ? 'Realtime channel subscribed'
     : connected
-      ? 'Solo session — operations apply in order; live presence requires a realtime deployment'
+      ? 'Solo session — changes apply in order. Live presence needs multi-user mode, which isn\'t set up here.'
       : 'No active session'
 
   const createProject = () => {

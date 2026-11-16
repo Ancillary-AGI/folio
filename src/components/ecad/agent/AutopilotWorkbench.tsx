@@ -1005,7 +1005,6 @@ export default function AutopilotWorkbench({ onSessionSaved, onActivate }: Autop
             ) : (
               <p className="text-xs text-muted-foreground">
                 {cloud.reason} The in-process runner in this tab is fully functional but stops when the tab closes.
-                See <span className="font-mono">docs/AGENT_CLOUD.md</span> for the deployment contract.
               </p>
             )}
           </section>

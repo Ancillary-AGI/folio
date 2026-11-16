@@ -392,7 +392,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
              */}
             <p className="text-xs text-muted-foreground">
               Installing records the package and checks its declared permissions against the manifest. The tools listed
-              run in Folio&apos;s own engines; this build has no runtime for third-party plugin code, and packages marked
+              run in Folio&apos;s own engines; third-party plugin code has no runtime here, and packages marked
               below wait on the desktop companion.
             </p>
             {/* Featured */}

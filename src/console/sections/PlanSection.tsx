@@ -52,7 +52,7 @@ export default function PlanSection({ offlineMode, user }: PlanSectionProps) {
       <section aria-labelledby="limits-heading">
         <h2 id="limits-heading" className="text-sm font-bold text-foreground">What this account can use</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Enforced by the app — and by the database, in a configured cloud deployment.
+          Enforced here on this device — and by the server too when you use online mode.
         </p>
         <div className="mt-2 overflow-hidden rounded-xl border border-border/70">
           <table className="w-full text-left text-xs">

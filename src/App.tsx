@@ -1091,7 +1091,7 @@ function App() {
   const startTutorial = async (tutorial: Tutorial) => {
     const scenario = DEMO_SCENARIOS.find((entry) => entry.id === tutorial.demoId)
     if (!scenario) {
-      setNotice(`This tutorial starts from the “${tutorial.demoId}” demo, which is not in this build.`)
+      setNotice(`This tutorial starts from the “${tutorial.demoId}” demo, which isn't available here.`)
       return
     }
     if (!(await openDemoScenario(scenario))) return

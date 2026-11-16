@@ -388,11 +388,11 @@ const folioDark: ThemeTokens = {
   // Chart series — a copper ramp with one ember and one spar; for plots only,
   // never chrome
   '--chart-1': '39 100% 58%',
-  '--chart-2': '16 85% 60%',
-  '--chart-3': '48 90% 66%',
-  '--chart-4': '276 60% 68%',
-  '--chart-5': '186 45% 60%',
-  '--chart-6': '330 65% 64%',
+  '--chart-2': '145 65% 55%',
+  '--chart-3': '330 80% 66%',
+  '--chart-4': '275 70% 72%',
+  '--chart-5': '190 60% 62%',
+  '--chart-6': '220 85% 66%',
 
   // Syntax — warm paper on obsidian; keywords ember, strings copper, numbers gold
   '--syntax-keyword': '16 90% 68%',

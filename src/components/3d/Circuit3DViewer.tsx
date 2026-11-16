@@ -1231,8 +1231,8 @@ export default function Circuit3DViewer({ onClose }: Circuit3DViewerProps) {
                 )}
                 {enclosure && !enclosureFit && (
                   <p className="text-muted-foreground">
-                    The shell is drawn at its own size. The fit needs a routed board layout — until then
-                    the board stack is unknown.
+                    The enclosure is drawn at its own size. Checking the fit needs the routed board's stackup,
+                    which doesn't exist yet, so clearances here are indicative, not verified.
                   </p>
                 )}
               </CardContent>

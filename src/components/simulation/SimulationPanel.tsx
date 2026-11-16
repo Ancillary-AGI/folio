@@ -236,6 +236,8 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
     [temperatureC, transientStopUs, transientStepUs, integrationMethod, pointsPerDecade],
   )
   const [selectedWaveforms, setSelectedWaveforms] = useState<string[]>([])
+  /** The designer has ticked or unticked a trace by hand; don't discard that on re-solve. */
+  const userToggledWaveformsRef = useRef(false)
   // Live playback: playhead time + clock. The frame is derived (never
   // stored), so 2D/3D views always agree on the circuit's state.
   const [playing, setPlaying] = useState(false)
@@ -348,6 +350,10 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
   // and treating that replay as a tab change would invalidate the run a demo
   // request just started — leaving the panel busy forever with no result.
   const analysisRef = useRef<AnalysisType | null>(null)
+  /** Debounce for the post-edit auto re-solve; see the effect below. */
+  const autoRunTimerRef = useRef<number | null>(null)
+  /** The designer pressed Run at least once — auto re-solve is armed from then on. */
+  const hasRunRef = useRef(false)
 
   useEffect(() => {
     const previousAnalysis = analysisRef.current
@@ -368,6 +374,9 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
       previous && previous.analysis !== selectedAnalysis ? null : previous,
     )
     setSelectedWaveforms([])
+    // A different analysis means different signal names; the previous tab's
+    // hand-picked selection no longer names anything.
+    userToggledWaveformsRef.current = false
     setMarginDesign(null)
     setError(null)
   }, [selectedAnalysis])
@@ -381,10 +390,23 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
   const [waveformOwner, setWaveformOwner] = useState<SimulationResult | null>(null)
   if (simulationResults !== waveformOwner) {
     setWaveformOwner(simulationResults)
-    setSelectedWaveforms(pickDefaultWaveforms((simulationResults?.waveforms ?? []).map((waveform) => waveform.name)))
+    const names = (simulationResults?.waveforms ?? []).map((waveform) => waveform.name)
+    setSelectedWaveforms((previous) => {
+      // A designer who ticked traces keeps them across re-solves; only when
+      // the result has none of the same signals do we fall back to defaults.
+      if (
+        userToggledWaveformsRef.current &&
+        previous.length > 0 &&
+        previous.every((name) => names.includes(name))
+      ) {
+        return previous
+      }
+      return pickDefaultWaveforms(names)
+    })
   }
 
   const handleRunSimulation = async (overrides?: Partial<SimulationParameters>) => {
+    hasRunRef.current = true
     if (modelLibrary && modelLibrary.errors.length > 0) {
       setError(`Fix the model-card errors first: ${modelLibrary.errors.join(' ')}`)
       return
@@ -435,6 +457,34 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
   }
 
   useDemoRequest('rectifier-transient', () => { void handleRunSimulation() })
+
+  /*
+   * Once the designer has pressed Run, the open result is stale the moment the
+   * sheet changes. Rather than leave a Run button between them and a fresh
+   * solve, re-solve automatically — debounced so typing a value is one solve,
+   * not six. Until the designer presses Run once, nothing fires here: the
+   * panel must not solve on mount.
+   */
+  useEffect(() => {
+    if (!hasRunRef.current) return
+    if (isSimulating) return
+    if (components.length === 0) return
+    if (modelLibrary && modelLibrary.errors.length > 0) return
+    if (autoRunTimerRef.current !== null) window.clearTimeout(autoRunTimerRef.current)
+    autoRunTimerRef.current = window.setTimeout(() => {
+      autoRunTimerRef.current = null
+      void handleRunSimulation()
+    }, 700)
+    return () => {
+      if (autoRunTimerRef.current !== null) {
+        window.clearTimeout(autoRunTimerRef.current)
+        autoRunTimerRef.current = null
+      }
+    }
+    // The sheet edits arrive through the store subscription above; reading it
+    // here again would double-fire, so the linter stays quiet about the refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [components, wires])
 
   const [benchInput, setBenchInput] = useState<string>('')
   const [benchVerdict, setBenchVerdict] = useState<string | null>(null)
@@ -810,7 +860,11 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
     .filter((unit): unit is string => unit !== undefined)
   const hasMagnitudeSeries = selectedWaveformUnits.some((unit) => unit !== 'deg')
   const hasPhaseSeries = selectedWaveformUnits.some((unit) => unit === 'deg')
+  const hasVoltageSeries = selectedWaveformUnits.includes('V')
   const logFrequencyAxis = selectedAnalysis === 'ac' || selectedAnalysis === 'noise'
+  // Which unit the right axis carries: degrees when phase is plotted next to
+  // magnitude or volts, amps when current is plotted next to volts.
+  const rightAxisUnit = hasPhaseSeries && selectedWaveformUnits.some((unit) => unit !== 'deg') ? '°' : 'A'
 
   const traceSeries = useMemo<TraceSeries[]>(
     () => selectedWaveforms.map((name, index) => {
@@ -819,10 +873,16 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
         key: name,
         color: seriesColors[index % seriesColors.length],
         unit: waveform?.unit,
-        axis: hasMagnitudeSeries && hasPhaseSeries && waveform?.unit === 'deg' ? 'right' : 'left',
+        axis:
+          // Degrees after magnitude (AC sweep), amps after volts (transient):
+          // a 15 mA trace against a ±4 V swing is a flat line on a shared axis.
+          (hasMagnitudeSeries && waveform?.unit === 'deg') ||
+          (hasVoltageSeries && waveform?.unit === 'A')
+            ? 'right'
+            : 'left',
       }
     }),
-    [selectedWaveforms, simulationResults, hasMagnitudeSeries, hasPhaseSeries, seriesColors],
+    [selectedWaveforms, simulationResults, hasMagnitudeSeries, hasVoltageSeries, seriesColors],
   )
 
   // The x axis means something different per analysis: seconds, hertz, or the
@@ -1724,6 +1784,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
                             type="checkbox"
                             checked={selectedWaveforms.includes(waveform.name)}
                             onChange={(e) => {
+                              userToggledWaveformsRef.current = true
                               if (e.target.checked) {
                                 setSelectedWaveforms(prev => [...prev, waveform.name])
                               } else {
@@ -1743,7 +1804,11 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
                 {/* Waveform Plot */}
                 {selectedAnalysis !== 'montecarlo' && selectedWaveforms.length > 0 && (
                   <div className="flex-1 min-h-0">
-                    <h4 className="text-sm font-medium mb-2">Waveform Plot</h4>
+                    <h4 className="text-sm font-medium mb-1">Waveform Plot
+                      {isSimulating && (
+                        <span role="status" aria-live="polite" className="ml-2 text-xs font-normal text-muted-foreground animate-pulse">Re-solving…</span>
+                      )}
+                    </h4>
                     <TraceChart
                       data={waveformData}
                       series={traceSeries}
@@ -1753,7 +1818,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
                       xFormatter={traceXFormatter}
                       yFormatter={formatEngineering}
                       readoutFormatter={formatEngineeringPrecise}
-                      rightFormatter={(value) => `${value.toFixed(0)}°`}
+                      rightFormatter={(value) => `${formatEngineering(value)}${rightAxisUnit}`}
                       markerX={selectedAnalysis === 'transient' ? playhead : null}
                       ariaLabel="Circuit response"
                     />

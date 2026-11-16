@@ -19,9 +19,9 @@ interface AccountSectionProps {
 }
 
 const CLOUD_PROVIDERS: Array<{ label: string; detail: string; enabled: boolean }> = [
-  { label: 'Google', detail: 'Available when the Google provider is configured for this deployment.', enabled: true },
-  { label: 'GitHub', detail: 'Available when the GitHub provider is configured for this deployment.', enabled: true },
-  { label: 'X Industries', detail: 'Ships with the X Industries identity rollout — for X Industries employees.', enabled: false },
+  { label: 'Google', detail: 'Shown when this site has Google sign-in set up.', enabled: true },
+  { label: 'GitHub', detail: 'Shown when this site has GitHub sign-in set up.', enabled: true },
+  { label: 'X Industries', detail: 'Ships with X Industries identity rollout — for X Industries employees.', enabled: false },
 ]
 
 export default function AccountSection({ offlineMode, user, onSignedOut }: AccountSectionProps) {
@@ -145,7 +145,7 @@ export default function AccountSection({ offlineMode, user, onSignedOut }: Accou
               <li key={provider.label} className="flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-card/40 px-3 py-2 text-xs">
                 <span className="font-medium text-foreground">{provider.label}</span>
                 <span className={provider.enabled ? 'text-muted-foreground' : 'text-muted-foreground/60'}>
-                  {provider.enabled ? 'Configured providers may vary by deployment' : 'Not available yet'}
+                  {provider.enabled ? 'Which providers are set up depends on how this site is configured' : 'Not available yet'}
                 </span>
               </li>
             ))}
@@ -160,7 +160,7 @@ export default function AccountSection({ offlineMode, user, onSignedOut }: Accou
             <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
               {offlineMode
                 ? 'Returns to the profile picker. Designs stay on this device.'
-                : 'Ends this session on this browser. Your designs stay in the deployment.'}
+                : 'Ends this session on this browser. Your designs stay on the server.'}
             </p>
           </div>
           <Button variant="outline" onClick={() => void signOut()} disabled={signingOut} className="gap-2 border-destructive/40 text-destructive hover:bg-destructive/10">

@@ -720,6 +720,62 @@ X1 in 0 div
     expect(simulate.mock.calls[0][0].analyses[0]?.stopTime).toBe(0.001)
   })
 
+  it('re-solves automatically after a sheet edit once the designer has pressed Run', async () => {
+    seedSheet([place('R1', makeSymbol())])
+    const canned: SimulationResult = {
+      success: true,
+      nodes: [],
+      waveforms: [],
+      convergenceInfo: { iterations: 2, converged: true },
+      analysis: 'dc',
+    }
+    const simulate = vi.spyOn(spiceEngine, 'simulate').mockResolvedValue(canned)
+    render(<SimulationPanel onClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'DC operating point' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }))
+    await waitFor(() => expect(simulate).toHaveBeenCalledTimes(1))
+
+    // The inspector commits through the store; a value typed there must show
+    // up in the next solve without pressing Run — but no earlier.
+    act(() => {
+      useProjectStore.setState({
+        components: [{ ...place('R1', makeSymbol()), properties: { resistance: 4700 } }],
+      })
+    })
+    await waitFor(() => expect(simulate).toHaveBeenCalledTimes(2), { timeout: 3000 })
+    expect(simulate.mock.calls[1][0].components[0]?.parameters?.resistance).toBe(4700)
+  })
+
+  it('keeps a hand-picked trace selection across a re-solve', async () => {
+    seedSheet([place('R1', makeSymbol())])
+    const canned: SimulationResult = {
+      success: true,
+      nodes: [],
+      waveforms: [
+        { name: 'V(OUT)', type: 'voltage', unit: 'V', data: [{ x: 0, y: 0 }, { x: 1, y: 5 }] },
+        { name: 'I(R1)', type: 'current', unit: 'A', data: [{ x: 0, y: 0 }, { x: 1, y: 0.01 }] },
+      ],
+      convergenceInfo: { iterations: 1, converged: true },
+      analysis: 'transient',
+    }
+    const simulate = vi.spyOn(spiceEngine, 'simulate').mockResolvedValue(canned)
+    render(<SimulationPanel onClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Transient' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }))
+    await waitFor(() => expect(simulate).toHaveBeenCalledTimes(1))
+    const currentBox = await screen.findByRole('checkbox', { name: /I\(R1\)/ })
+    fireEvent.click(currentBox)
+
+    // An edit invalidates the open result; the designer's probe choice must survive it.
+    act(() => {
+      useProjectStore.setState({
+        components: [{ ...place('R1', makeSymbol()), properties: { resistance: 4700 } }],
+      })
+    })
+    await waitFor(() => expect(simulate).toHaveBeenCalledTimes(2), { timeout: 3000 })
+    expect(screen.getByRole('checkbox', { name: /I\(R1\)/ })).toBeChecked()
+  })
+
   it('clears the shared playback frame when it closes', () => {
     seedSheet([place('R1', makeSymbol())])
     useProjectStore.setState({

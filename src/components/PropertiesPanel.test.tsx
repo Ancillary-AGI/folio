@@ -82,6 +82,15 @@ describe('PropertiesPanel', () => {
     expect(onUpdate).toHaveBeenCalledWith('cmp-v1', expect.objectContaining({ ac: 1 }))
   })
 
+  it('commits the staged edit when Enter is pressed inside a property field', () => {
+    const onUpdate = renderPanel()
+    const field = screen.getByLabelText('Voltage')
+    fireEvent.change(field, { target: { value: '12V' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+
+    expect(onUpdate).toHaveBeenCalledWith('cmp-v1', expect.objectContaining({ voltage: '12V' }))
+  })
+
   it('keeps a SPICE-scaled value as text', () => {
     renderPanel()
     addAttribute('td', '1u')

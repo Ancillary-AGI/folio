@@ -51,7 +51,7 @@ export default function LocalProfileGate() {
     setSigningIn(provider)
     try {
       if (!isSupabaseConfigured) {
-        throw new Error('Hosted sign-in is not yet enabled on this build. Configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY on the deployment to light this button up.')
+        throw new Error('Cloud sign-in isn\'t available on this deployment. Create a local profile — it works fully offline on this machine.')
       }
       const redirectTo = window.location.origin
       const { error } = await supabase.auth.signInWithOAuth({
@@ -231,9 +231,8 @@ export default function LocalProfileGate() {
             </p>
           )}
 
-          <p className="mt-4 text-center text-[11px] leading-relaxed text-muted-foreground/70">
-            Google and GitHub work on any deployment with VITE_SUPABASE_URL set and those providers enabled on the
-            project. X Industries uses the reserved provider slug <code className="rounded bg-muted/60 px-1 py-0.5 font-mono text-[10px]">custom:xindustries</code> — it activates when that custom OIDC provider is registered on the Supabase project; until then the provider can be configured on deploy and the button completes the same flow.
+          <p className="mt-4 text-center text-[10px] leading-relaxed text-muted-foreground/60">
+            Sign-in is optional — a local profile gives the same workbench on this machine.
           </p>
         </div>
       </div>

@@ -179,6 +179,24 @@ export default function PropertiesPanel({ component, onUpdate, onClose, pinNets,
     setHasUnsavedChanges(false);
   };
 
+  /*
+   * An inspector field is a place to finish, not a place to admire: Enter
+   * applies what is typed, the same as clicking Apply. Editing the value of a
+   * part you just selected should never require reaching for the mouse.
+   */
+  const commitOnEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      handleSave();
+    }
+  };
+  const addOnEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      addAttribute();
+    }
+  };
+
   const getPropertyType = (key: string, value: unknown) => {
     if (typeof value === "boolean") return "checkbox";
     if (typeof value === "number") return "number";
@@ -323,6 +341,7 @@ export default function PropertiesPanel({ component, onUpdate, onClose, pinNets,
             className="cad-field"
             value={position.x}
             onChange={(e) => handlePositionChange('x', parseFloat(e.target.value) || 0)}
+            onKeyDown={commitOnEnter}
           />
         </div>
         <div className="cad-prop-row">
@@ -335,6 +354,7 @@ export default function PropertiesPanel({ component, onUpdate, onClose, pinNets,
             className="cad-field"
             value={position.y}
             onChange={(e) => handlePositionChange('y', parseFloat(e.target.value) || 0)}
+            onKeyDown={commitOnEnter}
           />
         </div>
         <div className="cad-prop-row">
@@ -349,6 +369,7 @@ export default function PropertiesPanel({ component, onUpdate, onClose, pinNets,
               onChange={(e) => handleRotationChange(parseFloat(e.target.value) || 0)}
               className="cad-field"
               aria-label="Rotation in degrees"
+              onKeyDown={commitOnEnter}
             />
             <Button
               variant="outline"
@@ -397,6 +418,7 @@ export default function PropertiesPanel({ component, onUpdate, onClose, pinNets,
                         propertyType === 'number' ? parseFloat(e.target.value) || 0 : e.target.value
                       )
                     }
+                    onKeyDown={commitOnEnter}
                     className="cad-field"
                     aria-label={formatPropertyLabel(key)}
                   />
@@ -422,6 +444,7 @@ export default function PropertiesPanel({ component, onUpdate, onClose, pinNets,
             type="text"
             value={draftKey}
             onChange={(e) => setDraftKey(e.target.value)}
+            onKeyDown={addOnEnter}
             placeholder="parameter"
             className="cad-field font-mono"
             aria-label="New attribute name"
@@ -430,6 +453,7 @@ export default function PropertiesPanel({ component, onUpdate, onClose, pinNets,
             type="text"
             value={draftValue}
             onChange={(e) => setDraftValue(e.target.value)}
+            onKeyDown={addOnEnter}
             placeholder="value"
             className="cad-field font-mono"
             aria-label="New attribute value"

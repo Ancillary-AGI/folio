@@ -310,8 +310,7 @@ export default function CommunityPage({ onBack, onOpenTemplate, onImportFile }: 
 
         {!cloudMode && (
           <p className="mt-4 text-center text-[10px] leading-relaxed text-muted-foreground/70">
-            Offline build — every template here ships in the box or arrives as a .json file.
-            Configure the Folio cloud (VITE_SUPABASE_URL) for community-hosted publishing.
+            You're offline — community publishing is unavailable. Every template here ships in the box or arrives as a .json file.
           </p>
         )}
       </main>
