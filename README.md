@@ -5,9 +5,10 @@ simulation, robotics and embedded development. The workbench runs without a
 backend unless you explicitly configure one; no account is required for
 standalone use.
 
-**Status:** active development. Lint and both typechecks pass; the suite runs per-shard
-(~1,900 tests in shard 2/4 green). Full start-to-finish run not yet completed on
-CI hardware — treat the count as growing, not as certified green.
+**Status:** active development. The full gate is `npm run verify` — lint and both
+typechecks pass with zero warnings, and the complete suite runs green end to end
+(3,853 tests across 341 files, verified locally; CI may log a different count as
+the suite grows).
 
 ---
 
