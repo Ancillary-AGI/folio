@@ -182,6 +182,98 @@ export function buildCommunityTemplate(
 
 /* ── Fork application ─────────────────────────────────────────────────────── */
 
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value)
+
+/*
+ * A community payload crosses a trust boundary: it arrives over the network
+ * by hand or from a publisher. `applyCommunityPayload` used to check only that
+ * the two arrays existed and then cast each element — a crafted file could
+ * place a part with no pins, a wire with NaN coordinates or a reference that
+ * is a number onto the live sheet, and the netlist, ERC and exporters would
+ * all chew on garbage. Each item is validated and deep-copied here; one bad
+ * item fails the whole payload rather than a silently partial design.
+ */
+function sanitizeComponents(items: unknown[]): CanvasComponentLike[] | null {
+  const out: CanvasComponentLike[] = []
+  for (const item of items) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+    const c = item as Record<string, unknown>
+    const comp = c.component as Record<string, unknown> | undefined
+    if (typeof c.id !== 'string' || !c.id) return null
+    if (typeof c.componentId !== 'string' || !c.componentId) return null
+    if (typeof c.reference !== 'string' || !c.reference) return null
+    if (!isFiniteNumber(c.x) || !isFiniteNumber(c.y) || !isFiniteNumber(c.rotation)) return null
+    if (!comp || typeof comp !== 'object' || Array.isArray(comp)) return null
+    if (typeof comp.name !== 'string' || !comp.name) return null
+    const symbol = comp.symbol_data as Record<string, unknown> | undefined
+    if (!symbol || typeof symbol !== 'object' || !isFiniteNumber(symbol.width) || !isFiniteNumber(symbol.height)) return null
+    if (!Array.isArray(comp.pins)) return null
+    const pins: Array<Record<string, unknown>> = []
+    for (const pin of comp.pins as unknown[]) {
+      if (!pin || typeof pin !== 'object') return null
+      const p = pin as Record<string, unknown>
+      if (typeof p.id !== 'string' || !p.id || typeof p.name !== 'string') return null
+      if (!isFiniteNumber(p.x) || !isFiniteNumber(p.y)) return null
+      pins.push({ ...p })
+    }
+    const properties = c.properties
+    if (properties !== undefined
+      && (typeof properties !== 'object' || properties === null || Array.isArray(properties))) {
+      return null
+    }
+    out.push({
+      id: c.id,
+      componentId: c.componentId,
+      component: { ...comp, symbol_data: { ...symbol }, pins } as CanvasComponentLike['component'],
+      x: c.x,
+      y: c.y,
+      rotation: ((c.rotation % 360) + 360) % 360,
+      reference: c.reference,
+      properties: { ...(properties as Record<string, string | number | boolean> | undefined) },
+      ...(typeof c.locked === 'boolean' ? { locked: c.locked } : {}),
+      ...(typeof c.visible === 'boolean' ? { visible: c.visible } : {}),
+    })
+  }
+  return out
+}
+
+function sanitizeWires(items: unknown[]): CanvasWireLike[] | null {
+  const out: CanvasWireLike[] = []
+  for (const item of items) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+    const w = item as Record<string, unknown>
+    if (typeof w.id !== 'string' || !w.id) return null
+    if (!Array.isArray(w.points) || w.points.length === 0) return null
+    const points: Array<{ x: number; y: number }> = []
+    for (const point of w.points as unknown[]) {
+      if (!point || typeof point !== 'object') return null
+      const p = point as Record<string, unknown>
+      if (!isFiniteNumber(p.x) || !isFiniteNumber(p.y)) return null
+      points.push({ x: p.x, y: p.y })
+    }
+    if (w.netName !== undefined && typeof w.netName !== 'string') return null
+    if (!Array.isArray(w.connectedPins)) return null
+    const connectedPins: Array<{ componentId: string; pinId: string }> = []
+    for (const pin of w.connectedPins as unknown[]) {
+      if (!pin || typeof pin !== 'object') return null
+      const p = pin as Record<string, unknown>
+      if (typeof p.componentId !== 'string' || !p.componentId || typeof p.pinId !== 'string' || !p.pinId) return null
+      connectedPins.push({ componentId: p.componentId, pinId: p.pinId })
+    }
+    out.push({
+      id: w.id,
+      points,
+      ...(typeof w.netName === 'string' ? { netName: w.netName } : {}),
+      connectedPins,
+    })
+  }
+  return out
+}
+
+type CanvasComponentLike = import('../../stores/useProjectStore').CanvasComponent
+type CanvasWireLike = import('../../stores/useProjectStore').CanvasWire
+
 function asPcbLayout(value: unknown): PcbSceneInput | null {
   if (!value || typeof value !== 'object') return null
   const layout = value as Record<string, unknown>
@@ -205,9 +297,20 @@ function asDomainDesigns(value: unknown): Record<string, unknown> {
 /** Apply a template payload to the live project stores. Returns success. */
 export function applyCommunityPayload(canvasData: Record<string, unknown>): boolean {
   if (!Array.isArray(canvasData.components) || !Array.isArray(canvasData.wires)) return false
+  const components = sanitizeComponents(canvasData.components)
+  const wires = sanitizeWires(canvasData.wires)
+  // One malformed item fails the whole payload — never a silently partial sheet.
+  if (!components || !wires) return false
+  // Every connected pin must reference a component that survived validation.
+  const componentIds = new Set(components.map((component) => component.id))
+  for (const wire of wires) {
+    for (const pin of wire.connectedPins) {
+      if (!componentIds.has(pin.componentId)) return false
+    }
+  }
   useProjectStore.setState({
-    components: canvasData.components as never[],
-    wires: canvasData.wires as never[],
+    components: components as never[],
+    wires: wires as never[],
     firmwareCode: typeof canvasData.firmwareCode === 'string' ? canvasData.firmwareCode : '',
     simulationRuns: Array.isArray(canvasData.simulationRuns) ? canvasData.simulationRuns as never[] : [],
     pcbLayout: asPcbLayout(canvasData.pcbLayout),

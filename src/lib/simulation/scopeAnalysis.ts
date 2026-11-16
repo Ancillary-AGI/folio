@@ -8,6 +8,7 @@
  * trapezoidal integration, efficiency = Pout/Pin. Fail-loud on empty or
  * mismatched series — never a fabricated number.
  */
+import { csvCell } from '../csv'
 export interface WaveformPoint { x: number; y: number }
 export interface WaveformSeries { name: string; unit: string; data: WaveformPoint[] }
 
@@ -92,12 +93,19 @@ export function measureWaveform(series: WaveformSeries): ScopeMeasurement {
   return { min, max, peakToPeak: max - min, mean, rms, frequencyHz, dutyCycle };
 }
 
-/** Instantaneous V·I power series; both series share the x grid. */
+/** Instantaneous V·I power series; both series must share the x grid, sample for sample. */
 export function powerSeries(voltage: WaveformSeries, current: WaveformSeries): WaveformPoint[] {
   const v = requireSeries(voltage);
   const c = requireSeries(current);
   if (v.length !== c.length) {
     throw new Error(`Scope: power needs matching grids (${voltage.name}: ${v.length}, ${current.name}: ${c.length}).`);
+  }
+  // Equal sample counts are not enough — the grids themselves must coincide,
+  // or the "power" multiplies unrelated instants.
+  for (let i = 0; i < v.length; i += 1) {
+    if (v[i].x !== c[i].x) {
+      throw new Error(`Scope: power needs one shared time grid (${voltage.name} and ${current.name} differ at sample ${i}).`);
+    }
   }
   return v.map((point, i) => ({ x: point.x, y: point.y * c[i].y }));
 }
@@ -152,10 +160,10 @@ export function waveformsToCsv(seriesList: readonly WaveformSeries[]): string {
       }
     }
   });
-  const header = ['t', ...seriesList.map((s) => s.name)].join(',');
+  const header = ['t', ...seriesList.map((s) => s.name)].map(csvCell).join(',');
   const lines = [header];
   for (let i = 0; i < rows; i += 1) {
-    lines.push([seriesList[0].data[i].x, ...seriesList.map((s) => s.data[i].y)].join(','));
+    lines.push([seriesList[0].data[i].x, ...seriesList.map((s) => s.data[i].y)].map(csvCell).join(','));
   }
   return `${lines.join('\n')}\n`;
 }

@@ -83,6 +83,23 @@ export function parseDigitalNetlist(text: string): ParsedDigitalNetlist {
 
     const tokens = tokenize(stripped)
     const keyword = tokens.get('_op0')?.toUpperCase()
+    /*
+     * Positional arguments live at the front of the statement; anything bare
+     * past the known arity is junk. The old tokenizer kept the first bare
+     * token and silently dropped the rest, so `GATE g1 AND out=y in=a JUNK`
+     * parsed as if the JUNK were not there — the opposite of fail-loud.
+     */
+    const parts = stripped.split(/\s+/)
+    const MAX_POSITIONAL: Record<string, number> = { GATE: 3, FF: 3, CLOCK: 2, SET: 4, RUN: 1 }
+    const maxPositional = MAX_POSITIONAL[keyword ?? '']
+    if (maxPositional !== undefined) {
+      for (let index = maxPositional; index < parts.length; index += 1) {
+        const token = parts[index]
+        if (token.indexOf('=') <= 0) {
+          throw new DigitalParseError(`unexpected "${token}"`, lineNumber, rawLine)
+        }
+      }
+    }
 
     switch (keyword) {
       case 'GATE': {

@@ -31,8 +31,10 @@ export interface UseCommunityTemplatesOptions {
    * when it cannot be (no demo seed, cloud payload refused, offline cloud row).
    */
   onOpenTemplate: (template: CommunityTemplate) => Promise<void> | void
-  /** Imports a hand-carried template file as the user's own design. */
-  onImportFile: (parsed: CommunityTemplateFile, template: CommunityTemplate) => Promise<void> | void
+  /** Imports a hand-carried template file as the user's own design. Resolves
+   * false (or throws) when the file was refused; a void resolution is treated
+   * as success for callers that never report failure. */
+  onImportFile: (parsed: CommunityTemplateFile, template: CommunityTemplate) => Promise<boolean | void> | boolean | void
 }
 
 export const DISCIPLINE_LABEL: Record<Discipline, string> = {
@@ -74,10 +76,17 @@ export function useCommunityTemplates({ onOpenTemplate, onImportFile }: UseCommu
   const refresh = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
-    const { templates: cloud, error } = await fetchCommunityTemplates()
-    setTemplates(cloud)
-    setLoadError(error)
-    setLoading(false)
+    try {
+      const { templates: cloud, error } = await fetchCommunityTemplates()
+      setTemplates(cloud)
+      setLoadError(error)
+    } catch (err) {
+      // A network throw (offline, DNS, refused) must not wedge the spinner
+      // or escape as an unhandled rejection.
+      setLoadError(err instanceof Error ? err.message : 'The community gallery could not be reached.')
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -118,7 +127,7 @@ export function useCommunityTemplates({ onOpenTemplate, onImportFile }: UseCommu
       return
     }
     try {
-      await onImportFile(parsed, {
+      const accepted = await onImportFile(parsed, {
         id: `import-${Date.now()}`,
         name: parsed.name,
         description: parsed.description,
@@ -130,6 +139,11 @@ export function useCommunityTemplates({ onOpenTemplate, onImportFile }: UseCommu
         clonedCount: 0,
         createdAt: Date.now(),
       })
+      if (accepted === false) {
+        // The caller already said why; show the same refusal here.
+        setFeedback({ kind: 'error', message: 'That file could not be imported — your design was left untouched.' })
+        return
+      }
       setFeedback({ kind: 'ok', message: `Imported “${parsed.name}” — it is yours to edit.` })
     } catch (err) {
       setFeedback({ kind: 'error', message: err instanceof Error ? err.message : 'The design could not be imported.' })
@@ -151,6 +165,8 @@ export function useCommunityTemplates({ onOpenTemplate, onImportFile }: UseCommu
       setPublishOpen(false)
       setFeedback({ kind: 'ok', message: `Published “${publishName.trim()}” — others can open it now.` })
       await refresh()
+    } catch (err) {
+      setPublishError(err instanceof Error ? err.message : 'The design could not be published.')
     } finally {
       setPublishing(false)
     }

@@ -161,10 +161,98 @@ export function evaluateSpiceExpression(text: string, scope: SpiceScope, label: 
 function parseTernary(state: Evaluator): number {
   const condition = parseBinary(state, 0)
   if (!consume(state, '?')) return condition
-  const whenTrue = parseTernary(state)
+  // SPICE evaluates only the arm the condition selects; the other arm is
+  // skipped, never evaluated — an undefined parameter there is not an error.
+  if (condition !== 0) {
+    const whenTrue = parseTernary(state)
+    requireOperator(state, ':')
+    skipTernary(state)
+    return whenTrue
+  }
+  skipTernary(state)
   requireOperator(state, ':')
-  const whenFalse = parseTernary(state)
-  return condition !== 0 ? whenTrue : whenFalse
+  return parseTernary(state)
+}
+
+/*
+ * Grammar-shaped skippers: consume one sub-expression's tokens without
+ * evaluating anything. parseTernary and the &&/|| short-circuit use these so
+ * an untaken arm costs nothing and can contain deck constructs this scope
+ * cannot resolve (undefined corner parameters, unknown functions). They must
+ * mirror the grammar above; drift between the two is a silent mis-skip, so
+ * keep them side by side.
+ */
+function skipTernary(state: Evaluator): void {
+  skipBinary(state, 0)
+  if (consume(state, '?')) {
+    enter(state)
+    skipTernary(state)
+    requireOperator(state, ':')
+    skipTernary(state)
+    leave(state)
+  }
+}
+
+function skipBinary(state: Evaluator, level: number): void {
+  if (level >= PRECEDENCE.length) {
+    skipUnary(state)
+    return
+  }
+  skipBinary(state, level + 1)
+  for (;;) {
+    const token = peek(state)
+    const operator = token?.kind === 'op' && PRECEDENCE[level].includes(token.text) ? token.text : undefined
+    if (operator === undefined) return
+    state.index += 1
+    skipBinary(state, level + 1)
+  }
+}
+
+function skipUnary(state: Evaluator): void {
+  if (consume(state, '-') || consume(state, '+') || consume(state, '!')) {
+    enter(state)
+    skipUnary(state)
+    leave(state)
+    return
+  }
+  // `^` binds to the right of the base inside parsePower.
+  skipPower(state)
+}
+
+function skipPower(state: Evaluator): void {
+  skipPrimary(state)
+  if (consume(state, '^')) skipUnary(state)
+}
+
+function skipPrimary(state: Evaluator): void {
+  const token = peek(state)
+  if (token === undefined) throw new Error(`${state.label}: the expression ends early.`)
+  if (token.kind === 'number') {
+    state.index += 1
+    return
+  }
+  if (consume(state, '(')) {
+    enter(state)
+    skipTernary(state)
+    requireOperator(state, ')')
+    leave(state)
+    return
+  }
+  if (token.kind !== 'ident') throw new Error(`${state.label}: unexpected "${tokenText(token)}".`)
+  state.index += 1
+  if (!consume(state, '(')) return
+  enter(state)
+  if (consume(state, ')')) {
+    leave(state)
+    return
+  }
+  for (;;) {
+    skipTernary(state)
+    if (consume(state, ',')) continue
+    requireOperator(state, ')')
+    break
+  }
+  leave(state)
 }
 
 const PRECEDENCE: readonly string[][] = [
@@ -184,12 +272,22 @@ function parseBinary(state: Evaluator, level: number): number {
     const operator = token?.kind === 'op' && PRECEDENCE[level].includes(token.text) ? token.text : undefined
     if (operator === undefined) return left
     state.index += 1
+    // Logical operators short-circuit (SPICE semantics): the untaken arm is
+    // skipped, never evaluated.
+    if (operator === '&&' && left === 0) {
+      skipBinary(state, level + 1)
+      continue
+    }
+    if (operator === '||' && left !== 0) {
+      skipBinary(state, level + 1)
+      continue
+    }
     const right = parseBinary(state, level + 1)
-    left = apply(operator, left, right)
+    left = apply(operator, left, right, state.label)
   }
 }
 
-function apply(operator: string, left: number, right: number): number {
+function apply(operator: string, left: number, right: number, label: string): number {
   switch (operator) {
     case '+':
       return left + right
@@ -201,8 +299,6 @@ function apply(operator: string, left: number, right: number): number {
       return left / right
     case '%':
       return left % right
-    case '^':
-      return Math.pow(left, right)
     case '<':
       return left < right ? 1 : 0
     case '>':
@@ -220,7 +316,9 @@ function apply(operator: string, left: number, right: number): number {
     case '||':
       return left !== 0 || right !== 0 ? 1 : 0
     default:
-      return left
+      // Unreachable through the grammar — a new operator must be handled here,
+      // not silently pass its left operand through.
+      throw new Error(`${label}: unsupported operator "${operator}".`)
   }
 }
 

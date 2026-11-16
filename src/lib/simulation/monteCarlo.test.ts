@@ -149,7 +149,7 @@ describe('sampleOutcome', () => {
       notes: [],
     })
 
-    expect(sampled.get('V(OUT)')).toEqual({ unit: 'V', points: [2.5], x: [0] })
+    expect(sampled.get('V(OUT)')).toEqual({ unit: 'V', kind: 'voltage', points: [2.5], x: [0] })
   })
 
   it('omits a node with no solved voltage instead of inventing 0 V', () => {
@@ -162,7 +162,7 @@ describe('sampleOutcome', () => {
     })
 
     expect(sampled.has('V(OUT)')).toBe(false)
-    expect(sampled.get('V(VCC)')).toEqual({ unit: 'V', points: [5], x: [0] })
+    expect(sampled.get('V(VCC)')).toEqual({ unit: 'V', kind: 'voltage', points: [5], x: [0] })
   })
 
   it('omits non-finite operating-point entries', () => {

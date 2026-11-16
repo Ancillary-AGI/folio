@@ -103,15 +103,34 @@ export function buildCircuitNetlist(
   // node the canvas draws a junction dot for. Without this, a T-tap (stub
   // end on a rail midpoint) would simulate open while the sheet shows a
   // connected dot — the exact lie your screenshot caught.
+  /*
+   * Segment membership, not bounding-box containment: a point is on the
+   * segment when it sits within tolerance of the line itself. The old box
+   * test unioned any stub end whose x/y fell inside the other wire's
+   * rectangle — a stub landing under a *diagonal* wire joined nets the sheet
+   * draws as separate.
+   */
   const pointOnSegment = (
     end: { x: number; y: number },
     a: { x: number; y: number },
     b: { x: number; y: number },
-  ): boolean =>
-    Math.min(a.x, b.x) - 0.5 <= end.x
-    && end.x <= Math.max(a.x, b.x) + 0.5
-    && Math.min(a.y, b.y) - 0.5 <= end.y
-    && end.y <= Math.max(a.y, b.y) + 0.5
+  ): boolean => {
+    const abx = b.x - a.x
+    const aby = b.y - a.y
+    const lengthSquared = abx * abx + aby * aby
+    const tolerance = 0.5
+    if (lengthSquared === 0) {
+      // Degenerate segment: the two ends coincide.
+      return Math.hypot(end.x - a.x, end.y - a.y) <= tolerance
+    }
+    // Project onto the segment, clamp to [0, 1], then measure the distance
+    // from the clamped foot back to the point.
+    const t = ((end.x - a.x) * abx + (end.y - a.y) * aby) / lengthSquared
+    if (t < 0 || t > 1) return false
+    const footX = a.x + t * abx
+    const footY = a.y + t * aby
+    return Math.hypot(end.x - footX, end.y - footY) <= tolerance
+  }
   for (let i = 0; i < wires.length; i++) {
     const wire = wires[i]
     const ends = [wire.points[0], wire.points[wire.points.length - 1]]

@@ -90,6 +90,13 @@ export interface ProjectState {
    * multi-part edit atomically (and to restore a known-good iteration).
    */
   replaceDesign: (next: { components: CanvasComponent[]; wires: CanvasWire[] }) => void
+  /**
+   * Drop the whole undo/redo history. Every document swap (open, create,
+   * sample, checkout, restore, community preview) must call this: undo pops
+   * whatever snapshot happens to be on top, and a stale stack from the
+   * previous document would resurrect that document's sheet into this one.
+   */
+  clearHistory: () => void
   undo: () => void
   redo: () => void
   canUndo: () => boolean
@@ -240,16 +247,28 @@ export const useProjectStore = create<ProjectState>()(
     
     duplicateComponent: (id) => {
       if (guardDesignMutation()) return
+      pushUndo()
       set((state) => {
         const original = state.components.find((comp) => comp.id === id)
-        if (!original) return state
+        if (!original) {
+          // Nothing was duplicated; take back the snapshot we just pushed.
+          undoStack.pop()
+          return state
+        }
         
         const duplicate: CanvasComponent = {
           ...original,
           id: generateId('comp'),
           x: original.x + 50,
           y: original.y + 50,
-          reference: `${original.reference.replace(/\d+$/, '')}${componentCounter++}`
+          reference: `${original.reference.replace(/\d+$/, '')}${componentCounter++}`,
+          // Deep copy: sharing the properties object would let editing the
+          // duplicate mutate the original.
+          component: {
+            ...original.component,
+            pins: original.component.pins.map((pin) => ({ ...pin })),
+          },
+          properties: { ...original.properties },
         }
         
         return {
@@ -303,6 +322,10 @@ export const useProjectStore = create<ProjectState>()(
         })),
         isDirty: true,
       })
+    },
+    clearHistory: () => {
+      undoStack.length = 0
+      redoStack.length = 0
     },
     undo: () => {
       if (guardDesignMutation()) return

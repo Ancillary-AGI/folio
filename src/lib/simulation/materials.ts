@@ -81,12 +81,16 @@ export const MATERIAL_LIBRARY: Readonly<Record<string, MaterialProperties>> = Ob
     thermalExpansion: 2.6e-6,
     youngsModulus: 170e9,
     poissonsRatio: 0.22,
-    yieldStrength: 7e9,
-    ultimateStrength: 7e9,
+    // Si has no dislocation-mediated yield; these are flexural numbers for
+    // high-quality single crystal, defect-dependent in practice. The old
+    // 7e9 (≈ ideal crystal strength) overstated bulk strength for any
+    // practical beam check.
+    yieldStrength: 1.5e9,
+    ultimateStrength: 2e9,
     meltingPoint: 1687,
     operatingTempRange: { min: 223, max: 398 },
     humidity: { min: 0, max: 85 },
-    source: 'Single-crystal intrinsic Si (100), 300 K',
+    source: 'Single-crystal intrinsic Si (100), 300 K; flexural, defect-dependent',
   },
   fr4: {
     resistivity: 1e12,
@@ -136,7 +140,9 @@ export const MATERIAL_LIBRARY: Readonly<Record<string, MaterialProperties>> = Ob
     yieldStrength: 215e6,
     ultimateStrength: 505e6,
     meltingPoint: 1723,
-    operatingTempRange: { min: 20, max: 973 },
+    // Kelvin. 20 was read as "20 °C" by whoever wrote it; as written it claimed
+    // cryogenic service. −40 °C to match the table's other engineering metals.
+    operatingTempRange: { min: 233, max: 973 },
     humidity: { min: 0, max: 100 },
     source: 'AISI 304 austenitic stainless steel',
   },
@@ -153,7 +159,9 @@ export const MATERIAL_LIBRARY: Readonly<Record<string, MaterialProperties>> = Ob
     yieldStrength: 880e6,
     ultimateStrength: 950e6,
     meltingPoint: 1941,
-    operatingTempRange: { min: 20, max: 673 },
+    // Kelvin — as with stainlessSteel, 20 was an ambient-temperature Celsius
+    // figure written into a Kelvin field.
+    operatingTempRange: { min: 233, max: 673 },
     humidity: { min: 0, max: 100 },
     source: 'Ti-6Al-4V (Grade 5), annealed',
   },
@@ -193,9 +201,15 @@ export const MATERIAL_LIBRARY: Readonly<Record<string, MaterialProperties>> = Ob
   },
 })
 
-/** Look up a material by name (case- and whitespace-insensitive). */
+const normalizeMaterialKey = (name: string): string => name.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+
+const MATERIAL_LOOKUP: ReadonlyMap<string, MaterialProperties> = new Map(
+  Object.entries(MATERIAL_LIBRARY).map(([key, value]) => [normalizeMaterialKey(key), value]),
+)
+
+/** Look up a material by name (case-, whitespace- and punctuation-insensitive). */
 export function getMaterial(name: string): MaterialProperties | undefined {
-  return MATERIAL_LIBRARY[name.trim().toLowerCase()]
+  return MATERIAL_LOOKUP.get(normalizeMaterialKey(name))
 }
 
 /** All material names, sorted, for pickers. */

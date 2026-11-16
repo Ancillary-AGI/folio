@@ -83,11 +83,18 @@ export function seriesStats(data: readonly Point[]): SeriesStats | undefined {
 
 /**
  * Keep one representative per bucket plus the bucket's extrema, so a narrow
- * switching spike survives decimation that would otherwise drop it.
+ * switching spike survives decimation that would otherwise drop it. The
+ * result never exceeds `maxPoints`: buckets are sized to leave room for the
+ * two endpoint flashes, and a final evenly-spaced pass trims any overshoot.
  */
 export function downsample(data: readonly Point[], maxPoints: number): Point[] {
-  if (maxPoints <= 0 || data.length <= maxPoints) return data.map((point) => ({ ...point }))
-  const buckets = Math.max(1, Math.floor(maxPoints / 3))
+  if (maxPoints <= 0) return []
+  if (data.length <= maxPoints) return data.map((point) => ({ ...point }))
+  if (maxPoints <= 2) {
+    // Exactly the endpoints: the degenerate budget still gets a truthful window.
+    return maxPoints === 1 ? [{ ...data[0] }] : [{ ...data[0] }, { ...data[data.length - 1] }]
+  }
+  const buckets = Math.max(1, Math.floor((maxPoints - 2) / 2))
   const size = data.length / buckets
   const result: Point[] = []
   for (let bucket = 0; bucket < buckets; bucket++) {
@@ -112,6 +119,15 @@ export function downsample(data: readonly Point[], maxPoints: number): Point[] {
   const last = data[data.length - 1]
   if (result.length === 0 || result[0].x !== first.x) result.unshift({ ...first })
   if (result[result.length - 1].x !== last.x) result.push({ ...last })
+  // Belt and braces: never hand back more points than were asked for.
+  if (result.length > maxPoints) {
+    const kept: Point[] = []
+    const step = (result.length - 1) / (maxPoints - 1)
+    for (let index = 0; index < maxPoints; index += 1) {
+      kept.push({ ...result[Math.round(index * step)] })
+    }
+    return kept
+  }
   return result
 }
 

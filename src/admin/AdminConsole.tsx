@@ -8,6 +8,7 @@ import FaqPanel from './FaqPanel'
 import { Button } from '../components/ui/button'
 import { FolioMark } from '../components/brand/FolioLogo'
 import Avatar from '../components/Avatar'
+import { toCsv } from '../lib/csv'
 import type { Account, AdminApi, AuditEntry, DeploymentInfo } from '../lib/admin/adminService'
 import type { Operator } from '../lib/admin/operatorSession'
 import {
@@ -86,8 +87,7 @@ function roleLabel(role: string): string {
 }
 
 function downloadCsv(filename: string, header: string[], rows: string[][]): void {
-  const escape = (value: string): string => `"${value.replace(/"/g, '""')}"`
-  const csv = [header, ...rows].map((row) => row.map(escape).join(',')).join('\r\n')
+  const csv = toCsv(header, rows)
   if (typeof document === 'undefined' || typeof URL.createObjectURL !== 'function') return
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
   const anchor = document.createElement('a')

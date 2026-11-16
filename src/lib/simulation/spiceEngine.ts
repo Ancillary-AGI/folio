@@ -301,6 +301,21 @@ function renderSpiceElement(component: Component, modelCards = new Map<string, S
   return `${component.name} ${nodes}${value !== undefined ? ` ${value}` : ''}`.trim()
 }
 
+/** The independent voltage source the `.noise` card refers to: the first
+ * one in the deck, identified with the same rule the model builder uses. */
+function firstVoltageSourceName(components: Component[]): string {
+  const matches = components.find((component) => {
+    const type = component.type.toLowerCase()
+    const name = component.name.toLowerCase()
+    return (
+      (type.includes('voltage') && type.includes('source')
+        && !type.includes('controlled') && !type.includes('behavioral') && !type.includes('arbitrary'))
+      || (/^v\d/i.test(name) && !/^vsense/i.test(name))
+    )
+  })
+  return matches?.name ?? 'v1'
+}
+
 export { runCircuitAnalysis, DEFAULT_TEMPERATURE_CELSIUS } from './analysisRunner'
 
 class SPICEEngine {
@@ -327,6 +342,13 @@ class SPICEEngine {
         waveforms: [],
       }
     }
+    // One analysis per run: anything beyond the first used to vanish with no
+    // signal, which reads as "everything solved" when it did not.
+    const droppedAnalyses = netlist.analyses.slice(1)
+    const droppedNote = droppedAnalyses.length > 0
+      ? `Only the first analysis ran (${parameters.type}); ${droppedAnalyses.map((analysis) => analysis.type).join(', ')} card(s) were not run.`
+      : null
+    const extraNotes = droppedNote ? [droppedNote] : []
 
     const { model, errors } = buildCircuitModel(netlist)
     if (errors.length > 0) {
@@ -335,7 +357,7 @@ class SPICEEngine {
         error: errors.join(' '),
         nodes: [],
         waveforms: [],
-        notes: model.notes,
+        notes: [...model.notes, ...extraNotes],
         analysis: parameters.type,
       }
     }
@@ -398,12 +420,14 @@ class SPICEEngine {
         .map((probe) => `Probe ${probe.label}: ${probe.error}`)
       return {
         success: outcome.converged,
-        error: outcome.converged ? undefined : outcome.notes[0],
+        error: outcome.converged
+          ? undefined
+          : outcome.notes[0] ?? 'The solver did not converge.',
         nodes: outcome.nodes,
         waveforms: outcome.waveforms,
         operatingPoint: outcome.operatingPoint,
         convergenceInfo: { iterations: outcome.iterations, converged: outcome.converged },
-        notes: [...model.notes, ...outcome.notes, ...probeNotes],
+        notes: [...model.notes, ...outcome.notes, ...probeNotes, ...extraNotes],
         analysis: parameters.type,
         probes: probeResults,
         branchCurrents: outcome.branchCurrents,
@@ -416,7 +440,7 @@ class SPICEEngine {
         error: error instanceof Error ? error.message : 'The simulation failed unexpectedly.',
         nodes: [],
         waveforms: [],
-        notes: model.notes,
+        notes: [...model.notes, ...extraNotes],
         analysis: parameters.type,
       }
     }
@@ -484,7 +508,8 @@ class SPICEEngine {
           break
         case 'noise':
           lines.push(
-            `.noise v(${analysis.outputNode ?? 'out'}) v1 dec ${analysis.pointsPerDecade ?? 10} ` +
+            `.noise v(${analysis.outputNode ?? 'out'}) ${firstVoltageSourceName(netlist.components)} ` +
+              `dec ${analysis.pointsPerDecade ?? 10} ` +
               `${analysis.startFreq ?? 10} ${analysis.stopFreq ?? 1e6}`,
           )
           break

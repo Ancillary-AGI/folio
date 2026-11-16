@@ -19,6 +19,7 @@
  * rather than being folded into an outer face.
  */
 import type { Net, PlacedComponent, Point, Wire } from '../../types'
+import { csvRow } from '../csv'
 import { polylineDistance } from '../geometry/distance'
 import { footprintLibrary, type Footprint, type FootprintPad } from './footprintLibrary'
 import { generatedFootprint } from './landPattern'
@@ -447,12 +448,19 @@ function gerberMask(title: string, pads: PlacedPad[], clearance: number): string
 }
 
 
+/** Gerber comments are `G04 <text>*` — a `*` or newline in the text would end
+ * the comment early and let the rest be parsed as commands, so silk labels are
+ * stripped of both. Everything else is decoration and needs no escaping. */
+function gerberCommentSafe(text: string): string {
+  return text.replace(/[*\r\n%]/g, ' ').slice(0, 200)
+}
+
 function gerberSilk(title: string, labels: Array<{ x: number; y: number; text: string }>): string {
-  const lines = [...gerberHeader(), `G04 ${title}*`, '%TA.AperFunction,Legend*%']
+  const lines = [...gerberHeader(), `G04 ${gerberCommentSafe(title)}*`, '%TA.AperFunction,Legend*%']
   lines.push('%ADD10C,0.1000*%', 'D10*', 'G01*')
   for (const label of labels) {
     const w = Math.max(1, label.text.length * 0.6)
-    lines.push(`G04 ${label.text}*`)
+    lines.push(`G04 ${gerberCommentSafe(label.text)}*`)
     lines.push(`X${coord(label.x - w / 2)}Y${coord(label.y - 0.5)}D02*`)
     lines.push(`X${coord(label.x + w / 2)}Y${coord(label.y - 0.5)}D01*`)
     lines.push(`X${coord(label.x + w / 2)}Y${coord(label.y + 0.5)}D01*`)
@@ -489,13 +497,13 @@ export function excellonDrill(hits: Array<{ x: number; y: number; diameter: numb
 }
 
 export function centroidCsv(rows: CentroidRow[]): string {
-  const body = rows.map((row) => `${row.reference},${row.x.toFixed(3)},${row.y.toFixed(3)},${row.rotation},${row.footprint},${row.side},${row.value}`)
-  return ['Designator,Mid X,Mid Y,Rotation,Footprint,Side,Value', ...body].join('\n')
+  const body = rows.map((row) => csvRow([row.reference, row.x.toFixed(3), row.y.toFixed(3), row.rotation, row.footprint, row.side, row.value]))
+  return ['Designator,Mid X,Mid Y,Rotation,Footprint,Side,Value', ...body].join('\r\n')
 }
 
 export function bomCsv(rows: BomRow[]): string {
-  const body = rows.map((row) => `${row.reference},${row.value},${row.footprint},${row.manufacturer},${row.partNumber}`)
-  return ['Reference,Value,Footprint,Manufacturer,PartNumber', ...body].join('\n')
+  const body = rows.map((row) => csvRow([row.reference, row.value, row.footprint, row.manufacturer, row.partNumber]))
+  return ['Reference,Value,Footprint,Manufacturer,PartNumber', ...body].join('\r\n')
 }
 
 /** Build the complete fab package. Pads come from IPC footprints, never glyphs,

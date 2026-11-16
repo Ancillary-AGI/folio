@@ -99,6 +99,7 @@ export function perturbCircuitModel(
 /** One named signal sampled on a grid. */
 interface SampledSignal {
   unit: string
+  kind: 'voltage' | 'current' | 'power'
   points: number[]
   x: number[]
 }
@@ -117,6 +118,7 @@ export function sampleOutcome(outcome: AnalysisOutcome): Map<string, SampledSign
   for (const waveform of outcome.waveforms) {
     signals.set(waveform.name, {
       unit: waveform.unit,
+      kind: waveform.type === 'current' || waveform.type === 'power' ? waveform.type : 'voltage',
       points: waveform.data.map((point) => point.y),
       x: waveform.data.map((point) => point.x),
     })
@@ -128,11 +130,11 @@ export function sampleOutcome(outcome: AnalysisOutcome): Map<string, SampledSign
   for (const node of outcome.nodes ?? []) {
     const voltage = node.voltage ?? operatingPoint[node.name]
     if (typeof voltage !== 'number' || !Number.isFinite(voltage)) continue
-    signals.set(`V(${node.name})`, { unit: 'V', points: [voltage], x: [0] })
+    signals.set(`V(${node.name})`, { unit: 'V', kind: 'voltage', points: [voltage], x: [0] })
   }
   for (const [name, voltage] of Object.entries(operatingPoint)) {
     if (typeof voltage !== 'number' || !Number.isFinite(voltage)) continue
-    if (!signals.has(`V(${name})`)) signals.set(`V(${name})`, { unit: 'V', points: [voltage], x: [0] })
+    if (!signals.has(`V(${name})`)) signals.set(`V(${name})`, { unit: 'V', kind: 'voltage', points: [voltage], x: [0] })
   }
 
   return signals
@@ -219,6 +221,8 @@ export function planMonteCarlo(options: MonteCarloOptions = {}): MonteCarloPlanR
 export interface MonteCarloSignalSample {
   name: string
   unit: string
+  /** Waveform kind, so a current sweep is not labelled a voltage. */
+  kind: 'voltage' | 'current' | 'power'
   points: number[]
   x: number[]
 }
@@ -251,6 +255,7 @@ export class MonteCarloAccumulator {
   private readonly notes: string[]
   private signalNames: string[] = []
   private units = new Map<string, string>()
+  private kinds = new Map<string, MonteCarloSignalSample['kind']>()
   private xGrid: number[] = []
   private means: number[][] = []
   private m2: number[][] = []
@@ -277,6 +282,7 @@ export class MonteCarloAccumulator {
     if (this.signalNames.length === 0) {
       this.signalNames = sample.signals.map((signal) => signal.name)
       this.units = new Map(sample.signals.map((signal) => [signal.name, signal.unit]))
+      this.kinds = new Map(sample.signals.map((signal) => [signal.name, signal.kind ?? 'voltage']))
       this.xGrid = [...(sample.signals[0]?.x ?? [])]
       this.means = this.signalNames.map(() => new Array<number>(this.xGrid.length).fill(0))
       this.m2 = this.signalNames.map(() => new Array<number>(this.xGrid.length).fill(0))
@@ -335,6 +341,7 @@ export class MonteCarloAccumulator {
     const waveforms: Waveform[] = []
     this.signalNames.forEach((name, signalIndex) => {
       const unit = this.units.get(name) ?? 'V'
+      const kind = this.kinds.get(name) ?? (unit === 'A' ? 'current' : unit === 'W' ? 'power' : 'voltage')
       const mean: Array<{ x: number; y: number }> = []
       const plusThreeSigma: Array<{ x: number; y: number }> = []
       const minusThreeSigma: Array<{ x: number; y: number }> = []
@@ -350,9 +357,9 @@ export class MonteCarloAccumulator {
         minusThreeSigma.push({ x, y: meanValue - 3 * sigma })
       }
 
-      waveforms.push({ name: `${name} mean`, type: 'voltage', unit, data: mean })
-      waveforms.push({ name: `${name} mean +3σ`, type: 'voltage', unit, data: plusThreeSigma })
-      waveforms.push({ name: `${name} mean −3σ`, type: 'voltage', unit, data: minusThreeSigma })
+      waveforms.push({ name: `${name} mean`, type: kind, unit, data: mean })
+      waveforms.push({ name: `${name} mean +3σ`, type: kind, unit, data: plusThreeSigma })
+      waveforms.push({ name: `${name} mean −3σ`, type: kind, unit, data: minusThreeSigma })
     })
 
     this.notes.push(`Statistics from ${this.completed} converged run(s). Envelope shown is mean ± 3σ at each point.`)

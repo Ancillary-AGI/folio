@@ -703,10 +703,15 @@ function App() {
     family?: WorkspaceGroupId,
     workspaceMode?: WorkspaceMode,
   ) => {
+    useProjectStore.getState().clearHistory()
     useProjectStore.setState({
       components: [], wires: [], firmwareCode: '', simulationRuns: [], pcbLayout: null,
       simulationResults: [], isSimulating: false, liveFrame: null, isDirty: false,
+      mechanicalParts: createDefaultMechanicalParts(),
+      domainDesigns: {},
     })
+    useAppStore.getState().clearSelection()
+    useAppStore.getState().setArmedLibraryItem(null)
     setCurrentSchematic(null)
     setCanvasData(canvasData)
     useAppStore.getState().setZoom(1)
@@ -893,7 +898,18 @@ function App() {
       components: [], wires: [], firmwareCode: '', simulationRuns: [], pcbLayout: null,
       simulationResults: [], isSimulating: false, liveFrame: null, isDirty: false,
       currentSchematic: null,
+      // A fresh document starts with the same seed parts the store boots
+      // with — not with the previous document's assembly — and no stale
+      // domain bags riding into the save payload.
+      mechanicalParts: createDefaultMechanicalParts(),
+      domainDesigns: {},
     })
+    // History is per-document: without this, Ctrl+Z after a swap pops a
+    // snapshot of the document the user just left.
+    useProjectStore.getState().clearHistory()
+    // Selection must not name ids that no longer exist on the sheet.
+    useAppStore.getState().clearSelection()
+    useAppStore.getState().setArmedLibraryItem(null)
   }
 
   const syntheticPreviewShell = (template: CommunityTemplate): Project => {
@@ -1017,22 +1033,36 @@ function App() {
     setNotice(`“${current.name}” is yours — edit away.`)
   }, [offlineMode, persistAdoptedDesign, user])
 
-  /* Import is ownership from the first click — a file in hand is the user's. */
+  /* Import is ownership from the first click — a file in hand is the user's.
+   * The current design is snapshotted first; a malformed file hands it back
+   * instead of leaving an empty sheet and a success toast. */
   const adoptImportedFile = useCallback(async (
     file: CommunityTemplateFile,
     template: CommunityTemplate,
-  ) => {
+  ): Promise<boolean> => {
     const payload = liveSnapshotFromFile(file)
+    const priorDesign = liveSnapshot()
+    const priorProject = useProjectStore.getState().currentProject
     resetWorkingDesign()
-    applyTemplateFile(file)
+    if (!applyTemplateFile(file)) {
+      useProjectStore.setState({ ...priorDesign, currentProject: priorProject })
+      setNotice('That file is not a usable Folio community template — your design was left untouched.')
+      return false
+    }
     const ok = await persistAdoptedDesign(template.name, template.authorName, payload)
-    if (!ok) return
+    if (!ok) {
+      // The design is applied but not persisted: keep it on screen and say so
+      // honestly instead of claiming ownership that never happened.
+      setNotice('The design was opened but could not be saved as a project — check your connection.')
+      return false
+    }
     if (user) {
       recordPlatformUsage('template.fork', user, offlineMode, { template: template.id, source: 'import' })
     }
     setShowProjectManager(false)
     setShowCommunity(false)
     setNotice(`“${template.name}” imported as your project.`)
+    return true
   }, [offlineMode, persistAdoptedDesign, user])
 
   const discardCommunityPreview = useCallback(() => {
@@ -1158,6 +1188,7 @@ function App() {
       ] },
     ]
 
+    useProjectStore.getState().clearHistory()
     useProjectStore.setState({ components: [source, upperResistor, lowerResistor], wires: sampleWires, isDirty: true })
     useAppStore.setState({ simulationPanelOpen: true })
     useAppStore.getState().setWorkspaceMode('schematic')
@@ -1185,6 +1216,7 @@ function App() {
         schematic = data
         savedCanvas = schematic?.canvas_data ?? null
       }
+      useProjectStore.getState().clearHistory()
       useProjectStore.setState({
         components: Array.isArray(savedCanvas?.components)
           ? savedCanvas.components as ReturnType<typeof useProjectStore.getState>['components']
@@ -1512,6 +1544,7 @@ function App() {
     const comps = Array.isArray(snapshot.components) ? snapshot.components : []
     const wr = Array.isArray(snapshot.wires) ? snapshot.wires : []
     const current = useProjectStore.getState()
+    useProjectStore.getState().clearHistory()
     useProjectStore.setState({
       components: comps as typeof components,
       wires: wr as typeof wires,
@@ -1613,6 +1646,7 @@ function App() {
     }
 
     backupService.createBackup(currentProject.id, getCheckpointData(), 'Before restore')
+    useProjectStore.getState().clearHistory()
     useProjectStore.setState({
       components: restored.components as typeof components,
       wires: restored.wires as typeof wires,

@@ -14,6 +14,7 @@ import {
 } from '../lib/admin/quotaPolicy'
 import { PRICING_TIER_NAME } from '../lib/pricing'
 import { isSupabaseConfigured } from '../lib/supabase'
+import { toCsv } from '../lib/csv'
 import type { User } from '../types'
 
 export interface StorageEntry {
@@ -144,17 +145,35 @@ export function usageRollup(windowDays = 30, offlineUserId?: string): UsageRollu
   }
 }
 
-/** One downloadable JSON copy of everything this device holds under `folio.*` and the app store key. */
+/**
+ * One downloadable JSON copy of everything this device holds under the keys
+ * this app writes — `folio.*` plus the workbench's own store key. Auth
+ * material is deliberately excluded: the Supabase session for the workbench
+ * (`sb-*-auth-token`) and the operator console's session (`folio.operator.session`)
+ * are credentials, not user data, and a "download my data" file must never
+ * carry them.
+ */
+const EXPORTABLE_PREFIXES = ['folio.'] as const
+const EXPORTABLE_EXACT = new Set(['circuit-cad-app-store'])
+const EXPORT_DENYLIST = new Set(['folio.operator.session'])
+
 export function exportLocalData(storage: Pick<Storage, 'length' | 'key' | 'getItem'> = window.localStorage): { filename: string; json: string } {
   const dump: Record<string, string> = {}
   for (let index = 0; index < storage.length; index += 1) {
     const key = storage.key(index)
     if (key === null) continue
+    if (EXPORT_DENYLIST.has(key)) continue
+    const exportable = EXPORTABLE_EXACT.has(key) || EXPORTABLE_PREFIXES.some((prefix) => key.startsWith(prefix))
+    if (!exportable) continue
     dump[key] = storage.getItem(key) ?? ''
   }
   return {
     filename: `folio-local-data-${new Date().toISOString().slice(0, 10)}.json`,
-    json: JSON.stringify({ exportedAt: new Date().toISOString(), keys: dump }, null, 2),
+    json: JSON.stringify({
+      exportedAt: new Date().toISOString(),
+      note: 'Folio keys held by this device. Sign-in credentials are not included.',
+      keys: dump,
+    }, null, 2),
   }
 }
 
@@ -213,8 +232,7 @@ export function usageCsv(windowDays: number): { filename: string; csv: string } 
       const total = [...kindsMap.values()].reduce((sum, count) => sum + count, 0)
       return [date, String(total), ...kinds.map((kind) => String(kindsMap.get(kind) ?? 0))]
     })
-  const escape = (value: string): string => `"${value.replace(/"/g, '""')}"`
-  const csv = [header, ...rows].map((row) => row.map(escape).join(',')).join('\r\n')
+  const csv = toCsv(header, rows)
   return {
     filename: `folio-usage-${windowDays}d-${new Date().toISOString().slice(0, 10)}.csv`,
     csv,
