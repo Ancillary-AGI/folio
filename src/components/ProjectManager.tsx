@@ -281,6 +281,7 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
                 <ScribeIcon className="launcher-composer__orb" aria-hidden="true" />
                 <textarea
                   rows={2}
+                  autoFocus
                   value={brief}
                   onChange={(event) => setBrief(event.target.value)}
                   placeholder="Describe what you want to build"

@@ -157,12 +157,17 @@ export function synthesizeGates(
     }
   }
 
-  // 2. Compute physical metrics
+  // 2. Compute physical metrics over the *synthesized* logic. Tie cells hold
+  // constants for the netlist to reference; counting them as logic inflates
+  // cell, area and power numbers with rows that do no switching.
+  const metricInstances = instances.filter(
+    (inst) => inst.cell.kind !== 'TIEHI' && inst.cell.kind !== 'TIELO',
+  );
   let totalArea = 0;
   let totalLeakagePw = 0;
   let totalDynPowerFwPerMhz = 0;
 
-  for (const inst of instances) {
+  for (const inst of metricInstances) {
     totalArea += inst.cell.widthUm * inst.cell.heightUm;
     totalLeakagePw += inst.cell.leakagePowerPw;
     totalDynPowerFwPerMhz += inst.cell.dynamicPowerFwPerMhz;
@@ -308,7 +313,7 @@ export function synthesizeGates(
     primaryInputs,
     primaryOutputs,
     metrics: {
-      gateCount: instances.length,
+      gateCount: metricInstances.length,
       totalCellAreaUm2: Number(totalArea.toFixed(2)),
       totalLeakagePowerUw: Number(leakageUw.toPrecision(4)),
       estimatedDynamicPowerMw: Number(dynPowerMw.toPrecision(4)),
