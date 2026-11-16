@@ -711,6 +711,9 @@ function App() {
     setCanvasData(canvasData)
     useAppStore.getState().setZoom(1)
     useAppStore.getState().setPan({ x: 0, y: 0 })
+    // Open by framing the sheet, not at origin with the top clipped; the
+    // canvas closes the fit once it mounts.
+    useAppStore.getState().requestFit()
     if (family) useAppStore.getState().setWorkspaceMode(FIRST_MODE_BY_GROUP[family])
     else if (workspaceMode) useAppStore.getState().setWorkspaceMode(workspaceMode)
     setCurrentProject(project)
@@ -1204,14 +1207,22 @@ function App() {
       setCurrentSchematic(schematic)
       setCanvasData(savedCanvas)
       const viewport = savedCanvas?.viewport as { zoom?: unknown; pan?: unknown } | undefined
-      if (viewport && typeof viewport.zoom === 'number' && Number.isFinite(viewport.zoom)) {
-        useAppStore.getState().setZoom(viewport.zoom)
-      }
-      if (viewport?.pan && typeof viewport.pan === 'object') {
-        const pan = viewport.pan as { x?: unknown; y?: unknown }
-        if (typeof pan.x === 'number' && Number.isFinite(pan.x) && typeof pan.y === 'number' && Number.isFinite(pan.y)) {
-          useAppStore.getState().setPan({ x: pan.x, y: pan.y })
+      const hasSavedView =
+        (viewport && typeof viewport.zoom === 'number' && Number.isFinite(viewport.zoom)) ||
+        (viewport?.pan && typeof viewport.pan === 'object')
+      if (hasSavedView) {
+        if (viewport && typeof viewport.zoom === 'number' && Number.isFinite(viewport.zoom)) {
+          useAppStore.getState().setZoom(viewport.zoom)
         }
+        if (viewport?.pan && typeof viewport.pan === 'object') {
+          const pan = viewport.pan as { x?: unknown; y?: unknown }
+          if (typeof pan.x === 'number' && Number.isFinite(pan.x) && typeof pan.y === 'number' && Number.isFinite(pan.y)) {
+            useAppStore.getState().setPan({ x: pan.x, y: pan.y })
+          }
+        }
+      } else {
+        // A design with nothing saved arrives framed, not at origin.
+        useAppStore.getState().requestFit()
       }
       setCurrentProject(project)
       setShowProjectManager(false)
@@ -1520,7 +1531,12 @@ function App() {
       isDirty: true,
     })
     const viewportMeta = snapshot.meta?.viewport
-    if (viewportMeta && typeof viewportMeta === 'object') {
+    const hasSavedView =
+      viewportMeta &&
+      typeof viewportMeta === 'object' &&
+      (typeof (viewportMeta as { zoom?: unknown }).zoom === 'number' ||
+        typeof (viewportMeta as { pan?: unknown }).pan === 'object')
+    if (hasSavedView) {
       const viewport = viewportMeta as { zoom?: unknown; pan?: unknown }
       if (typeof viewport.zoom === 'number' && Number.isFinite(viewport.zoom)) {
         useAppStore.getState().setZoom(viewport.zoom)
@@ -1529,6 +1545,8 @@ function App() {
       if (pan && typeof pan.x === 'number' && Number.isFinite(pan.x) && typeof pan.y === 'number' && Number.isFinite(pan.y)) {
         useAppStore.getState().setPan({ x: pan.x, y: pan.y })
       }
+    } else {
+      useAppStore.getState().requestFit()
     }
     // Keep the export/import canvas in step with the restored design; otherwise
     // netlist export would still describe the pre-restore sheet.
@@ -1615,14 +1633,21 @@ function App() {
       isDirty: true,
     })
     const viewport = restored.viewport as { zoom?: unknown; pan?: unknown } | undefined
-    if (viewport && typeof viewport.zoom === 'number' && Number.isFinite(viewport.zoom)) {
-      useAppStore.getState().setZoom(viewport.zoom)
-    }
-    if (viewport?.pan && typeof viewport.pan === 'object') {
-      const pan = viewport.pan as { x?: unknown; y?: unknown }
-      if (typeof pan.x === 'number' && Number.isFinite(pan.x) && typeof pan.y === 'number' && Number.isFinite(pan.y)) {
-        useAppStore.getState().setPan({ x: pan.x, y: pan.y })
+    const hasSavedView =
+      (viewport && typeof viewport.zoom === 'number' && Number.isFinite(viewport.zoom)) ||
+      (viewport?.pan && typeof viewport.pan === 'object')
+    if (hasSavedView) {
+      if (viewport && typeof viewport.zoom === 'number' && Number.isFinite(viewport.zoom)) {
+        useAppStore.getState().setZoom(viewport.zoom)
       }
+      if (viewport?.pan && typeof viewport.pan === 'object') {
+        const pan = viewport.pan as { x?: unknown; y?: unknown }
+        if (typeof pan.x === 'number' && Number.isFinite(pan.x) && typeof pan.y === 'number' && Number.isFinite(pan.y)) {
+          useAppStore.getState().setPan({ x: pan.x, y: pan.y })
+        }
+      }
+    } else {
+      useAppStore.getState().requestFit()
     }
 
     setCanvasData(restored)

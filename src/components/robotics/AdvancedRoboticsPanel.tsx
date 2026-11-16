@@ -89,15 +89,17 @@ function formatJointValue(joint: Joint | undefined, value: number): string {
   return `${((value * 180) / Math.PI).toFixed(1)}°`;
 }
 
-const VIEW_DIRECTION = new THREE.Vector3(1, 0.55, 1).normalize();
+const VIEW_DIRECTION = new THREE.Vector3(1, 0.62, 1.1).normalize();
 
 /** Frames the arm from its reachable workspace so a 0.7 m arm fills the view. */
 function cameraFit(mechanism: Mechanism): { center: THREE.Vector3; distance: number } {
   const box = mechanism.workspace.reachable;
   const center = box.getCenter(new THREE.Vector3());
+  // Keep the framing honest: fit to the larger of the workspace extent and the
+  // arm span, not to a tight annulus box that leaves the pedestal cropped.
   const size = box.getSize(new THREE.Vector3());
   const extent = Math.max(size.x, size.y, size.z, 0.5);
-  return { center, distance: extent * 1.5 };
+  return { center, distance: extent * 1.75 };
 }
 
 /**
@@ -216,16 +218,39 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
     initializeJointAngles(mechanism);
   };
 
-  /** Load the planar arm the demo and its card actually describe. */
+  /** Load the planar arm the demo and its card actually describe, then
+   * swing it from rest to the demo target — a demo that stands still is not
+   * a demonstration. Same IK → plan → replay path the buttons use. Runs once
+   * per press of the demo button (and on the demo request card). */
   const loadTwoLinkDemo = () => {
     const mechanism = buildTwoLinkDemoMechanism();
     loadMechanisms();
     setSelectedMechanism(mechanism);
-    initializeJointAngles(mechanism);
-    // The planar arm sweeps the x-y plane only, and its ±90° elbow keeps a
-    // 0.156 m inner radius, so aim the target inside that annulus: a demo whose
-    // first IK press cannot solve is not a demo.
+    const start: [number, number] = [0, 0];
+    setJointAngles([...start]);
     setTargetPosition({ x: 0.18, y: 0.11, z: 0 });
+    // Solve for the target from rest, then replay the move at the joint's own
+    // velocity/acceleration limits. Same machinery as the panel buttons.
+    const targetPoint = new THREE.Vector3(0.18, 0.11, 0);
+    const ik = advancedRobotics.inverseKinematics(mechanism, targetPoint, undefined, 100, 0.001, [...start]);
+    const end: [number, number] = ik.success && ik.jointAngles.length === 2
+      ? [ik.jointAngles[0], ik.jointAngles[1]]
+      : [-Math.PI / 6, Math.PI / 3];
+    const trajectory = advancedRobotics.planTrajectory(mechanism, [...start], [...end], 2.4, 'quintic');
+    setTrajectory(trajectory);
+    setPlannedMove({ start: [...start], target: [...end] });
+    const frames = advancedRobotics.simulateMechanism(mechanism.id, trajectory.duration, 0.05, {
+      start: [...start], target: [...end], profile: trajectory.profile,
+    });
+    let frameIndex = 0;
+    const stepMs = 33; // ~30 fps playback; the quintic still completes exactly once
+    const tick = () => {
+      if (frameIndex >= frames.length) return;
+      setJointAngles([...frames[frameIndex].jointAngles]);
+      frameIndex += 1;
+      window.setTimeout(tick, stepMs);
+    };
+    tick();
     const demo = buildDemoArm();
     setRunMessage({ kind: demo.export.ok ? 'ok' : 'error', text: demo.verdict });
   };
@@ -970,24 +995,28 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
       <div className="relative min-h-[420px] flex-1 lg:min-h-0">
         <Canvas
           ref={canvasRef}
-          camera={{ position: [0.9, 0.55, 1.0], fov: 45, near: 0.01, far: 100 }}
+          camera={{ position: [0.62, 0.4, 0.78], fov: 42, near: 0.01, far: 100 }}
           shadows
         >
-          <ambientLight intensity={0.55} />
-          <hemisphereLight args={['#bcd6ff', '#1f2126', 0.6]} />
+          <ambientLight intensity={0.35} />
+          <hemisphereLight args={['#bcd6ff', '#1a1c1f', 0.5]} />
+          {/* Key light — draws the specular falloff along the links. */}
           <directionalLight
-            position={[4, 6, 3]}
-            intensity={1.4}
+            position={[1.6, 2.4, 1.8]}
+            intensity={2.1}
             castShadow
             shadow-mapSize-width={2048}
             shadow-mapSize-height={2048}
-            shadow-camera-left={-2}
-            shadow-camera-right={2}
-            shadow-camera-top={2}
-            shadow-camera-bottom={-2}
+            shadow-camera-left={-1.5}
+            shadow-camera-right={1.5}
+            shadow-camera-top={1.5}
+            shadow-camera-bottom={-1.5}
             shadow-camera-near={0.1}
             shadow-camera-far={20}
           />
+          {/* Rim from behind-left: separates steel from the dark floor. */}
+          <directionalLight position={[-2.2, 1.1, -1.6]} intensity={1.15} color="#9db8ff" />
+          <directionalLight position={[0.4, -0.6, -2.2]} intensity={0.45} color="#ffd9a0" />
 
           {/* Ground grid in theme greys; the old 10×10 pale-blue grid dwarfed the arm. */}
           <Grid
@@ -1080,6 +1109,43 @@ export const AdvancedRoboticsPanel: React.FC<AdvancedRoboticsPanelProps> = ({ on
 };
 
 // 3D Visualization Components
+const Pedestal: React.FC<{ baseY: number }> = ({ baseY }) => {
+  // Only floor-mounted frames get a pedestal; a ceiling or rail mount would
+  // get one floating in mid-air, which reads worse than nothing.
+  if (baseY <= 0.02) return null;
+  const h = baseY;
+  const flangeH = h * 0.3;
+  const columnTop = h * 0.92;
+  return (
+    <group>
+      {/* Floor flange: wide truncated cone, six hex bolts. */}
+      <mesh castShadow receiveShadow position={[0, flangeH / 2, 0]}>
+        <cylinderGeometry args={[0.075, 0.088, flangeH, 40]} />
+        <meshStandardMaterial color="#40474e" metalness={0.85} roughness={0.36} />
+      </mesh>
+      {[0, 60, 120, 180, 240, 300].map((deg) => {
+        const rad = (deg * Math.PI) / 180;
+        return (
+          <mesh key={deg} position={[Math.cos(rad) * 0.058, flangeH + 0.0035, Math.sin(rad) * 0.058]}>
+            <cylinderGeometry args={[0.006, 0.006, 0.007, 6]} />
+            <meshStandardMaterial color="#1d2227" metalness={0.85} roughness={0.35} />
+          </mesh>
+        );
+      })}
+      {/* Column: tapered, wider at the flange. */}
+      <mesh castShadow receiveShadow position={[0, flangeH + (columnTop - flangeH) / 2, 0]}>
+        <cylinderGeometry args={[0.046, 0.064, columnTop - flangeH, 36]} />
+        <meshStandardMaterial color="#596069" metalness={0.85} roughness={0.28} />
+      </mesh>
+      {/* Collar under the shoulder line. */}
+      <mesh castShadow position={[0, h - (h - columnTop) / 2, 0]}>
+        <cylinderGeometry args={[0.038, 0.048, h - columnTop, 36]} />
+        <meshStandardMaterial color="#2b3138" metalness={0.8} roughness={0.38} />
+      </mesh>
+    </group>
+  );
+};
+
 const MechanismVisualization: React.FC<{ mechanism: Mechanism; jointAngles: number[] }> = ({ mechanism, jointAngles }) => {
   const joints = Array.from(mechanism.joints.values());
   const links = Array.from(mechanism.links.values());
@@ -1111,6 +1177,7 @@ const MechanismVisualization: React.FC<{ mechanism: Mechanism; jointAngles: numb
 
   return (
     <group position={[base.x, base.y, base.z]}>
+      <Pedestal baseY={base.y} />
       {/*
         The arm proper. Outlined as one group so the crease pass sees the same
         subtree every repaint: the parts hold their materials on the mechanism
@@ -1118,12 +1185,6 @@ const MechanismVisualization: React.FC<{ mechanism: Mechanism; jointAngles: numb
         a link cannot leave it wearing the ghost of the mode that was set before.
       */}
       <group ref={modelRef}>
-        {/* Base */}
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[0.2, 0.2, 0.1]} />
-          <meshPhongMaterial color="#666666" />
-        </mesh>
-
         {/* Links */}
         {links.map((link, index) => {
           const position = fkResult.positions[index];
@@ -1137,24 +1198,54 @@ const MechanismVisualization: React.FC<{ mechanism: Mechanism; jointAngles: numb
           );
         })}
 
-        {/* Joints */}
+        {/* Joint assemblies: a gold disc on the joint's own axis, a dark cap. */}
         {joints.map((joint, index) => {
           const position = fkResult.positions[index] ?? joint.position;
+          const axis = joint.axis.clone().normalize();
+          const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
+          const radius = 0.034 - index * 0.006;
           return (
-            <mesh key={joint.id} position={position} castShadow>
-              <sphereGeometry args={[0.032, 24, 16]} />
-              <meshStandardMaterial color="#f97316" metalness={0.35} roughness={0.4} />
-            </mesh>
+            <group key={joint.id} position={position} quaternion={quat}>
+              <mesh castShadow>
+                <cylinderGeometry args={[radius, radius, 0.014, 28]} />
+                <meshStandardMaterial color="#d9a441" metalness={0.72} roughness={0.3} />
+              </mesh>
+              <mesh position={[0, 0.008, 0]}>
+                <cylinderGeometry args={[radius * 0.46, radius * 0.46, 0.006, 20]} />
+                <meshStandardMaterial color="#20262c" metalness={0.7} roughness={0.4} />
+              </mesh>
+            </group>
           );
         })}
       </group>
 
-      {/* Tool point (last joint plus the end-effector offset). An annotation, so
-          it stays solid in either reading — an invisible target is worse than none. */}
+      {/* Tool point: red marker stays subtle; the wrist below is the working end. */}
       <mesh position={toolPosition}>
-        <sphereGeometry args={[0.018, 20, 14]} />
-        <meshStandardMaterial color="#22c55e" emissive="#14532d" emissiveIntensity={0.6} />
+        <sphereGeometry args={[0.012, 18, 12]} />
+        <meshStandardMaterial color="#ef4444" emissive="#7f1d1d" emissiveIntensity={0.7} />
       </mesh>
+      {(() => {
+        if (!fkResult.orientations.length) return null;
+        const axis = new THREE.Vector3().setFromMatrixColumn(
+          new THREE.Matrix4().makeRotationFromQuaternion(fkResult.orientations[last]),
+          0,
+        );
+        const wrist = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
+        return (
+          <group position={toolPosition} quaternion={wrist}>
+            {/* Wrist plate: a small gold disc on the approach axis, then a
+                dark face plate — the universal end-effector flange. */}
+            <mesh castShadow>
+              <cylinderGeometry args={[0.017, 0.017, 0.008, 24]} />
+              <meshStandardMaterial color="#d9a441" metalness={0.72} roughness={0.3} />
+            </mesh>
+            <mesh position={[0, 0.0055, 0]}>
+              <cylinderGeometry args={[0.012, 0.012, 0.004, 22]} />
+              <meshStandardMaterial color="#20262c" metalness={0.7} roughness={0.4} />
+            </mesh>
+          </group>
+        );
+      })()}
     </group>
   );
 };

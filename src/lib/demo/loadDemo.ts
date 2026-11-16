@@ -69,12 +69,15 @@ export function loadBoardDemo(title = 'Untitled schematic', load: DemoScenario['
     isDirty: true,
     liveFrame: null,
   })
-  // The demo boards' vertical span (~500 units) plus horizontal doesn't fit
-  // in every window; the board arrives shifted to a working zoom. The rail's
-  // Fit button still frames it on demand.
+  // The design arrives fitted to the window, not at a fixed 60 % with the
+  // sheet's top clipped: the canvas closes the loop once stage size is known.
   useAppStore.setState({
-    viewport: { ...useAppStore.getState().viewport, zoom: 0.6, pan: { x: 0, y: -40 } },
+    viewport: { ...useAppStore.getState().viewport, zoom: 1, pan: { x: 0, y: 0 } },
   })
+  useAppStore.getState().requestFit()
+  // Session-restored canvas may replace an already-mounted sheet; the fit
+  // there must wait a frame and re-measure, same as a fresh mount.
+  window.requestAnimationFrame(() => window.dispatchEvent(new CustomEvent('folio:fit-view')))
 }
 
 export function loadDemoScenario(scenario: DemoScenario): void {

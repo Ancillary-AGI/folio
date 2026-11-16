@@ -112,6 +112,30 @@ function sphereInertia(mass: number, radius: number): THREE.Matrix3 {
  * exact arm the UI draws.
  */
 /** Planar two-link arm matching the kinematics used by `buildDemoArm`. */
+/** Upper arm and forearm for the planar demo — cylindrical, with the
+ * matching solid-cylinder inertia, so FK, IK and dynamics all run against the
+ * same arm the viewer shows. */
+const UPPER_ARM_RADIUS_M = 0.024;
+const FOREARM_RADIUS_M = 0.017;
+const DEMO_ARM_STEEL = new THREE.MeshStandardMaterial({
+  color: 0xd9dee4,
+  metalness: 0.78,
+  roughness: 0.26,
+});
+const DEMO_ARM_DARK_STEEL = new THREE.MeshStandardMaterial({
+  color: 0x8f979f,
+  metalness: 0.82,
+  roughness: 0.3,
+});
+const rotateYtoX = new THREE.Matrix4().makeRotationZ(-Math.PI / 2);
+const cylinderAlongX = (radius: number, length: number, segments: number) =>
+  new THREE.CylinderGeometry(radius, radius, length, segments).applyMatrix4(rotateYtoX).translate(length / 2, 0, 0);
+const cylinderInertiaAlongX = (mass: number, radius: number, height: number): THREE.Matrix3 => {
+  const axial = 0.5 * mass * radius * radius;
+  const radial = (mass * (3 * radius * radius + height * height)) / 12;
+  return new THREE.Matrix3().set(axial, 0, 0, 0, radial, 0, 0, 0, radial);
+};
+
 export function buildTwoLinkDemoMechanism(): Mechanism {
   const l1 = ARM_L1_MM / 1000;
   const l2 = ARM_L2_MM / 1000;
@@ -142,20 +166,20 @@ export function buildTwoLinkDemoMechanism(): Mechanism {
   const links: Omit<Link, 'id'>[] = [
     {
       name: 'Upper Arm',
-      geometry: new THREE.BoxGeometry(l1, 0.03, 0.03).translate(l1 / 2, 0, 0),
-      material: new THREE.MeshPhongMaterial({ color: 0x888888 }),
+      geometry: cylinderAlongX(UPPER_ARM_RADIUS_M, l1, 36),
+      material: DEMO_ARM_STEEL,
       mass: 0.15,
       centerOfMass: new THREE.Vector3(l1 / 2, 0, 0),
-      inertiaTensor: boxInertia(0.15, new THREE.Vector3(l1, 0.03, 0.03)),
+      inertiaTensor: cylinderInertiaAlongX(0.15, UPPER_ARM_RADIUS_M, l1),
       childJoints: [],
     },
     {
       name: 'Forearm',
-      geometry: new THREE.BoxGeometry(l2, 0.025, 0.025).translate(l2 / 2, 0, 0),
-      material: new THREE.MeshPhongMaterial({ color: 0xaaaaaa }),
+      geometry: cylinderAlongX(FOREARM_RADIUS_M, l2, 32),
+      material: DEMO_ARM_DARK_STEEL,
       mass: 0.1,
       centerOfMass: new THREE.Vector3(l2 / 2, 0, 0),
-      inertiaTensor: boxInertia(0.1, new THREE.Vector3(l2, 0.025, 0.025)),
+      inertiaTensor: cylinderInertiaAlongX(0.1, FOREARM_RADIUS_M, l2),
       childJoints: [],
     },
   ];
@@ -245,7 +269,7 @@ export function buildSixDofDemoMechanism(): Mechanism {
     {
       name: 'Base Link',
       geometry: new THREE.BoxGeometry(0.1, 0.1, 0.1),
-      material: new THREE.MeshPhongMaterial({ color: 0x666666 }),
+      material: new THREE.MeshStandardMaterial({ color: 0x3f464e, metalness: 0.78, roughness: 0.28 }),
       mass: 2.0,
       centerOfMass: new THREE.Vector3(0, 0, 0),
       inertiaTensor: boxInertia(2.0, new THREE.Vector3(0.1, 0.1, 0.1)),
@@ -254,7 +278,7 @@ export function buildSixDofDemoMechanism(): Mechanism {
     {
       name: 'Upper Arm',
       geometry: new THREE.CylinderGeometry(0.03, 0.03, 0.3).translate(0, 0.15, 0),
-      material: new THREE.MeshPhongMaterial({ color: 0x888888 }),
+      material: new THREE.MeshStandardMaterial({ color: 0xb8bec5, metalness: 0.78, roughness: 0.28 }),
       mass: 1.5,
       centerOfMass: new THREE.Vector3(0, 0.15, 0),
       inertiaTensor: cylinderInertia(1.5, 0.03, 0.3),
@@ -263,7 +287,7 @@ export function buildSixDofDemoMechanism(): Mechanism {
     {
       name: 'Forearm',
       geometry: new THREE.CylinderGeometry(0.025, 0.025, 0.25).translate(0, 0.125, 0),
-      material: new THREE.MeshPhongMaterial({ color: 0xaaaaaa }),
+      material: new THREE.MeshStandardMaterial({ color: 0xd6dbe0, metalness: 0.78, roughness: 0.28 }),
       mass: 1.0,
       centerOfMass: new THREE.Vector3(0, 0.125, 0),
       inertiaTensor: cylinderInertia(1.0, 0.025, 0.25),
@@ -272,7 +296,7 @@ export function buildSixDofDemoMechanism(): Mechanism {
     {
       name: 'Wrist',
       geometry: new THREE.SphereGeometry(0.02),
-      material: new THREE.MeshPhongMaterial({ color: 0xcccccc }),
+      material: new THREE.MeshStandardMaterial({ color: 0x8f979f, metalness: 0.78, roughness: 0.28 }),
       mass: 0.5,
       centerOfMass: new THREE.Vector3(0, 0, 0),
       inertiaTensor: sphereInertia(0.5, 0.02),
@@ -281,7 +305,7 @@ export function buildSixDofDemoMechanism(): Mechanism {
     {
       name: 'Gripper Base',
       geometry: new THREE.BoxGeometry(0.04, 0.04, 0.04),
-      material: new THREE.MeshPhongMaterial({ color: 0xdddddd }),
+      material: new THREE.MeshStandardMaterial({ color: 0xe4e7ea, metalness: 0.78, roughness: 0.28 }),
       mass: 0.3,
       centerOfMass: new THREE.Vector3(0, 0, 0),
       inertiaTensor: boxInertia(0.3, new THREE.Vector3(0.04, 0.04, 0.04)),
@@ -290,7 +314,7 @@ export function buildSixDofDemoMechanism(): Mechanism {
     {
       name: 'Gripper Fingers',
       geometry: new THREE.BoxGeometry(0.02, 0.08, 0.02),
-      material: new THREE.MeshPhongMaterial({ color: 0x444444 }),
+      material: new THREE.MeshStandardMaterial({ color: 0x565e66, metalness: 0.78, roughness: 0.28 }),
       mass: 0.2,
       centerOfMass: new THREE.Vector3(0, 0, 0),
       inertiaTensor: boxInertia(0.2, new THREE.Vector3(0.02, 0.08, 0.02)),

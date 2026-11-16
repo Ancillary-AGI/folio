@@ -145,6 +145,15 @@ export interface AppState {
   viewport: ViewportState
   setZoom: (zoom: number) => void
   setPan: (pan: { x: number; y: number }) => void
+  /**
+   * One-shot request: the sheet was opened fresh with no saved view, so the
+   * first canvas that mounts (or content that arrives on an open canvas)
+   * frames the design — every part centered with a margin, not top-left at
+   * origin with the sheet clipped. Cleared by the consumer.
+   */
+  pendingFit: boolean
+  requestFit: () => void
+  consumeFitRequest: () => void
   
   workspaceMode: WorkspaceMode
   setWorkspaceMode: (mode: WorkspaceMode) => void
@@ -262,6 +271,10 @@ export const useAppStore = create<AppState>()(
           set((state) => ({
             viewport: { ...state.viewport, pan }
           })),
+        // Starts false so a persisted store never replays a stale fit.
+        pendingFit: false,
+        requestFit: () => set({ pendingFit: true }),
+        consumeFitRequest: () => set({ pendingFit: false }),
         
         workspaceMode: 'schematic',
         // A manual mode switch drops any unconsumed demo bootstrap and any armed

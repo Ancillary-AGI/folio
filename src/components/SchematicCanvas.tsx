@@ -245,7 +245,9 @@ export default function SchematicCanvas({
   /*
    * Fit view: the rail's Fit button (and the F shortcut) dispatch
    * `folio:fit-view` on the window; here we frame every placed part with a
-   * small margin, or reset the viewport when the sheet is empty.
+   * small margin, or reset the viewport when the sheet is empty. The measured
+   * stage size, not the React state, is the ground truth — pending fits are
+   * requested before the stage exists, and the state lags the commit.
    */
   useEffect(() => {
     const fit = () => {
@@ -269,24 +271,32 @@ export default function SchematicCanvas({
         maxY = Math.max(maxY, comp.y + height)
       }
 
+      const measuredSize = stageRef.current?.size() ?? stageSize
       const frame = frameAround({ minX, minY, maxX, maxY })
       // Keep a margin around the sheet and centre it in the drawing area
       // (the rulers are 18 px overlays on the top and left edges).
       const rulerInset = useAppStore.getState().settings.showRulers ? RULER_SIZE : 0
-      const availableWidth = Math.max(120, stageSize.width - 32 - rulerInset)
-      const availableHeight = Math.max(120, stageSize.height - 32 - rulerInset)
+      const availableWidth = Math.max(120, measuredSize.width - 32 - rulerInset)
+      const availableHeight = Math.max(120, measuredSize.height - 32 - rulerInset)
       const zoom = Math.max(
         0.1,
         Math.min(5, Math.min(availableWidth / frame.width, availableHeight / frame.height)),
       )
       setZoom(zoom)
       setPan({
-        x: (rulerInset + stageSize.width) / 2 - (frame.x + frame.width / 2) * zoom,
-        y: (rulerInset + stageSize.height) / 2 - (frame.y + frame.height / 2) * zoom,
+        x: (rulerInset + measuredSize.width) / 2 - (frame.x + frame.width / 2) * zoom,
+        y: (rulerInset + measuredSize.height) / 2 - (frame.y + frame.height / 2) * zoom,
       })
     }
 
     window.addEventListener('folio:fit-view', fit)
+    // A design opened fresh requested the fit before this canvas mounted.
+    // Waiting one frame lets the measured stage size commit, so the fit
+    // frames against the real drawing area, not the mount-time default.
+    if (useAppStore.getState().pendingFit) {
+      useAppStore.getState().consumeFitRequest()
+      window.requestAnimationFrame(() => window.dispatchEvent(new CustomEvent('folio:fit-view')))
+    }
     return () => window.removeEventListener('folio:fit-view', fit)
   }, [stageSize, setZoom, setPan])
 
