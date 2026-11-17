@@ -57,7 +57,7 @@ const send = async (text: string) => {
 }
 
 describe('AgentAssistant routing', () => {
-  let fetchSpy: Mock<[], Promise<Response>>
+  let fetchSpy: Mock<() => Promise<Response>>
 
   beforeEach(() => {
     const board = buildDemoBoard()

@@ -148,6 +148,16 @@ describe('DC sweep', () => {
       sweepStop: 5,
       sweepStep: 1,
     })
+    const single = await spiceEngine.simulate({
+      title: 'operating point',
+      components: [voltageSource('V1', ['IN', '0'], 5), ...divider().slice(1)],
+      analyses: [{ type: 'dc' }],
+    })
+
+    expect(single.success).toBe(true)
+    expect(at(swept, 'V(OUT)', 5)).toBeCloseTo(single.operatingPoint?.OUT ?? Number.NaN, 12)
+  })
+})
 
 describe('DC sweep of a nonlinear device', () => {
   /*
@@ -291,16 +301,5 @@ describe('DC sweep diagnostics', () => {
     }
 
     expect(spiceEngine.generateSPICENetlist(netlist)).toContain('.dc V1 0 5 1')
-  })
-})
-
-    const single = await spiceEngine.simulate({
-      title: 'operating point',
-      components: [voltageSource('V1', ['IN', '0'], 5), ...divider().slice(1)],
-      analyses: [{ type: 'dc' }],
-    })
-
-    expect(single.success).toBe(true)
-    expect(at(swept, 'V(OUT)', 5)).toBeCloseTo(single.operatingPoint?.OUT ?? Number.NaN, 12)
   })
 })

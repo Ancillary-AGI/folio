@@ -27,29 +27,17 @@ function adminDocument(): Plugin {
     name: 'folio-documents',
     configureServer(server) { server.middlewares.use(rewrite); },
     configurePreviewServer(server) { server.middlewares.use(rewrite); },
-    /* Inject the PUBLIC site configuration into the marketing page at build
-     * time — env is never visible in a static file otherwise, and the admin
-     * FAQ cannot reach the user's browser. The anon key is designed to be
-     * public; the service key is never emitted. */
+    /* Inject the pricing storefront into the static shell at build
+     * time — the markup comes from src/lib/pricing.ts, the same module the
+     * console reads, so the page and the enforcement layer can never drift
+     * apart. */
     transformIndexHtml(html) {
-      /* Inject the pricing storefront into the static shell at build time.
-       * The markup comes from src/lib/pricing.ts — the same module the console
-       * reads — so the page and the enforcement layer can never drift apart. */
       if (html.includes('<!-- PLANS_ROOT -->')) {
         return html
           .replace('<!-- PLANS_ROOT -->', () => renderPricingPlansHtml())
           .replace('<!-- PRICING_NOTE -->', () => PRICING_NOTE);
       }
-      if (!html.includes('<section id="faq"')) return html;
-      const url = process.env.VITE_SUPABASE_URL ?? '';
-      const anon = process.env.VITE_SUPABASE_ANON_KEY ?? '';
-      if (!url || !anon) {
-        return html.includes('<!--FAQ-FALLBACK-->')
-          ? html
-          : html;
-      }
-      const meta = `<meta name="supabase-url" content="${url.replace(/"/g, '&quot;')}">\n    <meta name="supabase-anon" content="${anon.replace(/"/g, '&quot;')}">`;
-      return html.replace('<title>', `${meta}\n    <title>`);
+      return html;
     },
   };
 }
