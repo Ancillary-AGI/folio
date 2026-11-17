@@ -1,7 +1,7 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
-import { PRICING_NOTE, renderPricingPlansHtml } from './src/lib/pricing';
+import { PRICING_NOTE, renderPricingPlansHtml } from './src/lib/pricing.ts';
 
 /**
  * Serve the documents at the same paths the checked-in host configs use.
