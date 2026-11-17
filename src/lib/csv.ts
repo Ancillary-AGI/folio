@@ -34,6 +34,21 @@ export function csvRow(cells: readonly unknown[]): string {
   return cells.map(csvCell).join(',')
 }
 
+/**
+ * One cell of a tab-separated report (the plain-text BOM the app labels
+ * honestly as a .txt). Tabs and line breaks would split the column or the
+ * row, so they collapse to a space; a spreadsheet still reads the file and
+ * the formula-leader rule from the CSV writer applies unchanged.
+ */
+export function tsvCell(value: unknown): string {
+  let text = value === null || value === undefined ? '' : String(value)
+  text = text.replace(/[\t\r\n]+/g, ' ')
+  if (text.length > 0 && FORMULA_LEADERS.has(text[0])) {
+    text = `'${text}`
+  }
+  return text
+}
+
 /** A whole document from a header row plus data rows, CRLF line endings. */
 export function toCsv(header: readonly unknown[], rows: ReadonlyArray<readonly unknown[]>): string {
   return [csvRow(header), ...rows.map(csvRow)].join('\r\n')

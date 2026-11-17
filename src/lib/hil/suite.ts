@@ -18,6 +18,7 @@ import {
   type HilBus,
   type HilPayload,
 } from './hilRig'
+import { csvCell } from '../csv'
 
 export type CaseFilter = 'all' | 'passed' | 'failed' | 'unrun'
 
@@ -448,11 +449,6 @@ export function cloneCase(draft: CaseDraft, index: number): CaseDraft {
     payload.can = rekey(payload.can)
   }
   return copy
-}
-
-const csvCell = (value: string | number | boolean | undefined): string => {
-  const text = value === undefined ? '' : String(value)
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 
 export interface VerdictRow {

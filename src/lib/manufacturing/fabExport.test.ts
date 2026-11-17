@@ -416,6 +416,21 @@ describe('fab package — net-aware plane pours', () => {
     expect(pin8).toBeLessThan(lastDark)
   })
 
+  it('a plane net name cannot smuggle Gerber commands into the comment', () => {
+    const pkg = buildFabPackage([dip8Wired('U1', 50)], [], {
+      innerLayerCount: 2,
+      nets,
+      planes: [{ film: 'inner-1', netName: 'GND*\n%MOIN*%\nX0Y0D03*' }],
+    })
+    const gnd = pkg.files.get('folio-pcb-In1_Cu.g1') ?? ''
+    const comment = gnd.split('\n').find((line) => line.startsWith('G04')) ?? ''
+    // The comment is one line whose payload contains no terminator or directive.
+    expect(comment).toMatch(/^G04 [^*%]*\*$/)
+    // None of the injected statements survives as a line of its own.
+    expect(gnd).not.toContain('X0Y0D03*')
+    expect(gnd).not.toContain('%MOIN*%')
+  })
+
   it('refuses a plane that would float', () => {
     const pkg = buildFabPackage([dip8Wired('U1', 50)], [], {
       innerLayerCount: 1,

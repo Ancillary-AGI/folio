@@ -17,6 +17,7 @@ import {
   type FleetThresholds,
   type TelemetrySample,
 } from './fleetManager';
+import { csvCell } from '../csv';
 
 export type TrendChannel = 'temperature' | 'cpuLoad' | 'latencyMs' | 'battery';
 
@@ -255,11 +256,6 @@ export function formatAge(at: number, now: number): string {
   if (hours < 48) return `${hours} h ago`;
   return `${Math.round(hours / 24)} d ago`;
 }
-
-const csvCell = (value: string | number): string => {
-  const text = String(value);
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-};
 
 export function fleetToCSV(devices: FleetDevice[], alerts: FleetAlert[]): string {
   const header = [

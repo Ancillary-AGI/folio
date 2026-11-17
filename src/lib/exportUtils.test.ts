@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { exportToGerber } from './exportUtils'
+import { exportToGerber, exportToNetlist, exportToBOM } from './exportUtils'
 import type { PlacedComponent, Wire } from '../types'
 
 const component = (rotation = 0): PlacedComponent => ({
@@ -58,5 +58,69 @@ describe('exportToGerber', () => {
     expect(rotated).toContain('X25400000Y60800000D03*')
     // pin (-10,0) rotated 90° → (25.4, 40.8)
     expect(rotated).toContain('X25400000Y40800000D03*')
+  })
+})
+
+const netlisted = (overrides: Partial<PlacedComponent['properties']> = {}): PlacedComponent[] => {
+  const comp = component()
+  comp.properties = { value: '2N7000', ...overrides }
+  return [comp]
+}
+
+describe('exportToNetlist', () => {
+  const wireTo = (netName: string): Wire => ({
+    id: 'w1',
+    points: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
+    connectedPins: [{ componentId: 'c1', pinId: 'p1' }],
+    netName,
+  })
+
+  it('a project title with a newline cannot open a second statement', () => {
+    const text = exportToNetlist(netlisted(), [], 'Amp\n.tran 1u\nForged')
+    const dotCards = text.split('\n').filter((line) => line.startsWith('.'))
+    expect(dotCards).toEqual(['.end'])
+    expect(text).toContain('* Amp .tran 1u Forged Netlist')
+  })
+
+  it('a net name with a newline cannot smuggle a directive into the deck', () => {
+    const text = exportToNetlist(netlisted(), [wireTo('VCC\n.end')], 'Board')
+    const dotCards = text.split('\n').filter((line) => line.startsWith('.'))
+    expect(dotCards).toEqual(['.end'])
+    // The hostile token stayed a single atom on the component's card.
+    expect(text).toMatch(/R1 VCC_\.end /)
+  })
+
+  it('a component value with a newline cannot smuggle a directive either', () => {
+    const text = exportToNetlist(netlisted({ value: '1k\n.end' }), [], 'Board')
+    const dotCards = text.split('\n').filter((line) => line.startsWith('.'))
+    expect(dotCards).toEqual(['.end'])
+    expect(text).toContain('1k_.end')
+  })
+
+  it('a net name with spaces lands on one node atom', () => {
+    const text = exportToNetlist(netlisted(), [wireTo('USB D+')], 'Board')
+    expect(text).toMatch(/R1 USB_D\+ /)
+  })
+})
+
+describe('exportToBOM', () => {
+  it('neutralises a formula leader in user-editable property cells', () => {
+    const comp = component()
+    comp.properties = { value: '1k', manufacturer: '=cmd|/c calc', partNumber: '@SUM(1,1)' }
+    comp.component = { ...comp.component, description: '+HYPERLINK("http://evil")' }
+    const text = exportToBOM([comp])
+    const row = text.split('\n').find((line) => line.includes('1k')) ?? ''
+    const cells = row.split('\t')
+    expect(cells[6]).toBe(`'=cmd|/c calc`)
+    expect(cells[7]).toBe(`'@SUM(1,1)`)
+    expect(cells[5]).toBe(`'+HYPERLINK("http://evil")`)
+  })
+
+  it('tabs and newlines inside a property cannot split the row', () => {
+    const comp = component()
+    comp.properties = { value: '1k\twith tab', partNumber: 'a\nb' }
+    const text = exportToBOM([comp])
+    const row = text.split('\n').find((line) => line.includes('with tab')) ?? ''
+    expect(row.split('\t')).toHaveLength(10)
   })
 })

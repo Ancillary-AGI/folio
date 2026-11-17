@@ -353,7 +353,7 @@ function gerberCopper(
   traces: Array<{ points: Array<{ x: number; y: number }>; width: number }>,
   pads: PlacedPad[],
 ): string {
-  const lines = [...gerberHeader(), `G04 ${title}*`]
+  const lines = [...gerberHeader(), `G04 ${gerberCommentSafe(title)}*`]
   const widths = Array.from(new Set(traces.map((trace) => trace.width))).sort((a, b) => a - b)
   const apertureOf = new Map<number, number>()
   widths.forEach((width, index) => {
@@ -397,7 +397,7 @@ function gerberPlane(
   connects: PlacedPad[],
   antiPads: PlacedPad[],
 ): string {
-  const lines = [...gerberHeader(), `G04 ${title}*`, '%ADD10C,0.0500*%', 'D10*', 'G01*', '%LPD*%', 'G36*']
+  const lines = [...gerberHeader(), `G04 ${gerberCommentSafe(title)}*`, '%ADD10C,0.0500*%', 'D10*', 'G01*', '%LPD*%', 'G36*']
   const x0 = PLANE_EDGE_CLEARANCE
   const y0 = PLANE_EDGE_CLEARANCE
   const x1 = boardWidth - PLANE_EDGE_CLEARANCE
@@ -431,7 +431,7 @@ function gerberPlane(
 }
 
 function gerberMask(title: string, pads: PlacedPad[], clearance: number): string {
-  const lines = [...gerberHeader(), `G04 ${title}*`, '%TA.AperFunction,Soldermask*%', 'G01*']
+  const lines = [...gerberHeader(), `G04 ${gerberCommentSafe(title)}*`, '%TA.AperFunction,Soldermask*%', 'G01*']
   let aperture = 10
   for (const pad of pads) {
     const w = pad.w + clearance * 2

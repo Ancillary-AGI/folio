@@ -1,5 +1,38 @@
 // Export utilities for Folio
 import { PlacedComponent, Wire, SimulationResult } from '../types'
+import { tsvCell } from './csv'
+
+/**
+ * Replace control characters (U+0000–U+001F, U+007F) — and, for atoms, the
+ * SPICE comment characters — with a plain space. Written as a code-point
+ * walk so no control-character regex is needed.
+ */
+const spaceOut = (text: string, alsoDrop: string): string => {
+  let out = ''
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0
+    out += code < 0x20 || code === 0x7f || alsoDrop.includes(ch) ? ' ' : ch
+  }
+  return out
+}
+
+/**
+ * A SPICE atom may not carry a line break (a value could otherwise smuggle a
+ * dot-card into the deck) or whitespace (an atom would split into extra
+ * tokens). Control characters and SPICE comment characters become spaces,
+ * runs of whitespace collapse to `_`, and an empty result becomes `0` so the
+ * statement stays well-formed.
+ */
+const spiceAtom = (raw: unknown): string => {
+  const cleaned = spaceOut(String(raw ?? ''), '*;').trim().replace(/\s+/g, '_')
+  return cleaned.length > 0 ? cleaned : '0'
+}
+
+/** A free-text title for the netlist header: one physical line, always. */
+const singleLine = (raw: unknown): string => {
+  const cleaned = spaceOut(String(raw ?? ''), '').replace(/\s+/g, ' ').trim()
+  return cleaned.length > 0 ? cleaned : 'Untitled'
+}
 
 export interface ExportOptions {
   format: 'png' | 'svg' | 'pdf' | 'netlist' | 'json' | 'gerber' | 'bom'
@@ -41,19 +74,20 @@ export function exportToNetlist(
   wires: Wire[], 
   projectName: string
 ): string {
-  let netlist = `* ${projectName} Netlist\n`
+  let netlist = `* ${singleLine(projectName)} Netlist\n`
   netlist += `* Generated on ${new Date().toISOString()}\n`
   netlist += `* Folio v2.0.0\n\n`
-  
+   
   // Create net mapping
   const netMap = new Map<string, string>()
   let netCounter = 1
-  
+   
   wires.forEach(wire => {
     if (wire.netName) {
+      const named = spiceAtom(wire.netName)
       wire.connectedPins.forEach(pin => {
         const pinKey = `${pin.componentId}_${pin.pinId}`
-        netMap.set(pinKey, wire.netName!)
+        netMap.set(pinKey, named)
       })
     } else {
       // Auto-generate net names
@@ -74,20 +108,21 @@ export function exportToNetlist(
     
     // Generate SPICE line based on component type
     const compType = comp.component.name.toLowerCase()
+    const reference = spiceAtom(comp.reference)
     let spiceLine = ''
     
     if (compType.includes('resistor')) {
-      spiceLine = `R${comp.reference} ${nodes.join(' ')} ${comp.properties.value || '1k'}`
+      spiceLine = `R${reference} ${nodes.join(' ')} ${spiceAtom(comp.properties.value || '1k')}`
     } else if (compType.includes('capacitor')) {
-      spiceLine = `C${comp.reference} ${nodes.join(' ')} ${comp.properties.value || '1u'}`
+      spiceLine = `C${reference} ${nodes.join(' ')} ${spiceAtom(comp.properties.value || '1u')}`
     } else if (compType.includes('inductor')) {
-      spiceLine = `L${comp.reference} ${nodes.join(' ')} ${comp.properties.value || '1m'}`
+      spiceLine = `L${reference} ${nodes.join(' ')} ${spiceAtom(comp.properties.value || '1m')}`
     } else if (compType.includes('voltage')) {
-      spiceLine = `V${comp.reference} ${nodes.join(' ')} DC ${comp.properties.voltage || '5'}`
+      spiceLine = `V${reference} ${nodes.join(' ')} DC ${spiceAtom(comp.properties.voltage || '5')}`
     } else if (compType.includes('current')) {
-      spiceLine = `I${comp.reference} ${nodes.join(' ')} DC ${comp.properties.current || '1m'}`
+      spiceLine = `I${reference} ${nodes.join(' ')} DC ${spiceAtom(comp.properties.current || '1m')}`
     } else {
-      spiceLine = `X${comp.reference} ${nodes.join(' ')} ${comp.component.name}`
+      spiceLine = `X${reference} ${nodes.join(' ')} ${spiceAtom(comp.component.name)}`
     }
     
     netlist += spiceLine + '\n'
@@ -95,7 +130,7 @@ export function exportToNetlist(
     // Add component parameters
     Object.entries(comp.properties).forEach(([key, value]) => {
       if (key !== 'value' && value) {
-        netlist += `+ ${key}=${value}\n`
+        netlist += `+ ${spiceAtom(key)}=${spiceAtom(value)}\n`
       }
     })
   })
@@ -198,7 +233,11 @@ export function exportToBOM(components: PlacedComponent[]): string {
     const lineCost = qty * unitCost
     totalCost += lineCost
     
-    bom += `${itemNumber}\t${qty}\t${item.references.join(', ')}\t${item.value}\t${item.package}\t${item.description}\t${item.manufacturer}\t${item.partNumber}\t$${unitCost.toFixed(2)}\t$${lineCost.toFixed(2)}\n`
+    bom += [
+      itemNumber, qty, item.references.join(', '), item.value, item.package,
+      item.description, item.manufacturer, item.partNumber,
+      `$${unitCost.toFixed(2)}`, `$${lineCost.toFixed(2)}`,
+    ].map(tsvCell).join('\t') + '\n'
     itemNumber++
   })
   
