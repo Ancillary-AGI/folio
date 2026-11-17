@@ -11,6 +11,7 @@ import ScribeIcon from './components/workspace/ScribeIcon'
 import { Button } from './components/ui/button'
 import type { PlacedComponent, Wire, User } from './types'
 import { supabase, isSupabaseConfigured, type Project, type Schematic, type Component } from './lib/supabase'
+import { describeError } from './lib/utils'
 import {
   CURATED_DEMO_BY_TEMPLATE_ID,
   applyTemplateFile,
@@ -1876,78 +1877,101 @@ function App() {
     setShowExportMenu(false)
   }
 
-  const handleExportImage = () => {
-    // The sheet canvas carries this hook attribute; a stray canvas elsewhere
-    // in the document (3D view, sketch overlay) is never captured by accident.
-    const canvas = document.querySelector<HTMLCanvasElement>('[data-folio-sheet="true"] canvas')
-    if (!canvas) {
-      setNotice('Nothing to capture yet — the sheet has not been rendered.')
-      return
+  /* An export that throws — a canvas past the browser's size cap, a drawing
+   * builder refusing invalid geometry — becomes a notice, never an unhandled
+   * throw that unmounts the workbench behind the error boundary. */
+  const runExport = (label: string, body: () => void): void => {
+    try {
+      body()
+    } catch (error) {
+      console.error(`${label} export failed:`, error)
+      setNotice(`${label} export failed — ${describeError(error)}`)
+      setShowExportMenu(false)
     }
+  }
+
+  const handleExportImage = () => {
     if (!currentProject) return
     const quotaError = exportQuotaError()
     if (quotaError) { setNotice(quotaError); setShowExportMenu(false); return }
-    const dataUrl = exportToImage(canvas, { resolution: settings.imageExportScale })
-    const a = document.createElement('a')
-    a.href = dataUrl
-    a.download = `${currentProject.name}.png`
-    a.click()
-    finishExport('png')
+    runExport('Image', () => {
+      // The sheet canvas carries this hook attribute; a stray canvas elsewhere
+      // in the document (3D view, sketch overlay) is never captured by accident.
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-folio-sheet="true"] canvas')
+      if (!canvas) {
+        setNotice('Nothing to capture yet — the sheet has not been rendered.')
+        return
+      }
+      const dataUrl = exportToImage(canvas, { resolution: settings.imageExportScale })
+      const a = document.createElement('a')
+      a.href = dataUrl
+      a.download = `${currentProject.name}.png`
+      a.click()
+      finishExport('png')
+    })
   }
 
   const handleExportNetlist = () => {
     if (!currentProject) return
-    // Read the live sheet, not the saved-canvas snapshot: every other export
-    // does, and a netlist taken between an edit and the next save would
-    // describe a different circuit than the one on screen.
     const quotaError = exportQuotaError()
     if (quotaError) { setNotice(quotaError); setShowExportMenu(false); return }
-    const live = useProjectStore.getState()
-    const netlist = exportToNetlist(
-      live.components.map((c) => ({ ...c, position: { x: c.x, y: c.y }, scale: 1 } as unknown as PlacedComponent)),
-      live.wires.map((w) => ({ ...w, points: w.points } as unknown as Wire)),
-      currentProject.name,
-    )
-    downloadFile(netlist, `${currentProject.name}.net`, 'text/plain')
-    finishExport('netlist')
+    runExport('Netlist', () => {
+      // Read the live sheet, not the saved-canvas snapshot: every other export
+      // does, and a netlist taken between an edit and the next save would
+      // describe a different circuit than the one on screen.
+      const live = useProjectStore.getState()
+      const netlist = exportToNetlist(
+        live.components.map((c) => ({ ...c, position: { x: c.x, y: c.y }, scale: 1 } as unknown as PlacedComponent)),
+        live.wires.map((w) => ({ ...w, points: w.points } as unknown as Wire)),
+        currentProject.name,
+      )
+      downloadFile(netlist, `${currentProject.name}.net`, 'text/plain')
+      finishExport('netlist')
+    })
   }
 
   const handleExportJSON = () => {
     if (!currentProject) return
     const quotaError = exportQuotaError()
     if (quotaError) { setNotice(quotaError); setShowExportMenu(false); return }
-    const json = exportToJSON(
-      components.map(c => ({ ...c, position: { x: c.x, y: c.y }, scale: 1 } as unknown as PlacedComponent)),
-      wires.map(w => ({ ...w, points: w.points } as unknown as Wire)),
-      currentProject.name,
-    )
-    downloadFile(json, `${currentProject.name}.json`, 'application/json')
-    finishExport('json')
+    runExport('JSON', () => {
+      const json = exportToJSON(
+        components.map(c => ({ ...c, position: { x: c.x, y: c.y }, scale: 1 } as unknown as PlacedComponent)),
+        wires.map(w => ({ ...w, points: w.points } as unknown as Wire)),
+        currentProject.name,
+      )
+      downloadFile(json, `${currentProject.name}.json`, 'application/json')
+      finishExport('json')
+    })
   }
 
   const handleExportBOM = () => {
     if (!currentProject) return
     const quotaError = exportQuotaError()
     if (quotaError) { setNotice(quotaError); setShowExportMenu(false); return }
-    const bom = exportToBOM(
-      components.map(c => ({ ...c, position: { x: c.x, y: c.y }, scale: 1 } as unknown as PlacedComponent))
-    )
-    // `exportToBOM` is a formatted report, not a CSV; label it honestly.
-    downloadFile(bom, `${currentProject.name}_BOM.txt`, 'text/plain')
-    finishExport('bom')
+    runExport('BOM', () => {
+      const bom = exportToBOM(
+        components.map(c => ({ ...c, position: { x: c.x, y: c.y }, scale: 1 } as unknown as PlacedComponent))
+      )
+      // `exportToBOM` is a formatted report, not a CSV; label it honestly.
+      downloadFile(bom, `${currentProject.name}_BOM.txt`, 'text/plain')
+      finishExport('bom')
+    })
   }
 
   const handleExportGerber = () => {
     if (!currentProject) return
     const quotaError = exportQuotaError()
     if (quotaError) { setNotice(quotaError); setShowExportMenu(false); return }
-    const gerber = exportToGerber(
-      components.map(c => ({ ...c, position: { x: c.x, y: c.y }, scale: 1 } as unknown as PlacedComponent)),
-      wires.map(w => ({ ...w } as unknown as Wire)),
-      { units: settings.gerberUnits, traceWidth: settings.boardTraceWidthMm },
-    )
-    downloadFile(gerber, `${currentProject.name}.gbr`, 'text/plain')
-    finishExport('gerber')
+    runExport('Gerber', () => {
+      const gerber = exportToGerber(
+        components.map(c => ({ ...c, position: { x: c.x, y: c.y }, scale: 1 } as unknown as PlacedComponent)),
+        wires.map(w => ({ ...w } as unknown as Wire)),
+        { units: settings.gerberUnits, traceWidth: settings.boardTraceWidthMm },
+      )
+      downloadFile(gerber, `${currentProject.name}.gbr`, 'text/plain')
+      finishExport('gerber')
+    })
   }
 
   /*
@@ -1959,14 +1983,16 @@ function App() {
     if (!currentProject) return
     const quotaError = exportQuotaError()
     if (quotaError) { setNotice(quotaError); setShowExportMenu(false); return }
-    const svg = buildSchematicDrawing(components, wires, {
-      title: currentSchematic?.name || currentProject.name,
-      projectName: currentProject.name,
-      paperSize: settings.drawingPaperSize,
-      notes: ['Crossings without a junction dot are not connected.'],
+    runExport('Drawing', () => {
+      const svg = buildSchematicDrawing(components, wires, {
+        title: currentSchematic?.name || currentProject.name,
+        projectName: currentProject.name,
+        paperSize: settings.drawingPaperSize,
+        notes: ['Crossings without a junction dot are not connected.'],
+      })
+      downloadFile(svg, `${currentProject.name}_drawing.svg`, 'image/svg+xml')
+      finishExport('drawing-svg')
     })
-    downloadFile(svg, `${currentProject.name}_drawing.svg`, 'image/svg+xml')
-    finishExport('drawing-svg')
   }
 
   const handleSignOut = async () => {

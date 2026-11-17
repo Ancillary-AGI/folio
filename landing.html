@@ -344,35 +344,5 @@ h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); letter-spacing: -0.03em; line-height
   </div>
 </footer>
 
-
-<script>
-(function () {
-  var urlMeta = document.querySelector('meta[name="supabase-url"]');
-  var anonMeta = document.querySelector('meta[name="supabase-anon"]');
-  var list = document.getElementById('faq-list');
-  if (!urlMeta || !anonMeta || !list) return;
-  var endpoint = urlMeta.content.replace(/\/$/, '') + '/rest/v1/faq_entries?select=question,answer,position,published&published=eq.true&order=position.asc,id.asc';
-  fetch(endpoint, { headers: { apikey: anonMeta.content, Accept: 'application/json' } })
-    .then(function (res) { if (!res.ok) throw new Error('FAQ fetch failed'); return res.json(); })
-    .then(function (rows) {
-      if (!Array.isArray(rows) || rows.length === 0) return;
-      list.innerHTML = '';
-      rows.forEach(function (row, index) {
-        var details = document.createElement('details');
-        details.className = 'faq-item';
-        if (index === 0) details.open = true;
-        var summary = document.createElement('summary');
-        summary.textContent = String(row.question || '');
-        var p = document.createElement('p');
-        p.textContent = String(row.answer || '');
-        details.appendChild(summary);
-        details.appendChild(p);
-        list.appendChild(details);
-      });
-    })
-    .catch(function () { /* keep the baked-in copy */ });
-})();
-</script>
-
 </body>
 </html>

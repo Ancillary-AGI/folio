@@ -240,10 +240,13 @@ describe('shell geometry', () => {
 describe('pre-paint bootstrap', () => {
   /*
    * Every page needs five literal colours to avoid a white flash before the
-   * bundle evaluates. Literals drift, so this test pins them to the tokens in
-   * all three documents that carry the bootstrap.
+   * bundle evaluates. The bootstrap is one shared external file — kept so the
+   * CSP can run with `script-src 'self'` and no 'unsafe-inline'. Literals
+   * drift, so this test pins them to the tokens in the file and pins each
+   * document to the external reference.
    */
   const pages = ['index.html', 'admin.html', 'console.html'] as const
+  const bootstrap = (): string => readFileSync(resolve(process.cwd(), 'public/theme-bootstrap.js'), 'utf8')
 
   it('pins every theme background the bootstrap can paint to the tokens', () => {
     const hex = (theme: keyof typeof THEMES): string => rgbToHex(hslTripletToRgb(THEMES[theme]['--background']))
@@ -255,18 +258,20 @@ describe('pre-paint bootstrap', () => {
       professional: hex('professional'),
       'high-contrast': hex('high-contrast'),
     }
+    const source = bootstrap()
+    expect(source).toContain("'circuit-cad-app-store'")
+    for (const [theme, literal] of Object.entries(expected)) {
+      expect(source, `the bootstrap must paint ${theme} as ${literal}`).toContain(`'${literal}'`)
+    }
     for (const page of pages) {
       const html = readFileSync(resolve(process.cwd(), page), 'utf8')
-      expect(html).toContain("'circuit-cad-app-store'")
-      for (const [theme, literal] of Object.entries(expected)) {
-        expect(html, `${page} must paint ${theme} as ${literal}`).toContain(`'${literal}'`)
-      }
+      expect(html, `${page} must load the shared bootstrap`).toContain('src="/theme-bootstrap.js"')
+      expect(html, `${page} must not carry an inline bootstrap`).not.toContain('circuit-cad-app-store')
     }
   })
 
   it('reads the same storage key the app persists to', () => {
-    const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8')
-    expect(html).toContain("'circuit-cad-app-store'")
+    expect(bootstrap()).toContain("'circuit-cad-app-store'")
   })
 })
 

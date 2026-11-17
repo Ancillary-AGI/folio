@@ -165,11 +165,15 @@ export const SchematicToPcbPanel: React.FC<SchematicToPcbPanelProps> = ({
 
   const handleDownloadGerber = () => {
     if (!convertedLayout) return;
-    downloadFile(
-      schematicToPcbConverter.exportToGerber(convertedLayout),
-      `converted_top_copper_${convertedLayout.id}.gbr`,
-      'text/plain',
-    );
+    try {
+      downloadFile(
+        schematicToPcbConverter.exportToGerber(convertedLayout),
+        `converted_top_copper_${convertedLayout.id}.gbr`,
+        'text/plain',
+      );
+    } catch (error) {
+      setConversionError(describeError(error));
+    }
   };
 
 

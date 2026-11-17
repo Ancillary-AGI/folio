@@ -7,7 +7,7 @@
  * • write every token onto `<html>` as a CSS custom property;
  * • keep `color-scheme` in sync so native widgets (scrollbars, form controls,
  *   `autofill`) follow the theme instead of fighting it;
- * • expose the storage helpers the pre-paint script in `index.html` uses, so a
+ * • expose the storage helpers the pre-paint script `public/theme-bootstrap.js` uses, so a
  *   refreshed dark session never flashes white.
  *
  * The controller is deliberately framework-free: React subscribes to it through
@@ -104,7 +104,7 @@ export function subscribeToSystemTheme(listener: () => void): () => void {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Storage helpers — shared with the inline pre-paint script in `index.html`.
+ * Storage helpers — shared with the pre-paint script in `public/theme-bootstrap.js`.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 interface PersistedAppState {

@@ -14,59 +14,7 @@
   </head>
   <body>
     <div id="root"></div>
-    <script>
-      /*
-       * Pre-paint theme bootstrap, identical in behaviour to the workbench's so
-       * the console never flashes white. The background map holds the exact
-       * THEMES[*]['--background'] hexes from src/lib/theme/tokens.ts —
-       * theme.test.ts pins them in all three documents.
-       */
-      (function () {
-        var key = 'circuit-cad-app-store';
-        var preference = 'dark';
-        try {
-          var raw = localStorage.getItem(key);
-          if (raw) {
-            var parsed = JSON.parse(raw);
-            var stored = parsed && parsed.state && parsed.state.settings && parsed.state.settings.theme;
-            if (stored) preference = stored;
-          }
-        } catch (error) {
-          /* storage disabled — use the Dark CAD default */
-        }
-        var prefersDark = false;
-        var prefersContrast = false;
-        try {
-          prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-          prefersContrast = window.matchMedia('(prefers-contrast: more)').matches;
-        } catch (error) {
-          /* no matchMedia — explicit preference remains Dark */
-        }
-        var theme =
-          preference === 'system'
-            ? prefersContrast
-              ? 'high-contrast'
-              : prefersDark
-                ? 'dark'
-                : 'light'
-            : preference;
-        var isDark = theme !== 'light';
-        var root = document.documentElement;
-        root.dataset.theme = theme;
-        if (isDark) root.classList.add('dark');
-        root.style.colorScheme = isDark ? 'dark' : 'light';
-        /* Exact THEMES[*]['--background'] tokens from src/lib/theme/tokens.ts.
-           theme.test.ts pins every one of these literals. */
-        var backgrounds = {
-          'light': '#ffffff',
-          'dark': '#0a0f1a',
-          'folio-dark': '#07080d',
-          'professional': '#0a0f1a',
-          'high-contrast': '#000000',
-        };
-        root.style.backgroundColor = backgrounds[theme] || '#0a0f1a';
-      })();
-    </script>
+    <script src="/theme-bootstrap.js" data-theme-default="dark"></script>
     <script type="module" src="/src/console/main.tsx"></script>
   </body>
 </html>
