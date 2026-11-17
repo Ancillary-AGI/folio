@@ -7,7 +7,7 @@ standalone use.
 
 **Status:** active development. The full gate is `npm run verify` — lint and both
 typechecks pass with zero warnings, and the complete suite runs green end to end
-(3,853 tests across 341 files, verified locally; CI may log a different count as
+(3,878 tests across 343 files, verified locally; CI may log a different count as
 the suite grows).
 
 ---
@@ -492,10 +492,10 @@ npm run lint            # ESLint, zero warnings
 npm run a11y:buttons    # every icon-only button has an accessible name
 npm run typecheck       # app TypeScript
 npm run typecheck:node  # Vite/build config TypeScript
-npm test                # Vitest · run shard-by-shard; full suite pending CI capacity
+npm test                # Vitest · the full suite, one run
 npm run build           # production build
 npm run verify          # all of the gates above, in order
-npm run preview         # preview the build on port 4173
+npm run preview         # preview the build on port 5174
 ```
 
 CI (`.github/workflows/ci.yml`) runs all of the above on every push and PR.
