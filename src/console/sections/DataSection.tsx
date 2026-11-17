@@ -38,9 +38,9 @@ export default function DataSection() {
 
   return (
     <div className="max-w-4xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-card/60 p-4">
-        <div className="flex items-center gap-3">
-          <HardDrive className="h-5 w-5 text-primary" aria-hidden="true" />
+      <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border/70 bg-card/60 p-4">
+        <div className="flex items-start gap-3">
+          <HardDrive className="mt-0.5 h-5 w-5 text-primary" aria-hidden="true" />
           <div>
             <p className="text-sm font-bold text-foreground">{formatBytes(snapshot.totalBytes)} total</p>
             <p className="text-[11px] text-muted-foreground">{snapshot.entries.length} storage keys in this browser profile</p>

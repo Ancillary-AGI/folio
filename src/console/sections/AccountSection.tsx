@@ -75,7 +75,7 @@ export default function AccountSection({ offlineMode, user, onSignedOut }: Accou
               return (
                 <li
                   key={profile.id}
-                  className={`flex items-center gap-3 rounded-xl border p-3 ${isActive ? 'border-primary/50 bg-primary/5' : 'border-border/70 bg-card/60'}`}
+                  className={`flex items-start gap-3 rounded-xl border p-3 ${isActive ? 'border-primary/50 bg-primary/5' : 'border-border/70 bg-card/60'}`}
                 >
                   <Avatar name={profile.name} size={40} className="h-10 w-10 flex-shrink-0" />
                   <span className="min-w-0 flex-1">

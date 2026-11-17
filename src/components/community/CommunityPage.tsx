@@ -289,7 +289,7 @@ export default function CommunityPage({ onBack, onOpenTemplate, onImportFile }: 
         )}
 
         {/* Footer — the call to contribute, honest about what exists. */}
-        <div className="mt-10 rounded-xl border border-primary/25 bg-primary/5 p-5 sm:flex sm:items-center sm:justify-between sm:gap-6">
+        <div className="mt-10 rounded-xl border border-primary/25 bg-primary/5 p-5 sm:flex sm:items-start sm:justify-between sm:gap-6">
           <div className="flex items-start gap-3">
             <Inbox className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" aria-hidden="true" />
             <div>

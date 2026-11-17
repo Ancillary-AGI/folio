@@ -331,7 +331,7 @@ export default function DatasheetImporter({ onPartAdded, onClose }: DatasheetImp
                     type="button"
                     onClick={() => handleSelectVendorModel(entry)}
                     aria-label={`Add ${entry.name} to the component library`}
-                    className="flex w-full items-center justify-between gap-3 rounded bg-card p-2.5 text-left hover:bg-accent"
+                    className="flex w-full items-start justify-between gap-3 rounded bg-card p-2.5 text-left hover:bg-accent"
                   >
                     <span>
                       <span className="flex items-center gap-2">

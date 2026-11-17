@@ -516,7 +516,7 @@ export default function PluginMarketplace({ onClose }: PluginMarketplaceProps) {
               </div>
             )}
             {installedPlugins.map(plugin => (
-              <div key={plugin.id} className="flex items-center gap-3 bg-card rounded-lg p-3">
+              <div key={plugin.id} className="flex items-start gap-3 bg-card rounded-lg p-3">
                 <div className={`p-1.5 rounded ${getCategoryStyle(plugin.category)} shrink-0`}>{plugin.icon}</div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">

@@ -42,8 +42,8 @@ export default function PlanSection({ offlineMode, user }: PlanSectionProps) {
 
   return (
     <div className="max-w-3xl space-y-6">
-      <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 sm:flex sm:items-center sm:gap-4">
-        <ShieldCheck className="h-6 w-6 flex-shrink-0 text-primary" aria-hidden="true" />
+      <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 sm:flex sm:items-start sm:gap-4">
+        <ShieldCheck className="mt-0.5 h-6 w-6 flex-shrink-0 text-primary" aria-hidden="true" />
         <div className="mt-2 sm:mt-0">
           <p className="text-sm font-bold text-foreground">{plan.label}</p>
           <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{plan.detail}</p>

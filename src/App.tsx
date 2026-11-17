@@ -2343,7 +2343,7 @@ function App() {
               navigateTo(COMMUNITY_ROUTE)
               setShowCommunity(true)
             }}
-            className="flex w-full flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border border-border/70 bg-card/50 px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-accent"
+            className="flex w-full flex-wrap items-start justify-between gap-x-4 gap-y-2 rounded-xl border border-border/70 bg-card/50 px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-accent"
             aria-label="Open the community designs page"
           >
             <span className="min-w-0">
