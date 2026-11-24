@@ -1,0 +1,173 @@
+import type { OnboardingStep } from './onboardingSteps'
+
+export interface TourRect {
+  top: number
+  left: number
+  width: number
+  height: number
+}
+
+export type TourPlacement = 'center' | 'top' | 'bottom' | 'left' | 'right' | 'dock'
+
+export interface TourLayout {
+  card: { left: number; top: number; width: number }
+  spotlight: TourRect | null
+  placement: TourPlacement
+}
+
+const VIEWPORT_MARGIN = 16
+const CARD_GAP = 14
+const SPOTLIGHT_PADDING = 8
+const CARD_MAX_WIDTH = 420
+const CARD_MIN_WIDTH = 280
+const CARD_ESTIMATED_HEIGHT = 360
+
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), Math.max(min, max))
+
+function placementOrder(preferred: OnboardingStep['placement']): Exclude<TourPlacement, 'center' | 'dock'>[] {
+  switch (preferred) {
+    case 'top':
+      return ['top', 'bottom', 'right', 'left']
+    case 'right':
+      return ['right', 'left', 'bottom', 'top']
+    case 'left':
+      return ['left', 'right', 'bottom', 'top']
+    case 'bottom':
+    default:
+      return ['bottom', 'top', 'right', 'left']
+  }
+}
+
+/**
+ * Resolve the coach-mark and spotlight geometry.
+ *
+ * Pure so the geometry can be tested without a DOM: the tour must keep the
+ * highlighted element and the card on screen even when the target sits at an
+ * edge, is larger than the viewport, or disappears between steps.
+ */
+export function computeTourLayout(
+  target: TourRect | null,
+  card: { width: number; height: number },
+  viewport: { width: number; height: number },
+  preferred?: OnboardingStep['placement'],
+): TourLayout {
+  const width = Math.round(
+    Math.min(CARD_MAX_WIDTH, Math.max(CARD_MIN_WIDTH, viewport.width - VIEWPORT_MARGIN * 2)),
+  )
+  const height = Math.min(
+    card.height || CARD_ESTIMATED_HEIGHT,
+    Math.max(200, viewport.height - VIEWPORT_MARGIN * 2),
+  )
+  const centred: TourLayout = {
+    placement: 'center',
+    spotlight: null,
+    card: {
+      left: Math.round((viewport.width - width) / 2),
+      top: Math.max(VIEWPORT_MARGIN, Math.round((viewport.height - height) / 2)),
+      width,
+    },
+  }
+
+  if (
+    !target ||
+    target.width <= 0 ||
+    target.height <= 0 ||
+    target.top + target.height < 0 ||
+    target.top > viewport.height ||
+    target.left + target.width < 0 ||
+    target.left > viewport.width
+  ) {
+    return centred
+  }
+
+  const spot: TourRect = {
+    top: target.top - SPOTLIGHT_PADDING,
+    left: target.left - SPOTLIGHT_PADDING,
+    width: target.width + SPOTLIGHT_PADDING * 2,
+    height: target.height + SPOTLIGHT_PADDING * 2,
+  }
+  const maxLeft = viewport.width - width - VIEWPORT_MARGIN
+  const maxTop = viewport.height - height - VIEWPORT_MARGIN
+  const centreLeft = () => clamp(target.left + target.width / 2 - width / 2, VIEWPORT_MARGIN, maxLeft)
+  const centreTop = () => clamp(target.top + target.height / 2 - height / 2, VIEWPORT_MARGIN, maxTop)
+
+  for (const candidate of placementOrder(preferred)) {
+    if (candidate === 'bottom' && spot.top + spot.height + CARD_GAP + height <= viewport.height - VIEWPORT_MARGIN) {
+      return { placement: 'bottom', spotlight: spot, card: { left: centreLeft(), top: spot.top + spot.height + CARD_GAP, width } }
+    }
+    if (candidate === 'top' && spot.top - CARD_GAP - height >= VIEWPORT_MARGIN) {
+      return { placement: 'top', spotlight: spot, card: { left: centreLeft(), top: spot.top - CARD_GAP - height, width } }
+    }
+    if (candidate === 'right' && spot.left + spot.width + CARD_GAP + width <= viewport.width - VIEWPORT_MARGIN) {
+      return { placement: 'right', spotlight: spot, card: { left: spot.left + spot.width + CARD_GAP, top: centreTop(), width } }
+    }
+    if (candidate === 'left' && spot.left - CARD_GAP - width >= VIEWPORT_MARGIN) {
+      return { placement: 'left', spotlight: spot, card: { left: spot.left - CARD_GAP - width, top: centreTop(), width } }
+    }
+  }
+
+  /*
+   * Docking is the last honest option, so it has to choose a corner instead of
+   * always taking the bottom-right one: a card taller than the space left for it
+   * is pushed back onto the top margin, where it silently buries the bar it came
+   * to describe. A spotlight the card sits on is not a spotlight, so the corners
+   * are tried in preference order and the guide drops to a plain teaching card
+   * when none of them keeps the target's centre in the clear.
+   */
+  const dockLeft = Math.max(VIEWPORT_MARGIN, viewport.width - width - VIEWPORT_MARGIN)
+  const dockTop = Math.max(VIEWPORT_MARGIN, viewport.height - height - VIEWPORT_MARGIN)
+  const spotCentre = { x: spot.left + spot.width / 2, y: spot.top + spot.height / 2 }
+  const coversTarget = (left: number, top: number) =>
+    spotCentre.x >= left && spotCentre.x <= left + width && spotCentre.y >= top && spotCentre.y <= top + height
+  const corner = [
+    { left: dockLeft, top: dockTop },
+    { left: VIEWPORT_MARGIN, top: dockTop },
+    { left: dockLeft, top: VIEWPORT_MARGIN },
+    { left: VIEWPORT_MARGIN, top: VIEWPORT_MARGIN },
+  ].find((candidate) => !coversTarget(candidate.left, candidate.top))
+
+  if (!corner) return centred
+  return { placement: 'dock', spotlight: spot, card: { ...corner, width } }
+}
+
+/** Half of the 12 px caret square. */
+const CARET_OFFSET = 6
+const CARET_EDGE_INSET = 20
+
+export interface TourCaret {
+  /** CSS classes: `.tour-caret` plus the side that faces the spotlight. */
+  side: 'top' | 'bottom' | 'left' | 'right'
+  /** Offset along the facing edge, in card-local coordinates. */
+  along: number
+}
+
+/**
+ * Where the coach-mark caret sits. Only a card that is placed beside or above
+ * a target can point at it; a centred or docked card has no honest direction,
+ * so it gets no caret rather than a decorative one.
+ */
+export function computeTourCaret(
+  layout: TourLayout,
+  cardHeight: number,
+  target: TourRect | null,
+): TourCaret | null {
+  const { placement, spotlight } = layout
+  if (!spotlight || !target) return null
+  const spotX = spotlight.left + spotlight.width / 2
+  const spotY = spotlight.top + spotlight.height / 2
+  if (placement === 'top' || placement === 'bottom') {
+    const max = Math.max(CARET_EDGE_INSET, layout.card.width - CARET_EDGE_INSET - CARET_OFFSET * 2)
+    return {
+      side: placement === 'bottom' ? 'top' : 'bottom',
+      along: clamp(spotX - layout.card.left - CARET_OFFSET, CARET_EDGE_INSET, max),
+    }
+  }
+  if (placement === 'left' || placement === 'right') {
+    const max = Math.max(CARET_EDGE_INSET, (cardHeight || 240) - CARET_EDGE_INSET - CARET_OFFSET * 2)
+    return {
+      side: placement === 'right' ? 'left' : 'right',
+      along: clamp(spotY - layout.card.top - CARET_OFFSET, CARET_EDGE_INSET, max),
+    }
+  }
+  return null
+}

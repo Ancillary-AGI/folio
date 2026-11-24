@@ -1,0 +1,307 @@
+/**
+ * Device-side usage ledger for the workbench.
+ *
+ * The ledger is deliberately small and boring: append-only events, a hard cap,
+ * and aggregation that is deterministic for a given clock. It records what this
+ * browser actually did (workspace opens, demos, projects, commits, exports) and
+ * `usageRecorder` mirrors each event into the deployment's `usage_events` table,
+ * which is what the operator console reports on. The aggregations here are pure
+ * functions over events, so the console reuses them on deployment rows instead
+ * of keeping a second, divergent implementation.
+ */
+
+export const USAGE_STORAGE_KEY = 'folio.usage.v1'
+export const USAGE_EVENT_CAP = 5000
+
+/** One list, so the recorder, the console's filters and the schema cannot drift. */
+export const USAGE_KINDS = [
+  'workspace.open',
+  'demo.load',
+  'project.create',
+  'project.open',
+  'vcs.commit',
+  'export.run',
+  'simulation.run',
+  'agent.run',
+  /** The engineer reached the last step and finished or took the hand-off. */
+  'onboarding.complete',
+  /** The guide was closed or skipped before the last step. */
+  'onboarding.exit',
+  'admin.open',
+  /** A community design was adopted into the user's own projects. */
+  'template.fork',
+] as const
+
+export type UsageKind = (typeof USAGE_KINDS)[number]
+
+/**
+ * One label per kind, used by the console's filters, tables and charts. Kept
+ * beside the kind list so a new kind cannot be recorded without a name.
+ */
+export const USAGE_KIND_LABELS: Readonly<Record<UsageKind, string>> = Object.freeze({
+  'workspace.open': 'Workspace opened',
+  'demo.load': 'Demo loaded',
+  'project.create': 'Project created',
+  'project.open': 'Project opened',
+  'vcs.commit': 'Version committed',
+  'export.run': 'Export produced',
+  'simulation.run': 'Simulation run',
+  'agent.run': 'Agent run',
+  'onboarding.complete': 'Guided tour finished',
+  'onboarding.exit': 'Guided tour ended early',
+  'admin.open': 'Admin console opened',
+  'template.fork': 'Community design made theirs',
+})
+
+export function usageKindLabel(kind: UsageKind): string {
+  return USAGE_KIND_LABELS[kind]
+}
+
+export interface UsageEvent {
+  id: string
+  at: number
+  user: string
+  kind: UsageKind
+  detail?: Record<string, string | number | boolean>
+}
+
+export interface UsageSummary {
+  total: number
+  byKind: Array<{ kind: UsageKind; count: number }>
+  byMode: Array<{ mode: string; count: number }>
+  byUser: Array<{ user: string; count: number }>
+  daily: Array<{ date: string; count: number }>
+}
+
+let sequence = 0
+let cache: UsageEvent[] = []
+let cacheLoaded = false
+let persistenceFailed = false
+const listeners = new Set<() => void>()
+
+function isUsageEvent(value: unknown): value is UsageEvent {
+  if (!value || typeof value !== 'object') return false
+  const event = value as Partial<UsageEvent>
+  return (
+    typeof event.id === 'string' &&
+    typeof event.at === 'number' && Number.isFinite(event.at) &&
+    typeof event.user === 'string' &&
+    typeof event.kind === 'string'
+  )
+}
+
+function read(): UsageEvent[] {
+  if (cacheLoaded) return cache
+  cacheLoaded = true
+  if (typeof localStorage === 'undefined') return cache
+  let raw: string | null
+  try {
+    raw = localStorage.getItem(USAGE_STORAGE_KEY)
+  } catch {
+    // A store that refuses reads is not durable, even if writes have not run yet.
+    persistenceFailed = true
+    return cache
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw ?? '[]')
+    cache = Array.isArray(parsed) ? parsed.filter(isUsageEvent).slice(-USAGE_EVENT_CAP) : []
+  } catch {
+    // Corrupt JSON is discarded, not a storage failure: the next append rewrites it.
+    cache = []
+  }
+  return cache
+}
+
+function persist(events: UsageEvent[]): void {
+  if (typeof localStorage === 'undefined') {
+    persistenceFailed = true
+    return
+  }
+  try {
+    localStorage.setItem(USAGE_STORAGE_KEY, JSON.stringify(events))
+    persistenceFailed = false
+  } catch {
+    // Storage can be full or blocked. The in-memory ledger stays usable for
+    // this session; `isUsageLedgerPersistent()` lets the admin console say so.
+    persistenceFailed = true
+  }
+}
+
+function notify(): void {
+  for (const listener of listeners) listener()
+}
+
+function sameDetail(
+  left: UsageEvent['detail'],
+  right: UsageEvent['detail'],
+): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
+}
+
+/** Append an event. Consecutive duplicates inside 3 s are collapsed. */
+export function recordUsage(
+  kind: UsageKind,
+  user: string,
+  detail?: UsageEvent['detail'],
+  now = Date.now(),
+): UsageEvent | null {
+  if (!user) return null
+  const events = read()
+  const last = events[events.length - 1]
+  // Only a forward-in-time duplicate is collapsed. A backdated event (clock
+  // correction, restored session) must still be recorded.
+  if (last && last.kind === kind && last.user === user && now >= last.at && now - last.at < 3000 && sameDetail(last.detail, detail)) {
+    return last
+  }
+  sequence += 1
+  const event: UsageEvent = {
+    id: `use_${now.toString(36)}_${sequence.toString(36)}`,
+    at: now,
+    user,
+    kind,
+    ...(detail ? { detail } : {}),
+  }
+  cache = [...events, event].slice(-USAGE_EVENT_CAP)
+  persist(cache)
+  notify()
+  return event
+}
+
+export function getUsageEvents(): readonly UsageEvent[] {
+  return read()
+}
+
+/**
+ * True when the ledger is being written to durable browser storage. A blocked
+ * or full store leaves the in-memory ledger usable for this session only, and
+ * the workbench labels that state instead of implying durability.
+ */
+export function isUsageLedgerPersistent(): boolean {
+  return typeof localStorage !== 'undefined' && !persistenceFailed
+}
+
+export function subscribeUsage(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+/** Tests reset the module singleton between cases; production code never calls this. */
+export function resetUsageLedger(): void {
+  cache = []
+  cacheLoaded = true
+  sequence = 0
+  if (typeof localStorage === 'undefined') {
+    persistenceFailed = true
+  } else {
+    try {
+      localStorage.removeItem(USAGE_STORAGE_KEY)
+      persistenceFailed = false
+    } catch {
+      persistenceFailed = true
+    }
+  }
+  notify()
+}
+
+export function usageSince(days: number, now = Date.now()): UsageEvent[] {
+  const bounded = Math.max(1, Math.floor(days))
+  const start = now - bounded * 24 * 3600 * 1000
+  return read().filter((event) => event.at >= start)
+}
+
+/** Local calendar day key (`YYYY-MM-DD`), so daily buckets match the user's clock. */
+export function usageDayKey(timestamp: number): string {
+  const date = new Date(timestamp)
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+export function summarizeUsage(events: readonly UsageEvent[], days: number, now = Date.now()): UsageSummary {
+  const bounded = Math.max(1, Math.floor(days))
+  const start = now - bounded * 24 * 3600 * 1000
+  const scoped = events.filter((event) => event.at >= start)
+
+  const kindCounts = new Map<UsageKind, number>()
+  const modeCounts = new Map<string, number>()
+  const userCounts = new Map<string, number>()
+  const dailyCounts = new Map<string, number>()
+
+  for (let offset = bounded - 1; offset >= 0; offset -= 1) {
+    dailyCounts.set(usageDayKey(now - offset * 24 * 3600 * 1000), 0)
+  }
+
+  for (const event of scoped) {
+    kindCounts.set(event.kind, (kindCounts.get(event.kind) ?? 0) + 1)
+    const mode = event.detail?.mode
+    if (typeof mode === 'string') modeCounts.set(mode, (modeCounts.get(mode) ?? 0) + 1)
+    userCounts.set(event.user, (userCounts.get(event.user) ?? 0) + 1)
+    const day = usageDayKey(event.at)
+    dailyCounts.set(day, (dailyCounts.get(day) ?? 0) + 1)
+  }
+
+  return {
+    total: scoped.length,
+    byKind: [...kindCounts.entries()]
+      .map(([kind, count]) => ({ kind, count }))
+      .sort((a, b) => b.count - a.count || a.kind.localeCompare(b.kind)),
+    byMode: [...modeCounts.entries()]
+      .map(([mode, count]) => ({ mode, count }))
+      .sort((a, b) => b.count - a.count || a.mode.localeCompare(b.mode)),
+    byUser: [...userCounts.entries()]
+      .map(([user, count]) => ({ user, count }))
+      .sort((a, b) => b.count - a.count || a.user.localeCompare(b.user)),
+    daily: [...dailyCounts.entries()]
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date)),
+  }
+}
+
+/** What one account did inside the window the console is showing. */
+export interface AccountUsage {
+  user: string
+  events: number
+  /** Most recent event; an account with no events has no entry at all. */
+  lastAt: number
+  topKind: UsageKind
+  kinds: Array<{ kind: UsageKind; count: number }>
+}
+
+/**
+ * Roll a window of events up per account, for the People table.
+ *
+ * The directory knows who exists; only the ledger knows who actually works
+ * here. Keying the rollup by account is what lets an administrator sort a
+ * list of names by use instead of by alphabet — and an account with no events
+ * is absent rather than zero-filled, so the table can say "no activity"
+ * instead of implying it measured something it did not.
+ */
+export function usageByAccount(events: readonly UsageEvent[]): Map<string, AccountUsage> {
+  const rows = new Map<string, { events: number; lastAt: number; kinds: Map<UsageKind, number> }>()
+  for (const event of events) {
+    const row = rows.get(event.user)
+    if (row) {
+      row.events += 1
+      row.lastAt = Math.max(row.lastAt, event.at)
+      row.kinds.set(event.kind, (row.kinds.get(event.kind) ?? 0) + 1)
+    } else {
+      rows.set(event.user, { events: 1, lastAt: event.at, kinds: new Map([[event.kind, 1]]) })
+    }
+  }
+  const usage = new Map<string, AccountUsage>()
+  for (const [user, row] of rows) {
+    const kinds = [...row.kinds.entries()]
+      .map(([kind, count]) => ({ kind, count }))
+      .sort((a, b) => b.count - a.count || a.kind.localeCompare(b.kind))
+    usage.set(user, { user, events: row.events, lastAt: row.lastAt, topKind: kinds[0].kind, kinds })
+  }
+  return usage
+}
+
+export function countUsage(
+  kind: UsageKind,
+  since: number,
+  user?: string,
+): number {
+  return read().filter((event) => event.kind === kind && event.at >= since && (!user || event.user === user)).length
+}

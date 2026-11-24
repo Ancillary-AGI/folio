@@ -1,63 +1,26 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js'
+import { cloudConfig } from './cloudConfig'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+export { isSupabaseConfigured } from './cloudConfig'
+export type { Project, Schematic, Component, PinType } from './db/types'
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
-}
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-export interface Project {
-  id: string;
-  user_id: string;
-  name: string;
-  description: string;
-  thumbnail?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Component {
-  id: string;
-  user_id?: string;
-  category: string;
-  name: string;
-  symbol_data: any;
-  pins: any[];
-  default_properties: Record<string, any>;
-  is_standard: boolean;
-  created_at: string;
-}
-
-export interface Schematic {
-  id: string;
-  project_id: string;
-  name: string;
-  canvas_data: any;
-  order_index: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface PlacedComponent {
-  id: string;
-  schematic_id: string;
-  component_id: string;
-  position_x: number;
-  position_y: number;
-  rotation: number;
-  reference: string;
-  properties: Record<string, any>;
-  created_at: string;
-}
-
-export interface Wire {
-  id: string;
-  schematic_id: string;
-  points: Array<{ x: number; y: number }>;
-  connected_pins: any[];
-  net_name?: string;
-  created_at: string;
-}
+/**
+ * The workbench's own session. The operator console keeps a separate client and
+ * storage key (`src/lib/admin/operatorSession.ts`) so governing the product can
+ * never ride on a designer's signed-in session.
+ *
+ * With no cloud project this points at the bundled local backend rather than
+ * nowhere — `cloudConfig.apiUrl` resolves the same way for every caller.
+ *
+ * Passkeys are enabled as an experimental feature: the methods throw until this
+ * flag is set, and enabling it only unlocks them — it makes no call on its own, so
+ * password sign-in is unaffected and a backend without the passkey endpoints
+ * simply reports that they are unavailable when one is used.
+ */
+export const supabase = createClient(cloudConfig.apiUrl, cloudConfig.resolvedAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    experimental: { passkey: true },
+  },
+})
