@@ -1,0 +1,256 @@
+import HoverHelp from '../ui/HoverHelp'
+import {
+  MousePointer,
+  Pencil,
+  Trash2,
+  Grid3X3,
+  Magnet,
+  Ruler,
+  Undo2,
+  Redo2,
+  Zap,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Save,
+  CircuitBoard,
+  Activity,
+  LayoutGrid,
+  ShieldCheck,
+} from 'lucide-react'
+import type { ReactNode } from 'react'
+import { useAppStore } from '../../stores/useAppStore'
+import { useProjectStore } from '../../stores/useProjectStore'
+import { useShortcutStore } from '../../stores/useShortcutStore'
+import { useDesignHealthStore } from '../../stores/useDesignHealthStore'
+import { describeShortcut } from '../../lib/keymap/shortcuts'
+import type { HelpTopicId } from '../../lib/help/helpTopics'
+import { loadBoardDemo } from '../../lib/demo/loadDemo'
+
+interface ToolRailProps {
+  /** Persists the current design snapshot (same payload as the canvas autosave). */
+  onSave: () => void
+}
+
+const POINTER_TOOLS = [
+  { id: 'select', topicId: 'rail.select', label: 'Select', shortcut: 'schematic.selectTool', icon: MousePointer },
+  { id: 'wire', topicId: 'rail.wire', label: 'Wire', shortcut: 'schematic.wireTool', icon: Zap },
+  { id: 'delete', topicId: 'rail.delete', label: 'Delete', shortcut: 'schematic.deleteTool', icon: Trash2 },
+  { id: 'sketch', topicId: 'rail.sketch', label: 'Sketch', shortcut: 'schematic.sketchTool', icon: Pencil },
+] as const satisfies ReadonlyArray<{
+  id: 'select' | 'wire' | 'delete' | 'sketch'
+  topicId: HelpTopicId
+  label: string
+  shortcut: string
+  icon: typeof MousePointer
+}>
+
+const clampZoom = (zoom: number) => Math.min(8, Math.max(0.1, zoom))
+
+interface RailButtonProps {
+  /** Help topic id; its title, description and keys feed the hover guide. */
+  topicId: HelpTopicId
+  ariaLabel: string
+  onClick: () => void
+  active?: boolean
+  ariaPressed?: boolean
+  keyHint?: string
+  children: ReactNode
+}
+
+/** One square rail button; the optional mono keycap advertises its shortcut. */
+function RailButton({
+  topicId,
+  ariaLabel,
+  onClick,
+  active,
+  ariaPressed,
+  keyHint,
+  children,
+}: RailButtonProps) {
+  return (
+    <HoverHelp topicId={topicId} placement="right">
+      <button
+        type="button"
+        className={`cad-rail-btn ${active ? 'cad-rail-btn-active' : ''}`}
+        aria-pressed={ariaPressed}
+        aria-label={ariaLabel}
+        onClick={onClick}
+      >
+        {children}
+        {keyHint && <span className="cad-rail-key">{keyHint}</span>}
+      </button>
+    </HoverHelp>
+  )
+}
+
+/** Undo/redo buttons that re-render as the snapshot stacks change. */
+function UndoRedoRailButtons() {
+  // Subscribe to canvas arrays so the buttons re-render on every edit;
+  // canUndo/canRedo read the stacks owned beside the store creator.
+  useProjectStore((s) => s.components)
+  useProjectStore((s) => s.wires)
+  const canUndo = useProjectStore.getState().canUndo()
+  const canRedo = useProjectStore.getState().canRedo()
+  return (
+    <>
+      <RailButton topicId="rail.undo" ariaLabel="Undo" onClick={() => useProjectStore.getState().undo()}>
+        <span style={{ opacity: canUndo ? 1 : 0.35 }}>
+          <Undo2 className="h-4 w-4" />
+        </span>
+      </RailButton>
+      <RailButton topicId="rail.redo" ariaLabel="Redo" onClick={() => useProjectStore.getState().redo()}>
+        <span style={{ opacity: canRedo ? 1 : 0.35 }}>
+          <Redo2 className="h-4 w-4" />
+        </span>
+      </RailButton>
+    </>
+  )
+}
+
+/**
+ * Vertical tool rail pinned to the left edge of the sheet: pointer tools with
+ * keyboard shortcuts, display toggles, and view controls.
+ */
+export default function ToolRail({ onSave }: ToolRailProps) {
+  const activeTool = useAppStore((state) => state.activeTool)
+  const setActiveTool = useAppStore((state) => state.setActiveTool)
+  const settings = useAppStore((state) => state.settings)
+  const updateSettings = useAppStore((state) => state.updateSettings)
+  const viewport = useAppStore((state) => state.viewport)
+  const setZoom = useAppStore((state) => state.setZoom)
+  const shortcutOverrides = useShortcutStore((state) => state.overrides)
+  const healthErrors = useDesignHealthStore((state) => state.result?.summary.errors ?? 0)
+  const healthPanelOpen = useDesignHealthStore((state) => state.panelOpen)
+  const toggleHealthPanel = useDesignHealthStore((state) => state.togglePanel)
+
+  return (
+    <div className="cad-rail" role="toolbar" aria-orientation="vertical" aria-label="Editor tools" data-tour="tool-rail">
+      {/* Pointer tools */}
+      {POINTER_TOOLS.map((tool) => (
+        <RailButton
+          key={tool.id}
+          topicId={tool.topicId}
+          ariaLabel={`${tool.label} tool`}
+          keyHint={describeShortcut(tool.shortcut, shortcutOverrides)}
+          active={activeTool === tool.id}
+          ariaPressed={activeTool === tool.id}
+          onClick={() => setActiveTool(tool.id)}
+        >
+          <tool.icon className="h-4 w-4" />
+        </RailButton>
+      ))}
+
+      <span className="cad-rail-sep" aria-hidden="true" />
+
+      {/* Sheet display toggles */}
+      <RailButton
+        topicId="rail.grid"
+        ariaLabel={`Toggle grid (${settings.showGrid ? 'on' : 'off'})`}
+        active={settings.showGrid}
+        ariaPressed={settings.showGrid}
+        keyHint={describeShortcut('schematic.grid', shortcutOverrides)}
+        onClick={() => updateSettings({ showGrid: !settings.showGrid })}
+      >
+        <Grid3X3 className="h-4 w-4" />
+      </RailButton>
+      <RailButton
+        topicId="rail.snap"
+        ariaLabel={`Toggle snap to grid (${settings.snapToGrid ? 'on' : 'off'})`}
+        active={settings.snapToGrid}
+        ariaPressed={settings.snapToGrid}
+        onClick={() => updateSettings({ snapToGrid: !settings.snapToGrid })}
+      >
+        <Magnet className="h-4 w-4" />
+      </RailButton>
+      <RailButton
+        topicId="rail.rulers"
+        ariaLabel={`Toggle rulers (${settings.showRulers ? 'on' : 'off'})`}
+        active={settings.showRulers}
+        ariaPressed={settings.showRulers}
+        onClick={() => updateSettings({ showRulers: !settings.showRulers })}
+      >
+        <Ruler className="h-4 w-4" />
+      </RailButton>
+
+      <span className="cad-rail-sep" aria-hidden="true" />
+
+      {/* View controls */}
+      <RailButton topicId="rail.zoom-in" ariaLabel="Zoom in" onClick={() => setZoom(clampZoom(viewport.zoom * 1.2))}>
+        <ZoomIn className="h-4 w-4" />
+      </RailButton>
+      <RailButton topicId="rail.zoom-out" ariaLabel="Zoom out" onClick={() => setZoom(clampZoom(viewport.zoom / 1.2))}>
+        <ZoomOut className="h-4 w-4" />
+      </RailButton>
+      <RailButton
+        topicId="rail.fit"
+        ariaLabel="Fit design to view"
+        keyHint={describeShortcut('schematic.fit', shortcutOverrides)}
+        onClick={() => window.dispatchEvent(new CustomEvent('folio:fit-view'))}
+      >
+        <Maximize2 className="h-4 w-4" />
+      </RailButton>
+      {/* One press: the sheet arranges itself into grid-aligned signal columns. */}
+      <RailButton
+        topicId="rail.tidy"
+        ariaLabel="Tidy arrange the sheet"
+        keyHint={describeShortcut('schematic.tidy', shortcutOverrides)}
+        onClick={() => window.dispatchEvent(new CustomEvent('folio:tidy-schematic'))}
+      >
+        <LayoutGrid className="h-4 w-4" />
+      </RailButton>
+
+      <span className="cad-rail-sep" aria-hidden="true" />
+
+      <RailButton topicId="rail.save" ariaLabel="Save design" onClick={onSave}>
+        <Save className="h-4 w-4" />
+      </RailButton>
+
+      {/* The rule check is part of the drafting loop, so its panel sits on the
+          rail: one press swaps the canvas height for the findings list. */}
+      <RailButton
+        topicId="rail.problems"
+        ariaLabel={`${healthPanelOpen ? 'Hide' : 'Show'} the design health panel${
+          healthErrors > 0 ? `, ${healthErrors} error${healthErrors === 1 ? '' : 's'}` : ''
+        }`}
+        active={healthPanelOpen}
+        ariaPressed={healthPanelOpen}
+        onClick={toggleHealthPanel}
+      >
+        <span className="relative">
+          <ShieldCheck className="h-4 w-4" />
+          {healthErrors > 0 && (
+            <span
+              className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-destructive"
+              aria-hidden="true"
+            />
+          )}
+        </span>
+      </RailButton>
+
+      {/* Undo/redo operate on the project store's snapshot stack. */}
+      <UndoRedoRailButtons />
+
+      {/* One-click proof: the same board loader the demo gallery uses, so the
+          sheet lands in one known state whichever surface asked for it. */}
+      <RailButton
+        topicId="rail.demo"
+        ariaLabel="Load demo rectifier board"
+        onClick={() => {
+          loadBoardDemo('Half-wave rectifier')
+          window.dispatchEvent(new CustomEvent('folio:fit-view'))
+        }}
+      >
+        <CircuitBoard className="h-4 w-4" />
+      </RailButton>
+      {/* Simulation lives one tab to the right of the sheet — jump straight there. */}
+      <RailButton
+        topicId="rail.simulation"
+        ariaLabel="Open Simulation workspace"
+        onClick={() => useAppStore.getState().setWorkspaceMode('simulation')}
+      >
+        <Activity className="h-4 w-4" />
+      </RailButton>
+    </div>
+  )
+}

@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { X } from 'lucide-react';
+import HoverHelp from './ui/HoverHelp'
+import { useState, useEffect } from "react";
+import { X, RotateCw, Lock, Eye, EyeOff, ArrowUpRight } from "lucide-react";
+import { Button } from "./ui/button";
 
 interface ComponentInstance {
   id: string;
@@ -7,114 +9,561 @@ interface ComponentInstance {
   component: {
     name: string;
     category: string;
+    pins: Array<{ id: string; name: string; type: string }>;
+    /**
+     * Where the symbol came from, when the library row knows: a designer
+     * selects a part on the sheet and wants the orderable number and the paper
+     * behind its pinout without going back to the dock.
+     */
+    source?: {
+      manufacturer?: string;
+      partNumber?: string;
+      package?: string;
+      datasheetUrl?: string;
+    } | null;
   };
-  properties: Record<string, any>;
+  properties: Record<string, string | number | boolean>;
+  x: number;
+  y: number;
+  rotation?: number;
+  locked?: boolean;
+  visible?: boolean;
+}
+
+interface PinNetRef {
+  name: string | null;
+  wireId: string;
 }
 
 interface PropertiesPanelProps {
   component: ComponentInstance | null;
-  onUpdate: (id: string, properties: Record<string, any>) => void;
+  onUpdate: (id: string, properties: Record<string, string | number | boolean>) => void;
   onClose: () => void;
+  /**
+   * Where each pin lands, keyed by pin id. A designer reading a pinout wants the
+   * net, not just the pad name; the row probes across to the net inspector.
+   */
+  pinNets?: Record<string, PinNetRef>;
+  onSelectPinNet?: (pinId: string) => void;
 }
 
-export default function PropertiesPanel({ component, onUpdate, onClose }: PropertiesPanelProps) {
-  const [properties, setProperties] = useState(component?.properties || {});
+/**
+ * Inspector palette: flat section bars over dense label → value rows — the
+ * row rhythm of a CAD properties panel, not a web form. Edits stage locally
+ * and reach the design through Apply; lock/visibility are live toggle rows.
+ */
+/**
+ * Keys the inspector itself owns: the canvas and the netlist builder read these
+ * from the saved properties, so an added attribute with the same name would
+ * silently fight the transform rows above it.
+ */
+const RESERVED_KEYS = new Set(['x', 'y', 'rotation', 'locked', 'visible']);
+
+/** Stable stand-in for "nothing selected" so the reload effect has a fixed identity. */
+const NO_PROPERTIES: Record<string, string | number | boolean> = {}
+
+export default function PropertiesPanel({ component, onUpdate, onClose, pinNets, onSelectPinNet }: PropertiesPanelProps) {
+  // The workspace rebuilds its `component` prop on every render, so the staged
+  // editor reloads from the values it mirrors rather than the prop's identity:
+  // switching a canvas tool mid-edit used to roll the un-applied edits back and
+  // re-disable Apply, silently discarding what the designer had just typed.
+  const selectedId = component?.id ?? null;
+  const committedProperties = component?.properties ?? NO_PROPERTIES;
+  const committedX = component?.x ?? 0;
+  const committedY = component?.y ?? 0;
+  const committedRotation = component?.rotation ?? 0;
+  const committedLocked = component?.locked ?? false;
+  const committedVisible = component?.visible ?? true;
+
+  const [properties, setProperties] = useState(committedProperties);
+  const [position, setPosition] = useState({ x: committedX, y: committedY });
+  const [rotation, setRotation] = useState(committedRotation);
+  const [isLocked, setIsLocked] = useState(committedLocked);
+  const [isVisible, setIsVisible] = useState(committedVisible);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [draftKey, setDraftKey] = useState('');
+  const [draftValue, setDraftValue] = useState('');
+  const [attributeError, setAttributeError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setProperties(committedProperties);
+    setPosition({ x: committedX, y: committedY });
+    setRotation(committedRotation);
+    setIsLocked(committedLocked);
+    setIsVisible(committedVisible);
+    setHasUnsavedChanges(false);
+    setDraftKey('');
+    setDraftValue('');
+    setAttributeError(null);
+  }, [
+    selectedId,
+    committedProperties,
+    committedX,
+    committedY,
+    committedRotation,
+    committedLocked,
+    committedVisible,
+  ]);
 
   if (!component) return null;
 
-  const handleChange = (key: string, value: string) => {
-    const updated = { ...properties, [key]: value };
-    setProperties(updated);
+  const handlePropertyChange = (key: string, value: string | number | boolean) => {
+    setProperties((prev) => ({ ...prev, [key]: value }));
+    setHasUnsavedChanges(true);
+  };
+
+  const addAttribute = () => {
+    const key = draftKey.trim();
+    if (!key) {
+      setAttributeError('Enter a parameter name.');
+      return;
+    }
+    if (!/^[A-Za-z][A-Za-z0-9_.]{0,31}$/.test(key)) {
+      setAttributeError('Names start with a letter and use letters, digits, "." or "_".');
+      return;
+    }
+    if (RESERVED_KEYS.has(key.toLowerCase())) {
+      setAttributeError(`"${key}" is set by the Transform and Display rows.`);
+      return;
+    }
+    if (properties[key] !== undefined) {
+      setAttributeError(`"${key}" is already an attribute of this part.`);
+      return;
+    }
+    const raw = draftValue.trim();
+    const numeric = raw === '' ? Number.NaN : Number(raw);
+    // '5V', '1u' and '0,0 1u,5' are SPICE-scaled or structured values and must
+    // stay text; only a bare number becomes a numeric field.
+    const value = Number.isFinite(numeric) && /^-?\d*\.?\d+(e-?\d+)?$/i.test(raw) ? numeric : raw;
+    handlePropertyChange(key, value);
+    setDraftKey('');
+    setDraftValue('');
+    setAttributeError(null);
+  };
+
+  const removeAttribute = (key: string) => {
+    setProperties((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setHasUnsavedChanges(true);
+  };
+
+  const handlePositionChange = (axis: "x" | "y", value: number) => {
+    setPosition((prev) => ({ ...prev, [axis]: value }));
+    setHasUnsavedChanges(true);
+  };
+
+  const handleRotationChange = (newRotation: number) => {
+    setRotation(newRotation);
+    setHasUnsavedChanges(true);
   };
 
   const handleSave = () => {
-    onUpdate(component.id, properties);
-    onClose();
+    onUpdate(component.id, {
+      ...properties,
+      x: position.x,
+      y: position.y,
+      rotation,
+      locked: isLocked,
+      visible: isVisible,
+    });
+    setHasUnsavedChanges(false);
   };
 
+  const handleReset = () => {
+    setProperties(component.properties);
+    setPosition({ x: component.x, y: component.y });
+    setRotation(component.rotation ?? 0);
+    setHasUnsavedChanges(false);
+  };
+
+  /*
+   * An inspector field is a place to finish, not a place to admire: Enter
+   * applies what is typed, the same as clicking Apply. Editing the value of a
+   * part you just selected should never require reaching for the mouse.
+   */
+  const commitOnEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      handleSave();
+    }
+  };
+  const addOnEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      addAttribute();
+    }
+  };
+
+  const getPropertyType = (key: string, value: unknown) => {
+    if (typeof value === "boolean") return "checkbox";
+    if (typeof value === "number") return "number";
+    if (key.toLowerCase().includes("color")) return "color";
+    return "text";
+  };
+
+  const formatPropertyLabel = (key: string) =>
+    key
+      .replace(/_/g, " ")
+      .replace(/([A-Z])/g, " $1")
+      .replace(/^./, (str) => str.toUpperCase())
+      .trim();
+
+  const source = component.component.source ?? null;
+  const partNumber = source?.partNumber ?? null;
+  const sourceLine = [partNumber, source?.manufacturer].filter(Boolean).join(" · ");
+  const sourceTitle = [partNumber, source?.package, source?.manufacturer].filter(Boolean).join(" · ");
+  const datasheetUrl = source?.datasheetUrl ?? null;
+
   return (
-    <div className="absolute top-0 right-0 w-80 h-full bg-white border-l border-gray-200 shadow-lg">
-      <div className="flex items-center justify-between p-4 border-b border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900">Properties</h3>
-        <button
-          onClick={onClose}
-          className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
-        >
-          <X size={20} className="text-gray-500" />
-        </button>
+    <aside className="cad-inspector" aria-label="Properties inspector">
+      {/* Palette title: refdes, part type, dirty state, close */}
+      <div className="cad-palette-title">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span className="cad-readout text-[11px] font-bold normal-case tracking-normal text-foreground">
+            {component.reference}
+          </span>
+          <span className="truncate font-normal normal-case tracking-normal text-muted-foreground">
+            {component.component.name}
+          </span>
+        </div>
+        <div className="flex flex-shrink-0 items-center gap-1.5">
+          {hasUnsavedChanges && (
+            <span
+              className="h-1.5 w-1.5 rounded-full bg-warning"
+              title="Unsaved changes"
+              aria-label="Unsaved changes"
+            />
+          )}
+          <HoverHelp title="Close inspector" description="Close inspector">
+<Button variant="ghost"
+            size="icon"
+            className="h-5 w-5"
+            onClick={onClose} aria-label="Close inspector">
+            <X className="h-3.5 w-3.5" />
+          </Button>
+</HoverHelp>
+        </div>
       </div>
 
-      <div className="p-4 space-y-4 overflow-y-auto h-[calc(100%-8rem)]">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Reference
-          </label>
+      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
+        {/* ── General ── */}
+        <div className="cad-section-title">General</div>
+        <div className="cad-prop-row">
+          <span className="cad-prop-label">Reference</span>
           <input
-            type="text"
+            className="cad-field"
             value={component.reference}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50"
+            readOnly
             disabled
+            aria-label="Reference designator"
           />
         </div>
+        <div className="cad-prop-row">
+          <span className="cad-prop-label">Type</span>
+          <span className="cad-prop-value">{component.component.name}</span>
+        </div>
+        <div className="cad-prop-row">
+          <span className="cad-prop-label">Category</span>
+          <span className="cad-prop-value">{component.component.category}</span>
+        </div>
+        {sourceLine ? (
+          <div className="cad-prop-row">
+            <span className="cad-prop-label">Order as</span>
+            <span className="cad-prop-value truncate" title={sourceTitle}>{sourceLine}</span>
+          </div>
+        ) : null}
+        {datasheetUrl ? (
+          <div className="cad-prop-row">
+            <span className="cad-prop-label">Datasheet</span>
+            <a
+              className="truncate text-[11px] text-primary underline-offset-2 hover:underline"
+              href={datasheetUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {partNumber ?? 'Open the pin table'}
+            </a>
+          </div>
+        ) : null}
+        <div className="cad-prop-row">
+          <span className="cad-prop-label">Lock</span>
+          <label className="flex min-w-0 items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={isLocked}
+              onChange={(e) => {
+                setIsLocked(e.target.checked);
+                setHasUnsavedChanges(true);
+              }}
+              className="h-3 w-3 accent-primary"
+            />
+            <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+            <span className="truncate text-[11px] text-muted-foreground">
+              {isLocked ? 'Locked' : 'Free'}
+            </span>
+          </label>
+        </div>
+        <div className="cad-prop-row">
+          <span className="cad-prop-label">Visibility</span>
+          <label className="flex min-w-0 items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={isVisible}
+              onChange={(e) => {
+                setIsVisible(e.target.checked);
+                setHasUnsavedChanges(true);
+              }}
+              className="h-3 w-3 accent-primary"
+            />
+            {isVisible ? (
+              <Eye className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+            ) : (
+              <EyeOff className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+            )}
+            <span className="truncate text-[11px] text-muted-foreground">
+              {isVisible ? 'Shown' : 'Hidden'}
+            </span>
+          </label>
+        </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Component Type
+        {/* ── Transform ── */}
+        <div className="cad-section-title">Transform</div>
+        <div className="cad-prop-row">
+          <label className="cad-prop-label" htmlFor="insp-x">
+            Position X
           </label>
           <input
-            type="text"
-            value={component.component.name}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50"
-            disabled
+            id="insp-x"
+            type="number"
+            className="cad-field"
+            value={position.x}
+            onChange={(e) => handlePositionChange('x', parseFloat(e.target.value) || 0)}
+            onKeyDown={commitOnEnter}
           />
         </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Category
+        <div className="cad-prop-row">
+          <label className="cad-prop-label" htmlFor="insp-y">
+            Position Y
           </label>
           <input
-            type="text"
-            value={component.component.category}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50"
-            disabled
+            id="insp-y"
+            type="number"
+            className="cad-field"
+            value={position.y}
+            onChange={(e) => handlePositionChange('y', parseFloat(e.target.value) || 0)}
+            onKeyDown={commitOnEnter}
           />
         </div>
+        <div className="cad-prop-row">
+          <span className="cad-prop-label">Rotation</span>
+          <div className="flex min-w-0 items-center gap-1">
+            <input
+              type="number"
+              min={0}
+              max={360}
+              step={90}
+              value={rotation}
+              onChange={(e) => handleRotationChange(parseFloat(e.target.value) || 0)}
+              className="cad-field"
+              aria-label="Rotation in degrees"
+              onKeyDown={commitOnEnter}
+            />
+            <HoverHelp title="Rotate 90°" description="Rotate the selected part 90° clockwise." keys={['R']}>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-[22px] w-[22px] shrink-0"
+                onClick={() => handleRotationChange((rotation + 90) % 360)}
+                aria-label="Rotate 90 degrees"
+              >
+              <RotateCw className="h-3 w-3" />
+              </Button>
+            </HoverHelp>
+            <span className="cad-readout shrink-0 text-[10px] text-muted-foreground">deg</span>
+          </div>
+        </div>
 
-        <div className="pt-4 border-t border-gray-200">
-          <h4 className="text-sm font-semibold text-gray-900 mb-3">Component Properties</h4>
-          {Object.entries(properties).map(([key, value]) => (
-            <div key={key} className="mb-3">
-              <label className="block text-sm font-medium text-gray-700 mb-1 capitalize">
-                {key.replace(/_/g, ' ')}
-              </label>
-              <input
-                type="text"
-                value={value as string}
-                onChange={(e) => handleChange(key, e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+        {/* ── Attributes ── */}
+        <div className="cad-section-title">
+          <span>Attributes</span>
+          <span className="font-mono tabular-nums normal-case tracking-normal">
+            {Object.keys(properties).length}
+          </span>
+        </div>
+        {Object.entries(properties).map(([key, value]) => {
+          const propertyType = getPropertyType(key, value);
+          return (
+            <div key={key} className="cad-prop-row">
+              <span className="cad-prop-label" title={key}>
+                {formatPropertyLabel(key)}
+              </span>
+              <div className="flex min-w-0 items-center gap-1">
+                {propertyType === 'checkbox' ? (
+                  <input
+                    type="checkbox"
+                    checked={value as boolean}
+                    onChange={(e) => handlePropertyChange(key, e.target.checked)}
+                    className="h-3 w-3 accent-primary"
+                    aria-label={formatPropertyLabel(key)}
+                  />
+                ) : (
+                  <input
+                    type={propertyType}
+                    value={value as string | number}
+                    onChange={(e) =>
+                      handlePropertyChange(
+                        key,
+                        propertyType === 'number' ? parseFloat(e.target.value) || 0 : e.target.value
+                      )
+                    }
+                    onKeyDown={commitOnEnter}
+                    className="cad-field"
+                    aria-label={formatPropertyLabel(key)}
+                  />
+                )}
+                <HoverHelp title={`Remove ${key}`} description={`Remove the ${key} attribute from this component.`}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-[22px] w-[22px] shrink-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => removeAttribute(key)}
+                    aria-label={`Remove ${key} attribute`}
+                  >
+                  <X className="h-3 w-3" />
+                  </Button>
+                </HoverHelp>
+              </div>
             </div>
-          ))}
+          );
+        })}
+        {/* A placed source is only as editable as the parameters you can give
+            it, so any SPICE key can be added here, not just the library defaults. */}
+        <div className="cad-prop-row">
+          <input
+            type="text"
+            value={draftKey}
+            onChange={(e) => setDraftKey(e.target.value)}
+            onKeyDown={addOnEnter}
+            placeholder="parameter"
+            className="cad-field font-mono"
+            aria-label="New attribute name"
+          />
+          <input
+            type="text"
+            value={draftValue}
+            onChange={(e) => setDraftValue(e.target.value)}
+            onKeyDown={addOnEnter}
+            placeholder="value"
+            className="cad-field font-mono"
+            aria-label="New attribute value"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-[22px] shrink-0 px-2 text-[10px]"
+            onClick={addAttribute}
+            aria-label="Add attribute"
+          >
+            Add
+          </Button>
         </div>
+        {attributeError && (
+          <p className="px-2 text-[10px] text-destructive" role="alert">
+            {attributeError}
+          </p>
+        )}
+
+        {/* ── Pins ── */}
+        {component.component.pins.length > 0 && (
+          <>
+            <div className="cad-section-title">
+              <span>Pins</span>
+              <span className="font-mono tabular-nums normal-case tracking-normal">
+                {component.component.pins.length}
+              </span>
+            </div>
+            <div className="max-h-44 overflow-y-auto scrollbar-thin">
+              {component.component.pins.map((pin, index) => {
+                const net = pinNets?.[pin.id];
+                const wired = Boolean(net && onSelectPinNet);
+                const netLabel = net ? net.name ?? 'unnamed' : 'unwired';
+                return (
+                  <button
+                    key={pin.id}
+                    type="button"
+                    className="cad-prop-row group w-full border-x-0 text-left transition-colors enabled:hover:bg-accent/60 focus-visible:bg-accent/60 focus-visible:shadow-[inset_0_0_0_1px_hsl(var(--ring))] focus-visible:outline-none disabled:cursor-default"
+                    onClick={() => onSelectPinNet?.(pin.id)}
+                    disabled={!wired}
+                    title={
+                      wired
+                        ? `${pin.name} · ${pin.type} · on ${netLabel} — open the net`
+                        : `${pin.name} · ${pin.type} · not connected`
+                    }
+                    aria-label={wired ? `Open net ${netLabel} from pin ${pin.name}` : undefined}
+                  >
+                    <span className="cad-prop-value" title={pin.name}>
+                      <span className="text-muted-foreground">
+                        {String(index + 1).padStart(2, '0')}
+                      </span>{' '}
+                      {pin.name}
+                    </span>
+                    <span className="flex min-w-0 items-center justify-end gap-1.5">
+                      <span className="min-w-0 truncate text-[10px] text-muted-foreground">
+                        {pin.type}
+                      </span>
+                      {net ? (
+                        <span
+                          className={`cad-chip min-w-0 px-1.5 text-[10px] ${
+                            net.name
+                              ? 'border-primary/40 bg-primary/10 text-primary'
+                              : 'italic'
+                          }`}
+                        >
+                          <span className="truncate">{netLabel}</span>
+                        </span>
+                      ) : (
+                        <span className="flex-shrink-0 text-[10px] text-muted-foreground/70">
+                          unwired
+                        </span>
+                      )}
+                      {wired && (
+                        <ArrowUpRight
+                          className="h-3 w-3 flex-shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                          aria-hidden
+                        />
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200 bg-white">
-        <div className="flex gap-2">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium"
+      {/* Footer: staging state + commit */}
+      <div className="flex h-9 flex-shrink-0 items-center justify-between gap-2 border-t border-border bg-surface px-2">
+        <span className="text-[11px] text-muted-foreground">
+          {hasUnsavedChanges ? 'Modified' : 'In sync'}
+        </span>
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 px-2 text-[11px]"
+            onClick={handleReset}
+            disabled={!hasUnsavedChanges}
           >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
-          >
-            Save
-          </button>
+            Reset
+          </Button>
+          <Button size="sm" className="h-6 px-3 text-[11px]" onClick={handleSave} disabled={!hasUnsavedChanges}>
+            Apply
+          </Button>
         </div>
       </div>
-    </div>
+    </aside>
   );
 }

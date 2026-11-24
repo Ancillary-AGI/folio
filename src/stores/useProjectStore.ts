@@ -1,0 +1,483 @@
+import { create } from 'zustand'
+import { devtools } from 'zustand/middleware'
+import { Component, Project, Schematic } from '../lib/supabase'
+import { generateId } from '../lib/utils'
+import { useAppStore } from './useAppStore'
+import { guardDesignMutation } from './useCommunityPreviewStore'
+import type { PcbSceneInput } from '../lib/pcb/pcbScene'
+import {
+  createDefaultMechanicalParts,
+  type MechanicalPart,
+} from '../lib/mechanical/partModel'
+
+export interface CanvasComponent {
+  id: string
+  componentId: string
+  component: Component
+  x: number
+  y: number
+  rotation: number
+  reference: string
+  properties: Record<string, string | number | boolean>
+  locked?: boolean
+  visible?: boolean
+}
+
+export interface CanvasWire {
+  id: string
+  points: Array<{ x: number; y: number }>
+  netName?: string
+  connectedPins: Array<{ componentId: string; pinId: string }>
+  style?: {
+    color?: string
+    width?: number
+    dashArray?: number[]
+  }
+}
+
+export interface SimulationResult {
+  id: string
+  type: 'dc' | 'ac' | 'transient' | 'noise'
+  timestamp: number
+  data: Record<string, unknown>
+  waveforms?: Array<{
+    name: string
+    data: Array<{ x: number; y: number }>
+    unit: string
+    color: string
+  }>
+}
+
+export interface ProjectState {
+  // Current project
+  currentProject: Project | null
+  currentSchematic: Schematic | null
+  
+  // Canvas data
+  components: CanvasComponent[]
+  wires: CanvasWire[]
+
+  // Latest routed board, published by the PCB panel so the 3D viewer and
+  // export paths preview the layout the designer actually made.
+  pcbLayout: PcbSceneInput | null
+  setPcbLayout: (layout: PcbSceneInput | null) => void
+
+  // Mechanical assembly. Parts are the same bodies the mechanical workspace
+  // draws in 3-D, so an agent editing them gives the human live feedback.
+  mechanicalParts: MechanicalPart[]
+  setMechanicalParts: (
+    next: MechanicalPart[] | ((current: MechanicalPart[]) => MechanicalPart[]),
+  ) => void
+
+  // Design state of the other CAD domains (RF, control, machines, HDL, FPGA,
+  // IC, robotics, visual programs, …), keyed by domain id. Versioned by VCS and
+  // restored by checkout, so one project can carry a whole multidomain design.
+  domainDesigns: Record<string, unknown>
+  setDomainDesign: (key: string, value: unknown) => void
+  
+  // Component management
+  addComponent: (component: CanvasComponent) => void
+  updateComponent: (id: string, updates: Partial<CanvasComponent>) => void
+  removeComponent: (id: string) => void
+  duplicateComponent: (id: string) => void
+  
+  // Wire management
+  addWire: (wire: CanvasWire) => void
+  updateWire: (id: string, updates: Partial<CanvasWire>) => void
+  removeWire: (id: string) => void
+  /**
+   * Replace the whole sheet in one undoable step. Agents use this to commit a
+   * multi-part edit atomically (and to restore a known-good iteration).
+   */
+  replaceDesign: (next: { components: CanvasComponent[]; wires: CanvasWire[] }) => void
+  /**
+   * Drop the whole undo/redo history. Every document swap (open, create,
+   * sample, checkout, restore, community preview) must call this: undo pops
+   * whatever snapshot happens to be on top, and a stale stack from the
+   * previous document would resurrect that document's sheet into this one.
+   */
+  clearHistory: () => void
+  undo: () => void
+  redo: () => void
+  canUndo: () => boolean
+  canRedo: () => boolean
+  
+  // Project management
+  setCurrentProject: (project: Project | null) => void
+  setCurrentSchematic: (schematic: Schematic | null) => void
+  
+  // Simulation
+  simulationResults: SimulationResult[]
+  isSimulating: boolean
+  addSimulationResult: (result: SimulationResult) => void
+  clearSimulationResults: () => void
+  setSimulating: (simulating: boolean) => void
+  
+  // Netlist generation
+  generateNetlist: () => string
+  
+  // Component library
+  componentLibrary: Component[]
+  setComponentLibrary: (components: Component[]) => void
+  
+  // Firmware / embedded code (part of the design snapshot, versioned by VCS)
+  firmwareCode: string
+  setFirmwareCode: (code: string) => void
+
+  // Simulation runs (persisted history, not just in-memory waveforms)
+  simulationRuns: Array<{ id: string; name: string; type: string; parameters: Record<string, unknown>; results?: Record<string, unknown>; status: string; createdAt: number }>
+  addSimulationRun: (run: { name: string; type: string; parameters: Record<string, unknown>; results?: Record<string, unknown>; status: string }) => { id: string }
+
+  // Live playback frame (ephemeral: overwritten every animation frame, never persisted)
+  liveFrame: { time: number; voltages: Record<string, number>; glow: Record<string, number>; lit: Record<string, boolean> } | null
+  setLiveFrame: (frame: { time: number; voltages: Record<string, number>; glow: Record<string, number>; lit: Record<string, boolean> } | null) => void
+
+  // Auto-save
+  isDirty: boolean
+  lastSaved: number
+  markDirty: () => void
+  markClean: () => void
+  
+  // Statistics
+  getComponentCount: () => number
+  getWireCount: () => number
+  getNetCount: () => number
+  
+  // Validation
+  validateCircuit: () => Array<{ type: 'error' | 'warning'; message: string; componentId?: string }>
+}
+
+let componentCounter = 1
+
+/** Monotonic per-process suffix for simulation-run ids (no Math.random). */
+let simRunSeq = 0
+
+/** Bounds on the user-set undo depth: enough to be useful, not enough to be a leak. */
+const UNDO_DEPTH_MIN = 20
+const UNDO_DEPTH_MAX = 500
+
+export const useProjectStore = create<ProjectState>()(
+  devtools((set, get) => {
+    const undoStack: Array<{ components: CanvasComponent[]; wires: CanvasWire[] }> = []
+    const redoStack: Array<{ components: CanvasComponent[]; wires: CanvasWire[] }> = []
+    const takeSnapshot = () => ({
+      components: get().components.map((c) => ({ ...c, properties: { ...c.properties } })),
+      wires: get().wires.map((w) => ({
+        ...w,
+        points: w.points.map((p) => ({ ...p })),
+        connectedPins: w.connectedPins.map((p) => ({ ...p })),
+      })),
+    })
+    const pushUndo = () => {
+      undoStack.push(takeSnapshot())
+      /*
+       * The cap is a preference, because a fixed 50 is not enough for a long
+       * drafting session: the earliest edits used to fall off the stack with
+       * nothing on screen saying so. Clamped either way, since every snapshot is
+       * a whole sheet and a hundred-megabyte history would be its own failure.
+       */
+      const depth = Math.min(UNDO_DEPTH_MAX, Math.max(UNDO_DEPTH_MIN, useAppStore.getState().settings.historyDepth))
+      while (undoStack.length > depth) undoStack.shift()
+      redoStack.length = 0
+    }
+    return {
+    // Current project
+    currentProject: null,
+    currentSchematic: null,
+    
+    // Canvas data
+    components: [],
+    wires: [],
+
+    pcbLayout: null,
+    // A routed or edited board is project data like any other: without the
+    // dirty flag the designer's copper never reaches the autosave.
+    setPcbLayout: (layout) => {
+      if (guardDesignMutation()) return
+      set({ pcbLayout: layout, isDirty: true })
+    },
+
+    mechanicalParts: createDefaultMechanicalParts(),
+    setMechanicalParts: (next) => {
+      if (guardDesignMutation()) return
+      set((state) => ({
+        mechanicalParts: typeof next === 'function' ? next(state.mechanicalParts) : next,
+        isDirty: true,
+      }))
+    },
+
+    domainDesigns: {},
+    setDomainDesign: (key, value) => {
+      if (guardDesignMutation()) return
+      set((state) => ({
+        domainDesigns: { ...state.domainDesigns, [key]: value },
+        isDirty: true,
+      }))
+    },
+    
+    // Component management
+    addComponent: (component) => {
+      if (guardDesignMutation()) return
+      pushUndo()
+      set((state) => ({ components: [...state.components, component], isDirty: true }))
+    },
+    
+    updateComponent: (id, updates) => {
+      if (guardDesignMutation()) return
+      pushUndo()
+      set((state) => ({
+        components: state.components.map((comp) =>
+          comp.id === id ? { ...comp, ...updates } : comp
+        ),
+        isDirty: true
+      }))
+    },
+    
+    removeComponent: (id) => {
+      if (guardDesignMutation()) return
+      pushUndo()
+      set((state) => ({
+        components: state.components.filter((comp) => comp.id !== id),
+        wires: state.wires.filter((wire) =>
+          !wire.connectedPins.some((pin) => pin.componentId === id)
+        ),
+        isDirty: true
+      }))
+    },
+    
+    duplicateComponent: (id) => {
+      if (guardDesignMutation()) return
+      pushUndo()
+      set((state) => {
+        const original = state.components.find((comp) => comp.id === id)
+        if (!original) {
+          // Nothing was duplicated; take back the snapshot we just pushed.
+          undoStack.pop()
+          return state
+        }
+        
+        const duplicate: CanvasComponent = {
+          ...original,
+          id: generateId('comp'),
+          x: original.x + 50,
+          y: original.y + 50,
+          reference: `${original.reference.replace(/\d+$/, '')}${componentCounter++}`,
+          // Deep copy: sharing the properties object would let editing the
+          // duplicate mutate the original.
+          component: {
+            ...original.component,
+            pins: original.component.pins.map((pin) => ({ ...pin })),
+          },
+          properties: { ...original.properties },
+        }
+        
+        return {
+          components: [...state.components, duplicate],
+          isDirty: true
+        }
+      })
+    },
+    
+    // Wire management
+    addWire: (wire) => {
+      if (guardDesignMutation()) return
+      pushUndo()
+      set((state) => ({ wires: [...state.wires, wire], isDirty: true }))
+    },
+    
+    updateWire: (id, updates) => {
+      if (guardDesignMutation()) return
+      pushUndo()
+      set((state) => ({
+        wires: state.wires.map((wire) =>
+          wire.id === id ? { ...wire, ...updates } : wire
+        ),
+        isDirty: true
+      }))
+    },
+    
+    removeWire: (id) => {
+      if (guardDesignMutation()) return
+      pushUndo()
+      set((state) => ({ wires: state.wires.filter((wire) => wire.id !== id), isDirty: true }))
+    },
+    replaceDesign: (next) => {
+      if (guardDesignMutation()) return
+      pushUndo()
+      // Deep-clone the incoming sheet so a caller reusing its arrays cannot
+      // mutate committed canvas state through a later edit.
+      set({
+        components: next.components.map((component) => ({
+          ...component,
+          properties: { ...component.properties },
+          component: {
+            ...component.component,
+            pins: component.component.pins.map((pin) => ({ ...pin })),
+          },
+        })),
+        wires: next.wires.map((wire) => ({
+          ...wire,
+          points: wire.points.map((point) => ({ ...point })),
+          connectedPins: wire.connectedPins.map((pin) => ({ ...pin })),
+        })),
+        isDirty: true,
+      })
+    },
+    clearHistory: () => {
+      undoStack.length = 0
+      redoStack.length = 0
+    },
+    undo: () => {
+      if (guardDesignMutation()) return
+      const prev = undoStack.pop()
+      if (!prev) return
+      redoStack.push(takeSnapshot())
+      set({ components: prev.components, wires: prev.wires, isDirty: true })
+    },
+    redo: () => {
+      if (guardDesignMutation()) return
+      const next = redoStack.pop()
+      if (!next) return
+      undoStack.push(takeSnapshot())
+      set({ components: next.components, wires: next.wires, isDirty: true })
+    },
+    canUndo: () => undoStack.length > 0,
+    canRedo: () => redoStack.length > 0,
+    
+    // Project management
+    setCurrentProject: (project) => set({ currentProject: project }),
+    setCurrentSchematic: (schematic) => set({ currentSchematic: schematic }),
+    
+    // Simulation
+    simulationResults: [],
+    isSimulating: false,
+    addSimulationResult: (result) =>
+      set((state) => ({
+        simulationResults: [...state.simulationResults, result]
+      })),
+    clearSimulationResults: () => set({ simulationResults: [] }),
+    setSimulating: (simulating) => set({ isSimulating: simulating }),
+    
+    // Netlist generation
+    generateNetlist: () => {
+      const { components, wires } = get()
+      
+      let netlist = '* Circuit Netlist\n'
+      netlist += `* Generated on ${new Date().toISOString()}\n\n`
+      
+      // Add components
+      components.forEach((comp) => {
+        const pins = comp.component.pins.map((pin) => {
+          const connectedWire = wires.find((wire) =>
+            wire.connectedPins.some((p) => p.componentId === comp.id && p.pinId === pin.id)
+          )
+          return connectedWire?.netName || `net_${comp.id}_${pin.id}`
+        })
+        
+        netlist += `${comp.reference} ${pins.join(' ')} ${comp.component.name}\n`
+        
+        // Add component parameters
+        Object.entries(comp.properties).forEach(([key, value]) => {
+          if (key === 'value' && value) {
+            netlist += `+ ${key}=${value}\n`
+          }
+        })
+      })
+      
+      netlist += '\n.end\n'
+      return netlist
+    },
+    
+    // Component library
+    componentLibrary: [],
+    setComponentLibrary: (components) => set({ componentLibrary: components }),
+
+    // Firmware code lives with the design so commits/saves include it
+    firmwareCode: '',
+    setFirmwareCode: (code) => {
+      if (guardDesignMutation()) return
+      set({ firmwareCode: code, isDirty: true })
+    },
+
+    // Simulation run history (kept alongside the design, survives save/load)
+    simulationRuns: [],
+    addSimulationRun: (run) => {
+      simRunSeq += 1
+      const id = `sim_${Date.now().toString(36)}_${simRunSeq.toString(36)}`
+      set((state) => ({
+        simulationRuns: [...state.simulationRuns, { ...run, id, createdAt: Date.now() }].slice(-100),
+        isDirty: true,
+      }))
+      return { id }
+    },
+
+    // Live playback frame: ephemeral, overwritten per animation frame.
+    liveFrame: null,
+    setLiveFrame: (frame) => set({ liveFrame: frame }),
+    
+    // Auto-save
+    isDirty: false,
+    lastSaved: Date.now(),
+    markDirty: () => set({ isDirty: true }),
+    markClean: () => set({ isDirty: false, lastSaved: Date.now() }),
+    
+    // Statistics
+    getComponentCount: () => get().components.length,
+    getWireCount: () => get().wires.length,
+    getNetCount: () => {
+      const nets = new Set<string>()
+      get().wires.forEach((wire) => {
+        if (wire.netName) nets.add(wire.netName)
+      })
+      return nets.size
+    },
+    
+    // Validation
+    validateCircuit: () => {
+      const { components, wires } = get()
+      const issues: Array<{ type: 'error' | 'warning'; message: string; componentId?: string }> = []
+      
+      // Check for unconnected pins
+      components.forEach((comp) => {
+        comp.component.pins.forEach((pin) => {
+          const isConnected = wires.some((wire) =>
+            wire.connectedPins.some((p) => p.componentId === comp.id && p.pinId === pin.id)
+          )
+          
+          if (!isConnected && pin.type !== 'nc') {
+            issues.push({
+              type: 'warning',
+              message: `Pin ${pin.name} of ${comp.reference} is not connected`,
+              componentId: comp.id
+            })
+          }
+        })
+      })
+      
+      // Check for floating nets
+      wires.forEach((wire) => {
+        if (wire.connectedPins.length < 2) {
+          issues.push({
+            type: 'warning',
+            message: `Wire ${wire.id} has less than 2 connections`
+          })
+        }
+      })
+      
+      // Check for missing ground connections
+      const hasGround = components.some((comp) =>
+        comp.component.name.toLowerCase().includes('ground')
+      )
+      
+      if (!hasGround && components.length > 0) {
+        issues.push({
+          type: 'error',
+          message: 'Circuit has no ground reference'
+        })
+      }
+      
+      return issues
+    }
+    }
+  })
+)
