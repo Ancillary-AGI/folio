@@ -9,7 +9,12 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+.next
 *.local
+*.tsbuildinfo
+
+# Golden-vector harness decks and reference output (regeneration only).
+.golden/
 
 .vscode/*
 !.vscode/extensions.json
@@ -21,3 +26,16 @@ dist-ssr
 *.sln
 *.sw?
 .env
+# Every local/secret variant; the example file is the only one that ships.
+.env.*
+!.env.example
+
+# Local backend: downloaded PostgREST binary, generated config, database data.
+.backend/
+
+# Built-in always-on agent runner's durable job ledger.
+.folio-agent/
+
+# Editor/agent tooling state, not part of the project.
+.kilo/
+

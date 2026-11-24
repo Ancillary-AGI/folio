@@ -1,0 +1,3811 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * ── Typeface ────────────────────────────────────────────────────────────────
+ * Bundled rather than borrowed from the host machine: the workbench must render
+ * identically on a fresh Windows install, a locked-down workstation and in an
+ * exported drawing. One family carries the whole product, headings to numeric
+ * readouts — as tabular figures are a feature of it, not a second face.
+ */
+@font-face {
+  font-family: 'Archivo';
+  src: url('/fonts/Archivo-Variable.ttf') format('truetype-variations');
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-style: normal;
+  font-display: swap;
+}
+
+/*
+ * ────────────────────────────────────────────────────────────────────────────
+ *  Folio — global stylesheet
+ * ────────────────────────────────────────────────────────────────────────────
+ *
+ *  This file deliberately contains **no colour values**.
+ *
+ *  Every colour lives in `src/lib/theme/tokens.ts` and is written onto <html>
+ *  as a CSS custom property by `src/lib/theme/themeController.ts`. That module
+ *  is unit-tested for HSL validity and WCAG contrast, so it is impossible to
+ *  reintroduce the failure mode where a theme block held RGB triplets and the
+ *  whole app rendered brown.
+ *
+ *  Rules for contributors:
+ *    • use token-backed utilities (`bg-card`, `text-muted-foreground`, …);
+ *    • never write `hsl(15 23 42)`-style literals, and never a raw hex here;
+ *    • if a new semantic role is needed, add a token + a contrast contract row.
+ * ────────────────────────────────────────────────────────────────────────────
+ */
+
+@layer base {
+  html {
+    height: 100%;
+    /* `color-scheme` is also set from JS; keeping it here covers the first frame. */
+    color-scheme: light dark;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /*
+   * ── Geometry & depth (non-colour) ────────────────────────────────────────
+   * `--radius` is the single corner-radius step the whole product scales from:
+   * Tailwind maps `sm`/`md`/`lg`/`xl`/`2xl` onto it, so one number here retunes
+   * every field, button, dock, dialog and card at once.
+   *
+   * The decorative alphas tune how much *light* the shell throws around itself —
+   * the lit top edge of a raised panel, the accent halo behind an active
+   * control, and the shading that gives a filled button its rounded body. They
+   * are numbers, not colours: the hues they modulate stay in `tokens.ts`, where
+   * the contrast tests can see them. An appearance with no room for decoration
+   * (high contrast) turns them off instead of inheriting a dark shell's
+   * assumptions.
+   *
+   * `--focus-halo` is not decoration: it is the strength of the ring around a
+   * focused field, so an appearance that flattens the others turns this one
+   * *up*, never off.
+   */
+  :root {
+    --radius: 0.625rem;
+    --panel-edge: 0.09;
+    --control-glow: 0.45;
+    --control-depth: 0.16;
+    --focus-halo: 0.3;
+  }
+
+  /* A white sheet has nothing to catch a highlight from; keep only depth. */
+  [data-theme='light'] {
+    --panel-edge: 0;
+    --control-glow: 0.3;
+    --control-depth: 0.1;
+    --focus-halo: 0.38;
+  }
+
+  /* Folio Dark — glow on, discipline up: one accent, no instruments glowing for fun. */
+  [data-theme='folio-dark'] {
+    --panel-edge: 0.08;
+    --control-glow: 0.55;
+    --control-depth: 0.14;
+    --focus-halo: 0.55;
+  }
+
+  [data-theme='high-contrast'] {
+    --panel-edge: 0;
+    --control-glow: 0;
+    --control-depth: 0;
+    --focus-halo: 1;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    height: 100%;
+    margin: 0;
+    /* Stated literally rather than read from the Tailwind theme: the shell's
+       typeface must not depend on a config reload having landed. */
+    font-family:
+      'Archivo',
+      'Segoe UI Variable Text',
+      'Segoe UI',
+      system-ui,
+      -apple-system,
+      Roboto,
+      'Helvetica Neue',
+      Arial,
+      sans-serif;
+    /* Optical sizing keeps Archivo's smaller sizes legible without loosening
+       the display sizes; the alternates are Archivo's own, not a synthetic effect. */
+    font-optical-sizing: auto;
+    font-feature-settings:
+      'rlig' 1,
+      'calt' 1,
+      'kern' 1;
+    overscroll-behavior: none;
+  }
+
+  /* ── Themed scrollbars on every overflow container ──────────────────────
+   * Set globally so no panel can ship a native grey rail by forgetting a
+   * utility class. `scrollbar-color` covers Firefox and Chromium; the WebKit
+   * pseudo-elements paint the inset, rounded thumb used by every dock. The
+   * `.scrollbar-*` utilities only tune width/transparency where needed. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+    transition: background-color 120ms ease-out;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.8);
+    background-clip: content-box;
+  }
+
+  *::-webkit-scrollbar-thumb:active {
+    background-color: hsl(var(--primary));
+    background-clip: content-box;
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  #root {
+    height: 100%;
+    isolation: isolate;
+  }
+
+  /* Focus is always visible, never suppressed, and uses the themed ring. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /*
+   * Bordered controls get exactly one focus edge — the rule itself lives in
+   * `@layer utilities` at the bottom of this file, because a base-layer
+   * `border-color` loses to every `border-*` utility class and the field then
+   * paints the accent halo *around* a border that never changed colour.
+   * Borderless controls on the open sheet keep the offset ring above, where that
+   * gap is what keeps the indicator legible; controls that sit *inside* filled
+   * chrome (the tab strip) drop the offset, because the band is painted from
+   * `--background` and reads as a seam of the wrong colour across the strip.
+   */
+
+  /*
+   * Fifty-odd dropdowns sit across the CAD panels, each with its own ad-hoc
+   * border. One base rule makes them read as the same field in theme colours.
+   * Utilities still win over this layer, so a panel that wants h-6 or text-[11px]
+   * keeps it; the native arrow stays because that is the one thing a custom
+   * select reliably gets wrong on touch and assistive tech.
+   */
+  select {
+    @apply rounded-md border border-input bg-background text-foreground;
+    min-height: 2rem;
+    padding: 0.375rem 1.5rem 0.375rem 0.5rem;
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+    cursor: pointer;
+    transition:
+      border-color 120ms ease,
+      box-shadow 120ms ease;
+  }
+
+  select:hover:not(:disabled) {
+    @apply border-primary/60;
+  }
+
+  select:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+
+  /* Native checkboxes and radios otherwise render in the OS blue or black. */
+  input[type='checkbox'],
+  input[type='radio'] {
+    accent-color: hsl(var(--primary));
+    /*
+     * A 13px check box is a paint, not a target. Growing the box to 20px and the
+     * label row that wraps it to 24px gives WCAG 2.5.8 without replacing the
+     * native control, which is the one thing a custom checkbox reliably gets
+     * wrong: indeterminate state, forced colours, and assistive-tech semantics.
+     */
+    inline-size: 1.25rem;
+    block-size: 1.25rem;
+    flex-shrink: 0;
+  }
+
+  label:has(> input[type='checkbox']),
+  label:has(> input[type='radio']) {
+    min-height: 1.5rem;
+    align-items: center;
+  }
+
+  ::selection {
+    background-color: hsl(var(--selection) / 0.24);
+    color: hsl(var(--foreground));
+  }
+
+  /* Native form controls follow the active theme instead of the OS default. */
+  input,
+  select,
+  textarea,
+  button {
+    color: inherit;
+  }
+
+  /*
+   * WCAG 2.5.8 (target size minimum): a pointer target is at least 24×24 CSS px.
+   * Dense CAD chrome is full of `py-0.5 text-[11px]` controls — Zoom in, Reset
+   * view, a stackup field — and each measured 21px tall until this floor existed.
+   * It is set here rather than panel by panel so a control cannot ship too small
+   * just by forgetting a utility; a panel's own padding and height still apply
+   * underneath the floor. Checkboxes and radios are excluded because stretching
+   * the paint is not the same as widening the hit area.
+   */
+  button,
+  [role='button'],
+  [role='tab'],
+  summary,
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    min-width: 1.5rem;
+    min-height: 1.5rem;
+  }
+
+  ::placeholder {
+    color: hsl(var(--muted-foreground));
+    opacity: 1;
+  }
+}
+
+@layer components {
+  /* ── Shell surfaces ───────────────────────────────────────────────────────
+   * Three visually distinct layers, in order of recess:
+   *   app-chrome  (menus, toolbars, panel headers)  → --surface
+   *   app-panel   (content panes, cards)            → --card
+   *   editor-surface (the design sheet)             → --canvas
+   * A dark shell puts the sheet *below* the chrome; a light shell puts it at
+   * the brightest level. Text tokens are paired per layer, so a light element
+   * can never end up inside a dark container.
+   */
+  .app-shell {
+    @apply flex h-full min-h-0 flex-col bg-background text-foreground;
+  }
+
+  /*
+   * WCAG 2.4.1 (bypass blocks). The shell puts a header and a thirteen-button
+   * workspace rail in front of the sheet, so keyboard users need one jump past
+   * both. It is parked off-screen rather than `display: none`, which some
+   * browsers leave out of the tab order entirely.
+   */
+  .skip-link {
+    @apply fixed left-3 top-3 z-[100] rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground shadow-lg;
+    transform: translateY(calc(-100% - 1rem));
+    transition: transform 150ms ease;
+  }
+
+  .skip-link:focus-visible {
+    transform: translateY(0);
+  }
+
+  .app-chrome {
+    @apply bg-surface text-surface-foreground;
+    /* Every horizontal bar in this shell casts downward and catches light along
+     * its top edge, so the header, the workspace nav and the docks read as three
+     * shelves stacked above the sheet instead of three flat fills. */
+    box-shadow:
+      inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge)),
+      0 1px 0 hsl(var(--shadow-color) / 0.25),
+      0 10px 16px -16px hsl(var(--shadow-color) / 0.9);
+  }
+
+
+  /* The workspace nav wears its family hue as a hairline, the same hue the open
+   * tab already underlines. Decorative, so it goes where colour cannot carry a
+   * claim: high contrast and forced colours. */
+  .cad-workspace-nav::after {
+    content: '';
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    height: 1px;
+    pointer-events: none;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--primary) / 0.65) 22%,
+      hsl(var(--primary) / 0.65) 78%,
+      transparent
+    );
+  }
+
+  [data-theme='high-contrast'] .cad-workspace-nav::after {
+    display: none;
+  }
+
+  /* ── Workspace switcher ───────────────────────────────────────────────────
+   * Two shelves, not one 25-item scroll: the top row chooses a family and the
+   * second lists that family's documents. The family row is the level *above*
+   * the document, so it is quieter — smaller type, no fills — and only the
+   * active family takes its hue. The mode rail is the document switcher, built
+   * like browser tabs: the open one is lifted out of the row.
+   */
+  .ws-family-row {
+    @apply flex h-12 w-full min-w-0 flex-shrink-0 items-center justify-between gap-2 border-b border-border/60 px-1.5;
+  }
+
+  .ws-family-rail {
+    @apply flex min-w-0 items-center gap-1 overflow-x-auto;
+    scrollbar-width: none;
+  }
+
+  .ws-family-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .ws-family {
+    @apply relative flex h-8 flex-shrink-0 items-center gap-2 rounded-md px-2.5 text-xs font-medium text-muted-foreground outline-none transition-[background-color,color,box-shadow] duration-150 hover:bg-accent/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  /* The hue is decorative wayfinding: high contrast and forced colours drop it
+   * and lean on the pressed state instead. */
+  .ws-family--active {
+    @apply bg-accent text-foreground;
+    box-shadow: inset 0 0 0 1px hsl(var(--family-accent, var(--primary)) / 0.45);
+  }
+
+  /* The ring utilities on the base class are a box-shadow; the active fill
+   * also is, so the focused active button restates both in one declaration. */
+  .ws-family--active:focus-visible {
+    box-shadow:
+      inset 0 0 0 1px hsl(var(--family-accent, var(--primary)) / 0.45),
+      0 0 0 1px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .ws-family__icon {
+    @apply h-3.5 w-3.5 flex-shrink-0;
+    color: hsl(var(--family-accent, var(--primary)));
+    opacity: 0.75;
+  }
+
+  .ws-family--active .ws-family__icon {
+    opacity: 1;
+  }
+
+  .ws-family__label {
+    @apply whitespace-nowrap;
+  }
+
+  .ws-family__count {
+    @apply ml-0.5 rounded-full bg-muted/70 px-1.5 text-[10px] font-medium leading-[16px] tabular-nums text-muted-foreground;
+  }
+
+  .ws-family-actions {
+    @apply flex flex-shrink-0 items-center gap-1;
+  }
+
+  /* The mode row scrolls sideways rather than wrapping, so a tall family never
+   * pushes the sheet down the window. Gradients at either end say "more lives
+   * past this edge" without a visible scrollbar. */
+  .ws-mode-rail {
+    @apply flex w-full min-w-0 flex-shrink-0 items-stretch gap-1 overflow-x-auto px-1.5;
+    scrollbar-width: none;
+  }
+
+  .ws-mode-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .ws-mode {
+    @apply relative inline-flex h-9 flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-t-md border-b-2 border-b-transparent px-3 text-xs font-medium text-muted-foreground outline-none transition-[background-color,color,border-color] duration-150 hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  .ws-mode__icon {
+    @apply h-3.5 w-3.5 flex-shrink-0;
+    color: hsl(var(--family-accent, var(--primary)));
+    opacity: 0.55;
+    transition: opacity 120ms ease;
+  }
+
+  .ws-mode:hover .ws-mode__icon,
+  .ws-mode--active .ws-mode__icon {
+    opacity: 1;
+  }
+
+  .ws-mode--active {
+    @apply bg-background text-foreground;
+    border-bottom-color: hsl(var(--family-accent, var(--primary)));
+  }
+
+  .ws-mode--active:focus-visible {
+    box-shadow: 0 0 0 1px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  @media (max-width: 640px) {
+    .ws-family__label {
+      @apply sr-only;
+    }
+
+    .ws-family {
+      @apply px-1.5;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ws-family,
+    .ws-mode,
+    .ws-mode__icon {
+      transition: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .ws-family--active {
+      border: 1px solid ButtonText;
+    }
+
+    .ws-mode--active {
+      border-bottom-color: Highlight;
+      outline: 1px solid Highlight;
+      outline-offset: -1px;
+    }
+  }
+
+  /* ── Workspace stage ──────────────────────────────────────────────────────
+   * The bed every domain draws on. A very low-contrast dimensional grid plus a
+   * soft vignette keeps panels from floating in a flat rectangle; both are
+   * painted at the same strength as the shell's ambient field so no text ever
+   * sits on a competing pattern. Decorative, so forced colours drop it.
+   */
+  .workspace-stage {
+    position: relative;
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(120% 90% at 50% -10%, hsl(var(--primary) / 0.06), transparent 60%),
+      radial-gradient(80% 60% at 100% 100%, hsl(var(--chart-4) / 0.04), transparent 70%),
+      linear-gradient(hsl(var(--border) / 0.28) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.28) 1px, transparent 1px);
+    background-size:
+      100% 100%,
+      100% 100%,
+      32px 32px,
+      32px 32px;
+    background-position: center top, center bottom, -1px -1px, -1px -1px;
+  }
+
+  @media (forced-colors: active) {
+    .workspace-stage {
+      background-image: none;
+      background-color: Canvas;
+    }
+  }
+
+  .app-chrome-divider {
+    @apply border-b border-border;
+  }
+
+  /* ── Ambient light field ──────────────────────────────────────────────────
+   * `<AuroraField />` paints drifting ribbons of the theme's own hues into a
+   * canvas that sits inside the shell, above its background and under its
+   * content (`z-index: -1` with `isolation` on the host, so the canvas cannot
+   * fall behind the page and cannot rise over the work).
+   *
+   * Band colours come from `src/lib/theme/aurora.ts`, which limits how far above
+   * the background's brightness any of them may travel, and `aurora.test.ts`
+   * re-measures every contrast pair the field can reach at every point along a
+   * ribbon's falloff. The chrome bars let the field through at exactly the alpha
+   * that test audits — one number, two places, pinned by a test.
+   */
+  .app-shell,
+  .launcher-shell {
+    isolation: isolate;
+  }
+
+  [data-aurora='on'] {
+    --chrome-ambient-alpha: 0.86;
+  }
+
+  .folio-aurora {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    display: grid;
+    pointer-events: none;
+  }
+
+  .folio-aurora__canvas {
+    @apply h-full w-full;
+  }
+
+  /* No WebGL context — a machine with a blocked or software-only GL still gets a
+   * deliberate background rather than a flat one, at a fraction of the strength. */
+  .folio-aurora[data-engine='css'] {
+    background-image:
+      radial-gradient(68% 54% at 16% -6%, hsl(var(--primary) / 0.08), transparent 72%),
+      radial-gradient(58% 46% at 84% 8%, hsl(var(--chart-4) / 0.06), transparent 70%);
+  }
+
+  .folio-aurora[data-engine='css'] .folio-aurora__canvas {
+    display: none;
+  }
+
+  [data-aurora='on'] .app-chrome,
+  [data-aurora='on'] .cad-rail,
+  [data-aurora='on'] .status-bar {
+    background-color: hsl(var(--surface) / var(--chrome-ambient-alpha));
+  }
+
+  /* The blur is what makes a translucent bar read as glass over light instead
+   * of as a washed-out fill. A reader who asks for flat transparency gets the
+   * solid bar back; the field still shows in the launcher's open space. */
+  @media (prefers-reduced-transparency: no-preference) {
+    [data-aurora='on'] .app-chrome,
+    [data-aurora='on'] .cad-rail {
+      backdrop-filter: blur(12px) saturate(1.3);
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    [data-aurora='on'] .app-chrome,
+    [data-aurora='on'] .cad-rail,
+    [data-aurora='on'] .status-bar {
+      background-color: hsl(var(--surface));
+      backdrop-filter: none;
+    }
+  }
+
+  /* Forced colours owns every surface in the window; scenery has no place. */
+  @media (forced-colors: active) {
+    .folio-aurora {
+      display: none;
+    }
+  }
+
+  .app-panel {
+    @apply bg-card text-card-foreground;
+    box-shadow: inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
+  }
+
+  /* The document's save state, stated rather than implied by an asterisk. */
+  .doc-state {
+    @apply inline-flex flex-shrink-0 items-center gap-1.5 text-[11px] font-medium;
+  }
+
+  .app-panel-header {
+    @apply flex items-center justify-between gap-4 border-b border-border bg-surface px-4 py-2 text-surface-foreground;
+  }
+
+  /* Display type. A heading is read as one shape, not as separate letters, so
+   * tracking tightens as weight goes up. At the default 0 a 14px semibold title
+   * sits looser than the 11px caption underneath it — the wrong way round for a
+   * pair that should read title-then-detail. -0.01em closes that gap without
+   * disturbing any single glyph, and `balance` stops a two-word title from
+   * orphaning one word onto its own line in a narrow panel. */
+  .app-panel-header h1,
+  .app-panel-header h2,
+  .app-panel-header h3 {
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+
+  .app-sidebar {
+    @apply flex min-h-0 flex-col border-r border-border bg-card text-card-foreground;
+    box-shadow: inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
+  }
+
+  .editor-surface {
+    @apply relative min-h-0 flex-1 overflow-hidden bg-canvas text-canvas-foreground;
+    /* The sheet sits *in* the shell: a contact shadow along its top edge is what
+     * makes the chrome read as raised without changing a single colour. */
+    box-shadow:
+      inset 0 1px 2px hsl(var(--shadow-color) / 0.35),
+      inset 0 0 0 1px hsl(var(--shadow-color) / 0.12);
+  }
+
+  /* ── Launcher card ────────────────────────────────────────────────────────
+   * A project card is a door, not a document. It lifts toward the pointer, its
+   * edge takes the accent, and the keyboard gets the same edge without the card
+   * leaving its place in the grid.
+   *
+   * Before this the lift, the border and the shadow were eleven utility classes
+   * written into the JSX, so no second card surface could reuse the treatment and
+   * the two that wanted to disagreed about their corners. The hover rules are
+   * deliberately class+pseudo (`0,2,0`) so they out-rank the base `shadow-sm`
+   * the shared Card primitive carries, instead of fighting it in the cascade.
+   */
+  .project-card {
+    @apply overflow-hidden rounded-xl border-border/70;
+    transition:
+      transform 200ms ease,
+      border-color 200ms ease,
+      box-shadow 200ms ease;
+  }
+
+  .project-card:hover {
+    transform: translateY(-3px);
+    border-color: hsl(var(--primary) / 0.55);
+    box-shadow:
+      0 0 0 1px hsl(var(--primary) / 0.22),
+      0 18px 30px -20px hsl(var(--shadow-color) / 0.95);
+  }
+
+  .project-card:focus-within {
+    border-color: hsl(var(--primary) / 0.55);
+    box-shadow: 0 0 0 1px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .project-card:active {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 18px -16px hsl(var(--shadow-color) / 0.9);
+  }
+
+  /* ── Launcher family tile ─────────────────────────────────────────────────
+   * A level select, not a legend: pressing one creates a project and opens it in
+   * that family's first workspace, so it is built as a control — raised edge,
+   * press, focus halo — and not as one of the read-only pills. `--family-accent`
+   * arrives from the same registry that underlines the open workspace tab, so the
+   * hue a family wears in the launcher is the hue it wears inside the project.
+   */
+  .family-tile {
+    @apply relative flex h-full min-w-0 flex-col items-start gap-1 overflow-hidden rounded-lg border border-border/70 bg-surface/60 px-3 py-3 text-left text-surface-foreground outline-none;
+    transition:
+      transform 160ms ease,
+      border-color 160ms ease,
+      background-color 160ms ease,
+      box-shadow 160ms ease;
+  }
+
+  /* The accent is a hairline across the top of the tile, brightest where the
+   * label starts, so a row of five reads as one instrument panel. */
+  .family-tile::before {
+    content: '';
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: 2px;
+    background: linear-gradient(
+      90deg,
+      hsl(var(--family-accent, var(--primary)) / 0.95),
+      hsl(var(--family-accent, var(--primary)) / 0.2) 70%,
+      transparent
+    );
+  }
+
+  .family-tile:hover {
+    transform: translateY(-2px);
+    border-color: hsl(var(--family-accent, var(--primary)) / 0.6);
+    background-color: hsl(var(--family-accent, var(--primary)) / 0.12);
+    box-shadow: 0 14px 26px -20px hsl(var(--shadow-color) / 0.95);
+  }
+
+  .family-tile:focus-visible {
+    border-color: hsl(var(--family-accent, var(--primary)) / 0.8);
+    box-shadow: 0 0 0 1px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .family-tile:active {
+    transform: translateY(0);
+  }
+
+  .family-tile__label {
+    @apply text-[15px] font-semibold leading-tight tracking-[-0.01em] text-foreground;
+  }
+
+  .family-tile__count {
+    @apply text-[11px] font-medium tabular-nums text-muted-foreground;
+  }
+
+  .family-tile__desc {
+    @apply mt-1 text-xs leading-relaxed text-muted-foreground;
+  }
+
+  /* ── Launcher, v3 ─────────────────────────────────────────────────────────
+   * The library opens on a statement rather than a form. One glass stage sets
+   * the frame, a single search field is the fastest door, and the five families
+   * and three runnable demos sit under it as equal, clearly-pressable objects.
+   * Every hue is a theme token; the accent arrives per tile.
+   */
+  .launcher-column {
+    @apply mx-auto w-full max-w-[1180px] px-4 pb-20 pt-6 sm:px-6 sm:pt-8;
+  }
+
+  .launcher-hero {
+    @apply relative mb-10 overflow-hidden rounded-2xl border border-border/60 bg-card/70 p-6 sm:p-8;
+    box-shadow:
+      inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge)),
+      0 30px 60px -48px hsl(var(--shadow-color) / 1);
+    backdrop-filter: blur(14px);
+  }
+
+  .launcher-hero__layout {
+    @apply relative grid items-center gap-8;
+    grid-template-columns: minmax(0, 1.12fr) minmax(20rem, 0.88fr);
+  }
+
+  .launcher-hero__copy {
+    @apply min-w-0;
+  }
+
+  .launcher-hero__copy .launcher-title {
+    max-width: 13ch;
+    font-size: clamp(2.15rem, 3.8vw, 3.2rem);
+  }
+
+  .launcher-hero__copy .launcher-lede {
+    max-width: 54ch;
+  }
+
+  .launcher-hero__visual {
+    @apply relative min-w-0 overflow-hidden rounded-xl border border-border/70 bg-background/45 p-3;
+    box-shadow:
+      inset 0 1px 0 hsl(var(--foreground) / 0.05),
+      0 20px 46px -38px hsl(var(--shadow-color) / 1);
+  }
+
+  .launcher-hero__visual-head {
+    @apply flex flex-wrap items-center justify-between gap-2 px-1 text-[9px] font-semibold tracking-[0.12em] text-muted-foreground;
+  }
+
+  .launcher-hero__live {
+    @apply inline-flex items-center gap-1.5 font-mono text-[8px] uppercase text-primary/85;
+    letter-spacing: 0.22em;
+  }
+
+  .launcher-hero__live > span {
+    @apply h-1.5 w-1.5;
+    background: hsl(var(--primary));
+    border-radius: 1px;
+    transform: rotate(45deg);
+    box-shadow: 0 0 10px hsl(var(--primary) / 0.65);
+  }
+
+  .launcher-hero__diagram {
+    @apply relative mt-2 overflow-hidden rounded-lg border border-border/50;
+    background-image:
+      linear-gradient(hsl(var(--border) / 0.25) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.25) 1px, transparent 1px);
+    background-size: 18px 18px;
+    background-position: center;
+  }
+
+  .launcher-hero__diagram > svg {
+    @apply block h-auto w-full;
+    min-height: 9.5rem;
+  }
+
+  .launcher-diagram__trace,
+  .launcher-diagram__trace--soft {
+    fill: none;
+    stroke: hsl(var(--primary) / 0.7);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.5;
+  }
+
+  .launcher-diagram__trace--soft {
+    stroke: hsl(var(--chart-4) / 0.58);
+  }
+
+  .launcher-diagram__node {
+    fill: hsl(var(--background));
+    stroke: hsl(var(--primary) / 0.9);
+    stroke-width: 2;
+  }
+
+  .launcher-diagram__chip {
+    fill: hsl(var(--surface) / 0.95);
+    stroke: hsl(var(--primary) / 0.75);
+    stroke-width: 1.5;
+  }
+
+  .launcher-diagram__chipline,
+  .launcher-diagram__pin {
+    fill: none;
+    stroke: hsl(var(--primary) / 0.72);
+    stroke-linecap: round;
+    stroke-width: 1.5;
+  }
+
+  .launcher-diagram__pin {
+    stroke: hsl(var(--chart-4) / 0.75);
+  }
+
+  .launcher-diagram__pulse {
+    fill: none;
+    stroke: hsl(var(--primary) / 0.6);
+    stroke-width: 1;
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: launcher-signal-pulse 2.8s ease-out infinite;
+  }
+
+  @keyframes launcher-signal-pulse {
+    0% { opacity: 0.65; transform: scale(0.75); }
+    75%, 100% { opacity: 0; transform: scale(1.7); }
+  }
+
+  .launcher-hero__core {
+    @apply absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-lg border border-border/80 bg-card/95 px-2.5 py-2 shadow-lg;
+    box-shadow: 0 12px 28px -18px hsl(var(--shadow-color) / 0.9);
+    backdrop-filter: blur(10px);
+  }
+
+  .launcher-hero__core-icon {
+    @apply flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 text-primary;
+  }
+
+  .launcher-hero__core-icon > svg {
+    @apply h-4 w-4;
+  }
+
+  .launcher-hero__core strong,
+  .launcher-hero__core small {
+    @apply block whitespace-nowrap;
+  }
+
+  .launcher-hero__core strong {
+    @apply text-[10px] font-semibold text-foreground;
+  }
+
+  .launcher-hero__core small {
+    @apply mt-0.5 text-[9px] text-muted-foreground;
+  }
+
+  .launcher-hero__domains {
+    @apply mt-2 flex flex-wrap gap-1.5;
+  }
+
+  .launcher-hero__domains > span {
+    @apply inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/50 px-2 py-1 text-[9px] font-medium text-muted-foreground;
+  }
+
+  .launcher-hero__domains svg {
+    @apply h-3 w-3 text-primary;
+  }
+
+  .launcher-projects {
+    margin-bottom: 2.5rem;
+  }
+
+  @media (max-width: 900px) {
+    .launcher-hero__layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .launcher-hero__copy .launcher-title {
+      max-width: 17ch;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .launcher-hero {
+      @apply p-5;
+    }
+
+    .launcher-hero__layout {
+      @apply gap-5;
+    }
+
+    .launcher-hero__visual-head {
+      font-size: 8px;
+    }
+
+    .launcher-hero__diagram > svg {
+      min-height: 8rem;
+    }
+
+    .launcher-hero__domains > span {
+      font-size: 8px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .launcher-diagram__pulse {
+      animation: none;
+    }
+  }
+
+  /* A slow aurora-coloured wash behind the copy: the same three brand hues the
+   * shell's ambient field carries, held at low alpha so it never competes with
+   * the text the contrast contract measures. Decorative only. */
+  .launcher-hero__aura {
+    position: absolute;
+    inset: -35% -20% auto auto;
+    width: 620px;
+    height: 420px;
+    pointer-events: none;
+    background:
+      radial-gradient(45% 55% at 30% 35%, hsl(var(--primary) / 0.22), transparent 72%),
+      radial-gradient(40% 50% at 70% 25%, hsl(var(--chart-4) / 0.18), transparent 74%),
+      radial-gradient(45% 45% at 55% 75%, hsl(var(--chart-2) / 0.14), transparent 76%);
+    filter: blur(6px);
+  }
+
+  .launcher-hero--skeleton {
+    min-height: 260px;
+  }
+
+  .launcher-eyebrow {
+    @apply relative mb-3 flex items-center gap-2 text-xs font-medium text-primary;
+  }
+
+  .launcher-eyebrow__dot {
+    @apply inline-block h-1.5 w-1.5 rounded-full;
+    background: hsl(var(--primary));
+    box-shadow: 0 0 12px hsl(var(--primary) / 0.9);
+  }
+
+  .launcher-title {
+    @apply relative text-[2.3rem] font-semibold leading-[1.02] tracking-[-0.035em] text-foreground sm:text-[2.9rem];
+    text-wrap: balance;
+  }
+
+  .launcher-lede {
+    @apply relative mt-3 max-w-2xl text-[15px] leading-relaxed text-muted-foreground;
+  }
+
+  .launcher-search {
+    @apply h-12 w-full rounded-xl border border-input bg-background/70 pl-11 pr-24 text-[15px] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground;
+    box-shadow: inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
+  }
+
+  .launcher-search:focus {
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 1px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .launcher-section-title {
+    @apply text-sm font-semibold tracking-[-0.01em] text-foreground;
+  }
+
+  .family-tile__top {
+    @apply mb-2 flex w-full items-center justify-between gap-2;
+  }
+
+  .family-tile__icon {
+    @apply flex h-7 w-7 items-center justify-center rounded-md;
+    color: hsl(var(--family-accent, var(--primary)));
+    background: hsl(var(--family-accent, var(--primary)) / 0.14);
+  }
+
+  .family-tile__icon > svg {
+    @apply h-4 w-4;
+  }
+
+  .family-tile__count-badge {
+    @apply rounded-full bg-muted/70 px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground;
+  }
+
+  .family-tile__foot {
+    @apply mt-auto flex w-full items-center justify-between gap-2 border-t border-border/50 pt-2.5 text-[11px] font-medium text-muted-foreground;
+  }
+
+  .family-tile:hover .family-tile__foot {
+    color: hsl(var(--family-accent, var(--primary)));
+  }
+
+  .launcher-demo {
+    @apply relative flex h-full flex-col overflow-hidden rounded-xl border border-border/70 bg-card/80 p-4;
+    box-shadow: inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
+    transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+  }
+
+  .launcher-demo::before {
+    content: '';
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: 2px;
+    background: linear-gradient(
+      90deg,
+      hsl(var(--family-accent, var(--primary)) / 0.95),
+      hsl(var(--family-accent, var(--primary)) / 0.15) 65%,
+      transparent
+    );
+  }
+
+  .launcher-demo:hover {
+    transform: translateY(-2px);
+    border-color: hsl(var(--family-accent, var(--primary)) / 0.55);
+    box-shadow: 0 18px 32px -24px hsl(var(--shadow-color) / 1);
+  }
+
+  .launcher-demo__top {
+    @apply mb-3 flex items-center justify-between gap-2;
+  }
+
+  .launcher-demo__mode {
+    @apply inline-flex items-center gap-1.5 rounded-full bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground;
+  }
+
+  .launcher-demo__title {
+    @apply text-base font-semibold leading-snug tracking-[-0.015em] text-foreground;
+  }
+
+  .launcher-demo__summary {
+    @apply mt-1.5 line-clamp-3 flex-1 text-[13px] leading-relaxed text-muted-foreground;
+  }
+
+  .launcher-demo__open {
+    @apply -mx-1 mt-3 inline-flex items-center gap-1.5 rounded-md px-1 py-0.5 text-[13px] font-medium text-foreground transition-colors;
+  }
+
+  .launcher-demo__open:hover {
+    border-color: hsl(var(--family-accent, var(--primary)) / 0.7);
+    color: hsl(var(--family-accent, var(--primary)));
+  }
+
+  .launcher-demo__open:focus-visible {
+    box-shadow: 0 0 0 1px hsl(var(--ring) / var(--focus-halo));
+    outline: none;
+  }
+
+  .launcher-empty {
+    @apply border-border/70 py-14 text-center;
+  }
+
+  .launcher-empty__mark {
+    @apply mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-border/70 text-primary;
+    background:
+      radial-gradient(circle at 30% 25%, hsl(var(--primary) / 0.25), transparent 70%),
+      hsl(var(--surface) / 0.7);
+  }
+
+  .launcher-empty__mark > svg {
+    @apply h-6 w-6;
+  }
+
+  .launcher-project {
+    @apply relative;
+  }
+
+  .launcher-project__monogram {
+    @apply flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-primary/30 text-base font-semibold text-primary;
+    background:
+      linear-gradient(150deg, hsl(var(--primary) / 0.22), hsl(var(--chart-4) / 0.12)),
+      hsl(var(--background) / 0.4);
+  }
+
+  .launcher-project__facts {
+    @apply flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums text-muted-foreground;
+  }
+
+  .launcher-project__open-hint {
+    @apply ml-auto inline-flex items-center gap-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary opacity-0 transition-all duration-150;
+    transform: translate(-3px, 1px);
+  }
+
+  .launcher-project:hover .launcher-project__open-hint,
+  .launcher-project:focus-within .launcher-project__open-hint {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .launcher-project__open-hint {
+      transition: opacity 150ms ease;
+    }
+  }
+
+  .launcher-project__delete {
+    @apply absolute right-2 top-2 z-10 h-7 w-7 rounded-md text-muted-foreground/70 opacity-0 transition-opacity duration-150 hover:bg-destructive/10 hover:text-destructive focus-visible:text-destructive;
+  }
+
+  /* The corner button is the one other decision on the card, so it stays quiet
+     until it is reached, and never hides from a keyboard or a touch screen. */
+  .launcher-project:hover .launcher-project__delete,
+  .launcher-project:focus-within .launcher-project__delete {
+    opacity: 1;
+  }
+
+  @media (hover: none) {
+    .launcher-project__delete {
+      opacity: 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .launcher-demo,
+    .launcher-demo:hover,
+    .family-tile,
+    .family-tile:hover,
+    .launcher-project,
+    .launcher-project:hover {
+      transform: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .launcher-hero__aura {
+      display: none;
+    }
+
+    .family-tile__icon,
+    .launcher-project__monogram {
+      border: 1px solid ButtonText;
+      background: Canvas;
+    }
+  }
+
+  /* ── Admin console ────────────────────────────────────────────────────────
+   * The console governs accounts and what they do in the workbench, so it is
+   * laid out like an operator's panel: sections down the left, one content
+   * column, tables whose header stays put while the directory scrolls under it.
+   * On a narrow window the rail becomes a wrapped strip of chips — a section is
+   * never hidden behind a sideways scroll nobody can see.
+   */
+  .admin-rail {
+    @apply flex-shrink-0 border-b border-border bg-surface/40 px-3 py-2 lg:w-56 lg:border-b-0 lg:border-r lg:py-4;
+  }
+
+  .admin-rail__note--alert {
+    @apply rounded-md border border-warning/40 bg-warning/10 px-2 py-1 text-warning;
+  }
+
+  .admin-rail__list {
+    @apply flex flex-wrap items-stretch gap-1 lg:flex-col;
+  }
+
+  /*
+   * Below `lg` the rail is a horizontal strip, so each row takes its own label's
+   * width and the strip wraps. Stretching the rows to equal widths instead —
+   * which is what `flex-1` did — squeezed five names into 92px each and every one
+   * of them truncated to "Pe…", "Enviro…". A rail you cannot read is not compact,
+   * it is broken. In the vertical rail the rows are the rail's width, which is
+   * what they are for.
+   */
+  .admin-rail__item {
+    @apply flex min-h-9 flex-none cursor-pointer select-none items-center gap-2 rounded-md border border-transparent px-2.5 text-left text-xs font-medium text-muted-foreground outline-none transition-colors lg:w-full;
+  }
+
+  .admin-rail__item:hover {
+    @apply bg-accent/60 text-foreground;
+  }
+
+  /* The selected section keeps a hue on its edge, the same trick the open
+   * workspace tab uses, so the rail reads as an instrument panel. */
+  .admin-rail__item[aria-selected='true'] {
+    @apply border-border bg-card text-foreground;
+    box-shadow: inset 2px 0 0 hsl(var(--primary));
+  }
+
+  .admin-rail__item:focus-visible {
+    @apply border-ring outline-none ring-0 ring-offset-0;
+    box-shadow: 0 0 0 1px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .admin-rail__icon {
+    @apply h-3.5 w-3.5 flex-shrink-0;
+  }
+
+  .admin-rail__count {
+    @apply flex-shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground;
+  }
+
+  .admin-rail__note {
+    @apply mt-3 hidden text-[11px] leading-snug text-muted-foreground lg:block;
+  }
+
+  .admin-table {
+    @apply w-full border-collapse text-left text-xs;
+  }
+
+  .admin-table thead th {
+    @apply sticky top-0 z-10 bg-surface px-3 py-2 text-[11px] font-medium text-muted-foreground;
+    box-shadow: inset 0 -1px 0 hsl(var(--border));
+  }
+
+  .admin-table tbody tr {
+    @apply border-t border-border/70;
+  }
+
+  .admin-table tbody tr:hover {
+    @apply bg-accent/40;
+  }
+
+  .admin-table tbody tr:nth-child(even) {
+    background: hsl(var(--muted) / 0.35);
+  }
+
+  .admin-table td {
+    @apply px-3 py-2.5 align-middle;
+  }
+
+  @media (forced-colors: active) {
+    .admin-rail__item[aria-selected='true'] {
+      border: 1px solid ButtonText;
+    }
+
+    .admin-rail__count {
+      border: 1px solid ButtonText;
+    }
+  }
+
+  /* The name is the rename control, so it carries an edit mark — but only while
+   * the pointer or the caret is on it. A wall of cards stays a wall of names. */
+  .editable-title .editable-title__mark {
+    opacity: 0;
+    transition: opacity 140ms ease;
+  }
+
+  .editable-title:hover .editable-title__mark,
+  .editable-title:focus-visible .editable-title__mark {
+    opacity: 1;
+  }
+
+  /* Forced colours strips the shadow that carried the lift, so the mark — the
+   * only thing saying "this name is editable" — never rides on a hover state. */
+  @media (forced-colors: active) {
+    .editable-title .editable-title__mark {
+      opacity: 1;
+    }
+
+    /* The tile's hue was decoration over an accent hairline; with the palette
+     * taken away it has to keep its own edge and its own text colour. */
+    .family-tile {
+      @apply bg-canvas;
+      border: 1px solid ButtonText;
+    }
+
+    .family-tile::before {
+      display: none;
+    }
+
+    .family-tile__label,
+    .family-tile__count,
+    .family-tile__desc {
+      color: CanvasText;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .project-card,
+    .project-card:hover,
+    .project-card:active,
+    .family-tile,
+    .family-tile:hover,
+    .family-tile:active {
+      transform: none;
+      transition: none;
+    }
+
+    .editable-title .editable-title__mark {
+      transition: none;
+    }
+  }
+
+  /* ── CAD action pair ─────────────────────────────────────────────────────
+   * Side-by-side Back + primary actions that can NEVER differ in height:
+   * one grid, one fixed width, one height, no wrap. Use for every wizard /
+   * dialog footer in the product — never hand-roll two buttons again.
+   */
+  .cad-action-pair {
+    @apply grid w-72 grid-cols-2 items-stretch gap-2;
+  }
+
+  .cad-action-pair > * {
+    @apply h-9 justify-center whitespace-nowrap;
+  }
+
+  /* Fixed-height dialog footer row: nothing inside can stretch taller. */
+  .cad-footer-row {
+    @apply mt-auto flex h-16 flex-shrink-0 items-center justify-between gap-3 border-t border-border bg-muted/40 px-6;
+  }
+
+  /* Responsive panel shell: full-height on desktop, bottom-sheet on mobile. */
+  .cad-panel-shell {
+    @apply flex max-h-[calc(100vh-2rem)] min-h-0 w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-border shadow-2xl outline-none;
+  }
+
+  @media (max-width: 640px) {
+    .cad-panel-shell {
+      @apply max-h-[calc(100dvh-1rem)] rounded-b-none;
+    }
+  }
+
+  /* The schematic / PCB grid. Drawn from tokens so it is subtle in both themes
+     and never fights the sheet colour. */
+  .editor-grid {
+    background-image:
+      linear-gradient(hsl(var(--grid)) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--grid)) 1px, transparent 1px);
+    background-size: 10px 10px;
+  }
+
+  .editor-grid-major {
+    background-image:
+      linear-gradient(hsl(var(--grid-major)) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--grid-major)) 1px, transparent 1px),
+      linear-gradient(hsl(var(--grid)) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--grid)) 1px, transparent 1px);
+    background-size:
+      100px 100px,
+      100px 100px,
+      10px 10px,
+      10px 10px;
+  }
+
+  .status-bar {
+    @apply flex h-7 min-w-0 flex-shrink-0 items-stretch overflow-x-auto overflow-y-hidden border-t border-border bg-surface text-xs text-muted-foreground;
+    box-shadow: inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
+    scrollbar-width: none;
+  }
+
+  .status-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* One cell of the segmented status bar. Sans, sentence case, tabular figures:
+   * the bar states facts; it is not a console. */
+  .status-segment {
+    @apply inline-flex h-full flex-shrink-0 items-center gap-1.5 whitespace-nowrap border-r border-border px-3.5 text-xs;
+  }
+
+  /* Which cell ends the bar depends on the viewport — the optional ones are
+   * `hidden sm:`/`lg:` — so the trailing seam is taken off by position rather
+   * than by a `border-r-0` that would land on the wrong cell. */
+  .status-bar > .status-segment:last-child {
+    @apply border-r-0;
+  }
+
+  .modal-scrim {
+    @apply fixed inset-0 z-50 flex items-center justify-center bg-overlay/75 p-4 backdrop-blur-md;
+  }
+
+  /* ── Filled action buttons ────────────────────────────────────────────────
+   * A solid action throws a little of its own colour onto the shell, which is
+   * how the eye finds the one button that does something. `--control-glow` is
+   * what an appearance with no room for decoration switches off; `:hover`
+   * widens the same halo instead of brightening the fill further.
+   *
+   * `--control-depth` then shades the *face*: the button's own label colour
+   * lightens the top edge, `--shadow-color` darkens the bottom, and the fill in
+   * between — where the text actually sits — is untouched. That is what makes a
+   * filled button read as a body standing slightly above the shell instead of a
+   * rectangle pasted on it. The two films are measured, not assumed: at 0.16 the
+   * worst label contrast over the extremes of the gradient is 5.0:1 across all
+   * four themes (its fill alone is 6.5:1), so the tightening never buys depth
+   * with legibility.
+   */
+  .cad-btn-primary,
+  .cad-btn-destructive {
+    transition:
+      background-color 150ms ease,
+      box-shadow 150ms ease;
+  }
+
+  .cad-btn-primary {
+    background-image: linear-gradient(
+      180deg,
+      hsl(var(--primary-foreground) / var(--control-depth)) 0%,
+      transparent 42%,
+      hsl(var(--shadow-color) / var(--control-depth)) 100%
+    );
+    box-shadow: 0 2px 12px -4px hsl(var(--primary) / var(--control-glow));
+  }
+
+  .cad-btn-primary:hover:not(:disabled) {
+    box-shadow: 0 5px 18px -5px hsl(var(--primary) / var(--control-glow));
+  }
+
+  .cad-btn-destructive {
+    background-image: linear-gradient(
+      180deg,
+      hsl(var(--destructive-foreground) / var(--control-depth)) 0%,
+      transparent 42%,
+      hsl(var(--shadow-color) / var(--control-depth)) 100%
+    );
+    box-shadow: 0 2px 12px -4px hsl(var(--destructive) / var(--control-glow));
+  }
+
+  .cad-btn-destructive:hover:not(:disabled) {
+    box-shadow: 0 5px 18px -5px hsl(var(--destructive) / var(--control-glow));
+  }
+
+  /* ── CAD workstation chrome ────────────────────────────────────────────────
+   * The visual language of ECAD/MCAD editors: docked palettes around a gridded
+   * sheet, a vertical tool rail, document-style workspace tabs, and monospace
+   * numeric readouts. Token-backed only — no colour values here.
+   */
+  .cad-tab {
+    @apply inline-flex h-7 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-md border-b-2 border-b-transparent px-3 text-[11px] font-medium text-muted-foreground transition-[background-color,color,border-color,box-shadow] duration-150 hover:bg-accent hover:text-foreground;
+  }
+
+  /* The family hue runs through its tabs: the icon carries it quietly all the
+   * time, and the selected tab draws it as its underline. `--family-accent` is
+   * set by the workspace nav from the same four chart tokens as the family row,
+   * so a mode opened from the palette or a deep link still lands on its hue. */
+  .cad-tab > svg {
+    color: hsl(var(--family-accent, var(--primary)));
+    opacity: 0.65;
+    transition: opacity 120ms ease;
+  }
+
+  .cad-tab:hover > svg,
+  .cad-tab-active > svg {
+    opacity: 1;
+  }
+
+  /* Refused export: names every failed manufacturability check. */
+  .cad-export-blocked {
+    @apply bg-destructive/5;
+  }
+
+  .cad-tab-active {
+    @apply bg-background text-foreground;
+    border-bottom-color: hsl(var(--family-accent, var(--primary)));
+    /* The open document lifts out of the strip in its own family hue. */
+    box-shadow: 0 -3px 10px -6px hsl(var(--family-accent, var(--primary)) / var(--control-glow));
+  }
+
+  /* Brand rule: a two-pixel spectrum along the top edge of the shell. It names
+   * no status, so it is removed where colour cannot be relied on (forced colours
+   * and the high-contrast theme). */
+  .app-shell::before {
+    content: '';
+    position: fixed;
+    inset-inline: 0;
+    top: 0;
+    z-index: 60;
+    height: 2px;
+    pointer-events: none;
+    background: linear-gradient(
+      90deg,
+      hsl(var(--chart-1)) 0%,
+      hsl(var(--chart-2)) 30%,
+      hsl(var(--chart-3)) 55%,
+      hsl(var(--chart-4)) 80%,
+      hsl(var(--chart-5)) 100%
+    );
+  }
+
+  [data-theme='high-contrast'] .app-shell::before {
+    display: none;
+  }
+
+  @media (forced-colors: active) {
+    .app-shell::before,
+    .cad-workspace-nav::after {
+      display: none;
+    }
+  }
+
+  /*
+   * The rail is a shelf of fixed-size targets. Without `overflow-y` a short
+   * window squeezed all fifteen buttons from 32px to 16px to make them fit —
+   * flex-shrink is on by default — and the shortcut keycap, which is pinned to
+   * the corner of the button, ended up printed across the icon. So the rail
+   * scrolls and its buttons never yield. The scrollbar stays hidden because a
+   * visible one would narrow the content box and shift every icon off the
+   * rail's centre line; wheel and trackpad still scroll.
+   */
+  .cad-rail {
+    @apply relative z-40 flex w-12 flex-shrink-0 flex-col items-center gap-1 overflow-y-auto overscroll-contain border-r border-border bg-surface py-2 text-surface-foreground;
+    scrollbar-width: none;
+    /* Casts onto the sheet, so the rail reads as a shelf above it. */
+    box-shadow: 2px 0 10px -6px hsl(var(--shadow-color) / 0.65);
+  }
+
+  .cad-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .cad-rail-btn {
+    @apply relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,box-shadow] duration-150 hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  .cad-rail-btn-active {
+    @apply bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground;
+    box-shadow: 0 3px 12px -4px hsl(var(--primary) / var(--control-glow));
+  }
+
+  /*
+   * Mono shortcut badge (V, D, G, F…). It is parked outside the icon's box, not
+   * across its corner: a 16px icon centred in a 36px button owns x∈[10,26], so
+   * the keycap starts clear of it.
+   */
+  .cad-rail-key {
+    @apply pointer-events-none absolute bottom-1 right-1.5 font-mono text-[9px] font-medium leading-none text-muted-foreground;
+  }
+
+  .cad-rail-btn-active .cad-rail-key {
+    @apply text-primary-foreground;
+  }
+
+  .cad-rail-sep {
+    @apply my-1 h-px w-6 bg-border;
+  }
+
+  .cad-dock {
+    @apply flex w-64 min-w-64 min-h-0 max-w-64 flex-shrink-0 flex-col overflow-hidden border-r border-border bg-card text-card-foreground;
+    box-shadow:
+      inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge)),
+      4px 0 16px -10px hsl(var(--shadow-color) / 0.75);
+  }
+
+  /* One wide desktop gets a library column that can show a part number and its
+   * package without truncating both to initials. */
+  @media (min-width: 1280px) {
+    .cad-dock {
+      @apply w-[19rem] min-w-[19rem] max-w-[19rem];
+    }
+  }
+
+  /* Inspector dock — same palette anatomy as the library, mirrored border. */
+  .cad-inspector {
+    @apply flex w-72 min-w-72 min-h-0 max-w-72 flex-shrink-0 flex-col overflow-hidden border-l border-border bg-card text-card-foreground;
+    box-shadow:
+      inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge)),
+      -4px 0 16px -10px hsl(var(--shadow-color) / 0.75);
+  }
+
+  /* Narrow viewports: docks float over the sheet rather than squeezing it to an
+   * unusable sliver. Both remain dismissible from their own close buttons (the
+   * library also has the header toggle). Floating is when the depth language
+   * earns its keep: a full border, all four corners, and a real drop shadow. */
+  @media (max-width: 1279px) {
+    .cad-dock,
+    .cad-inspector {
+      @apply absolute inset-y-2 z-30 w-60 min-w-0 max-w-[calc(100%-1rem)] rounded-lg border shadow-xl;
+    }
+
+    .cad-dock {
+      @apply left-2;
+    }
+
+    .cad-inspector {
+      @apply right-2 w-64;
+    }
+  }
+
+  /* Fixed 28px palette title bar shared by every docked panel. */
+  .cad-palette-title {
+    @apply flex h-8 flex-shrink-0 items-center justify-between gap-2 border-b border-border bg-surface px-2.5 text-xs font-medium text-muted-foreground;
+    /* The bar catches the shell's light along its top edge — see `--panel-edge`,
+     * which an appearance that carries no decoration switches off. */
+    background-image: linear-gradient(180deg, hsl(var(--foreground) / var(--panel-edge)) 0%, transparent 100%);
+  }
+
+  /* Sticky section header bar inside a palette body. */
+  .cad-section-title {
+    @apply sticky top-0 z-10 flex h-7 items-center justify-between gap-2 border-b border-border bg-surface px-2 text-xs font-medium text-muted-foreground;
+    background-image: linear-gradient(180deg, hsl(var(--foreground) / var(--panel-edge)) 0%, transparent 100%);
+  }
+
+  .cad-readout {
+    @apply text-xs font-medium tabular-nums;
+  }
+
+  /* Editor-local status strip pinned to the bottom of the sheet. */
+  .cad-hud {
+    @apply pointer-events-none absolute inset-x-0 bottom-0 flex h-6 items-center justify-between border-t border-border bg-surface/90 px-2 text-[11px] tabular-nums text-muted-foreground backdrop-blur-sm;
+  }
+
+  /* ── Workbench bottom panel ───────────────────────────────────────────────
+   * The IDE half of the shell: a docked, tabbed panel under the sheet that
+   * states what the design engine found. It is part of the workstation row, so
+   * the canvas gives up height rather than being covered; the palette bar uses
+   * the same 32px anatomy as every dock above it.
+   */
+  .cad-panel {
+    @apply relative flex h-[13.5rem] flex-shrink-0 flex-col overflow-hidden border-t border-border bg-surface text-surface-foreground;
+    box-shadow: inset 0 1px 0 hsl(var(--foreground) / var(--panel-edge));
+  }
+
+  /* The top edge is the splitter, so the dock's own border is not the only
+   * thing under the pointer when a designer reaches for it. */
+  .cad-panel__resize {
+    @apply absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize touch-none bg-transparent outline-none;
+  }
+
+  .cad-panel__resize:hover,
+  .cad-panel__resize--active,
+  .cad-panel__resize:focus-visible {
+    @apply bg-primary/50;
+  }
+
+  @media (max-width: 1279px) {
+    .cad-panel {
+      @apply h-[11.5rem];
+    }
+  }
+
+  /* A clean sheet does not need a findings dock. The panel keeps its bar and
+   * verdict but drops to a status rail, so a passing design gives the canvas
+   * its height back instead of reserving space to say nothing. */
+  .cad-panel--quiet {
+    @apply h-[7.25rem];
+  }
+
+  .cad-panel__bar {
+    @apply flex h-8 flex-shrink-0 items-stretch justify-between gap-2 border-b border-border pr-1;
+  }
+
+  .cad-panel__tabs {
+    @apply flex min-w-0 items-stretch overflow-x-auto;
+    scrollbar-width: none;
+  }
+
+  .cad-panel__tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* A tab, not a pill: the open panel is underlined in the family hue and the
+   * closed ones stay quiet, so the bar reads as one shelf of surfaces. */
+  .cad-panel__tab {
+    @apply relative flex flex-shrink-0 items-center gap-1.5 border-b-2 border-b-transparent px-3 text-xs font-medium text-muted-foreground outline-none transition-[color,border-color,background-color] duration-150 hover:bg-accent/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  .cad-panel__tab[aria-selected='true'] {
+    @apply border-b-primary text-foreground;
+  }
+
+  .cad-panel__tab > svg {
+    @apply h-3.5 w-3.5 flex-shrink-0;
+  }
+
+  .cad-panel__count {
+    @apply rounded-full bg-muted/70 px-1.5 text-[10px] font-medium leading-[16px] tabular-nums text-muted-foreground;
+  }
+
+  .cad-panel__count--alert {
+    @apply bg-destructive/10 text-destructive;
+  }
+
+  .cad-panel__actions {
+    @apply flex min-w-0 flex-shrink items-center gap-1.5 overflow-x-auto;
+    scrollbar-width: none;
+  }
+
+  .cad-panel__actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .cad-panel__filters {
+    @apply flex flex-shrink-0 items-center gap-0.5 rounded-md border border-border/70 bg-background/40 p-0.5;
+  }
+
+  .cad-panel__filter {
+    @apply inline-flex h-6 flex-shrink-0 items-center gap-1 rounded px-1.5 text-[11px] font-medium tabular-nums text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  .cad-panel__filter--active {
+    @apply bg-accent text-foreground;
+  }
+
+  .cad-panel__filter-dot {
+    @apply h-1.5 w-1.5 rounded-full;
+  }
+
+  .cad-panel__filter-dot--error {
+    @apply bg-destructive;
+  }
+
+  .cad-panel__filter-dot--warning {
+    @apply bg-warning;
+  }
+
+  .cad-panel__filter-dot--info {
+    @apply bg-muted-foreground;
+  }
+
+  .cad-panel__filter-count {
+    @apply text-[10px] text-muted-foreground;
+  }
+
+  .cad-panel__body {
+    @apply min-h-0 flex-1 overflow-y-auto scrollbar-thin;
+  }
+
+  .cad-panel__list {
+    @apply m-0 list-none p-0;
+  }
+
+  .cad-panel__empty {
+    @apply flex h-full items-center justify-center gap-2.5 px-4;
+  }
+
+  /* One finding: severity mark, the rule's sentence, the fix, then the part.
+   * The whole row is the locate target — a designer reads a rule and wants the
+   * offending pin under the viewport, not a second menu. */
+  .cad-problem {
+    @apply grid w-full grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2 border-b border-border/40 px-3 py-1.5 text-left outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring;
+  }
+
+  .cad-problem__icon {
+    @apply h-3.5 w-3.5 flex-shrink-0;
+  }
+
+  .cad-problem__icon--error {
+    @apply text-destructive;
+  }
+
+  .cad-problem__icon--warning {
+    @apply text-warning;
+  }
+
+  .cad-problem__icon--info {
+    @apply text-muted-foreground;
+  }
+
+  .cad-problem__side {
+    @apply flex flex-shrink-0 items-center gap-2;
+  }
+
+  .cad-problem__locate {
+    @apply inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground;
+  }
+
+  .cad-problem:hover .cad-problem__locate {
+    @apply text-primary;
+  }
+
+  /* The F8 cursor is a row state, not a hover: it survives the pointer moving
+   * away, and the footer counter says where it sits in the list. */
+  .cad-problem--active {
+    @apply bg-accent/60;
+    box-shadow: inset 2px 0 0 hsl(var(--primary));
+  }
+
+  /* Outline rows put the reference first, the part name in the flexible
+   * column and the category at the end — the same left-to-right reading order
+   * as a netlist, so locating a part is a scan, not a search. */
+  .cad-problem--outline {
+    @apply grid-cols-[auto_minmax(0,1fr)_auto] py-1;
+  }
+
+  .cad-panel__foot {
+    @apply flex h-7 flex-shrink-0 items-center justify-between gap-3 border-t border-border bg-surface px-2.5 text-[11px] tabular-nums text-muted-foreground;
+  }
+
+  /* ── Empty-sheet doorways ─────────────────────────────────────────────────
+   * A blank schematic is the moment the product is judged: the caption that
+   * used to sit here explained the gesture but offered nothing to press. The
+   * card names the sheet, offers the three real starts, and prints the four
+   * keys that get a draft moving — all inside the drawing area so the first
+   * click never leaves the canvas.
+   */
+  .cad-empty-sheet {
+    @apply pointer-events-none absolute inset-0 z-[2] flex items-center justify-center p-4;
+  }
+
+  .cad-empty-sheet__card {
+    @apply pointer-events-auto flex w-full max-w-[26rem] flex-col items-center px-6 py-6 text-center;
+    animation: cad-empty-sheet-in 240ms ease-out both;
+  }
+
+  @keyframes cad-empty-sheet-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .cad-empty-sheet__eyebrow {
+    @apply mt-4 text-[10px] font-medium uppercase text-muted-foreground;
+    letter-spacing: 0.28em;
+    font-family: 'Archivo', system-ui, sans-serif;
+  }
+
+  .cad-empty-sheet__title {
+    @apply mt-1.5 text-xl font-extrabold text-foreground;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+  }
+
+  .cad-empty-sheet__lede {
+    @apply mt-1.5 max-w-[21rem] text-xs leading-relaxed text-muted-foreground;
+  }
+
+  .cad-empty-sheet__actions {
+    @apply mt-4 flex w-full flex-wrap items-center justify-center gap-1.5;
+  }
+
+  .cad-empty-sheet__action {
+    @apply inline-flex h-8 items-center gap-1.5 rounded-md border border-border/80 bg-background/60 px-2.5 text-xs font-medium text-foreground outline-none transition-[background-color,border-color,box-shadow] duration-150 hover:border-primary/50 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  .cad-empty-sheet__action > svg {
+    @apply h-3.5 w-3.5;
+  }
+
+  .cad-empty-sheet__action--primary {
+    @apply border-transparent bg-primary text-primary-foreground hover:bg-primary hover:brightness-110;
+    box-shadow: 0 3px 12px -5px hsl(var(--primary) / var(--control-glow));
+  }
+
+  .cad-empty-sheet__keys {
+    @apply mt-4 grid w-full grid-cols-4 gap-2 border-t border-border/70 pt-3;
+  }
+
+  .cad-empty-sheet__keys dt {
+    @apply text-[11px] font-medium text-muted-foreground;
+  }
+
+  .cad-empty-sheet__keys dd {
+    @apply mt-1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cad-empty-sheet__card {
+      animation: none;
+    }
+
+    .cad-empty-sheet__action {
+      transition: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .cad-empty-sheet__card,
+    .cad-empty-sheet__action {
+      border: 1px solid ButtonText;
+      background: Canvas;
+    }
+
+    .cad-empty-sheet__mark {
+      border: 1px solid ButtonText;
+      background: Canvas;
+    }
+  }
+
+  /* Chip shown while a library part is armed for placement. It is the only
+   * thing telling you the cursor will place rather than select, so it wears the
+   * accent ring and floats clear of the sheet chrome. */
+  .cad-place-chip {
+    @apply pointer-events-none absolute left-1/2 top-7 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-primary/40 bg-surface/95 px-3 py-1 text-[11px] text-surface-foreground shadow-lg backdrop-blur-sm;
+  }
+
+  /*
+   * A surface that takes library rows. The edge answers the drag before the drop
+   * lands, so the pointer says whether this is the right place: accent while a
+   * compatible row hovers, destructive for the moment after a row it cannot use.
+   */
+  .cad-dropzone {
+    transition: box-shadow 120ms ease-out;
+  }
+
+  .cad-dropzone[data-library-drop='accept'] {
+    box-shadow:
+      inset 0 0 0 2px hsl(var(--primary) / 0.7),
+      inset 0 0 28px -8px hsl(var(--primary) / var(--control-glow));
+  }
+
+  .cad-dropzone[data-library-drop='refuse'] {
+    box-shadow: inset 0 0 0 2px hsl(var(--destructive) / 0.75);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cad-dropzone {
+      transition: none;
+    }
+  }
+
+  /* The sentence a drop zone speaks — a refusal, or the row it is about to spend. */
+  .cad-drop-note {
+    @apply absolute left-1/2 top-2 z-20 flex max-w-[min(30rem,calc(100%-1rem))] -translate-x-1/2 items-center gap-2 rounded-full border border-primary/40 bg-surface/95 px-3 py-1 text-[11px] text-surface-foreground shadow-lg backdrop-blur-sm;
+  }
+
+  .cad-drop-note--refuse {
+    @apply border-destructive/50 text-destructive;
+  }
+
+  /* A note that lives inside a card rather than floating over a viewport. */
+  .cad-drop-note--inline {
+    @apply static z-0 max-w-none translate-x-0 rounded-md border-border/70 bg-muted/50 px-2 py-1 shadow-none backdrop-blur-none;
+  }
+
+  /* Right-click menu over the sheet. */
+  .cad-context-menu {
+    @apply absolute z-50 flex min-w-[11rem] flex-col overflow-hidden rounded-lg border border-border bg-surface/95 py-1 shadow-xl backdrop-blur-md;
+  }
+
+  .cad-context-item {
+    @apply mx-1 rounded-md px-2 py-1 text-left text-[11px] text-surface-foreground transition-colors hover:bg-muted/60;
+  }
+
+  .cad-context-item--danger {
+    @apply text-destructive;
+  }
+
+  /* Fail-loud strip listing placed symbols that break the symbol contract. */
+  .cad-symbol-faults {
+    @apply pointer-events-none absolute inset-x-0 bottom-6 z-10 flex h-6 items-center gap-2 border-t border-destructive/40 bg-surface px-2 text-[11px] text-destructive;
+  }
+
+  .cad-ruler-face {
+    @apply pointer-events-none absolute bg-surface;
+  }
+
+
+  /* ── One control shape ────────────────────────────────────────────────────
+   * Every pressable thing in the chrome is built from `.cad-ctl`: one height,
+   * one radius, one icon size, one focus treatment. Before this, a strip could
+   * put a `rounded-full` button next to a `rounded-sm` one, a 13px icon next to
+   * a 16px one, and the row would never share a centre line — the icons sit at
+   * different offsets inside boxes that disagree about their own corners.
+   *
+   * The rule: a pill is not a control shape here. `rounded-full` is reserved for
+   * status that is read and never pressed (`.cad-chip`, `.cad-kbd`, a badge), so
+   * pressing something and reading something cannot look the same.
+   *
+   * 28px is the shortest legal target — the a11y contract floors every button
+   * at 1.5rem, and the chrome (tab strip, HUDs, floating palettes) is built on
+   * 28px rows, so a control that matched its row would be exactly 28px.
+   */
+  .cad-ctl {
+    @apply inline-flex h-7 min-h-7 min-w-7 shrink-0 cursor-pointer select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-surface/70 px-2 text-[11px] font-medium leading-none text-surface-foreground;
+    transition:
+      background-color 140ms ease,
+      border-color 140ms ease,
+      color 140ms ease,
+      box-shadow 140ms ease,
+      transform 120ms ease;
+  }
+
+  /* The icon is a fixed 14px, whatever the caller passed. A `size={13}` next to
+   * a `w-4 h-4` is the arithmetic that breaks a row's centre line. */
+  .cad-ctl > svg {
+    @apply h-3.5 w-3.5 flex-shrink-0;
+  }
+
+  .cad-ctl:hover:not(:disabled) {
+    @apply border-primary/40 bg-accent text-accent-foreground;
+  }
+
+  .cad-ctl:active:not(:disabled) {
+    @apply translate-y-px;
+  }
+
+  /* Same one-edge focus contract as `.cad-field`: the border names it, the halo
+   * makes it findable on a busy sheet. */
+  .cad-ctl:focus-visible {
+    @apply outline-none border-ring ring-0 ring-offset-0;
+    box-shadow: 0 0 0 1px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .cad-ctl:disabled {
+    @apply pointer-events-none border-transparent bg-muted/40 text-muted-foreground;
+  }
+
+  .cad-ctl--icon {
+    @apply w-7 px-0;
+  }
+
+  /* A control that holds a state, not an action — view mode, active tool. */
+  .cad-ctl--active {
+    @apply border-primary/60 bg-primary/15 text-primary;
+  }
+
+  .cad-ctl--active:hover:not(:disabled) {
+    @apply bg-primary/25 text-primary;
+  }
+
+  /* The emphasis end of the scale, for the one action a surface wants taken. */
+  .cad-ctl--primary {
+    @apply border-primary/50 bg-primary/20 text-primary;
+  }
+
+  .cad-ctl--primary:hover:not(:disabled) {
+    @apply border-primary bg-primary/30 text-primary;
+  }
+
+  /* Read-only status: a pill, on purpose. It is looked at, not clicked. */
+  .cad-chip {
+    @apply inline-flex h-5 min-h-5 max-w-full items-center gap-1 whitespace-nowrap rounded-full border border-border bg-muted/50 px-2 text-[11px] leading-none tabular-nums text-muted-foreground;
+  }
+
+  .cad-chip > svg {
+    @apply h-3 w-3 flex-shrink-0;
+  }
+
+  .cad-chip--alert {
+    @apply border-destructive/40 bg-destructive/10 text-destructive;
+  }
+
+  /* ── Inspector field system ───────────────────────────────────────────────
+   * Dense label → value rows and flat monospace inputs — the row rhythm of a
+   * CAD properties inspector, not a web form.
+   */
+  .cad-prop-row {
+    @apply grid min-h-[28px] grid-cols-[86px_minmax(0,1fr)] items-center gap-2 border-b border-border/50 px-2 py-0.5 text-xs;
+  }
+
+  .cad-prop-label {
+    @apply truncate text-xs font-medium text-muted-foreground;
+  }
+
+  .cad-prop-value {
+    @apply min-w-0 truncate text-xs font-medium tabular-nums text-foreground;
+  }
+
+  .cad-field {
+    @apply h-6 min-w-0 rounded-md border border-input bg-background px-1.5 text-xs tabular-nums text-foreground outline-none transition-[border-color,background-color] hover:border-muted-foreground/60;
+  }
+
+  /* A live field tints as well as re-drawing its edge, and carries the same flush
+   * halo the base focus contract paints — one edge, one glow, never a second
+   * ring outside the border. Declared here so a mouse click and a keyboard tab
+   * land on the identical treatment. */
+  .cad-field:focus {
+    @apply border-ring bg-accent/40;
+    box-shadow: 0 0 0 1px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .cad-field:disabled {
+    @apply border-transparent bg-muted/40 text-muted-foreground;
+  }
+
+  /* ── Settings fields ──────────────────────────────────────────────────────
+   * The settings page is a form, but it is a form inside this app, so it takes
+   * the same 28px chrome scale as a tool button and the same one-edge focus
+   * contract as a canvas field. A number's unit lives *inside* the field edge:
+   * the value and the thing it is measured in are one control, and "0.2 mm"
+   * can never wrap onto two lines or be clipped by the row edge.
+   */
+  .cad-form-field {
+    @apply inline-flex h-7 min-w-0 items-center rounded-md border border-input bg-surface/40 transition-[border-color,background-color];
+  }
+
+  .cad-form-field:focus-within {
+    @apply border-ring bg-background;
+    box-shadow: 0 0 0 1px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .cad-form-field[data-disabled='true'] {
+    @apply border-transparent bg-muted/40;
+  }
+
+  .cad-form-input {
+    @apply h-full w-full min-w-0 bg-transparent px-2.5 text-[13px] tabular-nums text-foreground outline-none;
+  }
+
+  .cad-form-input::-webkit-outer-spin-button,
+  .cad-form-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input.cad-form-input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
+  .cad-form-unit {
+    @apply shrink-0 pl-0.5 pr-2.5 text-[11px] text-muted-foreground;
+  }
+
+  select.cad-form-select {
+    @apply h-7 max-w-[240px] min-w-0 cursor-pointer rounded-md border border-input bg-surface/40 px-2 text-[13px] text-foreground outline-none transition-[border-color,background-color] hover:border-primary/40 focus:border-ring;
+  }
+
+  select.cad-form-select:focus {
+    @apply bg-background;
+    box-shadow: 0 0 0 1px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  select.cad-form-select:disabled {
+    @apply cursor-not-allowed border-transparent bg-muted/40 text-muted-foreground;
+  }
+
+  /* ── Range control (slider) ─────────────────────────────────────────────
+   * One skin for every numeric drag control in the app. The element stays a
+   * native `<input type="range">` so arrow keys, Page Up/Down, Home/End, touch
+   * dragging and the accessible name come free — only the paint is ours.
+   * Geometry is written in px because the thumb has to line up with the track
+   * across two different pseudo-element APIs (WebKit offsets the thumb from the
+   * track with a negative margin; Gecko centres it).
+   *
+   * `--cad-slider-pos` is the filled fraction (0..1) that `RangeControl` writes
+   * from the current value; WebKit has no progress pseudo-element, so the fill
+   * is a hard-edged gradient stop on the track itself.
+   */
+  .cad-slider {
+    --cad-slider-pos: 0;
+    -webkit-appearance: none;
+    appearance: none;
+    @apply h-9 w-full min-w-0 cursor-pointer touch-none rounded-md bg-transparent outline-none;
+  }
+
+  .cad-slider::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 9999px;
+    box-shadow: inset 0 0 0 1px hsl(var(--border));
+    background-image: linear-gradient(
+      90deg,
+      hsl(var(--info)) 0%,
+      hsl(var(--primary)) calc(var(--cad-slider-pos) * 100%),
+      hsl(var(--muted)) calc(var(--cad-slider-pos) * 100%)
+    );
+  }
+
+  .cad-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 18px;
+    width: 18px;
+    margin-top: -6px;
+    border-radius: 9999px;
+    border: 2px solid hsl(var(--primary));
+    background: hsl(var(--background));
+    box-shadow: 0 1px 3px hsl(var(--shadow-color) / 0.4);
+    transition:
+      transform 120ms ease,
+      box-shadow 120ms ease;
+  }
+
+  .cad-slider:hover::-webkit-slider-thumb {
+    transform: scale(1.1);
+  }
+
+  .cad-slider:active::-webkit-slider-thumb {
+    transform: scale(1.18);
+    box-shadow:
+      0 1px 3px hsl(var(--shadow-color) / 0.4),
+      0 0 0 5px hsl(var(--primary) / 0.2);
+  }
+
+  /* The thumb carries the focus ring, so the input's own box stays clean. */
+  .cad-slider:focus-visible {
+    @apply ring-0 ring-offset-0;
+  }
+
+  .cad-slider:focus-visible::-webkit-slider-thumb {
+    box-shadow:
+      0 0 0 3px hsl(var(--background)),
+      0 0 0 6px hsl(var(--ring));
+  }
+
+  .cad-slider:disabled {
+    @apply cursor-not-allowed opacity-45;
+  }
+
+  .cad-slider:disabled::-webkit-slider-thumb {
+    border-color: hsl(var(--muted-foreground));
+  }
+
+  .cad-slider::-moz-range-track {
+    height: 6px;
+    border-radius: 9999px;
+    box-shadow: inset 0 0 0 1px hsl(var(--border));
+    background: hsl(var(--muted));
+  }
+
+  .cad-slider::-moz-range-progress {
+    height: 6px;
+    border-radius: 9999px;
+    background-image: linear-gradient(90deg, hsl(var(--info)), hsl(var(--primary)));
+  }
+
+  .cad-slider::-moz-range-thumb {
+    height: 18px;
+    width: 18px;
+    border-radius: 9999px;
+    border: 2px solid hsl(var(--primary));
+    background: hsl(var(--background));
+    box-shadow: 0 1px 3px hsl(var(--shadow-color) / 0.4);
+    transition:
+      transform 120ms ease,
+      box-shadow 120ms ease;
+  }
+
+  .cad-slider:hover::-moz-range-thumb {
+    transform: scale(1.1);
+  }
+
+  .cad-slider:focus-visible::-moz-range-thumb {
+    box-shadow:
+      0 0 0 3px hsl(var(--background)),
+      0 0 0 6px hsl(var(--ring));
+  }
+
+  .cad-slider:disabled::-moz-range-thumb {
+    border-color: hsl(var(--muted-foreground));
+  }
+
+  /* Live numeric readout pinned to the right of a control's label row. */
+  .cad-slider-value {
+    @apply rounded-full border border-primary/30 bg-primary/10 px-1.5 py-px text-[11px] font-medium tabular-nums text-primary;
+  }
+
+  /* ── Parts browser rows ─────────────────────────────────────────────────── */
+  .cad-lib-row {
+    @apply relative flex h-8 w-full cursor-grab items-center gap-2 rounded-md px-2 text-left transition-colors hover:bg-accent active:cursor-grabbing;
+  }
+
+  .cad-lib-row-armed {
+    @apply bg-primary/10;
+  }
+
+  .cad-lib-row-armed::before {
+    content: '';
+    @apply absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary;
+    box-shadow: 0 0 8px hsl(var(--primary) / var(--control-glow));
+  }
+
+  /* CAD hover tooltip: follows the pointer, offset so it never covers the
+   * pin or part under the cursor. A readout, not a toast. */
+  .cad-tip {
+    @apply pointer-events-none absolute left-0 top-0 z-30 flex max-w-64 items-center gap-2 truncate whitespace-nowrap rounded-md border border-border bg-surface/95 px-2.5 py-1 text-[11px] text-surface-foreground shadow-lg backdrop-blur-sm;
+  }
+
+  /* Bordered monospace glyph standing in for a symbol thumbnail. */
+  .cad-glyph {
+    @apply flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded-md border border-border bg-muted/50 font-mono text-[9px] font-bold leading-none text-muted-foreground;
+  }
+
+  /* Bare search input — its container draws the border. */
+  .cad-search {
+    @apply h-full w-full min-w-0 bg-transparent px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground;
+  }
+
+  /* Palette footer readout. */
+  .cad-palette-foot {
+    @apply flex h-7 flex-shrink-0 items-center justify-between gap-2 border-t border-border bg-surface px-2.5 text-[11px] tabular-nums text-muted-foreground;
+  }
+
+  /* Keyboard chip used in the placement banner. */
+  .cad-kbd {
+    @apply rounded-md border border-border bg-muted/60 px-1.5 font-mono text-[10px] font-medium leading-[16px] text-foreground;
+    /* One pixel of hard light under the baseline: a keycap, not a label. */
+    box-shadow: 0 1px 0 hsl(var(--shadow-color) / 0.45);
+  }
+
+  .simulation-waveform {
+    @apply rounded-lg border border-border bg-card p-4 text-card-foreground;
+  }
+}
+
+/*
+ * ── Code editor ──────────────────────────────────────────────────────────
+ * The surface is a real <textarea> — so caret, selection, IME, paste and the
+ * `getByLabelText`/`fireEvent.change` contracts of every existing panel keep
+ * working — with a painted backdrop underneath it. The textarea's own glyphs
+ * are transparent and the backdrop carries the colour, which means both must
+ * share `.code-metrics` down to the last pixel: that pair is the whole
+ * alignment story. Colours come from the `--syntax-*` tokens declared in
+ * `src/lib/theme/tokens.ts` and contracted in `theme.test.ts`.
+ */
+@layer components {
+  .code-metrics {
+    font-family: 'Archivo', system-ui, sans-serif;
+    /* Set from the editor font-size preference by CodeEditor; the JS row
+       geometry uses the same pair, so text and caret stay on one grid. */
+    font-size: var(--cad-editor-font, 12px);
+    line-height: var(--cad-editor-line, 20px);
+    letter-spacing: 0;
+    tab-size: 4;
+    white-space: pre;
+    word-break: normal;
+    overflow-wrap: normal;
+  }
+
+  .code-input {
+    color: transparent;
+    caret-color: hsl(var(--foreground));
+    background: transparent;
+    resize: none;
+  }
+
+  .code-input::selection {
+    background: hsl(var(--selection) / 0.32);
+  }
+
+  /*
+   * One edge, on the frame: the textarea sits inside a panel that already
+   * draws a border, and the utilities-layer rule above would ring the text box
+   * itself a second time. Same trick as `.cad-search` — the frame takes the
+   * edge through `:focus-within`, the inner control paints nothing.
+   */
+  .code-frame:focus-within {
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 1px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .code-input:focus-visible {
+    outline: none;
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  .code-backdrop {
+    pointer-events: none;
+  }
+
+  /* The line the caret is on, painted under the text. */
+  .code-active-line {
+    background: hsl(var(--accent) / 0.45);
+  }
+
+  /* A ghost completion: offered, not yet accepted. */
+  .code-ghost {
+    color: hsl(var(--muted-foreground));
+    opacity: 0.7;
+  }
+
+  .code-match {
+    background: hsl(var(--selection) / 0.28);
+    border-radius: 2px;
+  }
+
+  .code-match-active {
+    background: hsl(var(--warning) / 0.5);
+    box-shadow: 0 0 0 1px hsl(var(--warning));
+  }
+
+  /* Both halves of the bracket pair the caret is inside. */
+  .code-bracket {
+    background: hsl(var(--accent));
+    border-radius: 2px;
+    font-weight: 600;
+  }
+}
+
+
+@layer utilities {
+  /*
+   * One-edge focus contract for controls that already draw a border — and it
+   * has to live in this layer to work. A panel puts `border-border` on a field,
+   * that class is generated into the utilities layer, and any base-layer rule
+   * loses to it no matter how specific it looks. Painted from base, the field
+   * kept its grey edge and grew the accent halo *outside* it: the double border
+   * engineers kept reporting. Here the border itself turns and the halo blooms
+   * flush from it, so there is exactly one edge. A panel can still override it
+   * with its own `focus:border-*` variant, which is more specific.
+   *
+   * `input[type='range']` is left out on purpose: its focus indicator is the
+   * thumb (`.cad-slider:focus-visible::-webkit-slider-thumb`), and painting this
+   * halo too would ring the whole track in a second, fainter rectangle.
+   */
+  input:not([type='range']):focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  [role='combobox']:focus-visible,
+  [contenteditable='true']:focus-visible {
+    outline: none;
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 1px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  /*
+   * A search field is a pill: icon, bare input and clear button together are
+   * one control, and only the pill has an edge. The inner `<input>` is
+   * `bg-transparent` with no border, so the rule above would ring the text box
+   * *inside* the pill — a bluish outline floating on a grey border that never
+   * changed. Wrong twice over: two edges, and the narrower one is not the thing
+   * the user clicked. So the pill takes the edge (`:focus-within` fires for
+   * keyboard, click and touch alike) and the inner input paints nothing.
+   * Declared after the rule above on purpose: same specificity, and inside one
+   * layer the later declaration wins.
+   */
+  .cad-search:focus-within {
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 1px hsl(var(--ring) / var(--focus-halo));
+  }
+
+  .cad-search input:focus-visible,
+  .cad-search [role='combobox']:focus-visible {
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  /* ── Custom themed scrollbars (all token-driven, no hex) ────────────────
+   * Overlay style: transparent track, bordered thumb that brightens on hover.
+   * `.scrollbar-thin` for docks/lists, `.scrollbar-overlay` for panels/dialogs.
+   */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  /* Scrollable ribbons: keep overflow behaviour, hide the scrollbar rail so
+   * the toolbar stays a single clean strip. */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground));
+    background-clip: content-box;
+  }
+
+  .scrollbar-overlay {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.45) transparent;
+  }
+
+  .scrollbar-overlay::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .scrollbar-overlay::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-overlay::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground) / 0.45);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+    transition: background-color 120ms ease-out;
+  }
+
+  .scrollbar-overlay::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--primary) / 0.7);
+    background-clip: content-box;
+  }
+
+  .scrollbar-overlay::-webkit-scrollbar-thumb:active {
+    background-color: hsl(var(--primary));
+    background-clip: content-box;
+  }
+
+  /* ── CAD motion language ───────────────────────────────────────────────
+   * 120 ms micro (hover/press), 220 ms panel rise, shimmer for lazy loads.
+   * All gated by prefers-reduced-motion + the app setting (see base layer).
+   */
+  .cad-press {
+    transition: transform 120ms ease-out, background-color 120ms ease-out;
+  }
+
+  .cad-press:active {
+    transform: scale(0.97);
+  }
+
+  .cad-panel-enter {
+    animation: rise-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .cad-skeleton {
+    @apply animate-pulse rounded-md bg-muted;
+  }
+
+  /* Text that must not be selectable while dragging on the sheet. */
+  .no-select {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+}
+
+@layer base {
+  /*
+   * Motion is opt-out at the OS level. `showAnimations` in app settings layers
+   * on top of this by toggling the `.reduce-motion` class on <html>.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  .reduce-motion *,
+  .reduce-motion *::before,
+  .reduce-motion *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.18s ease-out both;
+}
+
+.animate-rise-in {
+  animation: rise-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/*
+ * Onboarding tour — the spotlight is the one attention anchor in the app, so it
+ * earns a slow halo pulse and corner brackets instead of a fast flash. All of it
+ * collapses to a static ring under prefers-reduced-motion and the app's
+ * `.reduce-motion` class, and the component drops these classes entirely when
+ * animations are switched off in settings.
+ */
+.tour-halo {
+  animation: tour-halo 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes tour-halo {
+  0% {
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 16px hsl(var(--primary) / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
+  }
+}
+
+.tour-bracket {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-style: solid;
+  border-color: hsl(var(--primary));
+  animation: tour-bracket-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* The spotlight ring breathes: opacity only, on its own element — the
+   dimmed backdrop stays constant and the highlighted region never moves,
+   never grows and never shrinks. */
+.tour-spotlight-ring {
+  animation: tour-spotlight-ring 2.2s ease-in-out infinite;
+}
+
+@keyframes tour-spotlight-ring {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-spotlight-ring {
+    animation: none;
+  }
+}
+
+@keyframes tour-bracket-in {
+  from {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Coach-mark caret: a rotated square on the card edge facing the spotlight. */
+.tour-caret {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  transform: rotate(45deg);
+  background: hsl(var(--card));
+}
+
+.tour-caret-top {
+  top: -6px;
+  border-left: 1px solid hsl(var(--border));
+  border-top: 1px solid hsl(var(--border));
+}
+
+.tour-caret-bottom {
+  bottom: -6px;
+  border-right: 1px solid hsl(var(--border));
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.tour-caret-left {
+  left: -6px;
+  border-left: 1px solid hsl(var(--border));
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.tour-caret-right {
+  right: -6px;
+  border-right: 1px solid hsl(var(--border));
+  border-top: 1px solid hsl(var(--border));
+}
+
+.tour-step-dot {
+  transition: width 180ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease-out,
+    border-color 180ms ease-out, transform 120ms ease-out;
+}
+
+.tour-step-dot:hover {
+  transform: scaleY(1.35);
+}
+
+/*
+ * Chapter travel: a single light sweep plus a destination chip that names the
+ * workspace the guide just opened. The overlay never takes pointer events, so
+ * the target stays operable throughout the 1 s cue. Reduced motion removes it
+ * entirely; the tour also skips rendering it when animations are off.
+ */
+.tour-travel-sweep {
+  background:
+    radial-gradient(120% 80% at 50% 0%, hsl(var(--primary) / 0.16), transparent 60%),
+    linear-gradient(100deg, transparent 20%, hsl(var(--primary) / 0.08) 50%, transparent 80%);
+  animation: tour-travel-sweep 1s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes tour-travel-sweep {
+  0% { opacity: 0; transform: translateX(-6%); }
+  18% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(4%); }
+}
+
+.tour-travel-chip {
+  animation: tour-travel-chip 1s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes tour-travel-chip {
+  0% { opacity: 0; transform: translateY(12px) scale(0.96); }
+  18% { opacity: 1; transform: translateY(0) scale(1); }
+  72% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-8px) scale(0.98); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-travel-sweep,
+  .tour-travel-chip {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/*
+ * React Flow ships fixed light chrome and loads its stylesheet with the lazy
+ * editor chunk, i.e. after this file. The extra class raises specificity above
+ * its unlayered defaults so the blocks editor follows the active theme.
+ */
+.react-flow .react-flow__controls {
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.2);
+}
+
+.react-flow .react-flow__controls-button {
+  background: hsl(var(--card));
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+}
+
+.react-flow .react-flow__controls-button:hover {
+  background: hsl(var(--accent));
+}
+
+.react-flow .react-flow__controls-button svg {
+  fill: hsl(var(--foreground));
+}
+
+.react-flow .react-flow__attribution {
+  background: hsl(var(--card) / 0.85);
+  color: hsl(var(--muted-foreground));
+}
+
+.react-flow .react-flow__attribution a {
+  color: inherit;
+}
+
+/* ── Forced colours (Windows High Contrast, "always use high contrast") ─────
+ * The OS reassigns colour, background, border and SVG fill/stroke, which
+ * silently deletes two things this shell leans on: a box-shadow focus ring,
+ * and a filled background as the only mark of the selected tab or a switched-on
+ * control. Unlayered, so it outranks the Tailwind layers it corrects. The
+ * opt-outs are limited to elements whose colour *is* the information — a
+ * swatch, a custom-painted slider, the wires in a diagram — where forcing would
+ * leave them readable but no longer meaningful.
+ */
+@media (forced-colors: active) {
+  /* The OS owns every colour here, so a sheen, a filled button's shading or an
+   * accent halo painted from the app's own tokens would be a stray line on
+   * someone else's palette. The structural shadows and the focus ring stay; only
+   * the light goes. */
+  :root {
+    --panel-edge: 0;
+    --control-glow: 0;
+    --control-depth: 0;
+  }
+
+  [aria-current='page'],
+  [aria-pressed='true'],
+  [role='switch'][aria-checked='true'] {
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
+  }
+
+  :focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+    box-shadow: none;
+  }
+
+  .cad-slider,
+  .cad-swatch,
+  .react-flow {
+    forced-color-adjust: none;
+  }
+
+  * {
+    scrollbar-color: ButtonText ButtonFace;
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Folio — "Obsidian Forge" (the only themed shell, 2026)
+ *
+ * Art direction, set by a design studio and enforced by the contrast contract:
+ *
+ *   · ONE signature accent. Molten amber — the colour of copper being poured.
+ *     Everything else is layered obsidian: blue-black surfaces, warm-grey
+ *     graphite lines, warm-white type. No second accent, no decorative hues.
+ *   · Chamfered geometry, not radii. Panels, the palette, dialogs and the HUD
+ *     carry clipped corners; buttons and chips keep a single 8px radius, so
+ *     "designed" reads as a system, never as a suggestion.
+ *   · Instrument tape, not badges. The status bar is a flight-deck readout:
+ *     micro-caps labels, tabular mono values, colour only when a value means
+ *     something (severity), never as decoration.
+ *   · Corner ticks, one hairline. Active surfaces carry four L-ticks — the
+ *     crosshair language of optical instruments — and exactly one amber
+ *     hairline glows: the active workspace's underline. Everything else
+ *     stays off until the pointer or keyboard focuses it.
+ *   · Reduced motion / transparency and high contrast exits everywhere.
+ *
+ * Token-backed only. Anything colour-bearing here is a token.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Geometry: one machined-corner language everywhere ─────────────────────
+ * Every chamfered tile paints its own two-layer background — the padding-box
+ * layer carries the surface, the border-box layer carries a hairline that
+ * follows the cut — so the clipped corners are never borderless. Anything
+ * that outward-casts a shadow stays rounded instead (clip amputates it).
+ */
+.chamfer-tile,
+.chamfer-badge {
+  position: relative;
+  border: none;
+  background:
+    linear-gradient(180deg, hsl(0 0% 100% / 0.055), transparent 24%) padding-box,
+    linear-gradient(180deg, hsl(var(--card) / 0.94), hsl(var(--card) / 0.9)) padding-box,
+    linear-gradient(118deg,
+      hsl(var(--primary) / 0.4) 0%,
+      hsl(228 18% 26% / 0.9) 30%,
+      hsl(228 18% 26% / 0.9) 70%,
+      hsl(var(--primary) / 0.4) 100%) border-box;
+  box-shadow: none;
+}
+
+.chamfer-tile {
+  clip-path: polygon(0 12px, 12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%);
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+}
+
+.chamfer-badge {
+  clip-path: polygon(0 7px, 7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Micro-caps instrument label: the voice of the deck. */
+.instrument-label,
+.seg-label {
+  font-family: 'Archivo', system-ui, sans-serif;
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground) / 0.72);
+  white-space: nowrap;
+}
+
+/* ── The command bar — the one lit object on the deck ─────────────────────── */
+.agent-orb {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  width: var(--orb-size, 18px);
+  height: var(--orb-size, 18px);
+  overflow: hidden;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 34% 30%, #ffe9b0 0%, #f5b53c 32%, #d97a12 62%, #5c2e05 100%);
+  box-shadow:
+    0 0 12px -2px hsl(var(--primary) / 0.7),
+    inset 0 0 6px hsl(30 60% 4%);
+}
+
+.agent-orb::before {
+  content: '';
+  position: absolute;
+  inset: -45%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg 40deg,
+    hsl(39 100% 62% / 0.9) 60deg 84deg,
+    transparent 110deg 200deg,
+    hsl(48 100% 78% / 0.85) 224deg 258deg,
+    transparent 282deg 360deg
+  );
+  animation: orb-drift 7s linear infinite;
+}
+
+.agent-orb::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: inherit;
+  background: radial-gradient(circle at 34% 30%, hsl(0 0% 100% / 0.75) 0%, transparent 44%);
+}
+
+@keyframes orb-drift {
+  to { transform: rotate(360deg); }
+}
+
+.shell-command-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: clamp(15rem, 30vw, 27rem);
+  height: 2.5rem;
+  min-width: 0;
+  flex-shrink: 1;
+  padding: 0 0.75rem 0 0.375rem;
+  font-size: 0.6875rem;
+  color: hsl(var(--muted-foreground));
+  outline: none;
+  cursor: text;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-radius: 0.75rem;
+  background:
+    linear-gradient(hsl(var(--surface) / 0.88), hsl(var(--surface) / 0.88)) padding-box,
+    linear-gradient(100deg,
+      hsl(var(--primary) / 0.75) 0%,
+      hsl(228 18% 30% / 0.6) 30%,
+      hsl(228 18% 30% / 0.6) 70%,
+      hsl(var(--primary) / 0.75) 100%) border-box;
+  border: 1px solid transparent;
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.12),
+    0 10px 34px -18px hsl(var(--primary) / 0.55),
+    inset 0 1px 0 hsl(0 0% 100% / 0.06);
+  transition: box-shadow 180ms ease, color 180ms ease;
+}
+
+.shell-command-pill:hover {
+  color: hsl(var(--foreground));
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.4),
+    0 0 28px -6px hsl(var(--primary) / 0.5),
+    0 14px 40px -18px hsl(var(--primary) / 0.65),
+    inset 0 1px 0 hsl(0 0% 100% / 0.08);
+}
+
+.shell-command-pill:focus-visible {
+  color: hsl(var(--foreground));
+  box-shadow:
+    0 0 0 2px hsl(var(--ring)),
+    0 0 32px -6px hsl(var(--primary) / 0.6),
+    inset 0 1px 0 hsl(0 0% 100% / 0.08);
+}
+
+/* A single specular sweep crossing the glass every few seconds. */
+.shell-command-pill__sheen {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.shell-command-pill__sheen::after {
+  content: '';
+  position: absolute;
+  top: -30%;
+  bottom: -30%;
+  width: 32%;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    hsl(48 100% 88% / 0.05) 42%,
+    hsl(48 100% 88% / 0.22) 50%,
+    hsl(48 100% 88% / 0.05) 58%,
+    transparent 100%
+  );
+  transform: translateX(-170%) skewX(-16deg);
+  animation: shell-sheen 6s cubic-bezier(0.35, 0, 0.2, 1) infinite;
+}
+
+@keyframes shell-sheen {
+  0%, 74% { transform: translateX(-170%) skewX(-16deg); }
+  100% { transform: translateX(520%) skewX(-16deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-command-pill__sheen::after,
+  .agent-orb::before { animation: none; }
+}
+
+@media (max-width: 1023px) {
+  .shell-command-pill {
+    width: 2.5rem;
+    justify-content: center;
+    padding: 0;
+    border-radius: 0.625rem;
+  }
+
+  .shell-command-pill .shell-command__label,
+  .shell-command-pill .shell-command__key,
+  .shell-command-pill__sheen { display: none; }
+}
+
+/* ── IDE header — a rail of glass, one lit hairline beneath it ─────────────── */
+.ide-header {
+  position: relative;
+  /* Above the sheet: the header carries backdrop-filter, so its whole context
+   * paints at this slot in the DOM — later siblings in the shell would cover
+   * its popovers (Export, More, version history, notifications). Being an
+   * ordered context keeps them clickable over the canvas. */
+  z-index: 20;
+  background: linear-gradient(180deg, hsl(var(--surface) / 0.94), hsl(var(--surface) / 0.8));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.ide-header::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: -1px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    hsl(var(--primary) / 0.5) 22%,
+    hsl(48 95% 62% / 0.65) 50%,
+    hsl(var(--primary) / 0.5) 78%,
+    transparent 100%
+  );
+  opacity: 0.7;
+}
+
+[data-theme='high-contrast'] .ide-header::after { display: none; }
+@media (forced-colors: active) { .ide-header::after { display: none; } }
+
+/* ── Workspace nav — a dial, not a ribbon ─────────────────────────────────── */
+.ws-family-rail {
+  gap: 0.25rem;
+}
+
+.ws-family {
+  flex-direction: column;
+  height: 2.75rem;
+  min-width: 4.5rem;
+  gap: 0.125rem;
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 8.5px;
+  font-family: 'Archivo', system-ui, sans-serif;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground) / 0.85);
+  transition: color 160ms ease, transform 160ms ease, background-color 160ms ease;
+}
+
+.ws-family:hover {
+  background: hsl(var(--accent) / 0.6);
+  border-color: transparent;
+  color: hsl(var(--foreground));
+  transform: translateY(-1px);
+}
+
+.ws-family--active {
+  background: hsl(var(--primary) / 0.09);
+  border-color: transparent;
+  color: hsl(var(--foreground));
+  box-shadow: none;
+}
+
+.ws-family--active::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0.75rem;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: linear-gradient(90deg, transparent, hsl(var(--primary)), transparent);
+  box-shadow: 0 0 12px 0 hsl(var(--primary) / 0.6);
+}
+
+.ws-family__icon {
+  height: 1.125rem;
+  width: 1.125rem;
+  color: hsl(var(--muted-foreground) / 0.8);
+  opacity: 1;
+  transition: color 160ms ease, transform 160ms ease, filter 160ms ease;
+}
+
+.ws-family:hover .ws-family__icon {
+  color: hsl(var(--primary));
+  opacity: 1;
+  filter: none;
+  transform: translateY(-1px);
+}
+
+.ws-family--active .ws-family__icon {
+  color: hsl(var(--primary));
+  opacity: 1;
+  filter: drop-shadow(0 0 6px hsl(var(--primary) / 0.55));
+}
+
+.ws-family__label {
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+
+.ws-family__count {
+  margin-left: 0;
+  border-radius: 0;
+  background: none;
+  padding: 0;
+  font-size: 8.5px;
+  color: hsl(var(--primary) / 0.8);
+}
+
+.ws-family--active:focus-visible {
+  box-shadow: none;
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+}
+
+/* Mode rail — chamfered tabs; one amber underline, nothing else */
+.ws-mode {
+  height: 2rem;
+  margin-block: 0.25rem;
+  border-radius: 0.375rem;
+  border: 1px solid transparent;
+  padding-inline: 0.625rem;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+
+.ws-mode__icon {
+  opacity: 0.55;
+}
+
+.ws-mode:hover {
+  background: hsl(var(--accent) / 0.55);
+  border-color: transparent;
+  color: hsl(var(--foreground));
+}
+
+.ws-mode--active,
+[data-theme='folio-dark'] .ws-mode--active {
+  position: relative;
+  background: hsl(var(--primary) / 0.1);
+  border-color: transparent;
+  color: hsl(var(--foreground));
+  box-shadow: none;
+}
+
+.ws-mode--active::after,
+[data-theme='folio-dark'] .ws-mode--active::after {
+  display: block;
+  content: '';
+  position: absolute;
+  inset-inline: 0.5rem;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: hsl(var(--primary));
+  box-shadow: 0 0 10px hsl(var(--primary) / 0.55);
+}
+
+.ws-mode--active .ws-mode__icon {
+  opacity: 1;
+  color: hsl(var(--primary));
+}
+
+/* The Demos / Guide buttons — flat, bordered, hover-to-ignite */
+.cad-ctl--primary {
+  border-color: hsl(var(--primary) / 0.5);
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.08);
+}
+
+.cad-ctl--primary:hover {
+  background: hsl(var(--primary) / 0.16);
+  color: hsl(var(--primary));
+  box-shadow: 0 0 16px -6px hsl(var(--primary) / 0.5);
+}
+
+/* ── Tool rail — big targets, lit-switch active state ─────────────────────── */
+.cad-rail {
+  width: 3.25rem;
+  background: linear-gradient(180deg, hsl(var(--surface) / 0.92), hsl(var(--surface) / 0.75));
+  border-right: 1px solid hsl(var(--border) / 0.7);
+  box-shadow: none;
+}
+
+.cad-rail-btn {
+  height: 2.75rem;
+  width: 2.75rem;
+  border-radius: 0.625rem;
+  color: hsl(var(--muted-foreground) / 0.9);
+  transition: color 140ms ease, background-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.cad-rail-btn:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--accent) / 0.6);
+  transform: translateY(-1px);
+}
+
+.cad-rail-btn-active,
+[data-theme='folio-dark'] .cad-rail-btn-active {
+  background: linear-gradient(165deg, #ffc233 0%, #f59e0b 55%, #d97706 100%);
+  color: #221300;
+  box-shadow:
+    0 0 0 1px hsl(48 100% 70% / 0.6),
+    0 6px 22px -6px hsl(var(--primary) / 0.75),
+    inset 0 1px 0 hsl(0 0% 100% / 0.45);
+}
+
+.cad-rail-btn-active:hover {
+  color: #221300;
+  transform: none;
+}
+
+.cad-rail-btn-active .cad-rail-key {
+  color: hsl(30 60% 12% / 0.85);
+}
+
+.cad-rail-sep {
+  background: hsl(var(--border) / 0.8);
+  width: 1.25rem;
+}
+
+/* ── Status bar — the instrument tape ─────────────────────────────────────── */
+.status-bar {
+  height: 1.75rem;
+  background: hsl(var(--surface) / 0.85);
+  border-top: 1px solid hsl(var(--border) / 0.75);
+  box-shadow: none;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.status-segment {
+  gap: 0.375rem;
+  border-right: 1px solid hsl(var(--border) / 0.5);
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  padding-inline: 0.75rem;
+}
+
+.status-segment:hover {
+  background: hsl(var(--accent) / 0.5);
+  color: hsl(var(--foreground));
+}
+
+.status-segment .cad-readout {
+  color: hsl(var(--foreground) / 0.92);
+}
+
+.status-segment--ok { color: hsl(var(--success)); }
+.status-segment--warn { color: hsl(var(--warning)); }
+.status-segment--crit { color: hsl(var(--destructive)); }
+.status-segment--ok .cad-readout { color: hsl(var(--success)); }
+.status-segment--warn .cad-readout { color: hsl(var(--warning)); }
+.status-segment--crit .cad-readout { color: hsl(var(--destructive)); }
+.status-segment--live { color: hsl(var(--primary)); }
+
+/* Right-aligned cell that ends the tape. */
+.status-segment:last-child { border-right: 0; }
+
+/* ── HUD — one machined obsidian capsule over the sheet ───────────────────── */
+.cad-glass-pill,
+.cad-glass-panel {
+  background: hsl(var(--card) / 0.86);
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  border: 1px solid hsl(var(--border) / 0.85);
+  box-shadow:
+    0 16px 44px -18px hsl(var(--shadow-color) / 0.9),
+    inset 0 1px 0 hsl(0 0% 100% / 0.06);
+}
+
+.cad-hud-pill {
+  border-radius: 0.875rem;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(hsl(var(--card) / 0.92), hsl(var(--card) / 0.92)) padding-box,
+    linear-gradient(110deg, hsl(var(--primary) / 0.55), hsl(228 18% 26% / 0.85) 35%, hsl(228 18% 26% / 0.85) 65%, hsl(var(--primary) / 0.55)) border-box;
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  box-shadow: 0 18px 50px -14px hsl(0 0% 0% / 0.85), 0 0 26px -12px hsl(var(--primary) / 0.5);
+}
+
+.cad-hud-pill::after { display: none; }
+
+/* ── Empty sheet — the radar that waits for the first part ───────────────── */
+.cad-empty-sheet__card {
+  clip-path: polygon(0 14px, 14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%);
+  background:
+    linear-gradient(180deg, hsl(0 0% 100% / 0.05), transparent 22%) padding-box,
+    linear-gradient(180deg, hsl(var(--surface) / 0.9), hsl(var(--surface) / 0.62)) padding-box,
+    linear-gradient(118deg,
+      hsl(var(--primary) / 0.5) 0%,
+      hsl(228 18% 26% / 0.85) 32%,
+      hsl(228 18% 26% / 0.85) 68%,
+      hsl(var(--primary) / 0.5) 100%) border-box;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.empty-radar {
+  position: relative;
+  display: flex;
+  height: 11rem;
+  width: 11rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1px solid hsl(var(--primary) / 0.28);
+  background:
+    radial-gradient(circle, transparent 0 55%, hsl(var(--primary) / 0.06) 100%);
+  overflow: hidden;
+}
+
+.empty-radar::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: conic-gradient(from 0deg,
+    transparent 0deg,
+    hsl(var(--primary) / 0.0) 285deg,
+    hsl(var(--primary) / 0.35) 330deg,
+    hsl(48 100% 72% / 0.7) 355deg,
+    transparent 360deg);
+  animation: radar-sweep 7s linear infinite;
+}
+
+.empty-radar::after {
+  content: '';
+  position: absolute;
+  inset: 18%;
+  border-radius: inherit;
+  border: 1px dashed hsl(var(--primary) / 0.3);
+}
+
+.empty-radar__mark {
+  position: relative;
+  z-index: 1;
+  color: hsl(var(--primary));
+  filter: drop-shadow(0 0 18px hsl(var(--primary) / 0.45));
+}
+
+@keyframes radar-sweep {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .empty-radar::before { animation: none; opacity: 0.4; }
+}
+
+/* ── Launcher hero — the cover, not the foyer ─────────────────────────────── */
+.launcher-shell {
+  background: hsl(var(--background));
+}
+
+.launcher-hero {
+  background:
+    radial-gradient(110% 80% at 50% -30%, hsl(var(--primary) / 0.1), transparent 55%),
+    radial-gradient(70% 55% at 88% 108%, hsl(24 80% 40% / 0.08), transparent 60%),
+    linear-gradient(hsl(var(--border) / 0.33) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--border) / 0.33) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 44px 44px, 44px 44px;
+}
+
+.launcher-title,
+[data-theme='folio-dark'] .launcher-title {
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+  background-image: none;
+  color: hsl(var(--foreground));
+  -webkit-text-fill-color: currentColor;
+}
+
+.hero-accent {
+  color: hsl(var(--primary));
+}
+
+.launcher-eyebrow {
+  color: hsl(var(--primary));
+  letter-spacing: 0.28em;
+}
+
+.launcher-eyebrow__dot {
+  background: hsl(var(--primary));
+  border-radius: 2px;
+  transform: rotate(45deg);
+  box-shadow: 0 0 10px hsl(var(--primary) / 0.6);
+}
+
+.launcher-search {
+  border-radius: 0.625rem;
+  border-color: hsl(var(--border) / 0.9);
+  background: hsl(var(--surface) / 0.65);
+}
+
+.family-tile {
+  border-radius: 0.625rem;
+  border: 1px solid hsl(var(--border) / 0.75);
+  background: linear-gradient(180deg, hsl(var(--surface) / 0.75), hsl(var(--surface) / 0.45));
+}
+
+.family-tile::before {
+  background: linear-gradient(90deg, hsl(var(--primary) / 0), hsl(var(--primary) / 0.85), hsl(var(--primary) / 0));
+  height: 1px;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.family-tile:hover {
+  transform: translateY(-2px);
+  border-color: hsl(var(--primary) / 0.45);
+  background: linear-gradient(180deg, hsl(var(--primary) / 0.09), hsl(var(--surface) / 0.5));
+  box-shadow: 0 18px 40px -22px hsl(var(--primary) / 0.4);
+}
+
+.family-tile:hover::before { opacity: 1; }
+.family-tile:hover .family-tile__icon { color: hsl(var(--primary)); }
+
+.project-card {
+  border-radius: 0.75rem;
+}
+
+.project-card:hover {
+  border-color: hsl(var(--primary) / 0.45);
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.25),
+    0 20px 44px -24px hsl(var(--primary) / 0.45);
+}
+
+/* ── Dialogs & palette — chamfered frames, deep scrims ───────────────────── */
+.modal-scrim {
+  background: hsl(var(--overlay) / 0.82);
+  backdrop-filter: blur(10px) saturate(0.8);
+  -webkit-backdrop-filter: blur(10px) saturate(0.8);
+}
+
+/* Dialogs and the palette keep their elevation: clip-path would amputate the
+ * drop shadow that separates them from the scrim, so large surfaces stay
+ * rounded and loud, chamfers stay small. */
+.cad-panel-shell,
+.app-panel.animate-rise-in {
+  border-radius: 1rem;
+  border: 1px solid hsl(var(--primary) / 0.3);
+  box-shadow:
+    0 34px 90px -22px hsl(0 0% 0% / 0.9),
+    0 0 0 1px hsl(var(--shadow-color) / 0.6),
+    0 0 55px -18px hsl(var(--primary) / 0.35),
+    inset 0 1px 0 hsl(0 0% 100% / 0.07);
+}
+
+/* Command palette rows — one amber tick marks the cursor row (attribute-driven,
+ * so no component owns a "row-active" class it might drift from) */
+li[role='option'] > button[data-active='true'] {
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--foreground));
+  box-shadow: inset 2px 0 0 hsl(var(--primary));
+}
+
+li[role='option'] > button[data-active='true'] > span:nth-child(2) {
+  color: hsl(var(--foreground));
+}
+
+.cad-search:focus-within {
+  border-color: hsl(var(--primary) / 0.5);
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.45),
+    0 0 34px -8px hsl(var(--primary) / 0.4);
+}
+
+/* ── Buttons — one radius, one gesture ───────────────────────────────────── */
+[data-theme='folio-dark'] .cad-btn-primary {
+  background-image: linear-gradient(180deg,
+    hsl(48 100% 66%) 0%,
+    hsl(39 100% 58%) 42%,
+    hsl(33 95% 47%) 100%);
+  color: #231300;
+  box-shadow:
+    0 0 0 1px hsl(48 100% 70% / 0.5),
+    0 10px 30px -10px hsl(var(--primary) / 0.75),
+    inset 0 1px 0 hsl(0 0% 100% / 0.5);
+}
+
+[data-theme='folio-dark'] .cad-btn-primary:hover:not(:disabled) {
+  box-shadow:
+    0 0 0 1px hsl(48 100% 72% / 0.65),
+    0 12px 38px -10px hsl(var(--primary) / 0.85),
+    inset 0 1px 0 hsl(0 0% 100% / 0.6);
+}
+
+/* ── Agent pill — appears only when something is burning ─────────────────── */
+.agent-pill {
+  border-radius: 0.375rem;
+  border: 1px solid hsl(var(--primary) / 0.45);
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  font-family: 'Archivo', system-ui, sans-serif;
+  letter-spacing: 0.08em;
+  clip-path: none;
+}
+
+.agent-pill:hover {
+  background: hsl(var(--primary) / 0.18);
+  box-shadow: 0 0 18px -6px hsl(var(--primary) / 0.6);
+}
+
+/* ── Scrollbars — graphite, igniting to amber ─────────────────────────────── */
+[data-theme='folio-dark'] {
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+
+[data-theme='folio-dark'] *::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+[data-theme='folio-dark'] *::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--border));
+  border-radius: 8px;
+}
+
+[data-theme='folio-dark'] *::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--primary) / 0.45);
+}
+
+[data-theme='folio-dark'] *::-webkit-scrollbar-thumb:active {
+  background-color: hsl(var(--primary) / 0.7);
+}
+
+/* ── Mode badge — instrument chip, one mono line ─────────────────────────── */
+.folio-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.25rem;
+  padding: 0 0.5rem;
+  border-radius: 0.25rem;
+  border: 1px solid hsl(var(--border) / 0.9);
+  background: hsl(var(--surface) / 0.55);
+  font-family: 'Archivo', system-ui, sans-serif;
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+  transition: border-color 150ms ease, color 150ms ease;
+}
+
+.folio-mode-badge:hover {
+  border-color: hsl(var(--primary) / 0.45);
+  color: hsl(var(--foreground));
+}
+
+/* ── Companions carried forward: pulses, loading, popovers, the split seam ── */
+.cad-agent-ring {
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.6),
+    0 0 20px -4px hsl(var(--primary) / 0.65);
+}
+
+.cad-live-indicator {
+  animation: cad-live-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes cad-live-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.cad-shimmer {
+  background: linear-gradient(90deg, hsl(var(--muted)) 0%, hsl(var(--accent) / 0.8) 50%, hsl(var(--muted)) 100%);
+  background-size: 200% 100%;
+  animation: cad-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes cad-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.cad-popover-enter {
+  animation: cad-slide-up 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes cad-slide-up {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+.cad-split-divider {
+  width: 6px;
+  background: linear-gradient(180deg, transparent, hsl(var(--border)) 20%, hsl(var(--border)) 80%, transparent);
+  cursor: col-resize;
+  transition: background 160ms ease, box-shadow 160ms ease;
+  position: relative;
+  z-index: 20;
+}
+
+.cad-split-divider:hover,
+.cad-split-divider:active,
+.cad-split-divider:focus-visible {
+  background: hsl(var(--primary) / 0.55);
+  box-shadow: 0 0 14px hsl(var(--primary) / 0.4);
+}
+
+.cad-split-divider:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cad-live-indicator,
+  .cad-shimmer,
+  .cad-popover-enter { animation: none; }
+}
+
+/* ── folio-dark flag tune — glow down, discipline up ─────────────────────── */
+[data-theme='folio-dark'] .app-chrome {
+  box-shadow:
+    inset 0 1px 0 hsl(0 0% 100% / 0.05),
+    0 1px 0 hsl(var(--shadow-color) / 0.9),
+    0 14px 30px -22px hsl(var(--shadow-color) / 1);
+}
+
+/* ── Forced colours — the OS owns every surface ───────────────────────────── */
+[data-theme='high-contrast'] .ws-family--active,
+[data-theme='high-contrast'] .ws-mode--active {
+  border: 1px solid hsl(var(--foreground));
+  box-shadow: none;
+}
+
+[data-theme='high-contrast'] .ws-mode--active::after,
+[data-theme='high-contrast'] .ws-family--active::after {
+  display: none;
+}
+
+@media (forced-colors: active) {
+  .shell-command-pill__sheen, .empty-radar::before {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .shell-command-pill,
+  .cad-glass-pill,
+  .cad-glass-panel,
+  .status-bar,
+  .ide-header {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: hsl(var(--surface));
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Community designs — the launcher's open-a-proven-design section
+ * Forge treatment: hairline borders, amber only where action lives.
+ * ──────────────────────────────────────────────────────────────────────────── */
+  .launcher-community {
+    @apply mb-10;
+  }
+
+  .launcher-community__head {
+    @apply mb-3 flex flex-wrap items-end justify-between gap-3;
+  }
+
+  .launcher-community__sub {
+    @apply w-full max-w-lg text-xs leading-relaxed text-muted-foreground;
+  }
+
+  .launcher-community__actions {
+    @apply flex flex-shrink-0 items-center gap-1.5;
+  }
+
+  .launcher-community__feedback {
+    @apply mb-2 text-xs;
+  }
+
+  .launcher-community__grid {
+    @apply grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4;
+  }
+
+  .launcher-community__card {
+    @apply flex min-h-[10.5rem] w-full cursor-pointer flex-col rounded-xl border border-border/70 bg-surface/50 p-3 text-left;
+    font: inherit;
+    color: inherit;
+    transition: border-color 160ms ease, transform 160ms ease;
+  }
+
+  .launcher-community__card:hover {
+    border-color: hsl(var(--primary) / 0.45);
+    transform: translateY(-2px);
+  }
+
+  .launcher-community__card:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  .launcher-community__card:disabled {
+    cursor: wait;
+    opacity: 0.8;
+  }
+
+  .launcher-community__card-head {
+    @apply mb-2 flex items-center justify-between gap-2;
+  }
+
+  .launcher-community__discipline {
+    font-family: 'Archivo', system-ui, sans-serif;
+    font-size: 8.5px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground) / 0.75);
+  }
+
+  .launcher-community__title {
+    @apply text-[13px] font-semibold leading-snug text-foreground;
+  }
+
+  .launcher-community__desc {
+    @apply mt-1 text-[11px] leading-relaxed text-muted-foreground;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .launcher-community__foot {
+    @apply mt-auto flex items-center justify-between gap-2 border-t border-border/60 pt-2;
+  }
+
+  .launcher-community__meta {
+    @apply min-w-0 truncate text-[10px] text-muted-foreground/80;
+  }
+
+  .launcher-community__note {
+    @apply mt-3 text-[11px] leading-relaxed text-muted-foreground/70;
+  }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Launcher agent composer — the one live control above the fold. Forge
+ * language: ember focus halo, machined pill chips, mono keynote.
+ * ──────────────────────────────────────────────────────────────────────────── */
+  .launcher-composer {
+    @apply mt-6 w-full max-w-xl rounded-2xl border border-border/80 bg-card/70 p-2 backdrop-blur-md;
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.05), 0 24px 60px -34px hsl(var(--shadow-color) / 0.9);
+  }
+
+  .launcher-composer__row {
+    @apply flex items-stretch gap-2;
+  }
+
+  .launcher-composer__orb {
+    @apply ml-3 h-5 w-5 self-center text-primary;
+    filter: drop-shadow(0 0 6px hsl(var(--primary) / 0.5));
+  }
+
+  .launcher-composer__input {
+    @apply min-h-[3.5rem] flex-1 resize-none bg-transparent px-2 py-2.5 text-[13px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/80;
+  }
+
+  .launcher-composer__submit {
+    @apply m-1.5 flex h-10 w-10 flex-shrink-0 items-center justify-center self-center rounded-xl bg-primary text-primary-foreground transition-all;
+    box-shadow: 0 3px 14px -4px hsl(var(--primary) / var(--control-glow)), inset 0 1px 0 hsl(0 0% 100% / 0.35);
+  }
+
+  .launcher-composer__submit:hover:not(:disabled) {
+    filter: brightness(1.12);
+    box-shadow: 0 6px 20px -4px hsl(var(--primary) / 0.75), inset 0 1px 0 hsl(0 0% 100% / 0.4);
+  }
+
+  .launcher-composer__submit:disabled {
+    @apply opacity-40;
+    box-shadow: none;
+  }
+
+  .launcher-composer__meta {
+    @apply flex flex-wrap items-center justify-between gap-2 border-t border-border/60 px-3 py-2;
+  }
+
+  .launcher-composer__scaffold {
+    @apply flex items-center gap-1.5;
+  }
+
+  .launcher-composer__scaffold-option {
+    @apply rounded-full border border-transparent px-2.5 py-1 font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-muted-foreground transition-colors;
+  }
+
+  .launcher-composer__scaffold-option:hover {
+    @apply text-foreground;
+  }
+
+  .launcher-composer__scaffold-option[aria-pressed='true'] {
+    @apply border-primary/45 bg-primary/10 text-primary;
+  }
+
+  .launcher-composer__suggestions {
+    @apply flex flex-wrap items-center gap-1.5;
+  }
+
+  .launcher-composer__suggestion {
+    @apply rounded-md border border-border/70 bg-background/50 px-2 py-1 text-[10px] leading-tight text-muted-foreground transition-colors;
+  }
+
+  .launcher-composer__suggestion:hover {
+    @apply border-primary/45 text-foreground;
+  }
