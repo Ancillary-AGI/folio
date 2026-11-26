@@ -46,7 +46,21 @@ const TEMPLATES: Array<{ eyebrow: string; title: string; body: string; motif: Re
   ) },
 ]
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  /* Operator-owned copy, read per request. The migration seeds the shipped
+ * words, so the page renders exactly what the repository shows on a fresh
+ * deployment, and an operator can clear or replace any element without a
+ * redeploy. Nothing here falls back to a compiled-in marketing line: a blank
+ * field means the operator omitted that element. The headline is structural,
+ * so an empty one borrows the product name rather than leaving the page
+ * without an h1. */
+  const settings = await loadSiteSettings()
+  const eyebrow = settings.heroEyebrow
+  const heading = settings.heroHeading ?? settings.productName ?? settings.tagline
+  const lede = settings.heroLede
+  const ctaLabel = settings.heroCtaLabel
+  const ctaHref = settings.heroCtaHref
+
   return (
     <>
       <a className="skip-link" href="#main">Skip to main content</a>
@@ -56,11 +70,16 @@ export default function LandingPage() {
         <header className="hero">
           <div className="wrap">
             <div className="hero-copy">
-              <span className="mono anim anim-1" style={{ color: 'var(--amber-pale)' }}>YOUR ENGINEER IN THE LOOP</span>
-              <h1 className="anim anim-2" style={{ marginTop: '.7rem' }}>One brief.<br /><em>One verified board.</em></h1>
-              <p className="lede anim anim-3">Describe what you&apos;re building. Folio drafts the schematic across every domain, runs the solver after every edit, routes it on the real grid, clears the DRC gate, and hands you a fab-ready package.</p>
+              {eyebrow && (
+                <span className="mono anim anim-1" style={{ color: 'var(--amber-pale)' }}>{eyebrow}</span>
+              )}
+              {/* The heading carries the author's line breaks; `pre-line` keeps them. */}
+              {heading && (
+                <h1 className="anim anim-2" style={{ marginTop: '.7rem', whiteSpace: 'pre-line' }}>{heading}</h1>
+              )}
+              {lede && <p className="lede anim anim-3">{lede}</p>}
               <div className="cta anim anim-4">
-                <a className="btn btn-lg" href="/sign-in?mode=signup">Sign up to design</a>
+                {ctaLabel && ctaHref && <a className="btn btn-lg" href={ctaHref}>{ctaLabel}</a>}
                 <a className="btn btn-ghost btn-lg" href="/sign-in?mode=signup">Open a demo</a>
               </div>
             </div>
