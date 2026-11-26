@@ -8,7 +8,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import RobotArmIcon from './RobotArmIcon'
-import ScribeIcon from './ScribeIcon'
+import CopilotIcon from './CopilotIcon'
 import SchematicCanvas from '../SchematicCanvas'
 import DomainLibraryDock from '../library/DomainLibraryDock'
 import PropertiesPanel from '../PropertiesPanel'
@@ -127,7 +127,7 @@ const MODE_ICONS: Readonly<Record<WorkspaceMode, LucideIcon>> = {
   hil: FlaskConical,
   biology: Dna,
   twin: RadioTower,
-  agents: ScribeIcon as LucideIcon,
+  agents: CopilotIcon as LucideIcon,
   components: Package,
   plugins: Plug,
   dashboard: Gauge,

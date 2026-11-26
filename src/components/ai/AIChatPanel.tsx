@@ -1,7 +1,7 @@
 import HoverHelp from '../ui/HoverHelp'
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { Send, Trash2, Lightbulb, Cpu, Wrench, X, Mic, MicOff, Copy, Check, AlertTriangle, Paperclip, FileText } from 'lucide-react'
-import ScribeIcon from '../workspace/ScribeIcon'
+import CopilotIcon from '../workspace/CopilotIcon'
 import { Button } from '../ui/button'
 import { aiService } from '../../lib/ai/aiService'
 import { nlpService } from '../../lib/nlp/nlpService'
@@ -39,7 +39,7 @@ const QUICK_ACTIONS: QuickAction[] = [
   { label: 'Analyze circuit', prompt: 'Analyze the current circuit for issues and improvements', icon: <Cpu className="w-3 h-3" /> },
   { label: 'Suggest components', prompt: 'Suggest missing components for a complete design', icon: <Lightbulb className="w-3 h-3" /> },
   { label: 'Optimize power', prompt: 'Optimize the design for lower power consumption', icon: <Wrench className="w-3 h-3" /> },
-  { label: 'Review assumptions', prompt: 'List the assumptions, missing evidence, and validation steps for this design', icon: <ScribeIcon className="w-3 h-3" /> },
+  { label: 'Review assumptions', prompt: 'List the assumptions, missing evidence, and validation steps for this design', icon: <CopilotIcon className="w-3 h-3" /> },
 ]
 
 const toDomainComponent = (placed: CanvasComponent): DomainComponent => ({
@@ -68,7 +68,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
   const [messages, setMessages] = useState<AIMessage[]>([{
     id: 'welcome',
     role: 'assistant',
-    content: 'Scribe at the desk. I read the sheet before I touch it, and what I can\'t measure I won\'t invent. Ask me to run the check, pull the parts, or chase the net — I answer with evidence, or I tell you plainly I can\'t. The rule checks, the solver and the datasheets remain the arbiters; I advise, Folio verifies.',
+    content: 'Copilot at the desk. I read the sheet before I touch it, and what I can\'t measure I won\'t invent. Ask me to run the check, pull the parts, or chase the net — I answer with evidence, or I tell you plainly I can\'t. The rule checks, the solver and the datasheets remain the arbiters; I advise, Folio verifies.',
     timestamp: Date.now(),
     metadata: { type: 'general' },
   }])
@@ -226,7 +226,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
     } catch (err) {
       addMessage({
         role: 'assistant',
-        content: `Scribe hit a wall reading that: ${err instanceof Error ? err.message : 'Unknown error'}. Say it narrower, or ask for something I can measure.`,
+        content: `Copilot hit a wall reading that: ${err instanceof Error ? err.message : 'Unknown error'}. Say it narrower, or ask for something I can measure.`,
         metadata: { type: 'general' },
       })
     } finally {
@@ -311,7 +311,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
     setMessages([{
       id: 'welcome-reset',
       role: 'assistant',
-      content: 'Cleared. The sheet is yours to question — ask Scribe anything about it.',
+      content: 'Cleared. The sheet is yours to question — ask Copilot anything about it.',
       timestamp: Date.now(),
       metadata: { type: 'general' },
     }])
@@ -330,7 +330,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold leading-tight tracking-tight">Scribe</h2>
+              <h2 className="text-sm font-semibold leading-tight tracking-tight">Copilot</h2>
             </div>
             <p className="mt-1 truncate text-[11px] leading-tight text-muted-foreground">
               every claim traced to the sheet
@@ -343,8 +343,8 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
             <Trash2 />
           </Button>
 </HoverHelp>
-          <HoverHelp title="Close Scribe" description="Close Scribe; your sheet stays as it is">
-<Button variant="ghost" size="bar-icon" onClick={onClose} aria-label="Close Scribe">
+          <HoverHelp title="Close Copilot" description="Close Copilot; your sheet stays as it is">
+<Button variant="ghost" size="bar-icon" onClick={onClose} aria-label="Close Copilot">
             <X />
           </Button>
 </HoverHelp>
@@ -376,13 +376,13 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
                 ? 'bg-primary/90 text-primary-foreground'
                 : 'border border-primary/30 bg-primary/10 text-primary'
             }`} style={msg.role === 'assistant' ? { boxShadow: '0 0 8px -2px hsl(var(--primary) / 0.25)' } : {}}>
-              {msg.role === 'user' ? 'U' : <ScribeIcon className="h-3 w-3" aria-hidden="true" />}
+              {msg.role === 'user' ? 'U' : <CopilotIcon className="h-3 w-3" aria-hidden="true" />}
             </div>
 
             {/* Bubble */}
             <div className={`group relative flex max-w-[85%] flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
               <span className="mb-1 px-1 text-[10px] font-medium text-muted-foreground">
-                {msg.role === 'user' ? 'You' : 'Scribe'}
+                {msg.role === 'user' ? 'You' : 'Copilot'}
               </span>
               <div className={`rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap ${
                 msg.role === 'user'
@@ -442,7 +442,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
           <div className="flex gap-2">
             <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-primary"
               style={{ boxShadow: '0 0 8px -2px hsl(var(--primary) / 0.25)' }}>
-              <ScribeIcon className="h-3 w-3" aria-hidden="true" />
+              <CopilotIcon className="h-3 w-3" aria-hidden="true" />
             </div>
             <div className="rounded-xl rounded-tl-sm border border-border/60 bg-muted/70 px-3 py-2">
               <div className="flex items-center gap-1">
@@ -456,10 +456,10 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* What Scribe can see — the open sheet, nothing hidden, nothing invented. */}
+      {/* What Copilot can see — the open sheet, nothing hidden, nothing invented. */}
       <div className="shrink-0 border-t border-border/60 bg-muted/20 px-4 py-2">
         <p className="text-[10px] leading-relaxed text-muted-foreground">
-          <span className="font-semibold text-foreground/75">In front of Scribe:</span>{' '}
+          <span className="font-semibold text-foreground/75">In front of Copilot:</span>{' '}
           {components.length} part{components.length === 1 ? '' : 's'},{' '}
           {wires.length} wire{wires.length === 1 ? '' : 's'} from the open sheet.{' '}
           It advises; the rule checks and the solver decide.
@@ -538,8 +538,8 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({ onClose }) => {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isVoice ? 'Listening…' : 'Ask Scribe — or describe the change you want…'}
-              aria-label="Message Scribe"
+              placeholder={isVoice ? 'Listening…' : 'Ask Copilot — or describe the change you want…'}
+              aria-label="Message Copilot"
               disabled={isLoading || isVoice}
               rows={1}
               style={{ minHeight: 44, maxHeight: 132 }}

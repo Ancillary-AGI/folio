@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { Stage, Layer, Rect, Line, Circle, Text, Group, Path } from 'react-konva'
 import { DraftingCompass, FlaskConical, Package, PenTool } from 'lucide-react'
-import ScribeIcon from './workspace/ScribeIcon'
+import CopilotIcon from './workspace/CopilotIcon'
 import { Component } from '../lib/supabase'
 import { useAppStore } from '../stores/useAppStore'
 import { useCursorTelemetry } from '../stores/useCursorTelemetry'
@@ -2175,8 +2175,8 @@ export default function SchematicCanvas({
                 onClick={() => useAppStore.setState({ aiChatOpen: true })}
                 className="cad-empty-sheet__action"
               >
-                <ScribeIcon aria-hidden="true" />
-                Ask Scribe
+                <CopilotIcon aria-hidden="true" />
+                Ask Copilot
               </button>
               <button
                 type="button"

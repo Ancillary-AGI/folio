@@ -2642,6 +2642,11 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
 
   // ── Auto-route from schematic wires (real A* router) ────────────────────────
 
+  /* Routing strategy. `negotiated` is Pathfinder-style negotiated congestion:
+ * nets are priced out of contended cells over successive passes rather than
+ * hard-blocked, which resolves congestion by spreading instead of shuffling. */
+  const [routerStrategy, setRouterStrategy] = useState<'greedy' | 'negotiated'>('greedy')
+
   const handleAutoRoute = useCallback(() => {
     /*
      * A net class may ask for wider copper than the house width. The grid has
@@ -2657,6 +2662,9 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
       boardHeightMm: boardHeight,
       layers: ['F.Cu', 'B.Cu'],
       keepouts: routerKeepoutsFromPanel(keepouts),
+      /* Negotiated congestion when the operator asks for it: it spreads nets
+ * across contended channels instead of letting the first one own them. */
+      strategy: routerStrategy,
       ...boardRouterRules({
         minTraceWidthMm: widestTrace,
         traceWidthForNet,
@@ -2702,7 +2710,7 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
     })))
     setDrcRan(result.unrouted.length > 0)
     setStaleRouting(false)
-  }, [routerPads, boardWidth, boardHeight, keepouts, applyBoardEdits, allNetNames, traceWidthForNet])
+  }, [routerPads, boardWidth, boardHeight, keepouts, applyBoardEdits, allNetNames, traceWidthForNet, routerStrategy])
 
   useDemoRequest('pcb-autoroute', handleAutoRoute)
 
@@ -4793,6 +4801,17 @@ export default function PCBDesignPanel({ onClose, onPreview3D, components: propC
                   <Button className="w-full h-7 text-xs" onClick={handleAutoRoute}>
                     <Waypoints className="w-3 h-3 mr-1" /> Auto-Route from Schematic
                   </Button>
+                  {/* Greedy claims copper and lifts blockers; negotiated prices
+                      contended cells so nets spread instead of queueing. */}
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={routerStrategy === 'negotiated'}
+                      onChange={(event) => setRouterStrategy(event.target.checked ? 'negotiated' : 'greedy')}
+                      className="h-3.5 w-3.5"
+                    />
+                    Negotiated congestion
+                  </label>
                   <div className="text-xs text-muted-foreground">Traces: {traces.length} | Vias: {vias.length}</div>
                 </CardContent>
               </Card>

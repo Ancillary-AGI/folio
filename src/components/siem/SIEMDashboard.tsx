@@ -127,7 +127,7 @@ export default function SIEMDashboard() {
   /*
    * `useSyncExternalStore` requires a referentially stable snapshot; the
    * service's monotonic revision number is exactly that. The return value is
-   * not needed here — subscribing is the point: React re-renders this component
+   * not needed here — subscribeing is the point: React re-renders this component
    * whenever the security state actually changes, and the reads below always
    * see the current data.
    */

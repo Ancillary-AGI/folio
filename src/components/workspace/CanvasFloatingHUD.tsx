@@ -1,5 +1,5 @@
 import HoverHelp from '../ui/HoverHelp'
-import ScribeIcon from './ScribeIcon'
+import CopilotIcon from './CopilotIcon'
 /**
  * Canvas Floating HUD
  *
@@ -276,19 +276,19 @@ export default function CanvasFloatingHUD({ mode, onFitView, onTidyLayout }: Can
           </div>
         )}
 
-        {/* Scribe — the mounted assistant, same as the header button */}
+        {/* Copilot — the mounted assistant, same as the header button */}
         <div className="px-2">
-          <HoverHelp title="Open Scribe" description="Open Scribe, the sheet-true assistant">
+          <HoverHelp title="Open Copilot" description="Open Copilot, the sheet-true assistant">
 <button type="button"
             onClick={toggleAiChat}
-            aria-label="Toggle Scribe" aria-pressed={aiChatOpen}
+            aria-label="Toggle Copilot" aria-pressed={aiChatOpen}
             className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${
               aiChatOpen
                 ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/30'
                 : 'bg-primary/15 text-primary hover:bg-primary/25 hover:shadow-md'
             }`}>
-            <ScribeIcon className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>Scribe</span>
+            <CopilotIcon className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>Copilot</span>
           </button>
 </HoverHelp>
         </div>

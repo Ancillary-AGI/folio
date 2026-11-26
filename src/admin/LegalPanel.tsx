@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Admin console — legal and company pages.
  *
  * Owns the copy the public site serves at /about, /terms, /privacy and

@@ -10,7 +10,7 @@ import {
   spiceEngine,
   type CircuitNetlist,
   type SimulationParameters,
-  type SimulationResult,
+  type SpiceResult,
 } from '../../lib/simulation/spiceEngine'
 import { buildCircuitNetlist } from '../../lib/simulation/netlistBuilder'
 import { buildMultiSheetNetlist, type SchematicSheet } from '../../lib/simulation/multiSheet'
@@ -188,7 +188,7 @@ function readFileText(file: File): Promise<string> {
 
 export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: SimulationPanelProps) {
   const [isSimulating, setIsSimulating] = useState(false)
-  const [simulationResults, setSimulationResults] = useState<SimulationResult | null>(null)
+  const [simulationResults, setSimulationResults] = useState<SpiceResult | null>(null)
   // Margins must describe the design that was actually solved. The drawn sheet
   // is captured at run time because it can be edited while the solver is busy.
   const [marginDesign, setMarginDesign] = useState<{
@@ -391,7 +391,7 @@ export default function SimulationPanel({ onClose, beforeRun, onRunComplete }: S
    * a render-phase state adjustment, not an effect: the plot is never committed
    * blank for a frame while an effect would catch up.
    */
-  const [waveformOwner, setWaveformOwner] = useState<SimulationResult | null>(null)
+  const [waveformOwner, setWaveformOwner] = useState<SpiceResult | null>(null)
   if (simulationResults !== waveformOwner) {
     setWaveformOwner(simulationResults)
     const names = (simulationResults?.waveforms ?? []).map((waveform) => waveform.name)

@@ -3,7 +3,7 @@ import { forwardRef, type SVGProps } from 'react'
 /**
  * The robotics seat in the rail: a two-joint arm drawn in the same 24 px,
  * stroke-first grammar as the lucide set, so the rail keeps one voice. The
- * agent is Scribe; this is a machine, not a personality.
+ * agent is Copilot; this is a machine, not a personality.
  */
 const RobotArmIcon = forwardRef<SVGSVGElement, SVGProps<SVGSVGElement>>(function RobotArmIcon(props, ref) {
   return (

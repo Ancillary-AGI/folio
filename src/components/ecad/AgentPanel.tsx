@@ -4,7 +4,7 @@ import HoverHelp from '../ui/HoverHelp'
  *
  * Four surfaces share one live sheet:
  *  • Autopilot  — bounded autonomous tuning with schematic/waveform evidence.
- *  • Scribe     — explicit EDA plans (simulate, route, DRC, fab) with approvals.
+ *  • Copilot     — explicit EDA plans (simulate, route, DRC, fab) with approvals.
  *  • Tools      — the exact capability surface, rendered from registrations.
  *  • Audit      — every tool call and durable session timeline.
  *
@@ -45,7 +45,7 @@ type AgentTab = 'autopilot' | 'assistant' | 'models' | 'tools' | 'jobs' | 'audit
 
 const TABS: ReadonlyArray<{ id: AgentTab; label: string }> = [
   { id: 'autopilot', label: 'Autopilot' },
-  { id: 'assistant', label: 'Scribe' },
+  { id: 'assistant', label: 'Copilot' },
   { id: 'models', label: 'Models' },
   { id: 'tools', label: 'Tools' },
   { id: 'jobs', label: 'Always-on' },
@@ -290,7 +290,7 @@ export default function AgentPanel({ onClose }: AgentPanelProps) {
             )}
           </div>
           {auditTrail.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No calls this session. Scribe runs appear here as they execute.</p>
+            <p className="text-xs text-muted-foreground">No calls this session. Copilot runs appear here as they execute.</p>
           ) : (
             <ol className="space-y-1.5">
               {auditTrail.map((call) => (

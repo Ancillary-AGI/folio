@@ -34,6 +34,11 @@ interface Draft {
   githubUrl: string
   codebergUrl: string
   securityPolicyUrl: string
+  heroEyebrow: string
+  heroHeading: string
+  heroLede: string
+  heroCtaLabel: string
+  heroCtaHref: string
 }
 
 const EMPTY: Draft = {
@@ -46,6 +51,11 @@ const EMPTY: Draft = {
   githubUrl: '',
   codebergUrl: '',
   securityPolicyUrl: '',
+  heroEyebrow: '',
+  heroHeading: '',
+  heroLede: '',
+  heroCtaLabel: '',
+  heroCtaHref: '',
 }
 
 const toDraft = (settings: SiteSettingsEntry | null): Draft => ({
@@ -59,6 +69,11 @@ const toDraft = (settings: SiteSettingsEntry | null): Draft => ({
   githubUrl: settings?.githubUrl ?? '',
   codebergUrl: settings?.codebergUrl ?? '',
   securityPolicyUrl: settings?.securityPolicyUrl ?? '',
+  heroEyebrow: settings?.heroEyebrow ?? '',
+  heroHeading: settings?.heroHeading ?? '',
+  heroLede: settings?.heroLede ?? '',
+  heroCtaLabel: settings?.heroCtaLabel ?? '',
+  heroCtaHref: settings?.heroCtaHref ?? '',
 })
 
 const toSettings = (draft: Draft): SiteSettings => ({
@@ -71,6 +86,11 @@ const toSettings = (draft: Draft): SiteSettings => ({
   githubUrl: draft.githubUrl.trim() || undefined,
   codebergUrl: draft.codebergUrl.trim() || undefined,
   securityPolicyUrl: draft.securityPolicyUrl.trim() || undefined,
+  heroEyebrow: draft.heroEyebrow.trim() || undefined,
+  heroHeading: draft.heroHeading.trim() || undefined,
+  heroLede: draft.heroLede.trim() || undefined,
+  heroCtaLabel: draft.heroCtaLabel.trim() || undefined,
+  heroCtaHref: draft.heroCtaHref.trim() || undefined,
 })
 
 const FIELDS: Array<{
@@ -126,6 +146,43 @@ const FIELDS: Array<{
     hint: 'Used when a page does not supply its own description.',
     maxLength: 1000,
     wide: true,
+  },
+  {
+    key: 'heroEyebrow',
+    label: 'Landing eyebrow',
+    placeholder: 'The small line above the headline',
+    hint: 'Shown on the landing page above the headline.',
+    maxLength: 120,
+  },
+  {
+    key: 'heroHeading',
+    label: 'Landing headline',
+    placeholder: 'One brief.\nOne verified board.',
+    hint: 'A line break here is kept on the page.',
+    maxLength: 200,
+    wide: true,
+  },
+  {
+    key: 'heroLede',
+    label: 'Landing introduction',
+    placeholder: 'One paragraph under the headline',
+    hint: 'The sentence that explains the product.',
+    maxLength: 600,
+    wide: true,
+  },
+  {
+    key: 'heroCtaLabel',
+    label: 'Landing button',
+    placeholder: 'Sign up to design',
+    hint: 'The label on the primary call to action.',
+    maxLength: 60,
+  },
+  {
+    key: 'heroCtaHref',
+    label: 'Landing button target',
+    placeholder: '/sign-in?mode=signup',
+    hint: 'Where the primary button goes. A path on this site, or an https URL.',
+    maxLength: 300,
   },
   {
     key: 'githubUrl',

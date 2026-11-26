@@ -4,7 +4,7 @@
  * it states the fact and jumps to the agent workspace on click.
  */
 import { ShieldQuestion } from 'lucide-react'
-import ScribeIcon from './ScribeIcon'
+import CopilotIcon from './CopilotIcon'
 import { useAgentJobs } from '../../lib/agents/useAgentJobs'
 
 interface AgentStatusSegmentProps {
@@ -32,7 +32,7 @@ export default function AgentStatusSegment({ onOpenAgents }: AgentStatusSegmentP
       {waiting ? (
         <ShieldQuestion className="h-3 w-3" aria-hidden="true" />
       ) : (
-        <ScribeIcon className="h-3 w-3 cad-live-indicator" aria-hidden="true" />
+        <CopilotIcon className="h-3 w-3 cad-live-indicator" aria-hidden="true" />
       )}
       {waiting ? (
         <>

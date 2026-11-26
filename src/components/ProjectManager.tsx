@@ -16,7 +16,7 @@ import {
   Trash2, Wrench, X, Zap,
   type LucideIcon,
 } from 'lucide-react'
-import ScribeIcon from './workspace/ScribeIcon'
+import CopilotIcon from './workspace/CopilotIcon'
 import { WORKSPACE_GROUPS, MODE_COUNT_BY_GROUP, WORKSPACE_MODE_META, FIRST_MODE_BY_GROUP, type WorkspaceGroupId } from '../lib/workspace/modes'
 import { groupAccent } from '../lib/workspace/accents'
 import { DEMO_SCENARIOS, type DemoScenario } from '../lib/demo/demoScenarios'
@@ -271,14 +271,14 @@ export default function ProjectManager({ onSelectProject, onNewProject, onProjec
             </p>
             <h1 id="launcher-heading" className="launcher-title">From first sketch to <span className="hero-accent">verified build.</span></h1>
             <p className="launcher-lede">
-              Describe the board in one line — Scribe drafts the circuit,
+              Describe the board in one line — Copilot drafts the circuit,
               routes it, checks every handoff and hands you a fab package.
               You keep the engineering; it does the legwork.
             </p>
 
             <form className="launcher-composer" onSubmit={handleBriefSubmit} aria-label="Describe your project">
               <div className="launcher-composer__row">
-                <ScribeIcon className="launcher-composer__orb" aria-hidden="true" />
+                <CopilotIcon className="launcher-composer__orb" aria-hidden="true" />
                 <textarea
                   rows={2}
                   autoFocus

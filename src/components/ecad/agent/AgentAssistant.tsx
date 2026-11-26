@@ -1,5 +1,5 @@
 /**
- * Scribe — the two-mind surface.
+ * Copilot — the two-mind surface.
  *
  * Every utterance is routed, not guessed at. A reflex answers what is already
  * measured or what one tool call can do, in microseconds and for nothing. A
@@ -25,7 +25,7 @@ import {
   Square,
   Terminal,
 } from 'lucide-react'
-import ScribeIcon from '../../workspace/ScribeIcon'
+import CopilotIcon from '../../workspace/CopilotIcon'
 import HoverHelp from '../../ui/HoverHelp'
 import { Button } from '../../ui/button'
 import { Input } from '../../ui/input'
@@ -192,7 +192,7 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
   const [messages, setMessages] = useState<ChatMessage[]>([{
     id: 'welcome',
     role: 'system',
-    content: 'Scribe at the desk — the one that reads the sheet before it proposes anything. Ask for a measurement, a simulation, DRC, routing, a fabrication package, ' +
+    content: 'Copilot at the desk — the one that reads the sheet before it proposes anything. Ask for a measurement, a simulation, DRC, routing, a fabrication package, ' +
       'or a change to a part. The cad.* tools observe and edit the live sheet; mechanical parts are editable through mech.*. ' +
       'Each request is routed: a reflex answers what is already measured, a planner handles anything multi-step, ' +
       'and a fixed EDA plan runs when no model is reachable.',
@@ -526,7 +526,7 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
               <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
                 message.role === 'agent' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
               }`}>
-                {message.role === 'agent' ? <ScribeIcon className="h-[13px] w-[13px]" /> : <Terminal size={11} />}
+                {message.role === 'agent' ? <CopilotIcon className="h-[13px] w-[13px]" /> : <Terminal size={11} />}
               </div>
             )}
             <div className={`max-w-[85%] rounded-xl px-3 py-2 text-xs leading-relaxed ${
@@ -686,7 +686,7 @@ export default function AgentAssistant({ onCalls, onOpenModels }: AgentAssistant
             if (event.key === 'Enter' && !event.shiftKey) void handleSend()
           }}
           disabled={running}
-          aria-label="Scribe prompt"
+          aria-label="Copilot prompt"
         />
         {running ? (
           <Button

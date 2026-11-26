@@ -35,7 +35,7 @@ export interface CanvasWire {
   }
 }
 
-export interface SimulationResult {
+export interface SimulationRun {
   id: string
   type: 'dc' | 'ac' | 'transient' | 'noise'
   timestamp: number
@@ -70,7 +70,7 @@ export interface ProjectState {
   ) => void
 
   // Design state of the other CAD domains (RF, control, machines, HDL, FPGA,
-  // IC, robotics, visual programs, …), keyed by domain id. Versioned by VCS and
+  // IC, robotics, visual programs, â€¦), keyed by domain id. Versioned by VCS and
   // restored by checkout, so one project can carry a whole multidomain design.
   domainDesigns: Record<string, unknown>
   setDomainDesign: (key: string, value: unknown) => void
@@ -107,9 +107,9 @@ export interface ProjectState {
   setCurrentSchematic: (schematic: Schematic | null) => void
   
   // Simulation
-  simulationResults: SimulationResult[]
+  simulationResults: SimulationRun[]
   isSimulating: boolean
-  addSimulationResult: (result: SimulationResult) => void
+  addSimulationResult: (result: SimulationRun) => void
   clearSimulationResults: () => void
   setSimulating: (simulating: boolean) => void
   

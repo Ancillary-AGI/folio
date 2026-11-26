@@ -19,7 +19,7 @@ import {
   type AppNotification,
   type NotificationKind,
 } from '../../lib/notifications/notifications'
-import ScribeIcon from './ScribeIcon'
+import CopilotIcon from './CopilotIcon'
 import HoverHelp from '../ui/HoverHelp'
 
 const EMPTY_SNAPSHOT: readonly AppNotification[] = []
@@ -38,15 +38,15 @@ function useNotificationFeed(): { items: AppNotification[]; unread: number } {
   return { items, unread }
 }
 
-const KIND_ICONS: Record<NotificationKind, typeof ScribeIcon> = {
-  agent: ScribeIcon,
+const KIND_ICONS: Record<NotificationKind, typeof CopilotIcon> = {
+  agent: CopilotIcon,
   export: Download,
   community: Shapes,
   checkpoint: History,
 }
 
 const KIND_LABELS: Record<NotificationKind, string> = {
-  agent: 'Scribe',
+  agent: 'Copilot',
   export: 'Export',
   community: 'Community',
   checkpoint: 'Checkpoint',
