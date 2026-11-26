@@ -39,8 +39,8 @@ describe('AIChatPanel', () => {
 
   it('renders welcome message, quick actions and input', () => {
     render(<AIChatPanel onClose={() => {}} />)
-    expect(screen.getByRole('heading', { name: 'Scribe' })).toBeInTheDocument()
-    expect(screen.getByText(/Scribe at the desk/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Copilot' })).toBeInTheDocument()
+    expect(screen.getByText(/Copilot at the desk/)).toBeInTheDocument()
     expect(screen.getByText(/every claim traced/i)).toBeInTheDocument()
     expect(screen.getByText(/It advises; the rule checks/i)).toBeInTheDocument()
     for (const action of ['Analyze circuit', 'Suggest components', 'Optimize power', 'Review assumptions']) {
@@ -50,7 +50,7 @@ describe('AIChatPanel', () => {
 
   it('sends a message and renders the analysis reply', async () => {
     render(<AIChatPanel onClose={() => {}} />)
-    const input = screen.getByPlaceholderText(/Ask Scribe/)
+    const input = screen.getByPlaceholderText(/Ask Copilot/)
     fireEvent.change(input, { target: { value: 'Analyze my circuit for issues' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
     await waitFor(() => expect(screen.getByText(/Circuit Analysis Report/)).toBeInTheDocument())
@@ -71,7 +71,7 @@ describe('AIChatPanel', () => {
     expect(await screen.findByText('notes.txt')).toBeInTheDocument()
     expect(screen.getByLabelText('Detach notes.txt')).toBeInTheDocument()
 
-    const input = screen.getByPlaceholderText(/Ask Scribe/)
+    const input = screen.getByPlaceholderText(/Ask Copilot/)
     fireEvent.change(input, { target: { value: 'Analyze my circuit for issues' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
 
@@ -89,7 +89,7 @@ describe('AIChatPanel', () => {
     fireEvent.click(screen.getByLabelText('Detach notes.txt'))
     expect(screen.queryByText('notes.txt')).not.toBeInTheDocument()
 
-    const input = screen.getByPlaceholderText(/Ask Scribe/)
+    const input = screen.getByPlaceholderText(/Ask Copilot/)
     fireEvent.change(input, { target: { value: 'Analyze my circuit for issues' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
     await waitFor(() => expect(screen.getByText(/Circuit Analysis Report/)).toBeInTheDocument())
@@ -113,12 +113,12 @@ describe('AIChatPanel', () => {
 
   it('clears the chat back to the welcome message', async () => {
     render(<AIChatPanel onClose={() => {}} />)
-    const input = screen.getByPlaceholderText(/Ask Scribe/)
+    const input = screen.getByPlaceholderText(/Ask Copilot/)
     fireEvent.change(input, { target: { value: 'hello' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
     await waitFor(() => expect(screen.getAllByText('U').length).toBeGreaterThan(0))
     fireEvent.click(screen.getByRole('button', { name: 'Clear conversation' }))
-    expect(screen.getByRole('heading', { name: 'Scribe' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Copilot' })).toBeInTheDocument()
     expect(screen.queryByText(/Circuit Analysis Report/)).not.toBeInTheDocument()
   })
 

@@ -17,7 +17,7 @@ import { snippetCatalog } from '../lib/library/elementCatalogs'
 import type { LibraryItem } from '../lib/library/types'
 import { formatEngineering } from '../lib/simulation/formatEngineering'
 import { spiceEngine } from '../lib/simulation/spiceEngine'
-import type { SimulationResult } from '../lib/simulation/spiceEngine'
+import type { SpiceResult } from '../lib/simulation/spiceEngine'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useAppStore } from '../stores/useAppStore'
 import { DEFAULT_SETTINGS } from '../lib/settings/registry'
@@ -248,7 +248,7 @@ describe('SimulationPanel', () => {
 
   it('tabulates a Monte Carlo envelope instead of drawing a one-point waveform', async () => {
     seedSheet([place('R1', makeSymbol())])
-    const canned: SimulationResult = {
+    const canned: SpiceResult = {
       success: true,
       nodes: [],
       waveforms: [
@@ -287,7 +287,7 @@ describe('SimulationPanel', () => {
 
   it('parses model cards, blocks malformed decks, and passes cards to the solver', async () => {
     seedSheet([place('R1', makeSymbol())])
-    const canned: SimulationResult = {
+    const canned: SpiceResult = {
       success: true,
       nodes: [],
       waveforms: [],
@@ -349,7 +349,7 @@ describe('SimulationPanel', () => {
   })
 
   it('flattens a .subckt deck into instance-qualified devices and solves it', async () => {
-    const canned: SimulationResult = {
+    const canned: SpiceResult = {
       success: true,
       nodes: [],
       waveforms: [],
@@ -396,7 +396,7 @@ X1 in 0 div
     seedSheet([place('R1', makeSymbol())])
     render(<SimulationPanel onClose={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'DC operating point' }))
-    const canned: SimulationResult = {
+    const canned: SpiceResult = {
       success: true,
       nodes: [],
       waveforms: [
@@ -436,7 +436,7 @@ X1 in 0 div
 
   it('flags a displayed result when the sheet changes underneath it', async () => {
     seedSheet([place('R1', makeSymbol())])
-    const canned: SimulationResult = {
+    const canned: SpiceResult = {
       success: true,
       nodes: [],
       waveforms: [
@@ -477,7 +477,7 @@ X1 in 0 div
 
   it('clears a displayed result when the analysis tab changes', async () => {
     seedSheet([place('R1', makeSymbol())])
-    const canned: SimulationResult = {
+    const canned: SpiceResult = {
       success: true,
       nodes: [],
       waveforms: [
@@ -502,8 +502,8 @@ X1 in 0 div
   })
 
   it('does not surface a stitched solve under an analysis tab chosen mid-solve', async () => {
-    let resolveRun: (result: SimulationResult) => void = () => {}
-    const pending = new Promise<SimulationResult>((resolve) => {
+    let resolveRun: (result: SpiceResult) => void = () => {}
+    const pending = new Promise<SpiceResult>((resolve) => {
       resolveRun = resolve
     })
     render(<SimulationPanel onClose={vi.fn()} />)
@@ -556,7 +556,7 @@ X1 in 0 div
       ],
       simulationRuns: [],
     })
-    const canned: SimulationResult = {
+    const canned: SpiceResult = {
       success: true,
       nodes: [],
       waveforms: [],
@@ -722,7 +722,7 @@ X1 in 0 div
 
   it('re-solves automatically after a sheet edit once the designer has pressed Run', async () => {
     seedSheet([place('R1', makeSymbol())])
-    const canned: SimulationResult = {
+    const canned: SpiceResult = {
       success: true,
       nodes: [],
       waveforms: [],
@@ -748,7 +748,7 @@ X1 in 0 div
 
   it('keeps a hand-picked trace selection across a re-solve', async () => {
     seedSheet([place('R1', makeSymbol())])
-    const canned: SimulationResult = {
+    const canned: SpiceResult = {
       success: true,
       nodes: [],
       waveforms: [

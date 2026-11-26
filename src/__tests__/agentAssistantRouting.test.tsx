@@ -49,7 +49,7 @@ const sayDone = (summary: string) => jsonBody({
   usage: { prompt_tokens: 200, completion_tokens: 20 },
 })
 
-const prompt = () => screen.getByLabelText('Scribe prompt')
+const prompt = () => screen.getByLabelText('Copilot prompt')
 
 const send = async (text: string) => {
   fireEvent.change(prompt(), { target: { value: text } })

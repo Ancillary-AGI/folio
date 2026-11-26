@@ -1,4 +1,4 @@
-﻿import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /* The panel is thin over Supabase Auth, so what is worth testing is the
  * behaviour that matters: a refusal is shown rather than swallowed, a failed

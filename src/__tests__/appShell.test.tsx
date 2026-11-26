@@ -321,7 +321,7 @@ describe('App shell', () => {
     await screen.findByTestId('schematic-canvas')
 
     const header = screen.getByRole('banner')
-    expect(within(header).getByRole('button', { name: 'Ask Scribe' })).toBeInTheDocument()
+    expect(within(header).getByRole('button', { name: 'Ask Copilot' })).toBeInTheDocument()
     expect(within(header).getByRole('button', { name: 'Settings' })).toBeInTheDocument()
     expect(within(header).getByRole('button', { name: 'Version history' })).toBeInTheDocument()
 
@@ -343,7 +343,7 @@ describe('App shell', () => {
     // Each group is named for what its rows share. "Session" used to head voice
     // control and two workspace switches, which is not what it means.
     const groups = within(menu).getAllByRole('group').map((group) => group.getAttribute('aria-label'))
-    expect(groups).toEqual(['Scribe', 'Workspaces', 'Project'])
+    expect(groups).toEqual(['Copilot', 'Workspaces', 'Project'])
 
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Simulation workspace' }))
     expect(useAppStore.getState().workspaceMode).toBe('simulation')
