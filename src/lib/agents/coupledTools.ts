@@ -1,18 +1,9 @@
 /**
  * Coupled cross-domain design tools.
  *
- * Every other tool in the harness sizes one discipline: `eda.drc` checks copper,
- * `mechanical.*` checks a beam, `thermal.*` checks a temperature. None of them
- * can answer the question a real design starts with — *what section do I need so
- * that this is simultaneously electrically adequate, thermally survivable and
- * stiff enough?*
- *
- * `optimizeCoupledDesign` has been able to answer that since it landed, with
- * disciplines sharing one design point. This module is what makes it reachable:
- * it exposes a study an agent can call, and it always reports the single-domain
- * answer alongside the coupled one, because the gap between the two *is* the
- * result. A study that only printed the coupled optimum would look like any
- * other sizing exercise and teach nothing.
+ * Every other tool sizes one discipline; these solve several over one shared
+ * design point, because a bus bar's section sets its resistance, its temperature
+ * rise and its mass at the same time.
  */
 import type { AgentHarness } from './agentHarness'
 import {

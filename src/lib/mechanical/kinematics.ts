@@ -16,6 +16,8 @@
  * throws, and callers surface that rather than rendering a plausible lie.
  */
 
+import { solveLinearSystem } from '../ml/linalg'
+
 export type Vec3 = readonly [number, number, number];
 /** Row-major 4x4 homogeneous transform, 16 numbers. */
 export type Mat4 = readonly number[];
@@ -272,43 +274,6 @@ export function numericalLinearJacobian(
 /* ------------------------------------------------------------------ *
  * Dense linear algebra
  * ------------------------------------------------------------------ */
-
-/**
- * Gaussian elimination with partial pivoting. Throws rather than returning a
- * near-singular "solution", because a garbage answer here silently poisons IK.
- */
-export function solveLinearSystem(a: readonly number[][], b: readonly number[]): number[] {
-  const n = b.length;
-  if (a.length !== n) throw new Error('Matrix and vector sizes disagree.');
-  const m = a.map((row, r) => {
-    if (row.length !== n) throw new Error(`Row ${r} has ${row.length} columns, expected ${n}.`);
-    return [...row, b[r]];
-  });
-
-  for (let col = 0; col < n; col += 1) {
-    let pivot = col;
-    for (let r = col + 1; r < n; r += 1) {
-      if (Math.abs(m[r][col]) > Math.abs(m[pivot][col])) pivot = r;
-    }
-    if (Math.abs(m[pivot][col]) < 1e-14) {
-      throw new Error('System is singular to working precision.');
-    }
-    [m[col], m[pivot]] = [m[pivot], m[col]];
-    for (let r = col + 1; r < n; r += 1) {
-      const factor = m[r][col] / m[col][col];
-      if (factor === 0) continue;
-      for (let c = col; c <= n; c += 1) m[r][c] -= factor * m[col][c];
-    }
-  }
-
-  const out = new Array<number>(n).fill(0);
-  for (let r = n - 1; r >= 0; r -= 1) {
-    let sum = m[r][n];
-    for (let c = r + 1; c < n; c += 1) sum -= m[r][c] * out[c];
-    out[r] = sum / m[r][r];
-  }
-  return out;
-}
 
 /* ------------------------------------------------------------------ *
  * Inverse kinematics

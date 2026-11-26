@@ -1,18 +1,8 @@
 /**
  * The enclosure verdict: one derived answer to "does the board fit, and what is
- * in the way".
- *
- * The board stack and the enclosure mesh are both already modelled
- * (`enclosureFit.ts`, `meshMeasure.ts`). What was missing is a single place that
- * turns them into the answer every consumer needs — the 3D panel's summary line,
- * the agent's tool result, and any export note. Two consumers were each deriving
- * their own shape from the same two inputs, so a fix to the wording or the
- * thresholds landed in one and not the other.
- *
- * The verdict is deliberately explicit about what it does *not* know: the fit is
- * a bounding-box comparison, so ribs, bosses and cut-outs inside the shell are
- * not measured. `blockers` turns the numbers into sentences a person or an agent
- * can act on.
+ * in the way", shared by the 3-D panel and the agent tool so they cannot
+ * disagree. The fit is a bounding-box comparison — ribs and cut-outs are not
+ * measured, and `blockers` says so.
  */
 import type { PcbScene } from './pcbScene'
 import { assessEnclosureFit, stackEnvelope, tightestSide, type EnclosureFit } from './enclosureFit'

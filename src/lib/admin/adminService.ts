@@ -11,7 +11,6 @@
  * append fails after a mutation succeeded, the result says so rather than
  * reporting a clean change that left no record.
  */
-import type { SupabaseClient } from '@supabase/supabase-js'
 import { cloudConfig } from '../cloudConfig'
 import {
   ADMIN_ROLES, DEFAULT_QUOTA_POLICIES, ROLE_LABELS, isAdminRole, validateQuotaLimits,
@@ -23,12 +22,13 @@ import {
 } from './permissions'
 import type { Operator } from './operatorSession'
 import { USAGE_KINDS, type UsageEvent, type UsageKind } from './usageLedger'
+import type { Store } from '../db/store'
 import {
   LEGAL_PAGE_SLUGS, parseLegalPageSections, type LegalPageSection, type LegalPageSlug,
 } from '../legal/legalPages'
 import { normalizeRichText, richTextHasText, richTextLength } from '../legal/richText'
 import { isFaqSurface, type FaqSurface } from '../content/faq'
-import { parseSiteSettings, type SiteSettings } from '../site/siteSettings'
+import { parseSiteSettings, siteTarget, type SiteSettings } from '../site/siteSettings'
 
 export type AccountStatus = 'active' | 'suspended'
 
@@ -231,7 +231,7 @@ export interface AdminApi {
   deleteNewsletterCampaign(id: string): Promise<MutationResult>
 }
 
-export function createAdminApi(db: SupabaseClient, operator: Operator): AdminApi {
+export function createAdminApi(db: Store, operator: Operator): AdminApi {
   /**
    * The console's pre-flight. It does not replace row-level security or the
    * profile guard; it stops a call that this console already knows it cannot
@@ -694,7 +694,7 @@ export function createAdminApi(db: SupabaseClient, operator: Operator): AdminApi
       try {
         const { data, error } = await db
           .from('site_settings')
-          .select('product_name,parent_company,tagline,description,contact_email,site_url,github_url,codeberg_url,security_policy_url,updated_at')
+          .select('product_name,parent_company,tagline,description,contact_email,site_url,github_url,codeberg_url,security_policy_url,hero_eyebrow,hero_heading,hero_lede,hero_cta_label,hero_cta_href,updated_at')
           .limit(1)
         if (error) return { settings: null, error: error.message }
         const rows = data ?? []
@@ -719,6 +719,11 @@ export function createAdminApi(db: SupabaseClient, operator: Operator): AdminApi
       const githubUrl = settings.githubUrl?.trim() ?? ''
       const codebergUrl = settings.codebergUrl?.trim() ?? ''
       const securityPolicyUrl = settings.securityPolicyUrl?.trim() ?? ''
+      const heroEyebrow = settings.heroEyebrow?.trim() ?? ''
+      const heroHeading = settings.heroHeading?.trim() ?? ''
+      const heroLede = settings.heroLede?.trim() ?? ''
+      const heroCtaLabel = settings.heroCtaLabel?.trim() ?? ''
+      const heroCtaHref = settings.heroCtaHref?.trim() ?? ''
       if (!productName) return { ok: false, error: 'The product needs a name; the footer and page titles use it.' }
       if (productName.length > 120) return { ok: false, error: 'The product name is too long (120 characters maximum).' }
       if (parentCompany.length > 160) return { ok: false, error: 'The company name is too long (160 characters maximum).' }
@@ -738,6 +743,13 @@ export function createAdminApi(db: SupabaseClient, operator: Operator): AdminApi
           return { ok: false, error: `${label} must start with http:// or https://.` }
         }
       }
+      if (heroEyebrow.length > 120) return { ok: false, error: 'The landing eyebrow is too long (120 characters maximum).' }
+      if (heroHeading.length > 200) return { ok: false, error: 'The landing headline is too long (200 characters maximum).' }
+      if (heroLede.length > 600) return { ok: false, error: 'The landing introduction is too long (600 characters maximum).' }
+      if (heroCtaLabel.length > 60) return { ok: false, error: 'The landing button label is too long (60 characters maximum).' }
+      if (heroCtaHref && !siteTarget(heroCtaHref)) {
+        return { ok: false, error: 'The landing button target must be a path on this site or an http(s) link.' }
+      }
       try {
         const { error } = await db
           .from('site_settings')
@@ -752,6 +764,11 @@ export function createAdminApi(db: SupabaseClient, operator: Operator): AdminApi
             github_url: githubUrl,
             codeberg_url: codebergUrl,
             security_policy_url: securityPolicyUrl,
+            hero_eyebrow: heroEyebrow,
+            hero_heading: heroHeading,
+            hero_lede: heroLede,
+            hero_cta_label: heroCtaLabel,
+            hero_cta_href: heroCtaHref,
             updated_at: new Date().toISOString(),
           })
         if (error) return { ok: false, error: error.message }

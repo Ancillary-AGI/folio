@@ -15,7 +15,7 @@ import type { Component } from '../supabase'
 import { standardComponents } from '../componentLibrary'
 import { useProjectStore, type CanvasComponent, type CanvasWire } from '../../stores/useProjectStore'
 import { generateId } from '../utils'
-import type { SimulationResult, SimulationParameters, CircuitNetlist } from '../simulation/spiceEngine'
+import type { SpiceResult, SimulationParameters, CircuitNetlist } from '../simulation/spiceEngine'
 
 export interface CadDesignState {
   components: CanvasComponent[]
@@ -29,7 +29,7 @@ export interface CadSimulationCache {
   analysis: SimulationParameters['type']
   parameters: SimulationParameters
   netlist: CircuitNetlist
-  result: SimulationResult
+  result: SpiceResult
 }
 
 export interface CadRuntime {

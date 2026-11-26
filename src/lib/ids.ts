@@ -1,16 +1,9 @@
 /**
- * Identifiers for records that outlive the page.
+ * Ids for persisted records.
  *
- * Job, session and other persisted records are written to localStorage or a
- * server store and read back on the next launch, so their ids must be unique
- * across reloads. A module-level counter restarts at 0 every time the bundle is
- * evaluated, so a record created in the same millisecond as one from a previous
- * session would collide — and the stores overwrite silently rather than merging.
- *
- * `crypto.randomUUID` is used when the platform provides it (all modern
- * browsers, Node 19+, and every secure context). The fallback keeps a time and
- * randomness component so it is still collision-resistant where `randomUUID` is
- * unavailable, which is why it is not simply an incrementing counter.
+ * A module counter restarts at 0 on reload, so a same-millisecond record from a
+ * previous session would collide and the stores overwrite silently. Persisted ids
+ * must be unique across reloads.
  */
 const randomChunk = (): string => Math.random().toString(36).slice(2, 10)
 

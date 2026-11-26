@@ -1,21 +1,9 @@
 /**
  * The sourcing provider seam.
  *
- * `sourceBom` is pure: it prices whatever catalogue it is handed. Where that
- * catalogue comes from is a separate question, and it has three honest answers:
- *
- *   - `reference` — the bundled snapshot in `./catalog`. Offline, deterministic,
- *     and stamped with the date it was captured. Good enough to estimate a build
- *     and to demo, never good enough to order from.
- *   - `live` — a distributor API. Implemented by supplying a provider that
- *     conforms to `SourcingProvider`; none ships, because every distributor
- *     terms its API differently and none should be guessed at.
- *   - `disabled` — no provider configured. Reported as such rather than silently
- *     falling back, so a caller can tell "no data" from "old data".
- *
- * The point of the seam is that a caller asks once and gets an answer that says
- * what kind of answer it is. A sourcing panel that showed reference prices
- * beside live stock without labelling them would be worse than showing nothing.
+ * `sourceBom` prices whatever catalogue it is handed; this decides where that
+ * catalogue comes from and always says which — reference snapshot, live API, or
+ * none. No live provider ships: every distributor's API differs.
  */
 import { REFERENCE_CATALOG } from './catalog'
 import type { PricedOffer } from './priceBreaks'

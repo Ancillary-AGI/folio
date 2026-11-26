@@ -177,8 +177,8 @@ export const HELP_TOPICS = [
   {
     id: 'header.assistant',
     group: 'header',
-    title: 'Scribe',
-    description: 'Folio\'s scribe: ask the sheet a question or order a change. It answers with evidence from the sheet — or states plainly that it cannot.',
+    title: 'Copilot',
+    description: 'Folio\'s copilot: ask the sheet a question or order a change. It answers with evidence from the sheet — or states plainly that it cannot.',
   },
   {
     id: 'header.theme',

@@ -1,13 +1,7 @@
 /**
- * The public company and legal pages.
- *
- * The copy is data, not code: it lives in `public.legal_pages`, is seeded by the
- * migration, and is edited from the admin console. This module knows the routes
- * and the shape of a page — nothing about what any page says.
- *
- * When a deployment has no row for a route, or the read fails, the page
- * renders "not configured" rather than a baked-in substitute. Inventing copy the
- * operator never wrote is the one thing a legal page must not do.
+ * Operator-editable copy for the public about, terms, privacy and security
+ * pages, read at request time so an operator changes them without a redeploy.
+ * A deployment with no row renders "not configured" rather than invented copy.
  */
 import { cloudConfig } from '../cloudConfig'
 import {

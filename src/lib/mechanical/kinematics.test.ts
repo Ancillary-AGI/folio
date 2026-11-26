@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { solveLinearSystem } from '../ml/linalg';
 import {
   assertMat4,
   dhTransform,
@@ -11,7 +12,6 @@ import {
   numericalLinearJacobian,
   rotateVector,
   solveIk,
-  solveLinearSystem,
   translationOf,
   transformPoint,
   twoLinkIk,
@@ -327,6 +327,7 @@ describe('dense linear solve', () => {
   });
 
   it('rejects a matrix and vector of different sizes', () => {
-    expect(() => solveLinearSystem([[1, 0]], [1, 2])).toThrow(/disagree/);
+    // The shared solver refuses anything that is not a square system.
+    expect(() => solveLinearSystem([[1, 0]], [1, 2])).toThrow(/square|matrix|entries/);
   });
 });

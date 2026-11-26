@@ -2,9 +2,9 @@
  * The conversation loop: speech in → intent → store change → spoken reply.
  *
  * The controller owns exactly one recognition session and one speech queue per
- * app, so the header microphone and Scribe's microphone cannot
+ * app, so the header microphone and Copilot's microphone cannot
  * open two sessions. Anything that failed to run is reported in the transcript;
- * Scribe stops listening when asked, and a new phrase interrupts the
+ * Copilot stops listening when asked, and a new phrase interrupts the
  * previous spoken reply instead of queueing behind it.
  */
 import { nlpService, type NLPProcessResult } from '../nlp/nlpService'

@@ -292,9 +292,12 @@ describe('applyPlacement', () => {
     expect(moved.x).toBe(move.to.x)
     expect(moved.y).toBe(move.to.y)
 
-    // A part that was not in the plan is byte-identical.
-    const untouched = result.components.find((entry) => entry.reference === 'R3')!
-    expect(untouched).toEqual(components.find((entry) => entry.reference === 'R3'))
+    // Every part the plan does not name is byte-identical.
+    const planned = new Set(plan.moves.map((entry) => entry.componentId))
+    for (const component of components) {
+      if (planned.has(component.id)) continue
+      expect(result.components.find((entry) => entry.id === component.id)).toEqual(component)
+    }
     expect(result.applied).toBe(plan.moves.length)
   })
 

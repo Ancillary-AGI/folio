@@ -78,7 +78,7 @@ export interface SimulationNode {
   current?: number
 }
 
-export interface SimulationResult {
+export interface SpiceResult {
   success: boolean
   error?: string
   nodes: SimulationNode[]
@@ -330,7 +330,7 @@ class SPICEEngine {
     this.isInitialized = true
   }
 
-  async simulate(netlist: CircuitNetlist): Promise<SimulationResult> {
+  async simulate(netlist: CircuitNetlist): Promise<SpiceResult> {
     if (!this.isInitialized) await this.initialize()
 
     const parameters = netlist.analyses[0]

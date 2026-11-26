@@ -1,13 +1,9 @@
 /**
  * Distributor price-break arithmetic.
  *
- * A distributor quotes a *schedule*, not a price: the unit cost drops as the
- * quantity crosses each break. Comparing two offers therefore means evaluating
- * both at the same quantity and adding whatever per-line charge the distributor
- * applies — comparing headline unit prices is how a BOM ends up cheapest on
- * paper and dearest on the invoice.
- *
- * Everything here is pure and closed-form, so it can be checked by hand.
+ * A distributor quotes a schedule, not a price. Compare offers at the same
+ * quantity and include the per-line charge — headline unit prices are how a BOM
+ * ends up cheapest on paper and dearest on the invoice.
  */
 
 /** One quantity band of a distributor's price schedule. */

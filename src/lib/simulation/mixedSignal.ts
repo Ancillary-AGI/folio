@@ -32,7 +32,7 @@ import {
   type DigitalResult,
   type LogicValue,
 } from './digitalLogic'
-import { spiceEngine, type CircuitNetlist, type Component, type SimulationResult } from './spiceEngine'
+import { spiceEngine, type CircuitNetlist, type Component, type SpiceResult } from './spiceEngine'
 
 /** One declared digital→analog driver: a digital node drives an analog net. */
 export interface DigitalToAnalogDrive {
@@ -76,7 +76,7 @@ export interface MixedSignalResult {
   success: boolean
   error?: string
   digital: DigitalResult
-  analog: SimulationResult
+  analog: SpiceResult
   /** Sampled analog→digital threshold decisions, per probe, over time. */
   probeTimeline: Array<{ time: number; digitalNode: string; value: LogicValue }>
   notes: string[]

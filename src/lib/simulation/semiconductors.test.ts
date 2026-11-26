@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { spiceEngine, type CircuitNetlist, type Component, type SimulationResult } from './spiceEngine'
+import { spiceEngine, type CircuitNetlist, type Component, type SpiceResult } from './spiceEngine'
 import { buildCircuitModel } from './circuitModel'
 import { createRealSystem, createTransientState } from './stamping'
 import {
@@ -140,7 +140,7 @@ const voltageAt = (result: { operatingPoint?: Record<string, number> }, node: st
  * assertion and honest about it, unlike interpolating a curve the solver never
  * produced.
  */
-const waveformAt = (result: SimulationResult, name: string, time: number): number => {
+const waveformAt = (result: SpiceResult, name: string, time: number): number => {
   const waveform = result.waveforms.find((candidate) => candidate.name === name)
   if (!waveform) throw new Error(`the transient produced no ${name} waveform`)
   const point = waveform.data.reduce((closest, sample) =>

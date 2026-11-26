@@ -1,4 +1,4 @@
-﻿import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { PluginManifest } from '../../types/plugins'
 import { PluginManager, type Plugin, type PluginContext } from './pluginSystem'
 

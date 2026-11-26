@@ -13,7 +13,7 @@
  */
 import type { AgentHarness, AgentTool } from './agentHarness'
 import type { Component } from '../supabase'
-import { spiceEngine, type CircuitNetlist, type SimulationParameters, type SimulationResult } from '../simulation/spiceEngine'
+import { spiceEngine, type CircuitNetlist, type SimulationParameters, type SpiceResult } from '../simulation/spiceEngine'
 import { buildCircuitNetlist } from '../simulation/netlistBuilder'
 import { summarizeWaveforms, type WaveformSummary } from '../simulation/waveformStats'
 import {
@@ -168,10 +168,10 @@ export interface CadSimulationOutput {
   operatingPoint?: Record<string, number>
   branchCurrents?: Record<string, number>
   deviceCurrents?: Record<string, number>
-  probes?: SimulationResult['probes']
+  probes?: SpiceResult['probes']
   notes: string[]
   warnings: string[]
-  convergence?: SimulationResult['convergenceInfo']
+  convergence?: SpiceResult['convergenceInfo']
   waveforms: WaveformSummary[]
   scope: string[]
   waveformSvg: string
@@ -617,7 +617,7 @@ function simulationParameters(args: Args): SimulationParameters {
 
 const SCOPE_PRIORITY = [/out/i, /in/i, /^V\(/, /^I\(/]
 
-function pickScopeTraces(result: SimulationResult): SimulationResult['waveforms'] {
+function pickScopeTraces(result: SpiceResult): SpiceResult['waveforms'] {
   const rank = (name: string): number => {
     for (let index = 0; index < SCOPE_PRIORITY.length; index++) {
       if (SCOPE_PRIORITY[index].test(name)) return index
@@ -1003,6 +1003,7 @@ const placementRequest = (runtime: CadRuntime, args: Record<string, unknown>): P
 }
 
 /** Report a plan and its consequences without moving anything. */
+/** Report a plan and its consequences without moving anything. */
 const previewPlacementTool = (runtime: CadRuntime, args: Record<string, unknown>): unknown => {
   const preview = previewPlacement(placementRequest(runtime, args))
   return {
@@ -1017,8 +1018,7 @@ const previewPlacementTool = (runtime: CadRuntime, args: Record<string, unknown>
     collisions: preview.impact.collisions,
     unplaced: preview.plan.unplaced,
     held: preview.plan.held,
-    /* The plan is returned whole so the caller can hand it straight back to
-     * cad.applyPlacement and get exactly what it was shown. */
+    /* Returned whole so the caller can hand it back to cad.applyPlacement. */
     plan: preview.plan,
     message: preview.impact.safe
       ? `Plan is safe: ${preview.impact.moving} part(s) would move, ${preview.impact.staying} stay.`
@@ -1027,10 +1027,6 @@ const previewPlacementTool = (runtime: CadRuntime, args: Record<string, unknown>
   }
 }
 
-/**
- * Apply a plan. With `plan` supplied the board must still match what was
- * previewed; without it, plan and apply happen together.
- */
 const applyPlacementTool = (runtime: CadRuntime, args: Record<string, unknown>): unknown => {
   const request = placementRequest(runtime, args)
   const raw = args['plan']

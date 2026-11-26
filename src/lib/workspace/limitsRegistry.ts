@@ -73,7 +73,7 @@ export const CAPABILITY_FAMILIES: readonly CapabilityFamily[] = [
   { id: 'machine', label: 'Machines & parts', description: 'Electric-machine operating points plus part ratings, margins, catalogues and power sources.' },
   { id: 'firmware', label: 'Firmware, embedded & HIL', description: 'Code generation, static analysis, flashing, imaging and hardware interface simulation.' },
   { id: 'life', label: 'Biology & life systems', description: 'Mass-action networks, gene circuits, excitable cells and tissue, a respiring mitochondrion, the working ventricle and drug disposition.' },
-  { id: 'agents', label: 'Agents & Scribe', description: 'The tool surface an agent may call, the symbolic verifier and the Scribe integrations.' },
+  { id: 'agents', label: 'Agents & Copilot', description: 'The tool surface an agent may call, the symbolic verifier and the Copilot integrations.' },
   { id: 'platform', label: 'Data & operations', description: 'Version control, projects, collaboration, security telemetry, plugins, twins and compute.' },
 ]
 
@@ -1233,7 +1233,7 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
   {
     id: 'agents-assistant',
     family: 'agents',
-    title: 'Scribe, natural language and cloud runners',
+    title: 'Copilot, natural language and cloud runners',
     modes: ['agents', 'dashboard'],
     computes: 'Chat answers over the design context, natural-language command routing, datasheet question extraction, a durable local agent session and a cloud runner transport contract.',
     method:
@@ -1241,7 +1241,7 @@ export const CAPABILITY_RECORDS: readonly CapabilityRecord[] = [
     notCovered: [
       'Without an AI provider credential there are no live answers: the panel reports the provider as unavailable instead of inventing one.',
       'Local autopilot and the always-on job queue need no server, but they only run while Folio is open. 24/7 or scheduled agents need a server-side runner with a job queue, a sandboxed worker, durable design storage and an authenticated token exchange; until that exists, a missing configuration is reported honestly rather than pretended.',
-      'Scribe\'s prose is not a substitute for the computed result shown next to it.',
+      'Copilot\'s prose is not a substitute for the computed result shown next to it.',
     ],
     validatedBy: [
       'src/lib/ai/aiService.test.ts',

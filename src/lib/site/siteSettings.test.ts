@@ -90,6 +90,35 @@ describe('parseSiteSettings', () => {
     expect(parseSiteSettings(null)).toBeUndefined()
     expect(parseSiteSettings('Folio')).toBeUndefined()
   })
+
+  it('reads landing copy and keeps the headline line breaks', () => {
+    const settings = parseSiteSettings(row({
+      hero_eyebrow: ' Your engineer ',
+      hero_heading: 'One brief.\nOne board.',
+      hero_lede: ' Describe it. ',
+      hero_cta_label: ' Start ',
+      hero_cta_href: '/sign-in?mode=signup',
+    }))
+    expect(settings).toMatchObject({
+      heroEyebrow: 'Your engineer',
+      heroHeading: 'One brief.\nOne board.',
+      heroLede: 'Describe it.',
+      heroCtaLabel: 'Start',
+      heroCtaHref: '/sign-in?mode=signup',
+    })
+  })
+
+  it('accepts an on-site path or an http(s) link as the landing target', () => {
+    expect(parseSiteSettings(row({ hero_cta_href: '/pricing' }))?.heroCtaHref).toBe('/pricing')
+    expect(parseSiteSettings(row({ hero_cta_href: 'https://example.com/start' }))?.heroCtaHref)
+      .toBe('https://example.com/start')
+  })
+
+  it('refuses a landing target that leaves the site', () => {
+    for (const href of ['//evil.example/start', '/\\evil.example', 'javascript:alert(1)', 'start']) {
+      expect(parseSiteSettings(row({ hero_cta_href: href }))?.heroCtaHref).toBeUndefined()
+    }
+  })
 })
 
 describe('contactHref', () => {

@@ -1,28 +1,10 @@
 /**
- * Machine-actionable remedies for DRC findings.
+ * Machine-actionable remedies for DRC findings: which tool call resolves a
+ * violation, and with what arguments.
  *
- * A violation says what is wrong. An agent (or a "Fix" button) needs the next
- * question answered too: *which tool call resolves this, and with what
- * arguments.* This module is that mapping, kept in one place so every consumer
- * gets the same answer and a new rule only has to be taught once.
- *
- * Every tool named here is one the harness actually registers — `eda.drc`,
- * `eda.route`, `eda.movePart`, `eda.addVia`, `eda.addTrace`, `cad.setProperty`.
- * A remedy that named a call the agent cannot make would be worse than no
- * remedy at all, because the loop would chase it.
- *
- * Each remedy distinguishes two kinds of fix:
- *
- *   - `automatic` — the geometry simply does not meet a stated requirement
- *     (trace too thin, drill too small, annular ring too narrow). The fix is
- *     mechanical: make the feature meet the number.
- *   - `geometric` — the finding is about where things sit relative to each other
- *     (clearance, courtyard overlap, keepout, outline). Moving one object may
- *     fix it or may break something else, so the remedy names the constraint and
-     * leaves the choice to the caller.
- *
- * Every remedy ends at `eda.drc`: the only honest answer to "is it fixed?" is to
- * ask the checker again.
+ * Every tool named is one the harness registers, and every remedy ends at
+ * `eda.drc`. `automatic` means the geometry misses a stated number; otherwise
+ * the finding is about placement and the caller must choose.
  */
 import type { DRCSettings, DRCViolation } from './drc'
 

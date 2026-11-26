@@ -9,6 +9,10 @@
  */
 import type { PcbSceneDesignKeepout, PcbSceneInput } from './pcbScene'
 import { resolveFootprint } from '../manufacturing/footprintLibrary'
+import { BOARD_MARGIN_MM } from './boardLayout'
+
+/** Re-exported so callers of the planner need one import. */
+export { BOARD_MARGIN_MM }
 
 /**
  * What the planner needs from a part. Deliberately not `CanvasComponent`: the
@@ -181,9 +185,6 @@ export function usableBoardRect(
     maxY: Math.max(BOARD_MARGIN_MM, layout.heightMm - BOARD_MARGIN_MM),
   }
 }
-
-/** Clearance from the package edge to the board outline. */
-export const BOARD_MARGIN_MM = 1.5
 
 const DEFAULT_GRID_MM = 0.5
 const DEFAULT_COURTYARD_GAP_MM = 0.5

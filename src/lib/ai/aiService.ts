@@ -83,7 +83,7 @@ interface StressAssessment {
 }
 
 /**
- * Rule-based Scribe heuristics. Everything here is deterministic.
+ * Rule-based Copilot heuristics. Everything here is deterministic.
  * (keyword matching, declared-property estimates, threshold rules); it makes
  * no model or network call, so results are advisory and not statistical
  * predictions. The heuristic thresholds are documented where they are used.

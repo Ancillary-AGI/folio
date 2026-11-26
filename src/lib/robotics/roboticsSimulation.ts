@@ -113,7 +113,7 @@ export interface SimulationEnvironment {
   }>;
 }
 
-export interface SimulationResult {
+export interface RobotExecutionResult {
   id: string;
   robotId: string;
   taskId: string;
@@ -220,11 +220,11 @@ export class RoboticsSimulationService {
     this.idCounter += 1;
     return `${prefix}_${Date.now()}_${this.idCounter}`;
   }
-  private simulations: Map<string, SimulationResult> = new Map();
+  private simulations: Map<string, RobotExecutionResult> = new Map();
 
   /**
    * Reject a configuration that cannot produce a simulable mechanism: finite
-   * limits, min ≤ max, finite velocity/acceleration caps (zero allowed —
+   * limits, min â‰¤ max, finite velocity/acceleration caps (zero allowed â€”
    * it declares a kinematics-only or unactuated joint) and non-negative
    * link masses. A robot the engine cannot step is refused at the door, not
    * mid-trajectory.
@@ -287,7 +287,7 @@ export class RoboticsSimulationService {
     const rest = { ...updates } as Partial<RobotConfiguration> & { id?: string };
     delete rest.id;
     const merged = { ...robot, ...rest };
-    // The merged configuration must still be simulable — no corrupting the
+    // The merged configuration must still be simulable â€” no corrupting the
     // store into an unsimulable robot that fails three calls later.
     this.validateRobotConfiguration(merged);
     this.robots.set(robotId, merged);
@@ -405,7 +405,7 @@ export class RoboticsSimulationService {
    * meaningless. Joint values omitted from one pose hold their value from the
    * other pose, and a joint missing from both is rejected for the joints that
    * drive a link rather than silently starting at zero. Velocities are reported
-   * in rad/s (revolute) or m/s (prismatic), accelerations in rad/s² or m/s²;
+   * in rad/s (revolute) or m/s (prismatic), accelerations in rad/sÂ² or m/sÂ²;
    * `jointAngles` themselves stay in degrees or metres, matching the service
    * boundary.
    */
@@ -561,7 +561,7 @@ export class RoboticsSimulationService {
     };
   }
 
-  async executeTask(robotId: string, taskId: string, environmentId: string, policyId?: string): Promise<SimulationResult> {
+  async executeTask(robotId: string, taskId: string, environmentId: string, policyId?: string): Promise<RobotExecutionResult> {
     const robot = this.robots.get(robotId);
     const task = this.tasks.get(taskId);
     const environment = this.environments.get(environmentId);
@@ -581,7 +581,7 @@ export class RoboticsSimulationService {
       throw new Error(`Policy '${policyId}' not found.`);
     }
     if (policy && policy.trained) {
-      // The engine integrates no policy — no RL backend is bundled. The
+      // The engine integrates no policy â€” no RL backend is bundled. The
       // override map is audited (unknown joint / non-finite value named in
       // the notes) but never actuates, and the stored robot is untouched.
       const override = policy.parameters?.velocityOverride;
@@ -650,7 +650,7 @@ export class RoboticsSimulationService {
     const executionTime = Date.now() - startTime;
     const success = collisions === 0 && trajectory.length === task.waypoints.length;
 
-    const result: SimulationResult = {
+    const result: RobotExecutionResult = {
       id: this.nextId('sim'),
       robotId,
       taskId,
@@ -664,7 +664,7 @@ export class RoboticsSimulationService {
       performanceMetrics: {
         pathLength: this.calculatePathLength(trajectory),
         smoothness: this.calculateTrajectorySmoothness(trajectory),
-        // Fraction of waypoints completed without a collision — a real,
+        // Fraction of waypoints completed without a collision â€” a real,
         // collision-count-derived number, not a constant dressed as efficiency.
         efficiency: task.waypoints.length === 0 ? 0 : Math.max(0, (task.waypoints.length - collisions) / task.waypoints.length)
       }
@@ -777,7 +777,7 @@ export class RoboticsSimulationService {
   }
 
   /**
-   * Mechanical work |τ·q̇|·Δt for the interval ending at this waypoint. Torque
+   * Mechanical work |Ï„Â·qÌ‡|Â·Î”t for the interval ending at this waypoint. Torque
    * (revolute) or force (prismatic) must be declared on the joint; an undeclared
    * effort contributes nothing rather than a made-up default.
    */
@@ -826,8 +826,8 @@ export class RoboticsSimulationService {
    *
    * Jerk is estimated with a third divided difference over four consecutive
    * samples using their real timestamps, which is exact for cubic segments and
-   * does not assume uniform sampling. Integrating jerk² over time and scaling
-   * by `T⁵ / Δq²` makes the measure independent of sample count, duration and
+   * does not assume uniform sampling. Integrating jerkÂ² over time and scaling
+   * by `Tâµ / Î”qÂ²` makes the measure independent of sample count, duration and
    * joint units. A cubic smoothstep move has a value of 144 and scores 0.5;
    * jerkier motions score lower, and a path that records no joint travel
    * scores 1.
@@ -988,7 +988,7 @@ export class RoboticsSimulationService {
     return Array.from(this.environments.values());
   }
 
-  getSimulationResult(simulationId: string): SimulationResult | undefined {
+  getSimulationResult(simulationId: string): RobotExecutionResult | undefined {
     return this.simulations.get(simulationId);
   }
 

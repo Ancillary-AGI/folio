@@ -468,6 +468,11 @@ describe('site identity', () => {
     github_url: 'https://github.com/Ancillary-AGI/folio',
     codeberg_url: 'https://codeberg.org/X-Industries',
     security_policy_url: 'https://github.com/Ancillary-AGI/folio/blob/main/SECURITY.md',
+    hero_eyebrow: 'YOUR ENGINEER IN THE LOOP',
+    hero_heading: 'One brief.\nOne verified board.',
+    hero_lede: 'Describe what you are building.',
+    hero_cta_label: 'Sign up to design',
+    hero_cta_href: '/sign-in?mode=signup',
     updated_at: '2026-11-07T09:00:00.000Z',
   }
 
@@ -486,12 +491,22 @@ describe('site identity', () => {
       githubUrl: 'https://github.com/Ancillary-AGI/folio',
       codebergUrl: 'https://codeberg.org/X-Industries',
       securityPolicyUrl: 'https://github.com/Ancillary-AGI/folio/blob/main/SECURITY.md',
+      heroEyebrow: 'YOUR ENGINEER IN THE LOOP',
+      heroHeading: 'One brief.\nOne verified board.',
+      heroLede: 'Describe what you are building.',
+      heroCtaLabel: 'Sign up to design',
+      heroCtaHref: '/sign-in?mode=signup',
       updatedAt: Date.parse('2026-11-07T09:00:00.000Z'),
     })
   })
 
   it('reports an unreadable row instead of inventing an identity', async () => {
-    const settings = chain({ data: [{ ...stored, product_name: '', parent_company: '', tagline: '', description: '', contact_email: '', site_url: '', github_url: '', codeberg_url: '', security_policy_url: '' }] })
+    const settings = chain({ data: [{
+      ...stored,
+      product_name: '', parent_company: '', tagline: '', description: '', contact_email: '', site_url: '',
+      github_url: '', codeberg_url: '', security_policy_url: '',
+      hero_eyebrow: '', hero_heading: '', hero_lede: '', hero_cta_label: '', hero_cta_href: '',
+    }] })
     const { client } = db({ site_settings: settings })
     const result = await createAdminApi(client, operator).loadSiteSettings()
     // No usable fields is still a readable row: the shell omits what is unset.
@@ -512,6 +527,8 @@ describe('site identity', () => {
       [{ productName: 'Folio', contactEmail: 'not-an-email' }, 'email address'],
       [{ productName: 'Folio', siteUrl: 'javascript:alert(1)' }, 'Site address'],
       [{ productName: 'Folio', githubUrl: '/repo' }, 'GitHub link'],
+      [{ productName: 'Folio', heroCtaHref: '//evil.example/start' }, 'path on this site'],
+      [{ productName: 'Folio', heroHeading: 'x'.repeat(201) }, 'landing headline'],
     ] as const) {
       const result = await api.saveSiteSettings(settings)
       expect(result.ok).toBe(false)
@@ -534,6 +551,11 @@ describe('site identity', () => {
       githubUrl: ' https://github.com/Ancillary-AGI/folio ',
       codebergUrl: '',
       securityPolicyUrl: '',
+      heroEyebrow: ' The loop ',
+      heroHeading: ' One brief.\nOne board. ',
+      heroLede: ' A paragraph. ',
+      heroCtaLabel: ' Start ',
+      heroCtaHref: ' /sign-in?mode=signup ',
     })
     expect(result).toEqual({ ok: true })
     expect(settings.upsert).toHaveBeenCalledWith(expect.objectContaining({
@@ -547,6 +569,11 @@ describe('site identity', () => {
       github_url: 'https://github.com/Ancillary-AGI/folio',
       codeberg_url: '',
       security_policy_url: '',
+      hero_eyebrow: 'The loop',
+      hero_heading: 'One brief.\nOne board.',
+      hero_lede: 'A paragraph.',
+      hero_cta_label: 'Start',
+      hero_cta_href: '/sign-in?mode=signup',
       updated_at: expect.any(String),
     }))
     expect(audit.insert).toHaveBeenCalledWith(expect.objectContaining({

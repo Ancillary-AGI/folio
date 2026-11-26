@@ -7,7 +7,8 @@
  * insert is best-effort: a failed mirror must never break the design action the
  * user just performed, and the workspace ledger remains the source of record.
  */
-import { isSupabaseConfigured, supabase } from '../supabase'
+import { isSupabaseConfigured } from '../supabase'
+import { store } from '../db/store'
 import type { User } from '../../types'
 import { recordUsage, type UsageEvent, type UsageKind } from './usageLedger'
 
@@ -44,7 +45,7 @@ export function recordPlatformUsage(
   recordUsage(kind, user.id, detail)
   if (offlineMode || !isSupabaseConfigured) return
   void Promise.resolve(
-    supabase.from('usage_events').insert({
+    store.from('usage_events').insert({
       user_id: user.id,
       kind,
       detail: detail ?? {},

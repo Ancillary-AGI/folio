@@ -3,7 +3,7 @@ import {
   Shield, TrendingUp, type LucideIcon,
 } from 'lucide-react'
 import type { WorkspaceMode } from '../../stores/useAppStore'
-import ScribeIcon from '../../components/workspace/ScribeIcon'
+import CopilotIcon from '../../components/workspace/CopilotIcon'
 
 /**
  * The onboarding curriculum.
@@ -273,17 +273,17 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   {
     id: 'agent',
     chapter: 'connect',
-    title: 'Meet Scribe',
-    summary: 'Scribe, Folio\'s scribe, observes the sheet then re-reads its own work.',
+    title: 'Meet Copilot',
+    summary: 'Copilot, Folio\'s copilot, observes the sheet then re-reads its own work.',
     detail:
-      'Scribe watches the sheet or board, proposes a change with reasons you can check, applies it with the same tools you have, then re-reads the result. Numbers it reports are measured or simulated, never invented, and it says which. Runs stay in this workspace; a configured cloud model is labelled and needs your credentials. Review every edit it makes.',
+      'Copilot watches the sheet or board, proposes a change with reasons you can check, applies it with the same tools you have, then re-reads the result. Numbers it reports are measured or simulated, never invented, and it says which. Runs stay in this workspace; a configured cloud model is labelled and needs your credentials. Review every edit it makes.',
     checklist: [
       'Give it the goal and the constraints, plainly',
       'Demand the re-read after every change',
       'Review the diff before keeping a change',
     ],
     mode: 'agents',
-    icon: ScribeIcon as LucideIcon,
+    icon: CopilotIcon as LucideIcon,
     target: 'agent-button',
     fallbackTarget: 'workspace-canvas',
     placement: 'bottom',

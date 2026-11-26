@@ -15,7 +15,7 @@ import { parseSpiceDeck } from '../simulation/spiceImport'
 import { buildCircuitModel } from '../simulation/circuitModel'
 import { runCircuitAnalysis, DEFAULT_TEMPERATURE_CELSIUS } from '../simulation/analysisRunner'
 import { summarizeWaveforms } from '../simulation/waveformStats'
-import type { SimulationParameters, SimulationResult } from '../simulation/spiceEngine'
+import type { SimulationParameters, SpiceResult } from '../simulation/spiceEngine'
 
 export const MCP_TOOL_SCHEMAS = {
   component_search: {
@@ -180,7 +180,7 @@ function circuitSimulate(args: Record<string, unknown>): string {
     temperature: args.temperature !== undefined ? Number(args.temperature) : DEFAULT_TEMPERATURE_CELSIUS,
   }
   const outcome = runCircuitAnalysis(built.model, parameters)
-  const summaries = summarizeWaveforms(outcome as unknown as SimulationResult, { maxPoints: 24 })
+  const summaries = summarizeWaveforms(outcome as unknown as SpiceResult, { maxPoints: 24 })
   return JSON.stringify({ verdict: 'solved', analysis, warnings, waveforms: summaries }, null, 2)
 }
 

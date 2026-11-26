@@ -7,7 +7,7 @@
  * bucket. Every number here comes from the solver's own points — nothing is
  * smoothed or extrapolated.
  */
-import type { SimulationResult } from './spiceEngine'
+import type { SpiceResult } from './spiceEngine'
 
 export interface Point {
   x: number
@@ -132,7 +132,7 @@ export function downsample(data: readonly Point[], maxPoints: number): Point[] {
 }
 
 export function summarizeWaveforms(
-  result: SimulationResult,
+  result: SpiceResult,
   options: { includeSamples?: boolean; maxPoints?: number; settledFraction?: number } = {},
 ): WaveformSummary[] {
   return result.waveforms.map((waveform) => {
@@ -162,9 +162,9 @@ export function summarizeWaveforms(
 
 /** Find a waveform by exact name, or by bare net/device reference. */
 export function findWaveform(
-  result: SimulationResult,
+  result: SpiceResult,
   name: string,
-): SimulationResult['waveforms'][number] | undefined {
+): SpiceResult['waveforms'][number] | undefined {
   const wanted = name.trim().toLowerCase()
   const exact = result.waveforms.find((waveform) => waveform.name.toLowerCase() === wanted)
   if (exact) return exact

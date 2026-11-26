@@ -33,7 +33,13 @@
  */
 
 import type { PlacedComponent, Net } from '../../types'
-import { edgeDistanceMm, landShapeOf, shapeCircumRadiusMm, type LandShape } from '../geometry/landShape'
+import {
+  edgeDistanceMm,
+  landShapeOf,
+  polylineShapeDistanceMm,
+  shapeCircumRadiusMm,
+  type LandShape,
+} from '../geometry/landShape'
 import { resolveFootprint, type FootprintPad } from './footprintLibrary'
 import { footprintPadForPin } from './padMapping'
 
@@ -69,9 +75,32 @@ export interface RouterConfig {
   /** How much copper one blocked net may lift per attempt (default {@link RIP_MAX_VICTIMS}). */
   ripUpVictims?: number
   /**
+   * Routing strategy.
+   *
+   *   `greedy` (default) — route short nets first, claim copper hard, then lift
+   *   the blocking nets and retry. Cheap and effective when failures are caused
+   *   by copper that has somewhere else to go.
+   *
+   *   `negotiated` — Pathfinder-style negotiated congestion. Every net routes
+   *   against a cost field that remembers which cells have been over-subscribed,
+     * so the field itself pushes nets apart over successive passes. Prefer it when
+     * the greedy pass leaves nets unrouted because the channels are contended
+ * rather than walled: it resolves congestion by spreading, where rip-up can only
+ * shuffle the same nets between the same corridors.
+   */
+  strategy?: 'greedy' | 'negotiated'
+  /** Negotiated passes (default {@link NEGOTIATED_MAX_ITERATIONS}). */
+  negotiatedIterations?: number
+  /**
+   * How hard an over-subscribed cell becomes per unit of excess, per pass.
+ * The history term accumulates, so a cell that stays contended keeps getting
+ * dearer — that accumulation is what breaks a two-net oscillation.
+   */
+  negotiatedHistoryFactor?: number
+  /**
    * Reserved regions the router must keep copper out of. Unlike an obstacle
-   * land, a keep-out carries no net and is never lifted by a rip-up pass: it is
-   * a constraint on the board, not a route that could be moved.
+ * land, a keep-out carries no net and is never lifted by a rip-up pass: it is
+ * a constraint on the board, not a route that could be moved.
    */
   keepouts?: RouterKeepout[]
 }
@@ -159,6 +188,12 @@ export interface RouterResult {
   unrouted: string[]
   /** Fraction of routeable nets (two or more pads) fully routed, 0 – 1. */
   completionRate: number
+  /**
+   * Per-cell route usage from the negotiated pass. A cell at 0 is free, 1 is
+ * comfortably used, above 1 is over-subscribed. Empty for the greedy strategy,
+ * which never measures it.
+ */
+  congestion: CongestionCell[]
   stats: {
     totalNets: number
     routedNets: number
@@ -623,6 +658,10 @@ function astar(
   start: GridNode,
   end: GridNode,
   maxExpand = 50_000,
+  /* Negotiated-congestion cost per node, keyed `layer:col:row`. A value above 1
+   * makes that cell dearer, so a net that has been pushed off it once stays off
+   * it while the others route. Absent means the plain unit cost. */
+  history?: ReadonlyMap<string, number>,
 ): AStarOutcome {
   const open = new MinHeap()
   const visited = new Map<string, AStarNode>()
@@ -663,7 +702,9 @@ function astar(
       }
       const neighbor: GridNode = { layer: cn.layer, col: nc, row: nr }
       const nk = key(neighbor)
-      const ng = current.g + 1
+      /* Step cost is the negotiated cost of *entering* the cell: one grid step,
+ * scaled by whatever history has accumulated against that cell. */
+      const ng = current.g + (history?.get(nk) ?? 1)
       const existing = visited.get(nk)
       if (existing && existing.g <= ng) continue
       const h = manhattan(neighbor, end)
@@ -678,7 +719,7 @@ function astar(
       if (!viaLandingClear(grid, blockers, cn.layer, layer, cn.col, cn.row)) continue
       const neighbor: GridNode = { layer, col: cn.col, row: cn.row }
       const nk = key(neighbor)
-      const ng = current.g + clr.config.viaPenalty
+      const ng = current.g + clr.config.viaPenalty * (history?.get(nk) ?? 1)
       const existing = visited.get(nk)
       if (existing && existing.g <= ng) continue
       const h = manhattan(neighbor, end)
@@ -909,6 +950,9 @@ interface NetRoute {
 /** Default rip-up budget: sweeps made, and how many nets one attempt may lift. */
 const RIP_MAX_ROUNDS = 2
 const RIP_MAX_VICTIMS = 4
+/** Negotiated-congestion passes, and how hard over-subscription bites. */
+const NEGOTIATED_MAX_ITERATIONS = 8
+const NEGOTIATED_HISTORY_FACTOR = 0.5
 
 /**
  * Search this net's spanning tree on the grid as it stands, without claiming
@@ -921,6 +965,7 @@ function routeNet(
   clr: Clearance,
   netId: string,
   netPadList: RouterPad[],
+  history?: ReadonlyMap<string, number>,
 ): { route: NetRoute; blockers: Set<number> } {
   const cfg = clr.config
   const traceWidthMm = cfg.traceWidthForNet?.(netId) ?? cfg.minTraceWidthMm
@@ -947,7 +992,7 @@ function routeNet(
       row: Math.round(padB.y / cfg.gridMm),
     }
 
-    const outcome = astar(grid, clr, startNode, endNode)
+    const outcome = astar(grid, clr, startNode, endNode, undefined, history)
     for (const owner of outcome.blockers) blockers.add(owner)
     if (!outcome.path) {
       route.complete = false
@@ -1175,6 +1220,190 @@ function ripUpBlockedNets(
  *                  exactly like a pad, and are never released, because no net of
  *                  this run will ever be allowed to grow through them.
  */
+/**
+ * Pathfinder-style negotiated congestion.
+ *
+ * Each pass routes every net against a cost field, then measures how many nets
+ * occupy each cell. A cell used by more nets than it has capacity for is
+ * over-subscribed, and its history cost rises; the next pass routes around it.
+ * Because history accumulates, a cell that stays contended keeps getting dearer,
+ * which is what breaks the two-nets-swapping-places oscillation that plain
+ * rip-up-and-reroute falls into.
+ *
+ * The pass stops when every cell is within capacity (routable) or when the
+ * iteration budget runs out. It never claims copper hard, so a net is never
+ * "blocked" by another net's presence — only priced out of a cell.
+ */
+/**
+ * How many routes use each grid cell, per layer.
+ *
+ * A cell at 0 is free, 1 is comfortably used, and anything above 1 is
+ * over-subscribed — the number the negotiated pass pushes down. Exposing it is
+ * what makes the router debuggable: without it, "negotiated congestion" is a
+ * black box that either routes or does not.
+ */
+export interface CongestionCell {
+  layer: number
+  col: number
+  row: number
+  /** Routes using this cell. */
+  usage: number
+}
+
+function negotiatedRoute(
+  grid: RoutingGrid,
+  clr: Clearance,
+  routeableNets: Array<[string, RouterPad[]]>,
+  iterations: number,
+  historyFactor: number,
+): { routes: NetRoute[]; congested: number; cells: CongestionCell[] } {
+  const history = new Map<string, number>()
+  const usage = new Map<string, number>()
+  let routes: NetRoute[] = []
+
+  const cellKey = (node: GridNode): string => `${node.layer}:${node.col}:${node.row}`
+
+  for (let pass = 0; pass < iterations; pass += 1) {
+    /* Nothing is claimed on the grid between passes. `claimRoute` *adds* a
+ * count and its release form subtracts one, so a "soft claim" is not a
+ * thing the grid can express — calling it with `claimed: false` would
+ * decrement cells that were never added and drive the count negative, at
+ * which point `isBlocked` stops seeing the lands at all. Usage is tracked
+ * here instead, and the field is the only thing that carries between passes. */
+    usage.clear()
+
+    routes = []
+    for (const [netId, netPadList] of routeableNets) {
+      reserveLands(grid, clr, netPadList, false)
+      const { route } = routeNet(grid, clr, netId, netPadList, history)
+      reserveLands(grid, clr, netPadList, true)
+      routes.push(route)
+
+      for (const node of route.cells) {
+        const key = cellKey(node)
+        usage.set(key, (usage.get(key) ?? 0) + 1)
+      }
+    }
+
+    const congested = [...usage.values()].filter((count) => count > 1).length
+    if (congested === 0) {
+      return { routes, congested: 0, cells: [...usage].map(([key, count]) => parseCellKey(key, count)) }
+    }
+
+    /* Raise the cost of every over-subscribed cell. The excess is measured
+ * against capacity 1 — one route per cell — and the rise is proportional to
+ * how far over it is, squared so a cell at double capacity bites four times
+ * as hard as one at 1.5x. */
+    for (const [key, count] of usage) {
+      if (count <= 1) continue
+      const excess = count - 1
+      history.set(key, (history.get(key) ?? 1) + historyFactor * excess * excess)
+    }
+  }
+
+  const congested = [...usage.values()].filter((count) => count > 1).length
+  const cells = [...usage].map(([key, count]) => parseCellKey(key, count))
+  return { routes, congested, cells }
+}
+
+/** Decode a `layer:col:row` key back into a cell. */
+function parseCellKey(key: string, usage: number): CongestionCell {
+  const [layer, col, row] = key.split(':')
+  return { layer: Number(layer), col: Number(col), row: Number(row), usage }
+}
+
+/**
+ * Every way the emitted copper breaks a land it does not own.
+ *
+ * This is the authority on legality, and the test suite calls it rather than
+ * keeping its own copy — two implementations of "is this legal" is how a router
+ * ships copper that passes its own check and fails the board's.
+ */
+export function findForeignLandViolations(
+  pads: readonly RouterPad[],
+  traces: readonly RouterTrace[],
+  vias: readonly RouterVia[],
+  minSpacingMm: number,
+): string[] {
+  const problems: string[] = []
+
+  /* The land a pad presents. An unstated diameter is a 1.6 mm through-hole
+ * pad — the same default the reservation uses. */
+  const landOf = (pad: RouterPad): LandShape => {
+    const diameterMm = pad.padDiameterMm ?? 1.6
+    return landShapeOf({
+      widthMm: pad.padWidthMm ?? diameterMm,
+      depthMm: pad.padHeightMm ?? diameterMm,
+      shape: pad.padShape ?? 'circle',
+      rotationDeg: pad.padRotationDeg,
+    })
+  }
+
+  for (const trace of traces) {
+    for (const pad of pads) {
+      if (pad.netId === trace.netId) continue
+      /* An unplated SMD land is copper on its own layer only; a plated one has
+ * a barrel through the stackup and blocks every layer. */
+      if ((pad.padDrillMm ?? 0) === 0 && pad.layer !== trace.layerId) continue
+      const gap = polylineShapeDistanceMm(
+        trace.points,
+        { x: pad.x, y: pad.y },
+        landOf(pad),
+      )
+      if (gap < minSpacingMm + trace.widthMm / 2 - 1e-9) {
+        problems.push(
+          `trace of ${trace.netId} versus land ${pad.componentId}:${pad.pinId}: ${gap.toFixed(4)} mm, needs ${(minSpacingMm + trace.widthMm / 2).toFixed(4)} mm`,
+        )
+      }
+    }
+  }
+
+  for (const via of vias) {
+    for (const pad of pads) {
+      if (pad.netId === via.netId) continue
+      /* A via is a drilled barrel: copper on every layer, so the layer check
+ * that lets an SMD trace pass over a foreign land does not apply. */
+      const gap = polylineShapeDistanceMm(
+        [{ x: via.x, y: via.y }],
+        { x: pad.x, y: pad.y },
+        landOf(pad),
+      )
+      if (gap < minSpacingMm - 1e-9) {
+        problems.push(
+          `via of ${via.netId} versus land ${pad.componentId}:${pad.pinId}: ${gap.toFixed(4)} mm, needs ${minSpacingMm} mm`,
+        )
+      }
+    }
+  }
+
+  return problems
+}
+
+/**
+ * Whether every trace clears every land it does not belong to.
+ *
+ * Negotiated routing prices cells rather than blocking them, so two routes can
+ * end up in adjacent grid cells and still be closer than the design rule allows —
+ * the grid is coarser than the clearance. Shipping that copper would be worse
+ * than shipping a slightly worse route, so the caller uses this to decide whether
+ * the negotiated result is acceptable at all.
+ */
+function clearsForeignLands(
+  pads: readonly RouterPad[],
+  routes: readonly NetRoute[],
+  minSpacingMm: number,
+): boolean {
+  if (routes.length === 0) return true
+  return (
+    findForeignLandViolations(
+      pads,
+      routes.flatMap((route) => route.traces),
+      routes.flatMap((route) => route.vias),
+      minSpacingMm,
+    ).length === 0
+  )
+}
+
 export function autoroute(
   pads: RouterPad[],
   config: RouterConfig,
@@ -1192,6 +1421,9 @@ export function autoroute(
     viaPenalty: config.viaPenalty ?? 8,
     ripUpPasses: config.ripUpPasses ?? RIP_MAX_ROUNDS,
     ripUpVictims: config.ripUpVictims ?? RIP_MAX_VICTIMS,
+    strategy: config.strategy ?? 'greedy',
+    negotiatedIterations: config.negotiatedIterations ?? NEGOTIATED_MAX_ITERATIONS,
+    negotiatedHistoryFactor: config.negotiatedHistoryFactor ?? NEGOTIATED_HISTORY_FACTOR,
     keepouts: config.keepouts ?? [],
     traceWidthForNet: config.traceWidthForNet,
   }
@@ -1223,6 +1455,11 @@ export function autoroute(
   }
   sweeps('ripUpPasses', cfg.ripUpPasses)
   sweeps('ripUpVictims', cfg.ripUpVictims)
+  if (cfg.strategy !== 'greedy' && cfg.strategy !== 'negotiated') {
+    // Falling through to greedy would silently ignore what the caller asked for.
+    throw new Error(`Router strategy must be "greedy" or "negotiated" (got ${String(cfg.strategy)}).`)
+  }
+  if (cfg.negotiatedIterations !== undefined) sweeps('negotiatedIterations', cfg.negotiatedIterations)
   if (cfg.layers.length === 0) throw new Error('Router needs at least one copper layer.')
   if (cfg.layers.some((layer) => typeof layer !== 'string' || layer.length === 0)) {
     throw new Error('Router layer names must be non-empty strings.')
@@ -1361,18 +1598,67 @@ export function autoroute(
 
   /** One entry per routeable net, in the order the greedy pass visited them. */
   const routes: NetRoute[] = []
+  /** Per-cell usage from the negotiated pass; empty for greedy. */
+  let negotiatedCells: CongestionCell[] = []
 
-  for (const [netId, netPadList] of routeableNets) {
-    // Own lands, and the landings their committed vias will need, open up.
-    reserveLands(grid, clr, netPadList, false)
-    const { route } = routeNet(grid, clr, netId, netPadList)
-    claimRoute(grid, clr, route, routes.length, true)
-    // Close them again: no other net may route through this one's copper.
-    reserveLands(grid, clr, netPadList, true)
-    routes.push(route)
+  if (cfg.strategy === 'negotiated') {
+    /* Negotiated congestion replaces the greedy claim-and-retry loop: nets are
+ * never hard-blocked by each other, only priced, and the price field is what
+ * spreads them. */
+    const negotiated = negotiatedRoute(
+      grid,
+      clr,
+      routeableNets,
+      cfg.negotiatedIterations ?? NEGOTIATED_MAX_ITERATIONS,
+      cfg.negotiatedHistoryFactor ?? NEGOTIATED_HISTORY_FACTOR,
+    )
+    routes.push(...negotiated.routes)
+    negotiatedCells = negotiated.cells
+
+    /* Negotiation prices cells instead of blocking them, so its copper can end
+ * up closer to a foreign land than the rule allows — the grid is coarser than
+ * the clearance. Check *before* hardening: a hard claim is a second count on
+ * every cell, and releasing it would take two passes to undo. */
+    if (!clearsForeignLands(pads, routes, cfg.minSpacingMm)) {
+      /* Nothing was claimed on the grid during negotiation, so there is nothing
+ * to release — the greedy pass starts from the same reserved lands. */
+      routes.length = 0
+      for (const [netId, netPadList] of routeableNets) {
+        reserveLands(grid, clr, netPadList, false)
+        const { route } = routeNet(grid, clr, netId, netPadList)
+        claimRoute(grid, clr, route, routes.length, true)
+        reserveLands(grid, clr, netPadList, true)
+        routes.push(route)
+      }
+    } else {
+      /* Negotiation spreads the nets; it does not repair a net that still
+       * failed. Harden the result and let the rip-up pass have a go, so the two
+       * strategies compose instead of competing: a net that failed under
+       * negotiation can still be freed by lifting a neighbour, and only a hard
+       * claim makes that neighbour visible as a blocker. */
+      routes.forEach((route, index) => claimRoute(grid, clr, route, index, true))
+    }
+
+    ripUpBlockedNets(
+      grid,
+      clr,
+      routes,
+      cfg.ripUpPasses ?? RIP_MAX_ROUNDS,
+      cfg.ripUpVictims ?? RIP_MAX_VICTIMS,
+    )
+  } else {
+    for (const [netId, netPadList] of routeableNets) {
+      // Own lands, and the landings their committed vias will need, open up.
+      reserveLands(grid, clr, netPadList, false)
+      const { route } = routeNet(grid, clr, netId, netPadList)
+      claimRoute(grid, clr, route, routes.length, true)
+      // Close them again: no other net may route through this one's copper.
+      reserveLands(grid, clr, netPadList, true)
+      routes.push(route)
+    }
+
+    ripUpBlockedNets(grid, clr, routes, cfg.ripUpPasses ?? RIP_MAX_ROUNDS, cfg.ripUpVictims ?? RIP_MAX_VICTIMS)
   }
-
-  ripUpBlockedNets(grid, clr, routes, cfg.ripUpPasses ?? RIP_MAX_ROUNDS, cfg.ripUpVictims ?? RIP_MAX_VICTIMS)
 
   const unrouted = routes.filter((route) => !route.complete).map((route) => route.netId)
 
@@ -1396,6 +1682,10 @@ export function autoroute(
     vias: allVias,
     unrouted,
     completionRate: totalNets > 0 ? routedNets / totalNets : 1,
+    /* Per-cell route usage from the negotiated pass, so a caller can see where
+ * the congestion was rather than taking "routed" on faith. Empty for the
+ * greedy strategy, which never measures it. */
+    congestion: negotiatedCells,
     stats: {
       totalNets,
       routedNets,

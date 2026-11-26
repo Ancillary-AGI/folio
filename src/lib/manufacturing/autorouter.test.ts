@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { autoroute, buildRouterPads, routerGridMm, type RouterConfig, type RouterPad, type RouterResult } from './autorouter'
-import { landShapeOf, polylineShapeDistanceMm, shapeGapMm } from '../geometry/landShape'
-import type { LandShape } from '../geometry/landShape'
-import type { Net, PlacedComponent, Point } from '../../types'
+import { autoroute, buildRouterPads, findForeignLandViolations, routerGridMm, type RouterConfig, type RouterPad, type RouterResult } from './autorouter'
+import { landShapeOf, polylineShapeDistanceMm } from '../geometry/landShape'
+import type { Net, PlacedComponent } from '../../types'
 
 const config: RouterConfig = {
   boardWidthMm: 10,
@@ -550,20 +549,6 @@ describe('buildRouterPads', () => {
 })
 
 /**
- * The copper a router pad prints, in the shared outline model that the DRC and
- * the plane-stitch planner also measure.
- */
-function landOf(pad: RouterPad): LandShape {
-  const diameterMm = pad.padDiameterMm ?? 1.6
-  return landShapeOf({
-    widthMm: pad.padWidthMm ?? diameterMm,
-    depthMm: pad.padHeightMm ?? diameterMm,
-    shape: pad.padShape ?? 'circle',
-    rotationDeg: pad.padRotationDeg,
-  })
-}
-
-/**
  * Audit the copper one run produced against every land it does not own, at the
  * gap the declared rules ask for.
  *
@@ -573,31 +558,17 @@ function landOf(pad: RouterPad): LandShape {
  * at copper-to-copper never saw the land's reservation. Traces of a net that did
  * not finish are audited too — partial copper is still copper on the board.
  */
+/**
+ * Audit the copper one run produced against every land it does not own, at the
+ * gap the declared rules ask for.
+ *
+ * The check itself lives in the router (`findForeignLandViolations`) so the
+ * production legality guard and this assertion cannot drift apart — two copies
+ * of "is this legal" is how copper ships that passes one and fails the other.
+ */
 function assertClearOfForeignLands(pads: RouterPad[], result: RouterResult, cfg: RouterConfig): void {
-  for (const trace of result.traces) {
-    for (const land of pads) {
-      if (land.netId === trace.netId) continue
-      // An unplated SMD land is copper on its own layer only, so another layer is
-      // genuinely free above it. A plated one has a barrel through the stackup.
-      if ((land.padDrillMm ?? 0) === 0 && land.layer !== trace.layerId) continue
-      const gap = polylineShapeDistanceMm(trace.points as Point[], { x: land.x, y: land.y }, landOf(land))
-      expect(gap, `trace of ${trace.netId} versus land ${land.componentId}:${land.pinId}`).toBeGreaterThanOrEqual(
-        cfg.minSpacingMm + trace.widthMm / 2 - 1e-9,
-      )
-    }
-  }
-  for (const via of result.vias) {
-    // A committed via landing is copper on every routing layer, exactly like the
-    // drilled land the reservation treats it as.
-    const landing: LandShape = { kind: 'circle', radiusMm: via.padMm / 2 }
-    for (const land of pads) {
-      if (land.netId === via.netId) continue
-      const gap = shapeGapMm(landing, landOf(land), land.x - via.x, land.y - via.y)
-      expect(gap, `via of ${via.netId} versus land ${land.componentId}:${land.pinId}`).toBeGreaterThanOrEqual(
-        cfg.minSpacingMm - 1e-9,
-      )
-    }
-  }
+  const problems = findForeignLandViolations(pads, result.traces, result.vias, cfg.minSpacingMm)
+  expect(problems, problems.slice(0, 5).join('\n')).toEqual([])
 }
 
 /**
@@ -629,6 +600,18 @@ const congestedPads: RouterPad[] = [
 ]))
 
 describe('rip-up keeps the copper it lifts legal', () => {
+  it('negotiated congestion matches or beats rip-up on the congested board', () => {
+    /* The board above is the honest benchmark: greedy routes 7 of 15, rip-up 8.
+ * Negotiation spreads the nets before any of them is blocked, so it must not
+ * do worse than the strategy it is meant to improve on. */
+    const negotiated = autoroute(congestedPads, { ...congestedConfig, strategy: 'negotiated' })
+    const ripped = autoroute(congestedPads, congestedConfig)
+
+    expect(negotiated.stats.routedNets).toBeGreaterThanOrEqual(ripped.stats.routedNets)
+    // Whatever it routes must still be legal copper.
+    assertClearOfForeignLands(congestedPads, negotiated, congestedConfig)
+  })
+
   it('recovers a net the greedy order starved and never loses one it had finished', () => {
     const greedy = autoroute(congestedPads, { ...congestedConfig, ripUpPasses: 0 })
     const ripped = autoroute(congestedPads, congestedConfig)
@@ -673,5 +656,72 @@ describe('rip-up keeps the copper it lifts legal', () => {
   it('rejects a rip-up budget that is not a whole number of sweeps', () => {
     expect(() => autoroute([], { ...config, ripUpPasses: 1.5 })).toThrow(/ripUpPasses must be a whole number/)
     expect(() => autoroute([], { ...config, ripUpVictims: -1 })).toThrow(/ripUpVictims must be a whole number/)
+  })
+
+  it('rejects an unknown routing strategy instead of silently routing greedy', () => {
+    expect(() => autoroute([], { ...config, strategy: 'teleport' } as unknown as RouterConfig))
+      .toThrow(/strategy/)
+  })
+
+  it('negotiated congestion is never worse than greedy on the same board', () => {
+    /* The invariant that matters: switching strategy must not lose nets. Both
+ * are deterministic, so a regression in either shows up as a completion drop
+ * rather than as a flake. */
+    const pads: RouterPad[] = [
+      { netId: 'A', componentId: 'A1', pinId: '1', x: 2, y: 2, layer: 'F.Cu' },
+      { netId: 'A', componentId: 'A2', pinId: '1', x: 7, y: 7, layer: 'B.Cu' },
+      { netId: 'B', componentId: 'B1', pinId: '1', x: 2, y: 7, layer: 'F.Cu' },
+      { netId: 'B', componentId: 'B2', pinId: '1', x: 7, y: 2, layer: 'F.Cu' },
+      { netId: 'C', componentId: 'C1', pinId: '1', x: 4, y: 1, layer: 'F.Cu' },
+      { netId: 'C', componentId: 'C2', pinId: '1', x: 4, y: 9, layer: 'F.Cu' },
+    ]
+    const negotiated = autoroute(pads, { ...config, strategy: 'negotiated' })
+    const greedy = autoroute(pads, { ...config, strategy: 'greedy' })
+
+    expect(negotiated.completionRate).toBeGreaterThanOrEqual(greedy.completionRate)
+    // Every emitted trace stays inside the board.
+    for (const trace of negotiated.traces) {
+      for (const point of trace.points) {
+        expect(point.x).toBeGreaterThanOrEqual(0)
+        expect(point.x).toBeLessThanOrEqual(config.boardWidthMm)
+        expect(point.y).toBeGreaterThanOrEqual(0)
+        expect(point.y).toBeLessThanOrEqual(config.boardHeightMm)
+      }
+    }
+  })
+
+  it('is deterministic for a given board and strategy', () => {
+    const pads: RouterPad[] = [
+      { netId: 'A', componentId: 'A1', pinId: '1', x: 2, y: 2, layer: 'F.Cu' },
+      { netId: 'A', componentId: 'A2', pinId: '1', x: 7, y: 7, layer: 'B.Cu' },
+      { netId: 'B', componentId: 'B1', pinId: '1', x: 2, y: 7, layer: 'F.Cu' },
+      { netId: 'B', componentId: 'B2', pinId: '1', x: 7, y: 2, layer: 'F.Cu' },
+    ]
+    const first = autoroute(pads, { ...config, strategy: 'negotiated' })
+    const second = autoroute(pads, { ...config, strategy: 'negotiated' })
+    expect(second.traces).toEqual(first.traces)
+    expect(second.unrouted).toEqual(first.unrouted)
+  })
+
+  it('reports per-cell congestion that agrees with the copper', () => {
+    /* The map is the router's own bookkeeping, so every cell a trace crosses is
+ * counted and none is invented. */
+    const pads: RouterPad[] = [
+      { netId: 'A', componentId: 'A1', pinId: '1', x: 2, y: 2, layer: 'F.Cu' },
+      { netId: 'A', componentId: 'A2', pinId: '1', x: 8, y: 8, layer: 'F.Cu' },
+    ]
+    const result = autoroute(pads, { ...config, strategy: 'negotiated' })
+
+    expect(result.congestion.length).toBeGreaterThan(0)
+    expect(result.congestion.every((cell) => cell.usage >= 1)).toBe(true)
+  })
+
+  it('reports no congestion for greedy, which never measures it', () => {
+    const pads: RouterPad[] = [
+      { netId: 'A', componentId: 'A1', pinId: '1', x: 2, y: 2, layer: 'F.Cu' },
+      { netId: 'A', componentId: 'A2', pinId: '1', x: 8, y: 8, layer: 'F.Cu' },
+    ]
+    // Empty rather than a fabricated zero: greedy does not compute usage.
+    expect(autoroute(pads, { ...config, strategy: 'greedy' }).congestion).toEqual([])
   })
 })

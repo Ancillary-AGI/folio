@@ -65,7 +65,10 @@ export function multiplyMatrices(a: Matrix, b: Matrix): Matrix {
  * Throws on a singular (or numerically degenerate) matrix rather than returning
  * the garbage a divide-by-pivot-zero would produce.
  */
-export function solveLinearSystem(coefficients: Matrix, rhs: Vector): Vector {
+export function solveLinearSystem(
+  coefficients: readonly (readonly number[])[],
+  rhs: readonly number[],
+): Vector {
   const n = coefficients.length
   if (n === 0) return []
   if (coefficients.some((row) => row.length !== n)) throw new Error('solveLinearSystem needs a square matrix.')

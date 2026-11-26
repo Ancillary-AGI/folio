@@ -318,7 +318,7 @@ export const TUTORIALS: readonly Tutorial[] = [
   {
     id: 'agents-verifier',
     title: 'Agents: let the autopilot work, then verify the claim',
-    summary: 'Read the tool surface, run the autopilot on the rectifier, verify a claim symbolically, and watch Scribe edit the live sheet.',
+    summary: 'Read the tool surface, run the autopilot on the rectifier, verify a claim symbolically, and watch Copilot edit the live sheet.',
     demoId: 'agents-verifier',
     modes: ['agents'],
     minutes: 10,
@@ -342,8 +342,8 @@ export const TUTORIALS: readonly Tutorial[] = [
         mode: 'agents',
       },
       {
-        title: 'Let Scribe edit the sheet',
-        do: 'Ask Scribe for a small change to the design.',
+        title: 'Let Copilot edit the sheet',
+        do: 'Ask Copilot for a small change to the design.',
         see: 'The change lands on the live sheet, and the returned image shows the result the agent observed.',
         mode: 'agents',
       },

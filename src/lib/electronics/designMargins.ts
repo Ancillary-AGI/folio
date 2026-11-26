@@ -11,7 +11,7 @@
 import { CHIP_PACKAGES } from './passives'
 import { parseSpiceValue } from '../simulation/devices'
 import { lookupVendorModel } from '../simulation/vendorModels'
-import type { SimulationResult } from '../simulation/spiceEngine'
+import type { SpiceResult } from '../simulation/spiceEngine'
 import type { DesignComponentSnapshot, DesignSnapshot } from '../agents/designSnapshot'
 
 export type MarginStatus = 'ok' | 'warn' | 'fail'
@@ -361,7 +361,7 @@ interface Traces {
 function voltageBetween(
   positive: string | undefined,
   negative: string | undefined,
-  result: SimulationResult,
+  result: SpiceResult,
   nodeWaveforms: Map<string, Series[]>,
 ): { data: Series[]; basis: string } | undefined {
   if (!positive || !negative) return undefined
@@ -406,7 +406,7 @@ function voltageBetween(
 function tracesFor(
   component: DesignComponentSnapshot,
   kind: PartKind,
-  result: SimulationResult,
+  result: SpiceResult,
   nodeWaveforms: Map<string, Series[]>,
   deviceCurrents: Map<string, number>,
   currentWaveforms: Map<string, Series[]>,
@@ -535,7 +535,7 @@ function componentKind(component: DesignComponentSnapshot): PartKind {
  */
 export function assessDesignMargins(
   snapshot: DesignSnapshot,
-  result: SimulationResult | null,
+  result: SpiceResult | null,
   options: { ambientCelsius?: number; thetaJaOverride?: number } = {},
 ): DesignMarginReport {
   const ambientCelsius =
