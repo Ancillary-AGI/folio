@@ -73,7 +73,7 @@ npm run build
   panel that owns the feature, so the demo exercises the real engine rather than
   a screenshot.
 - **Community designs** (launcher → **Start from proven designs**, and the
-  dedicated [`/community`](#) page): open designs — open one and it lands
+  dedicated `/app/community` page): open designs — open one and it lands
   attributed and read-only in the workbench; it becomes your project only
   when you choose to make it yours. Curated seeds ship in the box, cloud
   designs open with credit, and `.folio-template.json` travels by hand anytime.

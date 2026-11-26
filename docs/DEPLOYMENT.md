@@ -311,7 +311,7 @@ operator-owned public content:
 The capability migration installs the capability-checked RLS policies, the
 profile guard, and the owner-only rule for `operators.manage_owner`. Local mode
 does not need this schema. Apply it and promote the first owner as described in
-[ADMINISTRATION.md](ADMINISTRATION.md); invitations still require a service-role
+[the console and governance](#admin-console-and-governance); invitations still require a service-role
 server function and are intentionally absent from the browser.
 
 Cloud storage is therefore for: account-backed projects, shared/multi-device
@@ -418,7 +418,7 @@ and the headless agent runner — a queue and a CPU worker, not a remote desktop
       `npm run db:push` (or `db:reset` locally).
 - [ ] Promote the first governance owner
       (`update public.profiles set role = 'owner' where email = '…';`) and open
-      `/admin`; see [ADMINISTRATION.md](ADMINISTRATION.md).
+      `/admin`; see [the console and governance](#admin-console-and-governance).
 - [ ] Build and serve the Next app (`npm run build` then `npm start`, or the
       host's native Next integration). Do not upload a `dist/` directory; it is
       not produced.
