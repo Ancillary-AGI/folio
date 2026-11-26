@@ -1,14 +1,9 @@
 /**
  * Session tokens: HS256 signing and verification.
  *
- * Deliberately small and dependency-free. The token is `base64url(header) +
- * "." + base64url(payload) + "." + base64url(HMAC-SHA256)`, which is what
- * GoTrue issues, so the same token is accepted by any client that speaks
- * Supabase auth.
- *
- * Verification compares signatures with `timingSafeEqual` and rejects an expired
- * `exp` claim. A token that fails either check yields `null` — callers treat that
- * as unauthenticated rather than throwing.
+ * The format is what GoTrue issues, so any Supabase-speaking client accepts it.
+ * Verification compares with `timingSafeEqual` and rejects an expired `exp`;
+ * a failure yields `null` so callers treat it as unauthenticated.
  */
 import crypto from 'node:crypto'
 

@@ -91,11 +91,12 @@ export async function handleSignup(
 
   // Accept either the flat `data` or GoTrue's `options.data` metadata shape.
   const metadata = body?.data ?? asRecord(body?.options)?.data ?? {}
+  const passwordHash = await hashPassword(password)
   const result = await ctx.db.query(
     `insert into auth.users (email, encrypted_password, email_confirmed_at, raw_user_meta_data, last_sign_in_at)
      values ($1, $2, now(), $3::jsonb, now())
      returning *`,
-    [email, hashPassword(password), JSON.stringify(metadata)],
+    [email, passwordHash, JSON.stringify(metadata)],
   )
 
   // GoTrue with autoconfirm returns the session object on signup.
@@ -143,7 +144,7 @@ export async function handleToken(
   const row = result.rows[0] as unknown as AuthUserRow | undefined
 
   // One refusal for both cases: unknown account and wrong password.
-  if (!row || !verifyPassword(password, row.encrypted_password)) {
+  if (!row || !(await verifyPassword(password, row.encrypted_password))) {
     return fail(res, 400, 'invalid_grant', 'Invalid login credentials')
   }
   const session = await issueSession(ctx.db, row, ctx.options)
