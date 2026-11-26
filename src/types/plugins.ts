@@ -96,7 +96,7 @@ export interface SimulationParameters {
   initialConditions: Record<string, unknown>
 }
 
-export interface SimulationResult {
+export interface PluginResult {
   success: boolean
   data: Record<string, unknown>
   errors: string[]
@@ -113,7 +113,7 @@ export interface PluginAPI {
   removeWire: (id: string) => void
 
   // Simulation
-  runSimulation: (parameters: SimulationParameters) => Promise<SimulationResult>
+  runSimulation: (parameters: SimulationParameters) => Promise<PluginResult>
 
   // UI
   showNotification: (message: string, type?: 'info' | 'warning' | 'error') => void

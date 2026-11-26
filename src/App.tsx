@@ -7,10 +7,11 @@ import {
   MoreHorizontal, ShieldAlert, ShieldCheck, HelpCircle, X, ScrollText, Send, CloudOff,
   Cloud, HardDrive, Cable, MousePointer2, Grid3X3, Magnet, Wrench, CircleUserRound,
 } from 'lucide-react'
-import ScribeIcon from './components/workspace/ScribeIcon'
+import CopilotIcon from './components/workspace/CopilotIcon'
 import { Button } from './components/ui/button'
 import type { PlacedComponent, Wire, User } from './types'
 import { supabase, isSupabaseConfigured, type Project, type Schematic, type Component } from './lib/supabase'
+import { store } from './lib/db/store'
 import { describeError } from './lib/utils'
 import {
   CURATED_DEMO_BY_TEMPLATE_ID,
@@ -610,7 +611,7 @@ function App() {
         /* The shared standard library is seeded by the database itself
            (supabase/migrations — clients cannot insert system-owned rows),
            so there is nothing for the client to bootstrap here. */
-        const { data, error } = await supabase.from('components').select('*').order('category', { ascending: true })
+        const { data, error } = await store.from('components').select('*').order('category', { ascending: true })
         if (error) throw error
         setLibraryComponents(data || [])
       } catch (err) {
@@ -852,7 +853,7 @@ function App() {
       // A failed count must not fail the quota check open — the server quota
       // still backstops this, but then the user gets a generic failure with
       // no explanation. Say what actually happened instead.
-      const { count, error } = await supabase.from('projects').select('id', { count: 'exact', head: true }).eq('user_id', uid)
+      const { count, error } = await store.from('projects').select('id', { count: 'exact', head: true }).eq('user_id', uid)
       if (error) {
         console.error('Could not verify project quota', error)
         setNotice('Could not check your remaining project allowance — check your connection and try again.')
@@ -879,13 +880,13 @@ function App() {
       return
     }
     try {
-      const { data, error } = await supabase.from('projects').insert({
+      const { data, error } = await store.from('projects').insert({
         user_id: uid,
         name,
         description: brief ?? 'Engineering design project',
       }).select().single()
       if (error) throw error
-      await supabase.from('schematics').insert({ project_id: data.id, name: 'Main Schematic', order_index: 0 })
+      await store.from('schematics').insert({ project_id: data.id, name: 'Main Schematic', order_index: 0 })
       enterNewProject(data, uid, 'cloud', family, mode)
       if (brief) startBriefConversation(brief)
     } catch (err) {
@@ -1116,13 +1117,13 @@ function App() {
       }
     }
     try {
-      const { data, error } = await supabase.from('projects').insert({
+      const { data, error } = await store.from('projects').insert({
         user_id: user?.id,
         name,
         description: `Community design by ${authorName}`,
       }).select().single()
       if (error) throw error
-      const { error: schematicError } = await supabase.from('schematics').insert({
+      const { error: schematicError } = await store.from('schematics').insert({
         project_id: data.id, name: 'Main Schematic', order_index: 0, canvas_data: payload,
       })
       if (schematicError) throw schematicError
@@ -1343,7 +1344,7 @@ function App() {
       if (offlineMode) {
         savedCanvas = offlineProjectStore.get(project.id)?.canvas_data ?? null
       } else {
-        const { data, error } = await supabase.from('schematics').select('*')
+        const { data, error } = await store.from('schematics').select('*')
           .eq('project_id', project.id).order('order_index', { ascending: true }).limit(1).maybeSingle()
         if (error) throw error
         schematic = data
@@ -1630,14 +1631,14 @@ function App() {
       return
     }
     try {
-      const { data: schematic, error: selectError } = await supabase.from('schematics').select('id')
+      const { data: schematic, error: selectError } = await store.from('schematics').select('id')
         .eq('project_id', currentProject.id).order('order_index', { ascending: true }).limit(1).maybeSingle()
       if (selectError) throw selectError
       if (schematic) {
-        const { error: updateError } = await supabase.from('schematics')
+        const { error: updateError } = await store.from('schematics')
           .update({ canvas_data: payload, updated_at: new Date().toISOString() }).eq('id', schematic.id)
         if (updateError) throw updateError
-        const { error: projectError } = await supabase.from('projects')
+        const { error: projectError } = await store.from('projects')
           .update({ updated_at: new Date().toISOString() }).eq('id', currentProject.id)
         if (projectError) throw projectError
         markClean()
@@ -1646,7 +1647,7 @@ function App() {
       }
       // No schematic row for this project (legacy data or a row removed by
       // hand): create it instead of pretending the save happened.
-      const { error: insertError } = await supabase.from('schematics').insert({
+      const { error: insertError } = await store.from('schematics').insert({
         project_id: currentProject.id, name: 'Main Schematic', order_index: 0,
         canvas_data: payload, updated_at: new Date().toISOString(),
       })
@@ -2123,7 +2124,7 @@ function App() {
    * each group is named for what its rows have in common. */
   const moreMenuSections = [
     {
-      group: 'Scribe',
+      group: 'Copilot',
       items: [
         { label: voiceListening ? 'Stop voice control' : 'Start voice control', icon: voiceListening ? MicOff : Mic, action: toggleVoice },
       ],
@@ -2552,13 +2553,13 @@ function App() {
               variant={aiChatOpen ? 'default' : 'ghost'}
               size="bar"
               onClick={toggleAiChat}
-              aria-label="Ask Scribe"
+              aria-label="Ask Copilot"
               aria-pressed={aiChatOpen}
               data-tour="agent-button"
               className={`gap-1.5 ${aiChatOpen ? 'cad-agent-ring' : 'hover:border-primary/50 hover:text-primary'}`}
             >
-              <ScribeIcon />
-              <span className="hidden lg:inline">Ask Scribe</span>
+              <CopilotIcon />
+              <span className="hidden lg:inline">Ask Copilot</span>
             </Button>
           </HoverHelp>
 
